@@ -1,6 +1,37 @@
 # Shrike AI Lab 🦅
 
-Local LLM infrastructure for Shrike Labs development. Run AI models on your own hardware, train custom models for SpecPilot, and experiment with autonomous agents.
+[![Tests](https://github.com/markhint22/shrike-ai-lab/actions/workflows/tests.yml/badge.svg)](https://github.com/markhint22/shrike-ai-lab/actions/workflows/tests.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: Proprietary](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
+
+Local LLM infrastructure for Shrike Labs development. Run AI models on your own hardware, train custom models for multiple projects, and reduce API costs by 90%.
+
+## Features
+
+- 🚀 **Local Inference**: Run 7B models on RTX 2080/2080 Ti
+- 🔄 **Unified API**: OpenAI-compatible endpoint via LiteLLM
+- 🎯 **Multi-Project Training**: SpecPilot, GitLark, BillWatch
+- 🤖 **AI Agents**: Code review, documentation, autonomous coding
+- 📊 **Evaluation Tools**: Compare local models vs Claude
+- 💰 **Cost Savings**: ~90% reduction in API costs
+
+## Quick Start
+
+```bash
+# Clone
+git clone https://github.com/markhint22/shrike-ai-lab.git
+cd shrike-ai-lab
+
+# Setup (Windows)
+./scripts/setup-windows.sh
+
+# Or manual setup
+make setup
+make start
+
+# Check status
+make status
+```
 
 ## Hardware Requirements
 
