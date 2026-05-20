@@ -43,3 +43,18 @@ python-dotenv>=1.0.0
 pyyaml>=6.0.0
 rich>=13.7.0  # Pretty console output
 typer>=0.9.0  # CLI framework
+pandas>=2.0.0  # Data processing
+numpy>=1.24.0  # Numerical operations
+aiofiles>=23.0.0  # Async file I/O
+
+# ===========================================
+# Code Analysis (for data collection)
+# ===========================================
+tree-sitter>=0.21.0
+tree-sitter-python>=0.21.0
+
+# ===========================================
+# Linting & Type Checking
+# ===========================================
+ruff>=0.3.0
+mypy>=1.8.0
