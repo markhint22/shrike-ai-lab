@@ -1,0 +1,10 @@
+{"instruction": "Click the login button", "playwright_code": "await page.click('[data-testid=\"login-btn\"]')"}
+{"instruction": "Fill in the email field with test@example.com", "playwright_code": "await page.fill('input[type=\"email\"]', 'test@example.com')"}
+{"instruction": "Wait for the dashboard to load", "playwright_code": "await page.waitForSelector('.dashboard-content', { state: 'visible' })"}
+{"instruction": "Take a screenshot of the current page", "playwright_code": "await page.screenshot({ path: 'screenshot.png', fullPage: true })"}
+{"instruction": "Select 'United States' from the country dropdown", "playwright_code": "await page.selectOption('select[name=\"country\"]', { label: 'United States' })"}
+{"instruction": "Check the 'Remember me' checkbox", "playwright_code": "await page.check('input[type=\"checkbox\"][name=\"remember\"]')"}
+{"instruction": "Press Enter to submit the form", "playwright_code": "await page.keyboard.press('Enter')"}
+{"instruction": "Scroll to the bottom of the page", "playwright_code": "await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))"}
+{"instruction": "Wait 2 seconds for animation to complete", "playwright_code": "await page.waitForTimeout(2000)"}
+{"instruction": "Verify the success message appears", "playwright_code": "await expect(page.locator('.success-message')).toBeVisible()"}

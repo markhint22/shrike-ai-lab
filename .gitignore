@@ -8,10 +8,13 @@ models/*.gguf
 models/*.bin
 models/*.safetensors
 
-# Training data (may contain sensitive info)
-training/*/data/*.json
-training/*/data/*.jsonl
+# Training data checkpoints (large files)
 training/*/checkpoints/
+
+# Large training datasets (keep sample data, ignore production data)
+# Uncomment below to ignore all training data:
+# training/*/data/*.json
+# training/*/data/*.jsonl
 
 # Python
 __pycache__/
