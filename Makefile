@@ -77,11 +77,56 @@ benchmark:
 	./scripts/benchmark.sh
 
 # ===========================================
-# Training
+# Training (Unified Pipeline)
 # ===========================================
 
+train-list:
+	@echo "Available training tasks:"
+	python scripts/train.py --list
+
 train:
-	@echo "Starting SpecPilot fine-tuning..."
+	@echo "Usage: make train-<project>-<task>"
+	@echo "Examples:"
+	@echo "  make train-specpilot-selector"
+	@echo "  make train-gitlark-explain"
+	@echo "  make train-billwatch-summary"
+	@echo ""
+	@echo "Or use the unified script:"
+	@echo "  python scripts/train.py --project gitlark --task code_explanation"
+
+# SpecPilot training targets
+train-specpilot-selector:
+	python scripts/train.py --project specpilot --task selector_optimization
+
+train-specpilot-tests:
+	python scripts/train.py --project specpilot --task test_generation
+
+train-specpilot-analyzer:
+	python scripts/train.py --project specpilot --task failure_analysis
+
+# GitLark training targets
+train-gitlark-explain:
+	python scripts/train.py --project gitlark --task code_explanation
+
+train-gitlark-commit:
+	python scripts/train.py --project gitlark --task commit_message
+
+train-gitlark-pr:
+	python scripts/train.py --project gitlark --task pr_description
+
+train-gitlark-review:
+	python scripts/train.py --project gitlark --task code_review
+
+# BillWatch training targets
+train-billwatch-summary:
+	python scripts/train.py --project billwatch --task summarization
+
+train-billwatch-classify:
+	python scripts/train.py --project billwatch --task classification
+
+# Legacy single-model training
+train-legacy:
+	@echo "Starting SpecPilot fine-tuning (legacy)..."
 	cd training/specpilot && python finetune.py \
 		--data data/selector_optimization.jsonl \
 		--epochs 1 \
@@ -92,6 +137,23 @@ export:
 	python training/specpilot/export_to_ollama.py \
 		--checkpoint models/specpilot-finetuned \
 		--name specpilot-finetuned
+
+# ===========================================
+# Data Collection
+# ===========================================
+
+collect-gitlark:
+	@echo "Collecting GitLark training data from local repos..."
+	python scripts/data-collection/collect_gitlark_data.py \
+		--repos ~/LocalProjects/billwatch ~/LocalProjects/gitlark ~/LocalProjects/iptv_apps \
+		--output training/gitlark/data/
+
+collect-billwatch:
+	@echo "Collecting BillWatch training data from Congress.gov..."
+	@test -n "$$CONGRESS_API_KEY" || (echo "Error: CONGRESS_API_KEY not set" && exit 1)
+	python scripts/data-collection/collect_billwatch_data.py \
+		--congress-api-key $$CONGRESS_API_KEY \
+		--output training/billwatch/data/
 
 # ===========================================
 # Model Management

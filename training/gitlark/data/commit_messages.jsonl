@@ -1,0 +1,10 @@
+{"diff": "+const cache = new Map();", "commit_message": "feat(utils): add caching utility"}
+{"diff": "-console.log(error);\n+logger.error('Request failed', { error, requestId });", "commit_message": "fix(logging): replace console.log with structured logger"}
+{"diff": "+  if (!user) {\n+    throw new UnauthorizedError('User not found');\n+  }", "commit_message": "fix(auth): add null check for user lookup"}
+{"diff": "-const API_URL = 'http://localhost:3000';\n+const API_URL = process.env.API_URL || 'http://localhost:3000';", "commit_message": "refactor(config): use environment variable for API URL"}
+{"diff": "+describe('BillService', () => {\n+  it('should fetch bills by congress', async () => {\n+    const bills = await service.getBills(118);\n+    expect(bills.length).toBeGreaterThan(0);\n+  });\n+});", "commit_message": "test(bills): add unit tests for BillService"}
+{"diff": "+# Installation\n+\n+```bash\n+npm install\n+npm run dev\n+```", "commit_message": "docs(readme): add installation instructions"}
+{"diff": "-  \"version\": \"1.2.0\",\n+  \"version\": \"1.3.0\",", "commit_message": "chore(release): bump version to 1.3.0"}
+{"diff": "+@rate_limit(requests=100, window=60)\n async def get_bills():", "commit_message": "feat(api): add rate limiting to bills endpoint"}
+{"diff": "-from typing import List\n+from typing import List, Optional, Dict", "commit_message": "chore(types): add missing type imports"}
+{"diff": "+async def migrate_legacy_users():\n+    \"\"\"One-time migration for legacy user records.\"\"\"\n+    users = await db.query('SELECT * FROM legacy_users')\n+    for user in users:\n+        await create_user_v2(user)\n+    await db.execute('DROP TABLE legacy_users')", "commit_message": "feat(migration): add legacy user migration script"}
