@@ -1,0 +1,83 @@
+# Shrike AI Lab - Local LLM Infrastructure
+# Run: docker-compose up -d
+# 
+# Services:
+#   - Ollama: Local LLM inference (port 11434)
+#   - LiteLLM: Unified API proxy (port 4000)
+#   - Open WebUI: Chat interface (port 3000)
+
+version: '3.8'
+
+services:
+  # ===========================================
+  # Ollama - Local LLM Inference Engine
+  # ===========================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: shrike-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./models:/models
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0
+    # For NVIDIA GPU support (RTX 2080/2080 Ti)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # ===========================================
+  # LiteLLM - Unified API Proxy
+  # Routes requests to local Ollama or cloud APIs
+  # ===========================================
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: shrike-litellm
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./configs/litellm_config.yaml:/app/config.yaml
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-shrike-local}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # ===========================================
+  # Open WebUI - Chat Interface
+  # Access at http://localhost:3000
+  # ===========================================
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: shrike-webui
+    ports:
+      - "3000:8080"
+    volumes:
+      - open_webui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_AUTH=false  # Disable auth for local dev
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  open_webui_data:
+
+# ===========================================
+# Network for inter-service communication
+# ===========================================
+networks:
+  default:
+    name: shrike-ai-network

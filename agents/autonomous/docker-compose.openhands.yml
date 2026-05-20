@@ -1,0 +1,37 @@
+# OpenHands Docker Compose
+# Autonomous coding agent (open-source Devin alternative)
+# 
+# Usage: docker-compose -f docker-compose.openhands.yml up
+# Access: http://localhost:3001
+
+version: '3.8'
+
+services:
+  openhands:
+    image: ghcr.io/all-hands-ai/openhands:main
+    container_name: shrike-openhands
+    ports:
+      - "3001:3000"
+    environment:
+      # Use local LLM via LiteLLM proxy
+      - LLM_MODEL=openai/specpilot-local
+      - LLM_BASE_URL=http://host.docker.internal:4000
+      - LLM_API_KEY=sk-shrike-local
+      
+      # Fallback to Claude for complex tasks
+      - LLM_MODEL_FALLBACK=openai/claude-fallback
+      
+      # Workspace settings
+      - WORKSPACE_BASE=/workspace
+      - SANDBOX_TYPE=docker
+    volumes:
+      # Docker socket for sandbox execution
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount your projects (read-only for safety)
+      - ${HOME}/LocalProjects:/workspace:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+# Note: OpenHands needs Docker access to run code in sandboxes
+# Make sure Docker daemon is running on host
