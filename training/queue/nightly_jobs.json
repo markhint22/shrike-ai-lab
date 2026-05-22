@@ -1,0 +1,44 @@
+{
+  "jobs": [
+    {
+      "project": "specpilot",
+      "task": "selector_optimization",
+      "version": "nightly-specpilot-selector",
+      "engine": "hf",
+      "base_model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002
+    },
+    {
+      "project": "gitlark",
+      "task": "code_review",
+      "version": "nightly-gitlark-review",
+      "engine": "hf",
+      "base_model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002
+    },
+    {
+      "project": "billwatch",
+      "task": "classification",
+      "version": "nightly-billwatch-classification",
+      "engine": "hf",
+      "base_model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002
+    },
+    {
+      "project": "shared",
+      "task": "code_review",
+      "version": "nightly-shared-review",
+      "engine": "hf",
+      "base_model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002
+    }
+  ]
+}

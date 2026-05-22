@@ -84,6 +84,39 @@ train-list:
 	@echo "Available training tasks:"
 	python scripts/train.py --list
 
+train-preflight:
+	@echo "Checking training readiness..."
+	python scripts/train.py --preflight
+
+train-smoke:
+	@echo "Running smoke training with tiny model..."
+	python scripts/train.py \
+		--project specpilot \
+		--task selector_optimization \
+		--engine hf \
+		--base-model sshleifer/tiny-gpt2 \
+		--epochs 1 \
+		--batch-size 1 \
+		--version smoke
+
+train-nightly:
+	@echo "Running sequential nightly training queue..."
+	python scripts/train_queue.py --jobs-file training/queue/nightly_jobs.json
+
+train-18h:
+	@echo "Running sequential queue continuously for 18 hours..."
+	python scripts/train_queue.py \
+		--jobs-file training/queue/nightly_jobs.json \
+		--continue-on-error \
+		--retry-count 1 \
+		--repeat \
+		--stamp-version \
+		--max-hours 18
+
+train-progress:
+	@echo "Showing training progress summary..."
+	python scripts/train_progress.py --logs-dir training/logs --tail 20
+
 train:
 	@echo "Usage: make train-<project>-<task>"
 	@echo "Examples:"

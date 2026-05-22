@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import argparse
+import importlib.util
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -44,9 +45,59 @@ PROJECT_CONFIGS = {
 }
 
 
+DATA_FILE_OVERRIDES = {
+    ("billwatch", "summarization"): "bill_summaries.jsonl",
+}
+
+
+REQUIRED_MODULES_UNSLOTH = ["unsloth", "trl", "transformers", "datasets"]
+REQUIRED_MODULES_HF = ["transformers", "datasets", "peft", "torch"]
+
+
+def _is_module_available(module_name: str) -> bool:
+    """Check whether a Python module can be imported."""
+    return importlib.util.find_spec(module_name) is not None
+
+
+def _check_modules(module_names):
+    """Return list of missing modules."""
+    return [name for name in module_names if not _is_module_available(name)]
+
+
+def _detect_lora_target_modules(model) -> list[str]:
+    """Detect LoRA target module names for common decoder-only architectures."""
+    preferred = [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "c_attn",
+        "c_proj",
+        "query_key_value",
+    ]
+
+    discovered = set()
+    for name, _ in model.named_modules():
+        suffix = name.split(".")[-1]
+        if suffix in preferred:
+            discovered.add(suffix)
+
+    ordered = [name for name in preferred if name in discovered]
+    return ordered
+
+
 def get_data_path(project: str, task: str) -> Path:
     """Get path to training data for a project/task."""
     base = Path(__file__).parent.parent / "training" / project / "data"
+
+    override_name = DATA_FILE_OVERRIDES.get((project, task))
+    if override_name:
+        override_path = base / override_name
+        if override_path.exists():
+            return override_path
     
     # Common naming patterns
     patterns = [
@@ -102,6 +153,8 @@ def train_model(
     batch_size: int = 4,
     learning_rate: float = 2e-4,
     lora_r: int = 16,
+    engine: str = "auto",
+    base_model_override: Optional[str] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -113,6 +166,7 @@ def train_model(
         return {"status": "error", "message": "Invalid project/task"}
     
     config = PROJECT_CONFIGS[project]
+    base_model = base_model_override or config["base_model"]
     data_path = get_data_path(project, task)
     output_dir = get_model_output_dir(project, task, version)
     
@@ -124,7 +178,7 @@ def train_model(
     print(f"Project:     {project} ({config['description']})")
     print(f"Task:        {task}")
     print(f"Version:     {version}")
-    print(f"Base Model:  {config['base_model']}")
+    print(f"Base Model:  {base_model}")
     print(f"Data:        {data_path} ({num_examples} examples)")
     print(f"Output:      {output_dir}")
     print(f"{'='*60}")
@@ -139,38 +193,103 @@ def train_model(
     if dry_run:
         print("DRY RUN - Would train with above configuration")
         return {"status": "dry_run", "config": config}
-    
-    # Import training dependencies
-    try:
+
+    missing_unsloth = _check_modules(REQUIRED_MODULES_UNSLOTH)
+    missing_hf = _check_modules(REQUIRED_MODULES_HF)
+
+    if engine not in {"auto", "unsloth", "hf"}:
+        return {"status": "error", "message": f"Unknown engine: {engine}"}
+
+    if engine == "unsloth":
+        selected_engine = "unsloth"
+    elif engine == "hf":
+        selected_engine = "hf"
+    else:
+        selected_engine = "unsloth" if not missing_unsloth else "hf"
+
+    if selected_engine == "unsloth" and missing_unsloth:
+        message = f"Missing dependencies for unsloth engine: {', '.join(missing_unsloth)}"
+        print(message)
+        print("Install with: pip install unsloth trl transformers datasets")
+        return {"status": "error", "message": message}
+
+    if selected_engine == "hf" and missing_hf:
+        message = f"Missing dependencies for hf engine: {', '.join(missing_hf)}"
+        print(message)
+        print("Install with: pip install transformers datasets peft accelerate trl torch")
+        return {"status": "error", "message": message}
+
+    print(f"Engine:      {selected_engine}")
+
+    if selected_engine == "unsloth":
         from unsloth import FastLanguageModel
         from trl import SFTTrainer
         from transformers import TrainingArguments
         from datasets import Dataset
-    except ImportError as e:
-        print(f"Missing dependencies: {e}")
-        print("Install with: pip install unsloth trl transformers datasets")
-        return {"status": "error", "message": str(e)}
-    
-    # Load base model
-    print(f"Loading base model: {config['base_model']}...")
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=config["base_model"],
-        max_seq_length=config["max_seq_length"],
-        dtype=None,
-        load_in_4bit=True,
-    )
-    
-    # Add LoRA
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r=lora_r,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                       "gate_proj", "up_proj", "down_proj"],
-        lora_alpha=16,
-        lora_dropout=0.05,
-        bias="none",
-        use_gradient_checkpointing=True,
-    )
+
+        # Load base model
+        print(f"Loading base model: {base_model}...")
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=base_model,
+            max_seq_length=config["max_seq_length"],
+            dtype=None,
+            load_in_4bit=True,
+        )
+
+        # Add LoRA
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=lora_r,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                           "gate_proj", "up_proj", "down_proj"],
+            lora_alpha=16,
+            lora_dropout=0.05,
+            bias="none",
+            use_gradient_checkpointing=True,
+        )
+    else:
+        import torch
+        from datasets import Dataset
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            DataCollatorForLanguageModeling,
+            Trainer,
+            TrainingArguments,
+        )
+
+        has_cuda = torch.cuda.is_available()
+        print(f"Loading base model: {base_model}...")
+        load_kwargs = {
+            "pretrained_model_name_or_path": base_model,
+            "torch_dtype": torch.float16 if has_cuda else torch.float32,
+        }
+        if has_cuda:
+            load_kwargs["device_map"] = "auto"
+
+        model = AutoModelForCausalLM.from_pretrained(**load_kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(base_model, use_fast=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        if has_cuda and _is_module_available("bitsandbytes"):
+            model = prepare_model_for_kbit_training(model)
+
+        target_modules = _detect_lora_target_modules(model)
+        if not target_modules:
+            message = "Could not detect compatible LoRA target modules for selected model"
+            return {"status": "error", "message": message}
+
+        lora_config = LoraConfig(
+            r=lora_r,
+            lora_alpha=16,
+            target_modules=target_modules,
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        model = get_peft_model(model, lora_config)
     
     # Load and format data
     print(f"Loading training data...")
@@ -189,6 +308,36 @@ def train_model(
         formatted = [{"text": json.dumps(e)} for e in examples]
     
     dataset = Dataset.from_list(formatted)
+
+    if selected_engine == "hf":
+        model_max_positions = getattr(model.config, "max_position_embeddings", None)
+        if model_max_positions is None:
+            model_max_positions = getattr(model.config, "n_positions", None)
+
+        tokenizer_max_length = getattr(tokenizer, "model_max_length", config["max_seq_length"])
+        # Some tokenizers report sentinel max length values; clamp to training config.
+        if tokenizer_max_length is None or tokenizer_max_length > 100000:
+            tokenizer_max_length = config["max_seq_length"]
+
+        effective_max_length = min(
+            config["max_seq_length"],
+            tokenizer_max_length,
+            model_max_positions or config["max_seq_length"],
+        )
+        print(f"Using effective max length: {effective_max_length}")
+
+        def tokenize_example(batch):
+            encoded = tokenizer(
+                batch["text"],
+                truncation=True,
+                max_length=effective_max_length,
+                padding="max_length",
+            )
+            encoded["labels"] = encoded["input_ids"].copy()
+            return encoded
+
+        dataset = dataset.map(tokenize_example)
+        dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     
     # Training arguments
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -200,22 +349,32 @@ def train_model(
         gradient_accumulation_steps=4,
         warmup_steps=10,
         learning_rate=learning_rate,
-        fp16=True,
+        fp16=(_is_module_available("torch") and __import__("torch").cuda.is_available()),
         logging_steps=10,
         save_strategy="epoch",
-        optim="adamw_8bit",
+        optim="adamw_torch",
     )
     
     # Train
     print(f"Starting training for {epochs} epochs...")
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=dataset,
-        dataset_text_field="text",
-        max_seq_length=config["max_seq_length"],
-        args=training_args,
-    )
+    if selected_engine == "unsloth":
+        from trl import SFTTrainer
+        trainer = SFTTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            train_dataset=dataset,
+            dataset_text_field="text",
+            max_seq_length=config["max_seq_length"],
+            args=training_args,
+        )
+    else:
+        data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=dataset,
+            data_collator=data_collator,
+        )
     
     trainer.train()
     
@@ -229,7 +388,8 @@ def train_model(
         "project": project,
         "task": task,
         "version": version,
-        "base_model": config["base_model"],
+        "base_model": base_model,
+        "engine": selected_engine,
         "training_examples": num_examples,
         "epochs": epochs,
         "batch_size": batch_size,
@@ -241,7 +401,7 @@ def train_model(
     with open(output_dir / "training_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
     
-    print(f"\n✅ Training complete!")
+    print("\n[OK] Training complete!")
     print(f"Model saved to: {output_dir}")
     print(f"\nTo export to Ollama:")
     print(f"  python scripts/export_to_ollama.py --model {output_dir} --name {project}-{task}-{version}")
@@ -261,7 +421,7 @@ def get_finetune_module(project: str):
 
 def list_projects():
     """List available projects and tasks."""
-    print("\n📚 Available Projects and Tasks\n")
+    print("\nAvailable Projects and Tasks\n")
     
     for project, config in PROJECT_CONFIGS.items():
         print(f"  {project}/")
@@ -272,11 +432,43 @@ def list_projects():
             try:
                 data_path = get_data_path(project, task)
                 count = count_examples(data_path)
-                status = f"✅ {count} examples"
+                status = f"[OK] {count} examples"
             except FileNotFoundError:
-                status = "❌ No data"
+                status = "[MISSING] No data"
             print(f"      - {task}: {status}")
         print()
+
+
+def print_preflight():
+    """Print environment readiness to start model training."""
+    print("\nTraining Preflight\n")
+    print("Engine dependency checks:")
+
+    missing_unsloth = _check_modules(REQUIRED_MODULES_UNSLOTH)
+    missing_hf = _check_modules(REQUIRED_MODULES_HF)
+
+    if missing_unsloth:
+        print(f"  unsloth engine: [MISSING] {', '.join(missing_unsloth)}")
+    else:
+        print("  unsloth engine: [OK] ready")
+
+    if missing_hf:
+        print(f"  hf engine:      [MISSING] {', '.join(missing_hf)}")
+    else:
+        print("  hf engine:      [OK] ready")
+
+    print("\nData availability:")
+    for project, config in PROJECT_CONFIGS.items():
+        for task in config["tasks"]:
+            try:
+                data_path = get_data_path(project, task)
+                count = count_examples(data_path)
+                print(f"  {project}/{task}: [OK] {count} examples ({data_path.name})")
+            except FileNotFoundError:
+                print(f"  {project}/{task}: [MISSING] no data")
+
+    print("\nSuggested next command:")
+    print("  python scripts/train.py --project specpilot --task selector_optimization --engine hf")
 
 
 def main():
@@ -300,6 +492,7 @@ Examples:
     )
     
     parser.add_argument("--list", action="store_true", help="List available projects and tasks")
+    parser.add_argument("--preflight", action="store_true", help="Check training readiness")
     parser.add_argument("--project", "-p", help="Project name (specpilot, gitlark, billwatch, shared)")
     parser.add_argument("--task", "-t", help="Task name (depends on project)")
     parser.add_argument("--version", "-v", default="v1", help="Model version (default: v1)")
@@ -307,6 +500,9 @@ Examples:
     parser.add_argument("--batch-size", type=int, default=4, help="Batch size (default: 4)")
     parser.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate (default: 2e-4)")
     parser.add_argument("--lora-r", type=int, default=16, help="LoRA rank (default: 16)")
+    parser.add_argument("--engine", choices=["auto", "unsloth", "hf"], default="auto",
+                        help="Training engine (default: auto)")
+    parser.add_argument("--base-model", help="Optional base model override")
     parser.add_argument("--dry-run", action="store_true", help="Show configuration without training")
     
     args = parser.parse_args()
@@ -314,10 +510,14 @@ Examples:
     if args.list:
         list_projects()
         return
+
+    if args.preflight:
+        print_preflight()
+        return
     
     if not args.project or not args.task:
         parser.print_help()
-        print("\n❌ --project and --task are required (or use --list)")
+        print("\n[ERROR] --project and --task are required (or use --list)")
         return
     
     result = train_model(
@@ -328,6 +528,8 @@ Examples:
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         lora_r=args.lora_r,
+        engine=args.engine,
+        base_model_override=args.base_model,
         dry_run=args.dry_run,
     )
     
