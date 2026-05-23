@@ -1,0 +1,13 @@
+{
+  "project": "specpilot",
+  "task": "selector_optimization",
+  "version": "bootstrap-specpilot-tinyllama",
+  "base_model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  "engine": "hf",
+  "training_examples": 5,
+  "epochs": 1,
+  "batch_size": 1,
+  "learning_rate": 0.0002,
+  "lora_r": 16,
+  "trained_at": "2026-05-22T17:18:59.846887"
+}

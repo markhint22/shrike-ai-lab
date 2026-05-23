@@ -1,0 +1,13 @@
+{
+  "project": "specpilot",
+  "task": "selector_optimization",
+  "version": "smoke",
+  "base_model": "sshleifer/tiny-gpt2",
+  "engine": "hf",
+  "training_examples": 5,
+  "epochs": 1,
+  "batch_size": 1,
+  "learning_rate": 5e-05,
+  "lora_r": 16,
+  "trained_at": "2026-05-22T16:30:03.637875"
+}

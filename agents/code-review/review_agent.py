@@ -5,8 +5,7 @@ A multi-agent system for automated PR reviews across all Shrike Labs repos.
 Uses CrewAI for orchestration and local models for analysis.
 """
 
-from crewai import Agent, Task, Crew
-from langchain.llms import Ollama
+from crewai import Agent, Task, Crew, LLM
 from typing import List, Dict, Optional
 import json
 
@@ -16,16 +15,16 @@ class CodeReviewCrew:
     
     def __init__(self, llm_base_url: str = "http://localhost:11434"):
         # Initialize models
-        self.security_llm = Ollama(
-            model="codellama:7b",
+        self.security_llm = LLM(
+            model="ollama/codellama:7b",
             base_url=llm_base_url,
         )
-        self.style_llm = Ollama(
-            model="codellama:7b",
+        self.style_llm = LLM(
+            model="ollama/codellama:7b",
             base_url=llm_base_url,
         )
-        self.perf_llm = Ollama(
-            model="mistral:7b",
+        self.perf_llm = LLM(
+            model="ollama/mistral:7b",
             base_url=llm_base_url,
         )
         

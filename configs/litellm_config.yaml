@@ -16,17 +16,17 @@ model_list:
   # Primary coding model for SpecPilot
   - model_name: specpilot-local
     litellm_params:
-      model: ollama/codellama:7b-instruct
-      api_base: http://ollama:11434
+      model: ollama/phi3:mini
+      api_base: http://localhost:11434
     model_info:
-      description: "CodeLlama 7B - Primary model for SpecPilot selector optimization"
+      description: "Temporary fallback to Phi-3 Mini for local validation"
       max_tokens: 4096
 
   # General purpose local model
   - model_name: mistral-local
     litellm_params:
       model: ollama/mistral:7b-instruct
-      api_base: http://ollama:11434
+      api_base: http://localhost:11434
     model_info:
       description: "Mistral 7B - General purpose, good for analysis"
       max_tokens: 8192
@@ -35,7 +35,7 @@ model_list:
   - model_name: phi3-local
     litellm_params:
       model: ollama/phi3:mini
-      api_base: http://ollama:11434
+      api_base: http://localhost:11434
     model_info:
       description: "Phi-3 Mini - Fast model for simple tasks"
       max_tokens: 4096
@@ -44,7 +44,7 @@ model_list:
   - model_name: codellama-13b-local
     litellm_params:
       model: ollama/codellama:13b-instruct
-      api_base: http://ollama:11434
+      api_base: http://localhost:11434
     model_info:
       description: "CodeLlama 13B - Higher quality, slower (CPU offload)"
       max_tokens: 4096
@@ -82,11 +82,10 @@ router_settings:
 # Rate Limits (protect cloud API costs)
 # ===========================================
 litellm_settings:
-  success_callback: ["langfuse"]  # Optional: track usage
+  success_callback: []
   failure_callback: []
   max_budget: 10.0  # Max $10/day on cloud APIs
   budget_duration: "1d"
 
 general_settings:
   master_key: sk-shrike-local
-  database_url: ""  # Optional: PostgreSQL for usage tracking

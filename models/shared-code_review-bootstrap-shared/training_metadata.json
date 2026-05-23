@@ -1,0 +1,13 @@
+{
+  "project": "shared",
+  "task": "code_review",
+  "version": "bootstrap-shared",
+  "base_model": "sshleifer/tiny-gpt2",
+  "engine": "hf",
+  "training_examples": 5,
+  "epochs": 1,
+  "batch_size": 1,
+  "learning_rate": 0.0002,
+  "lora_r": 16,
+  "trained_at": "2026-05-22T17:03:21.715072"
+}

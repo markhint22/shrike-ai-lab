@@ -8,8 +8,7 @@ Automatically generates and maintains documentation from code:
 - Changelog updates
 """
 
-from crewai import Agent, Task, Crew
-from langchain.llms import Ollama
+from crewai import Agent, Task, Crew, LLM
 from typing import List, Dict, Optional
 from pathlib import Path
 import json
@@ -19,8 +18,8 @@ class DocumentationCrew:
     """Multi-agent documentation generator."""
     
     def __init__(self, llm_base_url: str = "http://localhost:11434"):
-        self.llm = Ollama(
-            model="mistral:7b-instruct",
+        self.llm = LLM(
+            model="ollama/mistral:7b-instruct",
             base_url=llm_base_url,
         )
         self._setup_agents()

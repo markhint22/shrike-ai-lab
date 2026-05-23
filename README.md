@@ -69,7 +69,7 @@ chmod +x scripts/*.sh
 ```bash
 # Test Ollama directly
 curl http://localhost:11434/api/generate -d '{
-  "model": "codellama:7b-instruct",
+  "model": "phi3:mini",
   "prompt": "Write a hello world in Python",
   "stream": false
 }'
@@ -107,9 +107,9 @@ Open http://localhost:3000 for a ChatGPT-like UI powered by your local models.
 ┌─────────────────────┐                 ┌─────────────────────┐
 │   Ollama (:11434)   │                 │    Claude API       │
 │   Local LLM Engine  │                 │    (Fallback)       │
-│   - CodeLlama 7B    │                 │                     │
+│   - Phi-3 Mini      │                 │                     │
 │   - Mistral 7B      │                 │                     │
-│   - Phi-3           │                 │                     │
+│   - CodeLlama       │                 │                     │
 └─────────────────────┘                 └─────────────────────┘
          │
          ▼
@@ -160,7 +160,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="specpilot-local",  # Routes to CodeLlama 7B
+    model="specpilot-local",  # Routes to current default local model
     messages=[{"role": "user", "content": prompt}]
 )
 ```
@@ -176,6 +176,22 @@ def get_completion(prompt: str, complexity: str = "simple"):
 ```
 
 ## Training Custom Models
+
+### Quick Preflight (Recommended First)
+
+```bash
+# Check dependencies + data availability for all training tasks
+python scripts/train.py --preflight
+
+# See all discovered project/task combos
+python scripts/train.py --list
+```
+
+If `unsloth` is unavailable on your platform, use the built-in HF fallback engine:
+
+```bash
+python scripts/train.py --project specpilot --task selector_optimization --engine hf
+```
 
 ### Collect Training Data
 
@@ -195,10 +211,21 @@ training_example = {
 ### Fine-tune
 
 ```bash
-cd training/specpilot
-pip install unsloth transformers datasets peft
+# Unified pipeline (preferred)
+python scripts/train.py --project specpilot --task selector_optimization --engine hf
 
-# Fine-tune on your collected data
+# Optional: tiny-model smoke run to validate end-to-end training quickly
+python scripts/train.py \
+  --project specpilot \
+  --task selector_optimization \
+  --engine hf \
+  --base-model sshleifer/tiny-gpt2 \
+  --epochs 1 \
+  --batch-size 1 \
+  --version smoke
+
+# Legacy project-specific trainer still available
+cd training/specpilot
 python finetune.py --data data/selector_optimization.jsonl --epochs 3
 ```
 
