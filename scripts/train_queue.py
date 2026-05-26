@@ -163,6 +163,13 @@ def run_job_with_version(
     if job.max_seq_length:
         cmd.extend(["--max-seq-length", str(job.max_seq_length)])
 
+    env = os.environ.copy()
+    # Keep log decoding stable on Windows and reduce CPU-thread contention across runs.
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("TOKENIZERS_PARALLELISM", "false")
+    env.setdefault("OMP_NUM_THREADS", "1")
+    env.setdefault("MKL_NUM_THREADS", "1")
+
     with log_file.open("w", encoding="utf-8") as log:
         log.write(f"START {datetime.now().isoformat()}\n")
         log.write("COMMAND " + " ".join(cmd) + "\n\n")
@@ -170,6 +177,7 @@ def run_job_with_version(
         proc = subprocess.run(
             cmd,
             cwd=str(repo_root),
+            env=env,
             stdout=log,
             stderr=subprocess.STDOUT,
             text=True,

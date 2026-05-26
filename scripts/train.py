@@ -11,6 +11,7 @@ import sys
 import json
 import argparse
 import importlib.util
+import inspect
 import time
 from pathlib import Path
 from datetime import datetime
@@ -229,6 +230,7 @@ def train_model(
     engine: str = "auto",
     base_model_override: Optional[str] = None,
     max_seq_length_override: Optional[int] = None,
+    max_steps_override: Optional[int] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -392,7 +394,17 @@ def train_model(
     # Project-specific formatting
     finetune_module = get_finetune_module(project)
     if finetune_module and hasattr(finetune_module, "load_training_data"):
-        formatted = finetune_module.load_training_data(str(data_path), task)
+        # Some project loaders accept (data_path, task), others only (data_path).
+        # Introspect once to avoid signature mismatch crashes.
+        loader = finetune_module.load_training_data
+        try:
+            params = inspect.signature(loader).parameters
+            if len(params) >= 2:
+                formatted = loader(str(data_path), task)
+            else:
+                formatted = loader(str(data_path))
+        except Exception:
+            formatted = loader(str(data_path), task)
     else:
         # Default formatting
         formatted = [{"text": json.dumps(e)} for e in examples]
@@ -460,6 +472,14 @@ def train_model(
     # Training arguments
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    has_cuda_for_args = _is_module_available("torch") and __import__("torch").cuda.is_available()
+    # CPU training on Windows is more stable with pin_memory off and Adafactor.
+    use_cpu_safe_mode = selected_engine == "hf" and not has_cuda_for_args
+    if use_cpu_safe_mode:
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("MKL_NUM_THREADS", "1")
+
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=epochs,
@@ -467,10 +487,13 @@ def train_model(
         gradient_accumulation_steps=4,
         warmup_steps=10,
         learning_rate=learning_rate,
-        fp16=(_is_module_available("torch") and __import__("torch").cuda.is_available()),
+        fp16=has_cuda_for_args,
+        max_steps=(max_steps_override if max_steps_override is not None else -1),
         logging_steps=10,
         save_strategy="epoch",
-        optim="adamw_torch",
+        optim=("adafactor" if use_cpu_safe_mode else "adamw_torch"),
+        dataloader_pin_memory=(False if use_cpu_safe_mode else True),
+        dataloader_num_workers=0,
     )
     
     # Train
@@ -624,6 +647,7 @@ Examples:
                         help="Training engine (default: auto)")
     parser.add_argument("--base-model", help="Optional base model override")
     parser.add_argument("--max-seq-length", type=int, help="Optional max sequence length override")
+    parser.add_argument("--max-steps", type=int, help="Optional cap on training steps for smoke runs")
     parser.add_argument("--dry-run", action="store_true", help="Show configuration without training")
     
     args = parser.parse_args()
@@ -652,6 +676,7 @@ Examples:
         engine=args.engine,
         base_model_override=args.base_model,
         max_seq_length_override=args.max_seq_length,
+        max_steps_override=args.max_steps,
         dry_run=args.dry_run,
     )
     

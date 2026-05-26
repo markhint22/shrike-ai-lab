@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -74,6 +75,9 @@ def main() -> int:
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
 
     with launcher_log.open("w", encoding="utf-8") as log_handle:
+        log_handle.write(f"START {datetime.now().isoformat()}\n")
+        log_handle.write("COMMAND " + " ".join(command) + "\n")
+        log_handle.flush()
         process = subprocess.Popen(
             command,
             cwd=repo_root,
@@ -81,7 +85,16 @@ def main() -> int:
             stderr=subprocess.STDOUT,
             text=True,
             creationflags=creationflags,
+            close_fds=False,
         )
+
+    # Give detached child a brief startup window and verify it didn't die immediately.
+    time.sleep(2)
+    if process.poll() is not None:
+        print("Nightly queue failed to start.")
+        print(f"Exit code: {process.returncode}")
+        print(f"Launcher log: {launcher_log}")
+        return 1
 
     pid_file.write_text(str(process.pid), encoding="ascii")
 
