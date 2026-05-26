@@ -1,37 +1,85 @@
-# BillWatch Training - AI Bill Summarization
+# BillWatch Training - AI Bill Analysis & Summarization
 
-Train models to summarize federal legislation in plain English.
+Train models to summarize federal legislation in plain English, surface background context, and rank relevant articles.
 
 ## Use Case
 
-BillWatch needs to generate user-friendly summaries of Congressional bills. Instead of expensive Claude API calls, we can use a fine-tuned local model for basic summarization.
+BillWatch users need to understand what a bill does, why it matters, and what expert opinions exist — without reading dozens of news articles themselves. Instead of expensive Claude API calls for every user, fine-tuned local models handle the bulk of analysis.
 
 ## Training Tasks
 
-### 1. Bill Summary Generation
+### Phase 1 (Original)
+
+#### 1. Bill Summary Generation
 Convert legal bill text to plain English summaries.
 
 ```json
 {"bill_text": "...", "summary": "This bill would..."}
 ```
 
-### 2. Policy Area Classification
+#### 2. Policy Area Classification
 Categorize bills by topic.
 
 ```json
 {"bill_text": "...", "policy_area": "Healthcare"}
 ```
 
-### 3. Impact Analysis
+#### 3. Impact Analysis
 Explain who the bill affects and how.
 
 ```json
 {"bill_text": "...", "impact": {"groups": ["farmers", "consumers"], "effects": [...]}}
 ```
 
-## Data Collection
+### Phase 2 (New Capsules)
 
-Run the data collection script to extract training examples:
+#### 4. Bill Background Brief
+Given a bill, produce a structured background brief: what it does, why it matters, who is affected, expert perspectives, and related legislation.
+
+```json
+{
+  "bill_id": "hr1234-118",
+  "title": "...",
+  "bill_text": "...",
+  "topics": ["renewable energy", "climate"],
+  "background_brief": {
+    "what_the_bill_does": "...",
+    "why_it_matters": "...",
+    "key_stakeholders": [...],
+    "policy_context": "...",
+    "expert_perspectives": [...],
+    "related_bills": [...]
+  }
+}
+```
+
+#### 5. Article Relevance Ranking
+Given a bill's topics and a list of candidate articles, rank them by relevance and type (bill_direct, bill_perspective, subject_matter, irrelevant).
+
+```json
+{
+  "bill_topics": ["AI regulation", "algorithmic accountability"],
+  "candidate_articles": [...],
+  "ranked_selection": [
+    {"rank": 1, "url": "...", "type": "bill_direct", "why_selected": "..."},
+    ...
+  ]
+}
+```
+
+## Training Commands
+
+```bash
+# Phase 1
+make train-billwatch-summary
+make train-billwatch-classify
+
+# Phase 2
+make train-billwatch-background
+make train-billwatch-articles
+```
+
+## Data Collection
 
 ```bash
 python scripts/data-collection/collect_billwatch_data.py \
@@ -39,18 +87,9 @@ python scripts/data-collection/collect_billwatch_data.py \
     --output training/billwatch/data/
 ```
 
-## Fine-tuning
-
-```bash
-python training/billwatch/finetune.py \
-    --data data/bill_summaries.jsonl \
-    --task summarization \
-    --output ../../models/billwatch-v1
-```
-
 ## Integration with BillWatch
 
-See `docs/integrations/BILLWATCH_INTEGRATION.md` for connecting to BillWatch backend.
+See `docs/integrations/BILLWATCH_INTEGRATION.md`.
 
 ## Model Selection
 
@@ -58,17 +97,6 @@ See `docs/integrations/BILLWATCH_INTEGRATION.md` for connecting to BillWatch bac
 |-------|------|-------|---------|
 | Phi-3-mini | 4GB | Fast | Good for short bills |
 | Mistral-7B | 8GB | Medium | Better comprehension |
-| CodeLlama-7B | 8GB | Medium | If bills contain legal code |
 
-Recommend **Mistral-7B** for bill summarization due to its strong instruction-following.
+Recommend **Mistral-7B** for bill analysis tasks.
 
-## Quality Assurance
-
-Compare local model output to Claude Haiku for quality validation:
-
-```bash
-python training/billwatch/evaluate.py \
-    --model ../../models/billwatch-v1 \
-    --test-data data/bill_summaries_test.jsonl \
-    --compare-to claude-haiku
-```

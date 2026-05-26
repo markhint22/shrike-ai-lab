@@ -21,25 +21,51 @@ from typing import Dict, Any, Optional
 # Project configurations
 PROJECT_CONFIGS = {
     "specpilot": {
-        "tasks": ["selector_optimization", "test_generation", "failure_analysis"],
+        "tasks": [
+            "selector_optimization",
+            "test_generation",
+            "failure_analysis",
+            # Phase 2 capsules
+            "flow_analysis",
+            "test_building",
+        ],
         "base_model": "codellama/CodeLlama-7b-hf",
         "max_seq_length": 2048,
         "description": "Test automation agent",
     },
     "gitlark": {
-        "tasks": ["code_explanation", "pr_description", "code_review", "commit_message"],
+        "tasks": [
+            "code_explanation",
+            "pr_description",
+            "code_review",
+            "commit_message",
+            # Phase 2 capsules
+            "repo_intelligence",
+            "memdiff",
+        ],
         "base_model": "codellama/CodeLlama-7b-hf",
         "max_seq_length": 2048,
         "description": "AI code workspace",
     },
     "billwatch": {
-        "tasks": ["summarization", "classification", "impact"],
+        "tasks": [
+            "summarization",
+            "classification",
+            "impact",
+            # Phase 2 capsules
+            "bill_background",
+            "article_relevance",
+        ],
         "base_model": "mistralai/Mistral-7B-Instruct-v0.2",
         "max_seq_length": 2048,  # Reduced from 4096 to prevent memory crashes on CPU training
         "description": "Legislation tracker",
     },
     "shared": {
-        "tasks": ["code_review"],
+        "tasks": [
+            "code_review",
+            # Cross-project skill capsules
+            "moderation",
+        ],
         "base_model": "codellama/CodeLlama-7b-hf",
         "max_seq_length": 2048,
         "description": "Cross-project models",
@@ -49,6 +75,13 @@ PROJECT_CONFIGS = {
 
 DATA_FILE_OVERRIDES = {
     ("billwatch", "summarization"): "bill_summaries.jsonl",
+    ("billwatch", "bill_background"): "bill_background.jsonl",
+    ("billwatch", "article_relevance"): "article_relevance.jsonl",
+    ("gitlark", "repo_intelligence"): "repo_intelligence.jsonl",
+    ("gitlark", "memdiff"): "memdiff.jsonl",
+    ("specpilot", "flow_analysis"): "flow_analysis.jsonl",
+    ("specpilot", "test_building"): "test_building.jsonl",
+    ("shared", "moderation"): "moderation.jsonl",
 }
 
 

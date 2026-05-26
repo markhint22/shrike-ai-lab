@@ -14,9 +14,61 @@
       "ab_gate_limit": 20
     },
     {
+      "project": "specpilot",
+      "task": "flow_analysis",
+      "version": "nightly-specpilot-flow",
+      "engine": "hf",
+      "base_model": "unsloth/phi-3-mini-4k-instruct",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "specpilot-local",
+      "ab_gate_limit": 20
+    },
+    {
+      "project": "specpilot",
+      "task": "test_building",
+      "version": "nightly-specpilot-build",
+      "engine": "hf",
+      "base_model": "unsloth/phi-3-mini-4k-instruct",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "specpilot-local",
+      "ab_gate_limit": 20
+    },
+    {
       "project": "gitlark",
       "task": "code_review",
       "version": "nightly-gitlark-review",
+      "engine": "hf",
+      "base_model": "unsloth/phi-3-mini-4k-instruct",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
+    },
+    {
+      "project": "gitlark",
+      "task": "repo_intelligence",
+      "version": "nightly-gitlark-repo-intel",
+      "engine": "hf",
+      "base_model": "unsloth/phi-3-mini-4k-instruct",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
+    },
+    {
+      "project": "gitlark",
+      "task": "memdiff",
+      "version": "nightly-gitlark-memdiff",
       "engine": "hf",
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
@@ -40,6 +92,32 @@
       "ab_gate_limit": 20
     },
     {
+      "project": "billwatch",
+      "task": "bill_background",
+      "version": "nightly-billwatch-background",
+      "engine": "hf",
+      "base_model": "unsloth/phi-3-mini-4k-instruct",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
+    },
+    {
+      "project": "billwatch",
+      "task": "article_relevance",
+      "version": "nightly-billwatch-articles",
+      "engine": "hf",
+      "base_model": "unsloth/phi-3-mini-4k-instruct",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
+    },
+    {
       "project": "shared",
       "task": "code_review",
       "version": "nightly-shared-review",
@@ -51,6 +129,20 @@
       "ab_gate_baseline_model": "phi3-local",
       "ab_gate_candidate_model": "mistral-local",
       "ab_gate_limit": 20
+    },
+    {
+      "project": "shared",
+      "task": "moderation",
+      "version": "nightly-shared-moderation",
+      "engine": "hf",
+      "base_model": "unsloth/phi-3-mini-4k-instruct",
+      "epochs": 1,
+      "batch_size": 1,
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
     }
   ]
 }
+

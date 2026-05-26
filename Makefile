@@ -150,12 +150,40 @@ train-gitlark-pr:
 train-gitlark-review:
 	python scripts/train.py --project gitlark --task code_review
 
+# GitLark Phase 2 capsules
+train-gitlark-repo-intel:
+	python scripts/train.py --project gitlark --task repo_intelligence
+
+train-gitlark-memdiff:
+	python scripts/train.py --project gitlark --task memdiff
+
 # BillWatch training targets
 train-billwatch-summary:
 	python scripts/train.py --project billwatch --task summarization
 
 train-billwatch-classify:
 	python scripts/train.py --project billwatch --task classification
+
+# BillWatch Phase 2 capsules
+train-billwatch-background:
+	python scripts/train.py --project billwatch --task bill_background
+
+train-billwatch-articles:
+	python scripts/train.py --project billwatch --task article_relevance
+
+# SpecPilot Phase 2 capsules
+train-specpilot-flow:
+	python scripts/train.py --project specpilot --task flow_analysis
+
+train-specpilot-build:
+	python scripts/train.py --project specpilot --task test_building
+
+# Shared / cross-project capsules
+train-shared-review:
+	python scripts/train.py --project shared --task code_review
+
+train-shared-moderation:
+	python scripts/train.py --project shared --task moderation
 
 # Legacy single-model training
 train-legacy:

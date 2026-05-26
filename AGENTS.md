@@ -45,10 +45,22 @@ shrike-ai-lab/
 
 | Project | Tasks | Base Model | Status |
 |---------|-------|------------|--------|
-| **SpecPilot** | selector_optimization, test_generation, failure_analysis | CodeLlama 7B | Scaffold ready |
-| **GitLark** | code_explanation, pr_description, code_review, commit_message | CodeLlama 7B | Scaffold ready |
-| **BillWatch** | summarization, classification, impact | Mistral 7B | Scaffold ready |
-| **Shared** | code_review (universal) | CodeLlama 7B | Scaffold ready |
+| **SpecPilot** | selector_optimization, test_generation, failure_analysis, **flow_analysis**, **test_building** | CodeLlama 7B | Scaffold ready |
+| **GitLark** | code_explanation, pr_description, code_review, commit_message, **repo_intelligence**, **memdiff** | CodeLlama 7B | Scaffold ready |
+| **BillWatch** | summarization, classification, impact, **bill_background**, **article_relevance** | Mistral 7B | Scaffold ready |
+| **Shared** | code_review (universal), **moderation** | CodeLlama 7B | Scaffold ready |
+
+### Capsule Descriptions
+
+| Capsule | Project | Purpose |
+|---------|---------|---------|
+| `flow_analysis` | SpecPilot | Detect auth requirements and setup prerequisites before running tests |
+| `test_building` | SpecPilot | Compose full assertion suites: validation, pagination, error states, optimistic UI |
+| `repo_intelligence` | GitLark | Analyze repo structure → metadata, tech stack, suggested features, learning paths |
+| `memdiff` | GitLark | Decide when to pull fresh data vs. use cached memory per query |
+| `bill_background` | BillWatch | Generate full background briefs: context, stakeholders, expert views, related bills |
+| `article_relevance` | BillWatch | Rank and classify news articles by relevance to a bill |
+| `moderation` | Shared | Content moderation for user-generated discussion (safe synthetic training data) |
 
 ## Key Files
 

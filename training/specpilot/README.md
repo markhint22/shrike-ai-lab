@@ -1,42 +1,77 @@
 # SpecPilot Training - Fine-tuning for UI Test Automation
 
-This directory contains training data and scripts for fine-tuning local LLMs to be better at:
+This directory contains training data and scripts for fine-tuning local LLMs to understand and automate UI test flows end-to-end.
+
+## Training Tasks
+
+### Phase 1 (Original)
 1. **Selector Optimization** - Finding reliable CSS/XPath selectors
 2. **Test Step Generation** - Converting natural language to Playwright actions
 3. **Failure Analysis** - Diagnosing why tests fail from screenshots/HTML
 
-## Training Strategy
+### Phase 2 (New Capsules)
+4. **Flow Analysis** - Understanding the full test flow: detect auth requirements, identify prerequisites, recognize multi-step patterns
+5. **Test Building** - Composing complete test suites: assertions, error state coverage, pagination, optimistic UI updates
 
-### Phase 1: Curate Training Data
-Collect examples from real SpecPilot usage:
+## Data Files
 
 ```
 data/
 ├── selector_optimization.jsonl    # Good selector → better selector pairs
 ├── test_generation.jsonl          # Natural language → Playwright code
 ├── failure_analysis.jsonl         # Screenshot + error → diagnosis
-└── html_understanding.jsonl       # HTML snippets → element identification
+├── flow_analysis.jsonl            # Test plan → auth/setup requirements (NEW)
+└── test_building.jsonl            # Test goal → full assertion suite (NEW)
 ```
 
-### Phase 2: Format for Fine-tuning
-Convert to instruction format:
+## Flow Analysis Format
 
 ```json
 {
-  "instruction": "Find the most reliable selector for the login button",
-  "input": "<button class=\"btn login-btn\" id=\"login\" data-testid=\"auth-login\">Sign In</button>",
-  "output": "[data-testid=\"auth-login\"] - data-testid is most stable, won't change with styling updates"
+  "test_plan_step": "Navigate to /dashboard",
+  "page_html_snippet": "...",
+  "requires_auth": true,
+  "auth_detection_signals": ["URL path is /dashboard", "No login form visible"],
+  "recommended_setup": {
+    "create_user": true,
+    "user_config": {"email": "...", "password": "...", "role": "standard"},
+    "login_steps": [...]
+  },
+  "flow_type": "authenticated_page"
 }
 ```
 
-### Phase 3: Fine-tune with QLoRA
-Use Unsloth for memory-efficient training on RTX 2080:
+## Test Building Format
+
+```json
+{
+  "test_goal": "Verify login form shows error for invalid email",
+  "flow_type": "form_validation",
+  "assertions": [
+    {"type": "element_visible", "selector": "[data-testid='email-error']",
+     "playwright": "await expect(page.locator('...')).toBeVisible()"}
+  ],
+  "full_test": "// complete Playwright test code"
+}
+```
+
+## Training Commands
 
 ```bash
-# Install training dependencies
-pip install unsloth transformers datasets peft
+# Phase 1
+make train-specpilot-selector
+make train-specpilot-tests
+make train-specpilot-analyzer
 
-# Run fine-tuning
+# Phase 2
+make train-specpilot-flow
+make train-specpilot-build
+```
+
+## Fine-tune with QLoRA
+
+```bash
+pip install unsloth transformers datasets peft
 python finetune.py --model codellama-7b --data data/selector_optimization.jsonl
 ```
 
