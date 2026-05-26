@@ -4,12 +4,15 @@
 .env.*.local
 
 # Models (large files - download via setup.sh)
-models/*.gguf
-models/*.bin
-models/*.safetensors
+models/
 
 # Training data checkpoints (large files)
 training/*/checkpoints/
+training/cache/
+
+# Lock files (regenerated on install)
+*.lock
+uv.lock
 
 # Large training datasets (keep sample data, ignore production data)
 # Uncomment below to ignore all training data:

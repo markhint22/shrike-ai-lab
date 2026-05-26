@@ -11,6 +11,7 @@ import sys
 import json
 import argparse
 import importlib.util
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -33,7 +34,7 @@ PROJECT_CONFIGS = {
     "billwatch": {
         "tasks": ["summarization", "classification", "impact"],
         "base_model": "mistralai/Mistral-7B-Instruct-v0.2",
-        "max_seq_length": 4096,
+        "max_seq_length": 2048,  # Reduced from 4096 to prevent memory crashes on CPU training
         "description": "Legislation tracker",
     },
     "shared": {
@@ -87,6 +88,78 @@ def _detect_lora_target_modules(model) -> list[str]:
 
     ordered = [name for name in preferred if name in discovered]
     return ordered
+
+
+def cleanup_stale_hf_model_locks(base_model: str, stale_after_seconds: int = 7200) -> int:
+    """Remove stale Hugging Face lock files for a specific model.
+
+    Prior crashed runs can leave lock files that cause future runs to wait.
+    """
+    lock_dir = (
+        Path.home()
+        / ".cache"
+        / "huggingface"
+        / "hub"
+        / ".locks"
+        / f"models--{base_model.replace('/', '--')}"
+    )
+    if not lock_dir.exists():
+        return 0
+
+    removed = 0
+    now = time.time()
+    for lock_file in lock_dir.glob("*.lock"):
+        try:
+            age_seconds = now - lock_file.stat().st_mtime
+        except OSError:
+            continue
+
+        if age_seconds >= stale_after_seconds:
+            try:
+                lock_file.unlink()
+                removed += 1
+            except OSError:
+                continue
+
+    return removed
+
+
+def configure_hf_download_env() -> None:
+    """Set conservative HF env defaults that improve download throughput/reliability."""
+    os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+    # Prevent UnicodeEncodeError when emoji from finetune.py modules hits the cp1252 log file.
+    # Must reconfigure the live streams, not just set the env var.
+    import sys
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def prefetch_model_snapshot(base_model: str, hf_cache_dir: Path) -> str:
+    """Warm model files into cache and return a local snapshot path when possible."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        return base_model
+
+    try:
+        snapshot_path = snapshot_download(
+            repo_id=base_model,
+            cache_dir=str(hf_cache_dir),
+            resume_download=True,
+            max_workers=12,
+        )
+        print(f"Using local snapshot: {snapshot_path}")
+        return snapshot_path
+    except Exception as exc:
+        print(f"Snapshot prefetch warning: {exc}")
+        return base_model
 
 
 def get_data_path(project: str, task: str) -> Path:
@@ -155,6 +228,7 @@ def train_model(
     lora_r: int = 16,
     engine: str = "auto",
     base_model_override: Optional[str] = None,
+    max_seq_length_override: Optional[int] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -167,6 +241,7 @@ def train_model(
     
     config = PROJECT_CONFIGS[project]
     base_model = base_model_override or config["base_model"]
+    max_seq_length = max_seq_length_override or config["max_seq_length"]
     data_path = get_data_path(project, task)
     output_dir = get_model_output_dir(project, task, version)
     
@@ -187,7 +262,7 @@ def train_model(
     print(f"  Batch Size:    {batch_size}")
     print(f"  Learning Rate: {learning_rate}")
     print(f"  LoRA Rank:     {lora_r}")
-    print(f"  Max Seq Len:   {config['max_seq_length']}")
+    print(f"  Max Seq Len:   {max_seq_length}")
     print(f"{'='*60}\n")
     
     if dry_run:
@@ -221,6 +296,15 @@ def train_model(
 
     print(f"Engine:      {selected_engine}")
 
+    configure_hf_download_env()
+
+    hf_cache_dir = Path(__file__).parent.parent / "training" / "cache" / "hf"
+    hf_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    removed_locks = cleanup_stale_hf_model_locks(base_model)
+    if removed_locks:
+        print(f"Removed {removed_locks} stale HF lock file(s) for {base_model}")
+
     if selected_engine == "unsloth":
         from unsloth import FastLanguageModel
         from trl import SFTTrainer
@@ -231,7 +315,7 @@ def train_model(
         print(f"Loading base model: {base_model}...")
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=base_model,
-            max_seq_length=config["max_seq_length"],
+            max_seq_length=max_seq_length,
             dtype=None,
             load_in_4bit=True,
         )
@@ -261,15 +345,21 @@ def train_model(
 
         has_cuda = torch.cuda.is_available()
         print(f"Loading base model: {base_model}...")
+        model_source = prefetch_model_snapshot(base_model, hf_cache_dir)
         load_kwargs = {
-            "pretrained_model_name_or_path": base_model,
+            "pretrained_model_name_or_path": model_source,
             "torch_dtype": torch.float16 if has_cuda else torch.float32,
+            "cache_dir": str(hf_cache_dir),
         }
         if has_cuda:
             load_kwargs["device_map"] = "auto"
 
         model = AutoModelForCausalLM.from_pretrained(**load_kwargs)
-        tokenizer = AutoTokenizer.from_pretrained(base_model, use_fast=True)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_source,
+            use_fast=True,
+            cache_dir=str(hf_cache_dir),
+        )
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
@@ -307,7 +397,35 @@ def train_model(
         # Default formatting
         formatted = [{"text": json.dumps(e)} for e in examples]
     
-    dataset = Dataset.from_list(formatted)
+    def _normalize_example_to_text(item: dict[str, Any]) -> str:
+        """Convert heterogeneous training records to a single text prompt/response format."""
+        if "text" in item and item["text"]:
+            return str(item["text"])
+
+        instruction = item.get("instruction")
+        input_text = item.get("input")
+        output_text = item.get("output")
+
+        if instruction is not None and input_text is not None and output_text is not None:
+            return (
+                "### Instruction:\n"
+                f"{instruction}\n\n"
+                "### Input:\n"
+                f"{input_text}\n\n"
+                "### Response:\n"
+                f"{output_text}"
+            )
+
+        if input_text is not None and output_text is not None:
+            return f"Input:\n{input_text}\n\nOutput:\n{output_text}"
+
+        if instruction is not None and output_text is not None:
+            return f"Instruction:\n{instruction}\n\nResponse:\n{output_text}"
+
+        return json.dumps(item)
+
+    normalized = [{"text": _normalize_example_to_text(record)} for record in formatted]
+    dataset = Dataset.from_list(normalized)
 
     if selected_engine == "hf":
         model_max_positions = getattr(model.config, "max_position_embeddings", None)
@@ -317,12 +435,12 @@ def train_model(
         tokenizer_max_length = getattr(tokenizer, "model_max_length", config["max_seq_length"])
         # Some tokenizers report sentinel max length values; clamp to training config.
         if tokenizer_max_length is None or tokenizer_max_length > 100000:
-            tokenizer_max_length = config["max_seq_length"]
+            tokenizer_max_length = max_seq_length
 
         effective_max_length = min(
-            config["max_seq_length"],
+            max_seq_length,
             tokenizer_max_length,
-            model_max_positions or config["max_seq_length"],
+            model_max_positions or max_seq_length,
         )
         print(f"Using effective max length: {effective_max_length}")
 
@@ -364,7 +482,7 @@ def train_model(
             tokenizer=tokenizer,
             train_dataset=dataset,
             dataset_text_field="text",
-            max_seq_length=config["max_seq_length"],
+            max_seq_length=max_seq_length,
             args=training_args,
         )
     else:
@@ -389,6 +507,7 @@ def train_model(
         "task": task,
         "version": version,
         "base_model": base_model,
+        "max_seq_length": max_seq_length,
         "engine": selected_engine,
         "training_examples": num_examples,
         "epochs": epochs,
@@ -415,7 +534,8 @@ def get_finetune_module(project: str):
         import importlib
         module_path = f"training.{project}.finetune"
         return importlib.import_module(module_path)
-    except ImportError:
+    except Exception as exc:
+        print(f"Project finetune import skipped for {project}: {exc}")
         return None
 
 
@@ -503,6 +623,7 @@ Examples:
     parser.add_argument("--engine", choices=["auto", "unsloth", "hf"], default="auto",
                         help="Training engine (default: auto)")
     parser.add_argument("--base-model", help="Optional base model override")
+    parser.add_argument("--max-seq-length", type=int, help="Optional max sequence length override")
     parser.add_argument("--dry-run", action="store_true", help="Show configuration without training")
     
     args = parser.parse_args()
@@ -530,6 +651,7 @@ Examples:
         lora_r=args.lora_r,
         engine=args.engine,
         base_model_override=args.base_model,
+        max_seq_length_override=args.max_seq_length,
         dry_run=args.dry_run,
     )
     

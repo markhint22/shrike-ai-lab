@@ -229,6 +229,92 @@ cd training/specpilot
 python finetune.py --data data/selector_optimization.jsonl --epochs 3
 ```
 
+### Human Intervention Dashboard (Recommended)
+
+Use these scripts to decide when to stop and review instead of guessing from raw logs.
+
+```bash
+# 1) Learning trend (first successful run vs latest successful run)
+python scripts/eval_learning_trend.py
+
+# 2) Intervention dashboard (review gates + recommendations)
+python scripts/training_intervention_board.py
+
+# 3) Save machine-readable report for tracking/history
+python scripts/training_intervention_board.py --json-out training/logs/intervention-board.json
+
+# 4) Live watch mode (refresh every 60s)
+python scripts/training_intervention_board.py --watch --interval 60
+```
+
+### Desktop Notifications for Human Intervention
+
+When you want an alert as soon as review is needed:
+
+```bash
+# One-shot check + alert if queue is non-empty
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops-notify-readyreview.ps1
+
+# Continuous watch mode (checks every 2 minutes)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops-watch-readyreview.ps1 -IntervalSec 120 -QuietBoard
+
+# Optional modal popup dialog (blocking) if you explicitly want it
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops-notify-readyreview.ps1 -UseModalDialog
+```
+
+Notification behavior:
+- Uses Windows toast via BurntToast if available.
+- Falls back to non-blocking console + sound if BurntToast is not installed.
+
+### A/B Promotion Gate (Baseline vs Candidate)
+
+After dashboard shows `READY_REVIEW`, run an A/B gate to decide `PROMOTE` or `HOLD`.
+
+```bash
+python scripts/ab_eval_gate.py \
+  --project shared \
+  --task code_review \
+  --baseline-model phi3-local \
+  --candidate-model phi3-local \
+  --test-data training/gitlark/data/code_review.jsonl \
+  --limit 20 \
+  --json-out training/logs/ab-gate-shared-code_review.json
+```
+
+Notes:
+- `--baseline-model` and `--candidate-model` are model names exposed by LiteLLM.
+- Use a held-out test set whenever possible (avoid only evaluating on training examples).
+- Default gate settings:
+  - minimum accuracy delta: `+0.02`
+  - maximum latency regression: `20%`
+- If gate fails, decision is `HOLD` with reasons in the JSON report.
+
+Dashboard recommendations:
+- `READY_REVIEW`: Human review now (A/B eval + promote/hold decision)
+- `WAIT_RUNNING`: Active run in progress; wait for completion
+- `COLLECT_MORE_RUNS`: Not enough successful runs yet for a decision
+- `INVESTIGATE_STABILITY`: Failure rate too high; fix reliability first
+- `RETUNE_DATA`: Trend regressing; adjust training data/hyperparameters
+- `BLOCKED`: Repeated failures and no successful completions in window
+
+Suggested review cadence:
+1. Run 2-3 successful runs per project/task.
+2. Trigger review when dashboard shows `READY_REVIEW`.
+3. Compare baseline vs trained on held-out tasks.
+4. Promote artifacts only when no major regression is observed.
+
+For controlled memory/performance experiments without changing global defaults:
+
+```bash
+python scripts/train.py \
+  --project billwatch \
+  --task classification \
+  --engine hf \
+  --max-seq-length 3072 \
+  --version billwatch-mem-test \
+  --dry-run
+```
+
 ### Deploy Fine-tuned Model
 
 ```bash
@@ -273,6 +359,26 @@ Expected results for RTX 2080:
 - Phi-3 Mini: ~30-40 tokens/sec
 - CodeLlama 7B: ~15-25 tokens/sec
 - CodeLlama 13B: ~5-10 tokens/sec (with CPU offload)
+
+## Crash Recovery (Windows)
+
+If your machine reboots or crashes overnight, use the built-in recovery flow:
+
+```bash
+# Restore Ollama, LiteLLM, and nightly queue
+D:\LocalProjects\shrike-ai-lab\.venv\Scripts\python.exe scripts/recover_after_crash.py --skip-open-webui
+```
+
+Register automatic startup on login:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register_windows_startup.ps1 -UseScheduledTask -UseStartupFolder
+```
+
+Notes:
+- If Scheduled Task registration is denied by system policy, Startup folder fallback is still installed.
+- Startup launcher path: `C:\Users\<you>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\ShrikeAILabRecovery.cmd`
+- Recovery summaries and diagnostics are written to `training/logs/`.
 
 ## Troubleshooting
 

@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,6 +30,75 @@ class Job:
     batch_size: int = 1
     learning_rate: float = 2e-4
     base_model: str | None = None
+    max_seq_length: int | None = None
+
+
+def process_exists(pid: int) -> bool:
+    result = subprocess.run(
+        ["tasklist", "/FI", f"PID eq {pid}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return str(pid) in (result.stdout or "")
+
+
+def acquire_queue_lock(lock_file: Path) -> int | None:
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_text = str(os.getpid())
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        fd = os.open(str(lock_file), flags)
+        os.write(fd, pid_text.encode("ascii"))
+        return fd
+    except FileExistsError:
+        now = time.time()
+        try:
+            existing_pid = int(lock_file.read_text(encoding="ascii").strip())
+        except ValueError:
+            existing_pid = None
+
+        if existing_pid:
+            if process_exists(existing_pid):
+                print(f"Another train_queue instance is already running (pid={existing_pid}); exiting.")
+                return None
+
+            # If the lock is very recent, treat it as active to avoid race-y double starts.
+            age_seconds = now - lock_file.stat().st_mtime
+            if age_seconds < 120:
+                print(
+                    "train_queue lock is present and recent; "
+                    f"assuming another startup is in progress (pid={existing_pid}). Exiting."
+                )
+                return None
+
+        if existing_pid is None:
+            age_seconds = now - lock_file.stat().st_mtime
+            if age_seconds < 120:
+                print("train_queue lock is present and recent but unreadable; exiting to avoid duplicates.")
+                return None
+
+        # Stale lock: no live owner and lock file is old enough.
+        print("Removing stale train_queue lock file")
+        lock_file.unlink(missing_ok=True)
+        try:
+            fd = os.open(str(lock_file), flags)
+        except FileExistsError:
+            print("train_queue lock was recreated by another process; exiting.")
+            return None
+
+    os.write(fd, pid_text.encode("ascii"))
+    return fd
+
+
+def release_queue_lock(lock_fd: int | None, lock_file: Path) -> None:
+    if lock_fd is not None:
+        try:
+            os.close(lock_fd)
+        except OSError:
+            pass
+    lock_file.unlink(missing_ok=True)
 
 
 def load_jobs(jobs_file: Path) -> list[Job]:
@@ -47,6 +118,7 @@ def load_jobs(jobs_file: Path) -> list[Job]:
                 batch_size=int(item.get("batch_size", 1)),
                 learning_rate=float(item.get("learning_rate", 2e-4)),
                 base_model=item.get("base_model"),
+                max_seq_length=item.get("max_seq_length"),
             )
         )
     return jobs
@@ -86,6 +158,8 @@ def run_job_with_version(
     ]
     if job.base_model:
         cmd.extend(["--base-model", job.base_model])
+    if job.max_seq_length:
+        cmd.extend(["--max-seq-length", str(job.max_seq_length)])
 
     with log_file.open("w", encoding="utf-8") as log:
         log.write(f"START {datetime.now().isoformat()}\n")
@@ -137,6 +211,7 @@ def run_with_retries(
             batch_size=safer_batch,
             learning_rate=safer_lr,
             base_model=job.base_model,
+            max_seq_length=job.max_seq_length,
         )
 
         print(
@@ -197,6 +272,18 @@ def main() -> int:
         default=0.5,
         help="Multiplier applied to LR for each retry (default: 0.5)",
     )
+    parser.add_argument(
+        "--max-consecutive-failures",
+        type=int,
+        default=16,
+        help="Stop repeating queue after this many consecutive failed jobs (default: 16)",
+    )
+    parser.add_argument(
+        "--cycle-delay-seconds",
+        type=float,
+        default=30.0,
+        help="Delay between repeat cycles to avoid rapid failure loops (default: 30)",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
@@ -204,81 +291,100 @@ def main() -> int:
     python_exe = Path(args.python).resolve()
     logs_dir = repo_root / "training" / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
+    lock_file = logs_dir / "train-queue.lock"
+    lock_fd = acquire_queue_lock(lock_file)
+    if lock_fd is None:
+        return 0
 
-    if not jobs_file.exists():
-        print(f"Jobs file not found: {jobs_file}")
-        return 1
+    try:
+        if not jobs_file.exists():
+            print(f"Jobs file not found: {jobs_file}")
+            return 1
 
-    jobs = load_jobs(jobs_file)
-    if not jobs:
-        print("No jobs found in queue file")
-        return 1
+        jobs = load_jobs(jobs_file)
+        if not jobs:
+            print("No jobs found in queue file")
+            return 1
 
-    print(f"Running {len(jobs)} training jobs sequentially")
-    print(f"Logs directory: {logs_dir}")
+        print(f"Running {len(jobs)} training jobs sequentially")
+        print(f"Logs directory: {logs_dir}")
 
-    failures = 0
-    successes = 0
-    retries_used = 0
-    deadline = None
-    if args.max_hours is not None:
-        deadline = datetime.now() + timedelta(hours=args.max_hours)
-        print(f"Max runtime: {args.max_hours} hours (until {deadline.isoformat(timespec='seconds')})")
+        failures = 0
+        successes = 0
+        retries_used = 0
+        deadline = None
+        if args.max_hours is not None:
+            deadline = datetime.now() + timedelta(hours=args.max_hours)
+            print(f"Max runtime: {args.max_hours} hours (until {deadline.isoformat(timespec='seconds')})")
 
-    cycle = 0
-    while True:
-        cycle += 1
-        print(f"\n=== Queue Cycle {cycle} ===")
+        cycle = 0
+        consecutive_failures = 0
+        while True:
+            cycle += 1
+            print(f"\n=== Queue Cycle {cycle} ===")
 
-        for idx, job in enumerate(jobs, start=1):
+            for idx, job in enumerate(jobs, start=1):
+                if deadline is not None and datetime.now() >= deadline:
+                    print("Reached max runtime window, stopping queue")
+                    if failures:
+                        print(f"Queue completed with failures: {failures}")
+                        return 2
+                    print("Queue completed successfully")
+                    return 0
+
+                version = job.version
+                if args.stamp_version:
+                    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    version = f"{job.version}-c{cycle:03d}-{stamp}"
+
+                print(f"[{idx}/{len(jobs)}] {job.project}/{job.task} ({version})")
+                code, attempts = run_with_retries(
+                    python_exe=python_exe,
+                    repo_root=repo_root,
+                    job=job,
+                    logs_dir=logs_dir,
+                    version=version,
+                    retry_count=max(0, args.retry_count),
+                    retry_lr_multiplier=args.retry_lr_multiplier,
+                )
+                if attempts > 1:
+                    retries_used += attempts - 1
+                if code != 0:
+                    failures += 1
+                    consecutive_failures += 1
+                    print(f"Job failed with exit code {code}: {job.project}/{job.task}")
+                    if args.repeat and consecutive_failures >= max(1, args.max_consecutive_failures):
+                        print(
+                            f"Stopping queue after {consecutive_failures} consecutive failures "
+                            f"(limit={max(1, args.max_consecutive_failures)})"
+                        )
+                        return 2
+                    if not args.continue_on_error:
+                        print("Stopping queue due to failure")
+                        return code
+                else:
+                    successes += 1
+                    consecutive_failures = 0
+
+            if not args.repeat:
+                break
+
             if deadline is not None and datetime.now() >= deadline:
-                print("Reached max runtime window, stopping queue")
-                if failures:
-                    print(f"Queue completed with failures: {failures}")
-                    return 2
-                print("Queue completed successfully")
-                return 0
+                break
 
-            version = job.version
-            if args.stamp_version:
-                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                version = f"{job.version}-c{cycle:03d}-{stamp}"
+            if args.cycle_delay_seconds > 0:
+                time.sleep(args.cycle_delay_seconds)
 
-            print(f"[{idx}/{len(jobs)}] {job.project}/{job.task} ({version})")
-            code, attempts = run_with_retries(
-                python_exe=python_exe,
-                repo_root=repo_root,
-                job=job,
-                logs_dir=logs_dir,
-                version=version,
-                retry_count=max(0, args.retry_count),
-                retry_lr_multiplier=args.retry_lr_multiplier,
-            )
-            if attempts > 1:
-                retries_used += attempts - 1
-            if code != 0:
-                failures += 1
-                print(f"Job failed with exit code {code}: {job.project}/{job.task}")
-                if not args.continue_on_error:
-                    print("Stopping queue due to failure")
-                    return code
-            else:
-                successes += 1
+        if failures:
+            print(f"Summary: successes={successes}, failures={failures}, retries_used={retries_used}")
+            print(f"Queue completed with failures: {failures}")
+            return 2
 
-        if not args.repeat:
-            break
-
-        if deadline is not None and datetime.now() >= deadline:
-            break
-
-    if failures:
         print(f"Summary: successes={successes}, failures={failures}, retries_used={retries_used}")
-        print(f"Queue completed with failures: {failures}")
-        return 2
-
-    print(f"Summary: successes={successes}, failures={failures}, retries_used={retries_used}")
-    print("Queue completed successfully")
-    return 0
+        print("Queue completed successfully")
+        return 0
+    finally:
+        release_queue_lock(lock_fd, lock_file)
 
 
 if __name__ == "__main__":

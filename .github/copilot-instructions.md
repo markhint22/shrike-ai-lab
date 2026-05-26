@@ -60,7 +60,8 @@ pytest tests/   # Full test suite
 
 ## Git Workflow
 
-Follow standard Shrike Labs branch policy:
-- Feature branches from `develop`
-- PRs for all changes
-- Semantic commit messages
+Temporary override for this repository:
+- Direct commits to `main` are allowed.
+- Direct commits to `develop` are allowed.
+- Feature branches and PRs are optional.
+- Keep semantic commit messages.

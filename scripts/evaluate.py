@@ -58,17 +58,27 @@ class ModelEvaluator:
         self,
         local_url: str = "http://localhost:4000",
         local_key: str = "sk-shrike-local",
+        request_timeout: float = 20.0,
+        max_retries: int = 1,
     ):
         self.local_client = AsyncOpenAI(
             base_url=local_url,
             api_key=local_key,
+            timeout=request_timeout,
+            max_retries=max_retries,
         )
         
-        # Claude client for baseline comparison
-        self.claude_client = AsyncOpenAI(
-            base_url="https://api.anthropic.com/v1",
-            api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-        )
+        # Claude client for optional baseline comparison.
+        # Keep this optional so local-only evaluation works without cloud keys.
+        self.claude_client = None
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        if anthropic_key:
+            self.claude_client = AsyncOpenAI(
+                base_url="https://api.anthropic.com/v1",
+                api_key=anthropic_key,
+                timeout=request_timeout,
+                max_retries=max_retries,
+            )
     
     async def evaluate_single(
         self,
