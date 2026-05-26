@@ -51,6 +51,12 @@ def main() -> int:
         default=30,
         help="Delay between repeat cycles to avoid rapid failure loops",
     )
+    parser.add_argument(
+        "--job-timeout-minutes",
+        type=float,
+        default=180,
+        help="Per-job timeout in minutes (0 disables timeout)",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
@@ -98,6 +104,8 @@ def main() -> int:
         str(args.max_consecutive_failures),
         "--cycle-delay-seconds",
         str(args.cycle_delay_seconds),
+        "--job-timeout-minutes",
+        str(args.job_timeout_minutes),
         "--repeat",
         "--stamp-version",
         "--max-hours",

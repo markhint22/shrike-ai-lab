@@ -197,6 +197,7 @@ def run_job_with_version(
     job: Job,
     logs_dir: Path,
     version: str,
+    timeout_seconds: float | None = None,
 ) -> int:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_file = logs_dir / f"{timestamp}-{job.project}-{job.task}-{version}.log"
@@ -235,15 +236,22 @@ def run_job_with_version(
         log.write(f"START {datetime.now().isoformat()}\n")
         log.write("COMMAND " + " ".join(cmd) + "\n\n")
         log.flush()
-        proc = subprocess.run(
-            cmd,
-            cwd=str(repo_root),
-            env=env,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            text=True,
-            check=False,
-        )
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(repo_root),
+                env=env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            log.write(f"\nTIMEOUT after {timeout_seconds} seconds\n")
+            log.write(f"END {datetime.now().isoformat()}\n")
+            log.write("EXIT 124\n")
+            return 124
         log.write(f"\nEND {datetime.now().isoformat()}\n")
         log.write(f"EXIT {proc.returncode}\n")
 
@@ -258,12 +266,20 @@ def run_with_retries(
     version: str,
     retry_count: int,
     retry_lr_multiplier: float,
+    timeout_seconds: float | None,
 ) -> tuple[int, int]:
     """Run a job and optionally retry with safer params.
 
     Returns: (exit_code, attempts_used)
     """
-    code = run_job_with_version(python_exe, repo_root, job, logs_dir, version)
+    code = run_job_with_version(
+        python_exe,
+        repo_root,
+        job,
+        logs_dir,
+        version,
+        timeout_seconds=timeout_seconds,
+    )
     attempts = 1
     if code == 0:
         return code, attempts
@@ -290,7 +306,14 @@ def run_with_retries(
             f"with batch_size={safer_batch}, learning_rate={safer_lr}"
         )
 
-        code = run_job_with_version(python_exe, repo_root, retry_job, logs_dir, safer_version)
+        code = run_job_with_version(
+            python_exe,
+            repo_root,
+            retry_job,
+            logs_dir,
+            safer_version,
+            timeout_seconds=timeout_seconds,
+        )
         attempts += 1
         if code == 0:
             return code, attempts
@@ -355,6 +378,12 @@ def main() -> int:
         default=30.0,
         help="Delay between repeat cycles to avoid rapid failure loops (default: 30)",
     )
+    parser.add_argument(
+        "--job-timeout-minutes",
+        type=float,
+        default=180.0,
+        help="Per-job timeout in minutes (default: 180)",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
@@ -418,6 +447,7 @@ def main() -> int:
                     version=version,
                     retry_count=max(0, args.retry_count),
                     retry_lr_multiplier=args.retry_lr_multiplier,
+                    timeout_seconds=(None if args.job_timeout_minutes <= 0 else args.job_timeout_minutes * 60),
                 )
                 if attempts > 1:
                     retries_used += attempts - 1
