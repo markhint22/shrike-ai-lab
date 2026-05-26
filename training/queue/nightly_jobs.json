@@ -8,7 +8,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "specpilot-local",
+      "ab_gate_limit": 20
     },
     {
       "project": "gitlark",
@@ -18,7 +21,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
     },
     {
       "project": "billwatch",
@@ -28,7 +34,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
     },
     {
       "project": "shared",
@@ -38,7 +47,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002
+      "learning_rate": 0.0002,
+      "ab_gate_baseline_model": "phi3-local",
+      "ab_gate_candidate_model": "mistral-local",
+      "ab_gate_limit": 20
     }
   ]
 }

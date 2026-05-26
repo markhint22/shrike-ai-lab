@@ -33,6 +33,9 @@ class Job:
     learning_rate: float = 2e-4
     base_model: str | None = None
     max_seq_length: int | None = None
+    ab_gate_baseline_model: str | None = None
+    ab_gate_candidate_model: str | None = None
+    ab_gate_limit: int = 20
 
 
 def process_exists(pid: int) -> bool:
@@ -121,9 +124,67 @@ def load_jobs(jobs_file: Path) -> list[Job]:
                 learning_rate=float(item.get("learning_rate", 2e-4)),
                 base_model=item.get("base_model"),
                 max_seq_length=item.get("max_seq_length"),
+                ab_gate_baseline_model=item.get("ab_gate_baseline_model"),
+                ab_gate_candidate_model=item.get("ab_gate_candidate_model"),
+                ab_gate_limit=int(item.get("ab_gate_limit", 20)),
             )
         )
     return jobs
+
+
+def run_ab_gate_for_job(
+    python_exe: Path,
+    repo_root: Path,
+    job: Job,
+    logs_dir: Path,
+) -> tuple[bool, str]:
+    """Run A/B gate after a successful job when models are configured.
+
+    Returns (ok, message). Missing model aliases is treated as a skip.
+    """
+    if not job.ab_gate_baseline_model or not job.ab_gate_candidate_model:
+        return True, "ab-gate skipped (no baseline/candidate model configured)"
+
+    gate_dir = log_dir(repo_root, "ab_gates")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    gate_json = gate_dir / f"ab-gate-{job.project}-{job.task}-{stamp}.json"
+
+    gate_cmd = [
+        str(python_exe),
+        str(repo_root / "scripts" / "ab_eval_gate.py"),
+        "--project",
+        job.project,
+        "--task",
+        job.task,
+        "--baseline-model",
+        job.ab_gate_baseline_model,
+        "--candidate-model",
+        job.ab_gate_candidate_model,
+        "--limit",
+        str(max(1, job.ab_gate_limit)),
+        "--json-out",
+        str(gate_json),
+    ]
+
+    gate_log = logs_dir / f"ab-gate-{job.project}-{job.task}-{stamp}.log"
+    with gate_log.open("w", encoding="utf-8") as log:
+        log.write(f"START {datetime.now().isoformat()}\n")
+        log.write("COMMAND " + " ".join(gate_cmd) + "\n\n")
+        log.flush()
+        proc = subprocess.run(
+            gate_cmd,
+            cwd=str(repo_root),
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+        log.write(f"\nEND {datetime.now().isoformat()}\n")
+        log.write(f"EXIT {proc.returncode}\n")
+
+    if proc.returncode == 0:
+        return True, f"ab-gate complete ({gate_json.name})"
+    return False, f"ab-gate failed ({gate_log.name})"
 
 
 def run_job(python_exe: Path, repo_root: Path, job: Job, logs_dir: Path) -> int:
@@ -376,6 +437,18 @@ def main() -> int:
                 else:
                     successes += 1
                     consecutive_failures = 0
+                    gate_ok, gate_note = run_ab_gate_for_job(
+                        python_exe=python_exe,
+                        repo_root=repo_root,
+                        job=job,
+                        logs_dir=logs_dir,
+                    )
+                    print(f"A/B gate: {gate_note}")
+                    if not gate_ok:
+                        failures += 1
+                        if not args.continue_on_error:
+                            print("Stopping queue due to A/B gate failure")
+                            return 2
 
             if not args.repeat:
                 break
