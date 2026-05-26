@@ -13,7 +13,9 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pythonExe = Join-Path $repoRoot ".venv\Scripts\python.exe"
 $boardScript = Join-Path $repoRoot "scripts\training_intervention_board.py"
-$jsonOut = Join-Path $repoRoot "training\logs\intervention-board.json"
+$interventionsDir = Join-Path $repoRoot "training\logs\interventions"
+New-Item -ItemType Directory -Path $interventionsDir -Force | Out-Null
+$jsonOut = Join-Path $interventionsDir "intervention-board.json"
 
 if (-not (Test-Path $pythonExe)) {
     Write-Error "Python venv not found at $pythonExe"

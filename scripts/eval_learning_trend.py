@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from log_layout import resolve_run_log_dirs
+
 
 PAT = re.compile(
     r"^(\d{8}-\d{6})-([^-]+)-([^-]+)-nightly-[^-]+-[^-]+-c(\d{3})-\d{8}-\d{6}\.log$"
@@ -45,22 +47,30 @@ def parse_log(path: Path):
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
-    logs_dir = repo_root / "training" / "logs"
+    log_dirs = resolve_run_log_dirs(repo_root, "training/logs/runs")
 
     grouped: dict[tuple[str, str], list[dict]] = {}
-    for path in logs_dir.glob("*.log"):
-        parsed = parse_log(path)
-        if parsed is None:
-            continue
-        key = (parsed["project"], parsed["task"])
-        grouped.setdefault(key, []).append(parsed)
+    seen: set[Path] = set()
+    for directory in log_dirs:
+        for path in directory.glob("*.log"):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            parsed = parse_log(path)
+            if parsed is None:
+                continue
+            key = (parsed["project"], parsed["task"])
+            grouped.setdefault(key, []).append(parsed)
 
     if not grouped:
         print("No nightly run logs found.")
         return 0
 
     print("Learning Trend Summary")
-    print(f"Logs: {logs_dir}")
+    print("Logs:")
+    for directory in log_dirs:
+        print(f"- {directory}")
     print()
 
     for (project, task) in sorted(grouped):

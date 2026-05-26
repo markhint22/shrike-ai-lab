@@ -21,7 +21,7 @@ for /f "tokens=1-2 delims=/:" %%a in ('time /t') do (set mytime=%%a%%b)
 set TIMESTAMP=%mydate%-%mytime%
 
 REM Log file
-set LOGFILE=training\logs\startup-launcher-%TIMESTAMP%.log
+set LOGFILE=training\logs\startup\startup-launcher-%TIMESTAMP%.log
 
 echo. > "%LOGFILE%"
 echo ================================== >> "%LOGFILE%"

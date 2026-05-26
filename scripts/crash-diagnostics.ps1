@@ -7,7 +7,7 @@ param(
 )
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$logDir = "d:\LocalProjects\shrike-ai-lab\training\logs"
+$logDir = "d:\LocalProjects\shrike-ai-lab\training\logs\diagnostics"
 $diagLog = "$logDir\diagnostic-$timestamp.log"
 
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
@@ -121,7 +121,7 @@ if ($usedRamPercent -gt 85) {
 
 if ($criticalDisks.Count -gt 0) {
     $recommendations += "5. Clean up disk on drive(s): $($criticalDisks -join ', ')"
-    $recommendations += "   - Delete old training logs: 'Get-ChildItem training/logs -Filter *.log | Remove-Item'"
+    $recommendations += "   - Delete old run logs: 'Get-ChildItem training/logs/runs -Filter *.log | Remove-Item'"
     $recommendations += "   - Run: 'cleanmgr' (Disk Cleanup utility)"
 }
 

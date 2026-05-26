@@ -9,6 +9,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from log_layout import log_dir
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Start detached nightly training queue")
@@ -41,8 +43,7 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
-    logs_dir = repo_root / "training" / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = log_dir(repo_root, "queue")
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     launcher_log = logs_dir / f"queue-launch-{timestamp}.log"

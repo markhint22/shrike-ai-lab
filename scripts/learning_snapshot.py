@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from log_layout import resolve_run_log_dirs
+
 
 LOG_NAME_RE = re.compile(r"^(\d{8})-(\d{6})-([^-]+)-([^-]+)-.*\.log$")
 LOSS_RE = re.compile(r"'train_loss':\s*'?(\d+(?:\.\d+)?)'?")
@@ -27,8 +29,18 @@ class RunInfo:
     model_saved: bool
 
 
-def iter_logs(logs_dir: Path) -> Iterable[Path]:
-    for path in sorted(logs_dir.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True):
+def iter_logs(log_dirs: list[Path]) -> Iterable[Path]:
+    all_paths: list[Path] = []
+    seen: set[Path] = set()
+    for directory in log_dirs:
+        for path in directory.glob("*.log"):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            all_paths.append(path)
+
+    for path in sorted(all_paths, key=lambda p: p.stat().st_mtime, reverse=True):
         if LOG_NAME_RE.match(path.name):
             yield path
 
@@ -88,15 +100,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Show a plain-language learning snapshot")
     parser.add_argument(
         "--logs-dir",
-        default="training/logs",
+        default="training/logs/runs",
         help="Directory containing training log files",
     )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
-    logs_dir = (repo_root / args.logs_dir).resolve()
-    if not logs_dir.exists():
-        print(f"Logs directory not found: {logs_dir}")
+    log_dirs = resolve_run_log_dirs(repo_root, args.logs_dir)
+    if not log_dirs:
+        print("No log directories found for training runs")
         return 1
 
     latest_by_project: dict[str, RunInfo] = {}
@@ -104,7 +116,7 @@ def main() -> int:
     total_fail = 0
     total_running = 0
 
-    for path in iter_logs(logs_dir):
+    for path in iter_logs(log_dirs):
         info = parse_log(path)
         if info is None:
             continue
@@ -120,7 +132,9 @@ def main() -> int:
             latest_by_project[info.project] = info
 
     print("Learning Snapshot")
-    print(f"Logs: {logs_dir}")
+    print("Logs:")
+    for directory in log_dirs:
+        print(f"- {directory}")
     print(f"Completed OK: {total_ok} | Completed Fail: {total_fail} | Running: {total_running}")
     print()
     print("Latest by project:")

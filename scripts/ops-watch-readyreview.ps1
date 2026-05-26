@@ -15,15 +15,12 @@ if (-not (Test-Path $notifyScript)) {
     Write-Error "Notifier script not found: $notifyScript"
 }
 
-$argsList = @(
-    "-Watch",
-    "-Hours", $Hours,
-    "-MinSuccessRuns", $MinSuccessRuns,
-    "-MaxFailRate", $MaxFailRate,
-    "-IntervalSec", $IntervalSec
-)
-
-if ($QuietBoard) { $argsList += "-QuietBoard" }
-if ($UseModalDialog) { $argsList += "-UseModalDialog" }
-
-& $notifyScript @argsList
+if ($QuietBoard -and $UseModalDialog) {
+    & $notifyScript -Watch -Hours $Hours -MinSuccessRuns $MinSuccessRuns -MaxFailRate $MaxFailRate -IntervalSec $IntervalSec -QuietBoard -UseModalDialog
+} elseif ($QuietBoard) {
+    & $notifyScript -Watch -Hours $Hours -MinSuccessRuns $MinSuccessRuns -MaxFailRate $MaxFailRate -IntervalSec $IntervalSec -QuietBoard
+} elseif ($UseModalDialog) {
+    & $notifyScript -Watch -Hours $Hours -MinSuccessRuns $MinSuccessRuns -MaxFailRate $MaxFailRate -IntervalSec $IntervalSec -UseModalDialog
+} else {
+    & $notifyScript -Watch -Hours $Hours -MinSuccessRuns $MinSuccessRuns -MaxFailRate $MaxFailRate -IntervalSec $IntervalSec
+}

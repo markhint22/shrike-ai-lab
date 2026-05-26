@@ -7,7 +7,7 @@ Restores local services and training queue after reboot/crash:
 - Nightly training queue (detached)
 - Optional Open WebUI via docker compose (if docker exists)
 
-Also captures Windows crash diagnostics to training/logs/crash-diag-*.txt.
+Also captures Windows crash diagnostics to training/logs/diagnostics/crash-diag-*.txt.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from log_layout import ensure_log_layout, log_dir, logs_root
 
 
 def utc_now_iso() -> str:
@@ -254,7 +256,9 @@ def cleanup_extra_litellm() -> dict[str, Any]:
 
 
 def training_running(repo_root: Path) -> bool:
-    pid_file = repo_root / "training" / "logs" / "nightly-queue.pid"
+    queue_pid = log_dir(repo_root, "queue") / "nightly-queue.pid"
+    legacy_pid = logs_root(repo_root) / "nightly-queue.pid"
+    pid_file = queue_pid if queue_pid.exists() else legacy_pid
     if not pid_file.exists():
         return False
     try:
@@ -323,8 +327,7 @@ def start_open_webui_if_possible(repo_root: Path) -> tuple[bool, str]:
 
 
 def collect_crash_diagnostics(repo_root: Path, lookback_hours: int = 24) -> Path:
-    logs_dir = repo_root / "training" / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = log_dir(repo_root, "diagnostics")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_file = logs_dir / f"crash-diag-{stamp}.txt"
 
@@ -377,8 +380,9 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
-    logs_dir = repo_root / "training" / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    ensure_log_layout(repo_root)
+    recovery_dir = log_dir(repo_root, "recovery")
+    services_dir = log_dir(repo_root, "services")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     summary: dict[str, Any] = {"timestamp_utc": utc_now_iso()}
@@ -395,8 +399,8 @@ def main() -> int:
         diag_file = collect_crash_diagnostics(repo_root)
         summary["diagnostics_file"] = str(diag_file)
 
-    ollama_log = logs_dir / f"recovery-ollama-{stamp}.log"
-    litellm_log = logs_dir / f"recovery-litellm-{stamp}.log"
+    ollama_log = services_dir / f"recovery-ollama-{stamp}.log"
+    litellm_log = services_dir / f"recovery-litellm-{stamp}.log"
 
     step("[3/6] ensuring Ollama is healthy")
     summary["ollama_ok"] = start_ollama(ollama_log)
@@ -418,7 +422,7 @@ def main() -> int:
         summary["open_webui_ok"] = webui_ok
         summary["open_webui_note"] = webui_note
 
-    summary_file = logs_dir / f"recovery-summary-{stamp}.json"
+    summary_file = recovery_dir / f"recovery-summary-{stamp}.json"
     summary_file.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(json.dumps(summary, indent=2))

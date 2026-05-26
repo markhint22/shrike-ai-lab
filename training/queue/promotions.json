@@ -1,0 +1,13 @@
+{
+  "promotions": [
+    {
+      "project": "shared",
+      "task": "code_review",
+      "decision": "PROMOTE",
+      "source_report": "training/logs/ab-gates/ab-gate-shared-code_review.json",
+      "promoted_model": "phi3-local",
+      "promoted_at": "2026-05-26T13:00:00",
+      "notes": "Approved by operator after A/B gate passed with improved accuracy and latency."
+    }
+  ]
+}

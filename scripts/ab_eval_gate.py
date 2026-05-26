@@ -61,6 +61,39 @@ def decide(
 async def run_gate(args: argparse.Namespace) -> int:
     evaluator = ModelEvaluator(local_url=args.local_url, local_key=args.local_key)
 
+    if args.baseline_model == args.candidate_model:
+        report: dict[str, Any] = {
+            "generated_at": datetime.now().isoformat(),
+            "project": args.project,
+            "task": args.task,
+            "test_data": args.test_data,
+            "gate": {
+                "min_accuracy_delta": args.min_accuracy_delta,
+                "max_latency_regression_pct": args.max_latency_regression_pct,
+            },
+            "baseline_model": args.baseline_model,
+            "candidate_model": args.candidate_model,
+            "decision": "HOLD",
+            "reasons": ["Baseline and candidate model names are identical; use distinct versions for promotion."],
+            "deltas": {},
+        }
+
+        print("A/B Evaluation Gate")
+        print(f"Project/task: {args.project}/{args.task}")
+        print(f"Test data:    {args.test_data}")
+        print(f"Baseline:     {args.baseline_model}")
+        print(f"Candidate:    {args.candidate_model}")
+        print("Decision:     HOLD")
+        print("  - Baseline and candidate model names are identical; use distinct versions for promotion.")
+
+        if args.json_out:
+            out = Path(args.json_out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            print(f"Report saved: {out}")
+
+        return 0
+
     baseline = await evaluator.evaluate_test_set(
         model=args.baseline_model,
         task=args.task,

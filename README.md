@@ -241,7 +241,7 @@ python scripts/eval_learning_trend.py
 python scripts/training_intervention_board.py
 
 # 3) Save machine-readable report for tracking/history
-python scripts/training_intervention_board.py --json-out training/logs/intervention-board.json
+python scripts/training_intervention_board.py --json-out training/logs/interventions/intervention-board.json
 
 # 4) Live watch mode (refresh every 60s)
 python scripts/training_intervention_board.py --watch --interval 60

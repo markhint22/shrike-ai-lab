@@ -19,6 +19,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from log_layout import ensure_log_layout, log_dir
+
 
 @dataclass
 class Job:
@@ -289,9 +291,10 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     jobs_file = (repo_root / args.jobs_file).resolve()
     python_exe = Path(args.python).resolve()
-    logs_dir = repo_root / "training" / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    lock_file = logs_dir / "train-queue.lock"
+    ensure_log_layout(repo_root)
+    logs_dir = log_dir(repo_root, "runs")
+    queue_dir = log_dir(repo_root, "queue")
+    lock_file = queue_dir / "train-queue.lock"
     lock_fd = acquire_queue_lock(lock_file)
     if lock_fd is None:
         return 0

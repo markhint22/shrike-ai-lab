@@ -22,7 +22,7 @@ $taskName = "ShrikeAILabRecovery"
 $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
 $cmdPath = Join-Path $startupDir "ShrikeAILabRecovery.cmd"
 $taskCmd = ('"{0}" "{1}"' -f $pythonExe, $recoveryScript)
-$logsDir = Join-Path $repoRoot "training\logs"
+$logsDir = Join-Path $repoRoot "training\logs\startup"
 $startupRunLog = Join-Path $logsDir "startup-recover-last.log"
 $startupExitLog = Join-Path $logsDir "startup-recover-last-exit.txt"
 

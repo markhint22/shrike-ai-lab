@@ -16,6 +16,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from log_layout import resolve_run_log_dirs
+
 PAT = re.compile(
     r"^(\d{8}-\d{6})-([^-]+)-([^-]+)-nightly-[^-]+-[^-]+-c(\d{3})-\d{8}-\d{6}\.log$"
 )
@@ -249,28 +251,34 @@ def write_json(path: Path, rows: list[BoardRow], args: argparse.Namespace) -> No
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def load_runs(logs_dir: Path, project_filter: str | None = None) -> dict[tuple[str, str], list[RunInfo]]:
+def load_runs(log_dirs: list[Path], project_filter: str | None = None) -> dict[tuple[str, str], list[RunInfo]]:
     grouped: dict[tuple[str, str], list[RunInfo]] = {}
 
-    for path in logs_dir.glob("*.log"):
-        parsed = parse_log(path)
-        if parsed is None:
-            continue
-        if project_filter and parsed.project != project_filter:
-            continue
-        key = (parsed.project, parsed.task)
-        grouped.setdefault(key, []).append(parsed)
+    seen: set[Path] = set()
+    for directory in log_dirs:
+        for path in directory.glob("*.log"):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            parsed = parse_log(path)
+            if parsed is None:
+                continue
+            if project_filter and parsed.project != project_filter:
+                continue
+            key = (parsed.project, parsed.task)
+            grouped.setdefault(key, []).append(parsed)
 
     return grouped
 
 
 def render_once(args: argparse.Namespace) -> int:
     repo_root = Path(__file__).resolve().parent.parent
-    logs_dir = repo_root / args.logs_dir
+    log_dirs = resolve_run_log_dirs(repo_root, args.logs_dir)
 
-    grouped = load_runs(logs_dir=logs_dir, project_filter=args.project)
+    grouped = load_runs(log_dirs=log_dirs, project_filter=args.project)
     if not grouped:
-        print(f"No nightly logs found in {logs_dir}")
+        print("No nightly logs found in configured run log directories")
         return 0
 
     rows = build_rows(
@@ -293,7 +301,7 @@ def render_once(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Human intervention dashboard for training runs")
-    parser.add_argument("--logs-dir", default="training/logs", help="Logs directory relative to repo root")
+    parser.add_argument("--logs-dir", default="training/logs/runs", help="Logs directory relative to repo root")
     parser.add_argument("--hours", type=int, default=24, help="Lookback window in hours")
     parser.add_argument(
         "--min-success-runs",

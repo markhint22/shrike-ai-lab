@@ -9,7 +9,7 @@ param(
 )
 
 $projectRoot = "d:\LocalProjects\shrike-ai-lab"
-$logDir = "$projectRoot\training\logs"
+$logDir = "$projectRoot\training\logs\monitoring"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $monitorLog = "$logDir\training-monitor-$timestamp.log"
 

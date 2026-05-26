@@ -119,7 +119,7 @@ if (Test-Path $shortcutPath) {
     Log "  • Training queue (nightly agent training)"
     Log ""
     Log "Startup logs location:"
-    Log "  d:\LocalProjects\shrike-ai-lab\training\logs\startup-*.log"
+    Log "  d:\LocalProjects\shrike-ai-lab\training\logs\startup\startup-*.log"
     Log ""
     Log "To disable auto-start, run:"
     Log "  .\scripts\register-startup.ps1 -Uninstall"

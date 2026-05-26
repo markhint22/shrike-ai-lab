@@ -7,7 +7,7 @@ param(
 )
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$logsDir = Join-Path $repoRoot "training/logs"
+$logsDir = Join-Path $repoRoot "training/logs/queue"
 New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"

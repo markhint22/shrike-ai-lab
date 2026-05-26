@@ -9,10 +9,14 @@ param(
 )
 
 $projectRoot = "d:\LocalProjects\shrike-ai-lab"
-$logDir = "$projectRoot\training\logs"
-$recoveryLog = "$logDir\startup-recovery-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+$startupLogDir = "$projectRoot\training\logs\startup"
+$servicesLogDir = "$projectRoot\training\logs\services"
+$queueLogDir = "$projectRoot\training\logs\queue"
+$recoveryLog = "$startupLogDir\startup-recovery-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
-New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+New-Item -ItemType Directory -Path $startupLogDir -Force | Out-Null
+New-Item -ItemType Directory -Path $servicesLogDir -Force | Out-Null
+New-Item -ItemType Directory -Path $queueLogDir -Force | Out-Null
 
 function Log {
     param([string]$msg, [string]$level = "INFO")
@@ -77,7 +81,7 @@ function Start-LiteLLM {
     # Start LiteLLM in background
     $env:LITELLM_MASTER_KEY = "sk-shrike-local"
     
-    $logFile = "$logDir\litellm-startup.log"
+    $logFile = "$servicesLogDir\litellm-startup.log"
     $pythonPath = "C:\Users\markh\AppData\Local\Programs\Python\Python311\python.exe"
     
     try {
@@ -151,7 +155,7 @@ function Start-TrainingQueue {
         Log "Started training queue PID $($process.Id)" "SUCCESS"
         
         # Save PID for monitoring
-        Set-Content -Path "$logDir\nightly-queue.pid" -Value $process.Id -Encoding ASCII
+        Set-Content -Path "$queueLogDir\nightly-queue.pid" -Value $process.Id -Encoding ASCII
         
         return $true
         

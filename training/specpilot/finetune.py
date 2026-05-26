@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 SpecPilot Fine-tuning Script
 ============================
@@ -16,20 +18,25 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import Any
+
+try:
+    from datasets import Dataset
+except ImportError:
+    Dataset = Any
 
 # Check for required packages
 try:
     from unsloth import FastLanguageModel
-    from datasets import Dataset
     from transformers import TrainingArguments
     from trl import SFTTrainer
     UNSLOTH_AVAILABLE = True
 except ImportError:
     UNSLOTH_AVAILABLE = False
-    print("⚠️  Unsloth not installed. Run: pip install unsloth")
+    print("[WARN] Unsloth not installed. Run: pip install unsloth")
 
 
-def load_training_data(data_path: str) -> Dataset:
+def load_training_data(data_path: str, task: str | None = None) -> Dataset:
     """Load JSONL training data and convert to instruction format."""
     examples = []
     

@@ -6,6 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pythonExe = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$interventionsDir = Join-Path $repoRoot "training\logs\interventions"
+New-Item -ItemType Directory -Path $interventionsDir -Force | Out-Null
 
 if (-not (Test-Path $pythonExe)) {
     Write-Error "Python venv not found at $pythonExe"
@@ -51,5 +53,5 @@ if ($IncludeTrainingSummaries) {
 
     Write-Host ""
     Write-Host "[Intervention board]"
-    & $pythonExe (Join-Path $repoRoot "scripts\training_intervention_board.py") --json-out (Join-Path $repoRoot "training\logs\intervention-board.json")
+    & $pythonExe (Join-Path $repoRoot "scripts\training_intervention_board.py") --json-out (Join-Path $interventionsDir "intervention-board.json")
 }
