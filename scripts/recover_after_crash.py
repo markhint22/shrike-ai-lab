@@ -60,7 +60,10 @@ def http_status(url: str, headers: dict[str, str] | None = None, timeout: float 
             return response.status
     except HTTPError as err:
         return err.code
-    except URLError:
+    except (URLError, TimeoutError, OSError):
+        # Python 3.11+: socket-level TimeoutError is NOT a subclass of URLError
+        # and can escape the URLError handler when the port is bound but not
+        # yet fully serving (common during LiteLLM startup after a crash).
         return None
 
 
@@ -193,11 +196,18 @@ def start_ollama(log_file: Path) -> bool:
 
 
 def litellm_is_healthy() -> bool:
+    # Quick port check first — avoids a slow HTTP timeout when the process
+    # hasn't bound the port yet, and lets the urlopen timeout guard against
+    # the port-bound-but-not-serving window seen during LiteLLM startup.
+    if not is_port_open("localhost", 4000, timeout=1.0):
+        return False
     status = http_status(
         "http://localhost:4000/health",
         headers={"Authorization": "Bearer sk-shrike-local"},
-        timeout=8,
+        timeout=10,
     )
+    # LiteLLM /health returns 200 when all configured endpoints are reachable.
+    # A 401 means the proxy is running but the key is wrong — not a crash.
     return status == 200
 
 
@@ -235,7 +245,8 @@ def start_litellm(repo_root: Path, py_exe: Path, log_file: Path) -> bool:
             creationflags=creationflags,
         )
 
-    for _ in range(30):
+    # LiteLLM can take 45-90 s to fully start on this machine; poll generously.
+    for _ in range(90):
         if litellm_is_healthy():
             return True
         time.sleep(1)
