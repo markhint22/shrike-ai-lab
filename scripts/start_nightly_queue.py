@@ -13,6 +13,16 @@ from pathlib import Path
 from log_layout import log_dir
 
 
+def process_exists(pid: int) -> bool:
+    result = subprocess.run(
+        ["tasklist", "/FI", f"PID eq {pid}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return str(pid) in (result.stdout or "")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Start detached nightly training queue")
     parser.add_argument("--python", default=sys.executable, help="Python executable for the queue")
@@ -49,6 +59,30 @@ def main() -> int:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     launcher_log = logs_dir / f"queue-launch-{timestamp}.log"
     pid_file = logs_dir / "nightly-queue.pid"
+    lock_file = logs_dir / "train-queue.lock"
+
+    # Prevent duplicate queue instances: prefer PID file, then lock owner.
+    if pid_file.exists():
+        try:
+            existing_pid = int(pid_file.read_text(encoding="ascii").strip())
+        except ValueError:
+            existing_pid = None
+        if existing_pid and process_exists(existing_pid):
+            print("Nightly queue is already running.")
+            print(f"PID: {existing_pid}")
+            print(f"PID file: {pid_file}")
+            return 0
+
+    if lock_file.exists():
+        try:
+            lock_pid = int(lock_file.read_text(encoding="ascii").strip())
+        except ValueError:
+            lock_pid = None
+        if lock_pid and process_exists(lock_pid):
+            print("Nightly queue lock indicates an active instance.")
+            print(f"Lock owner PID: {lock_pid}")
+            print(f"Lock file: {lock_file}")
+            return 0
 
     command = [
         str(Path(args.python).resolve()),
