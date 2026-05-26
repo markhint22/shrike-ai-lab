@@ -123,9 +123,13 @@ def find_docker() -> Path | None:
 
 
 def get_litellm_pids() -> list[int]:
+    # Match both invocation styles:
+    #   python -m litellm.proxy.proxy_cli   (module invocation)
+    #   litellm.exe --config ...            (console-script / exe wrapper)
     query = (
         "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.CommandLine -match 'litellm\\.proxy\\.proxy_cli' } | "
+        "Where-Object { $_.CommandLine -match 'litellm\\.proxy\\.proxy_cli' -or "
+        "($_.CommandLine -match 'litellm\\.exe' -and $_.CommandLine -match '--config') } | "
         "Select-Object -ExpandProperty ProcessId"
     )
     try:
