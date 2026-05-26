@@ -33,7 +33,6 @@ try:
     UNSLOTH_AVAILABLE = True
 except ImportError:
     UNSLOTH_AVAILABLE = False
-    print("[WARN] Unsloth not installed. Run: pip install unsloth")
 
 
 def load_training_data(data_path: str, task: str | None = None) -> Dataset:
