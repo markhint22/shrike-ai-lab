@@ -8,3 +8,8 @@
 {"instruction": "Scroll to the bottom of the page", "playwright_code": "await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))"}
 {"instruction": "Wait 2 seconds for animation to complete", "playwright_code": "await page.waitForTimeout(2000)"}
 {"instruction": "Verify the success message appears", "playwright_code": "await expect(page.locator('.success-message')).toBeVisible()"}
+{"instruction": "Open the settings page", "playwright_code": "await page.goto('/settings')"}
+{"instruction": "Type Secret123! into the password input", "playwright_code": "await page.fill('input[name=\"password\"]', 'Secret123!')"}
+{"instruction": "Click the Save Profile button", "playwright_code": "await page.click('[data-testid=\"save-profile\"]')"}
+{"instruction": "Assert the URL contains /dashboard", "playwright_code": "await expect(page).toHaveURL(/.*dashboard/)"}
+{"instruction": "Wait until the loading spinner disappears", "playwright_code": "await page.waitForSelector('[data-testid=\"loading-spinner\"]', { state: 'hidden' })"}

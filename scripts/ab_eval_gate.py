@@ -72,6 +72,121 @@ def decide(
     return "PROMOTE", ["Meets accuracy and latency gates."]
 
 
+def _iter_prior_reports(report_path: Path, project: str, task: str) -> list[dict[str, Any]]:
+    """Load prior A/B gate reports for the same project/task from the same folder."""
+    reports: list[dict[str, Any]] = []
+    if not report_path.parent.exists():
+        return reports
+
+    prefix = f"ab-gate-{project}-{task}-"
+    for candidate in report_path.parent.glob("ab-gate-*.json"):
+        name = candidate.name
+        if not name.startswith(prefix):
+            continue
+        if candidate.resolve() == report_path.resolve():
+            continue
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if payload.get("project") != project or payload.get("task") != task:
+            continue
+        payload["_file"] = name
+        reports.append(payload)
+
+    reports.sort(key=lambda item: item.get("generated_at", ""))
+    return reports
+
+
+def apply_stability_rule(
+    *,
+    raw_decision: str,
+    raw_reasons: list[str],
+    project: str,
+    task: str,
+    baseline_model: str,
+    candidate_model: str,
+    current_eval_examples: int,
+    json_out_path: Path | None,
+    min_consecutive_promotes: int,
+    min_eval_examples: int,
+) -> tuple[str, list[str], dict[str, Any]]:
+    """Apply stability policy on top of the raw gate decision.
+
+    Policy:
+    - Any raw HOLD remains HOLD.
+    - PROMOTE requires at least N consecutive PROMOTE results.
+    - PROMOTE requires decision-grade eval size (minimum examples).
+    - If a later HOLD appears, streak resets; HOLD overrides earlier promote.
+    """
+    stability_meta: dict[str, Any] = {
+        "required_consecutive_promotes": min_consecutive_promotes,
+        "min_eval_examples": min_eval_examples,
+        "current_eval_examples": current_eval_examples,
+        "history_reports_considered": 0,
+        "promote_streak": 0,
+        "matching_history_reports": 0,
+    }
+
+    if raw_decision != "PROMOTE":
+        return "HOLD", raw_reasons, stability_meta
+
+    if current_eval_examples < min_eval_examples:
+        return (
+            "HOLD",
+            raw_reasons
+            + [
+                f"Eval size {current_eval_examples} below decision-grade minimum {min_eval_examples}; rerun with larger limit."
+            ],
+            stability_meta,
+        )
+
+    if not json_out_path:
+        # Without report history we cannot validate streak; fail safe.
+        return (
+            "HOLD",
+            raw_reasons
+            + [
+                "No JSON output path was provided, so stability streak could not be verified.",
+            ],
+            stability_meta,
+        )
+
+    prior = _iter_prior_reports(json_out_path, project=project, task=task)
+    stability_meta["history_reports_considered"] = len(prior)
+
+    matching: list[dict[str, Any]] = [
+        item
+        for item in prior
+        if item.get("baseline", {}).get("model", item.get("baseline_model")) == baseline_model
+        and item.get("candidate", {}).get("model", item.get("candidate_model")) == candidate_model
+    ]
+    stability_meta["matching_history_reports"] = len(matching)
+
+    streak = 1  # include current raw PROMOTE
+    for item in reversed(matching):
+        if item.get("decision") == "PROMOTE":
+            examples = int(item.get("baseline", {}).get("total_examples", 0) or 0)
+            if examples >= min_eval_examples:
+                streak += 1
+                continue
+        break
+
+    stability_meta["promote_streak"] = streak
+
+    if streak < min_consecutive_promotes:
+        return (
+            "HOLD",
+            raw_reasons
+            + [
+                f"PROMOTE streak {streak}/{min_consecutive_promotes} not yet met; keep HOLD until consecutive promotes are stable.",
+            ],
+            stability_meta,
+        )
+
+    return "PROMOTE", raw_reasons + ["Promotion stability rule satisfied."], stability_meta
+
+
 async def run_gate(args: argparse.Namespace) -> int:
     evaluator = ModelEvaluator(local_url=args.local_url, local_key=args.local_key)
 
@@ -133,6 +248,19 @@ async def run_gate(args: argparse.Namespace) -> int:
         max_latency_regression_pct=args.max_latency_regression_pct,
     )
 
+    final_decision, final_reasons, stability_meta = apply_stability_rule(
+        raw_decision=decision,
+        raw_reasons=reasons,
+        project=args.project,
+        task=args.task,
+        baseline_model=args.baseline_model,
+        candidate_model=args.candidate_model,
+        current_eval_examples=baseline.total_examples,
+        json_out_path=(Path(args.json_out) if args.json_out else None),
+        min_consecutive_promotes=max(1, args.min_consecutive_promotes),
+        min_eval_examples=max(1, args.min_eval_examples),
+    )
+
     report: dict[str, Any] = {
         "generated_at": datetime.now().isoformat(),
         "project": args.project,
@@ -144,8 +272,11 @@ async def run_gate(args: argparse.Namespace) -> int:
         },
         "baseline": asdict(baseline),
         "candidate": asdict(candidate),
-        "decision": decision,
-        "reasons": reasons,
+        "raw_decision": decision,
+        "raw_reasons": reasons,
+        "decision": final_decision,
+        "reasons": final_reasons,
+        "stability": stability_meta,
         "deltas": {
             "accuracy": candidate.accuracy - baseline.accuracy,
             "avg_latency_ms": candidate.avg_latency_ms - baseline.avg_latency_ms,
@@ -163,8 +294,10 @@ async def run_gate(args: argparse.Namespace) -> int:
     print(f"Test data:    {args.test_data}")
     print(f"Baseline:     {args.baseline_model} (accuracy={baseline.accuracy:.1%}, latency={baseline.avg_latency_ms:.0f}ms)")
     print(f"Candidate:    {args.candidate_model} (accuracy={candidate.accuracy:.1%}, latency={candidate.avg_latency_ms:.0f}ms)")
-    print(f"Decision:     {decision}")
-    for reason in reasons:
+    print(f"Decision:     {final_decision}")
+    if final_decision != decision:
+        print(f"Raw decision: {decision} (overridden by stability policy)")
+    for reason in final_reasons:
         print(f"  - {reason}")
 
     if args.json_out:
@@ -197,6 +330,18 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.20,
         help="Max allowed latency regression as fraction (default: 0.20 = 20%%)",
+    )
+    parser.add_argument(
+        "--min-consecutive-promotes",
+        type=int,
+        default=2,
+        help="Consecutive PROMOTE runs required before final PROMOTE (default: 2)",
+    )
+    parser.add_argument(
+        "--min-eval-examples",
+        type=int,
+        default=10,
+        help="Minimum examples required for promotion-grade evaluation (default: 10)",
     )
 
     parser.add_argument("--json-out", help="Optional JSON report output path")

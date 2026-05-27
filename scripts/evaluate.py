@@ -174,11 +174,61 @@ class ModelEvaluator:
             overlap = len(expected_words & actual_words) / max(len(expected_words), 1)
             return overlap > 0.3
 
+        elif task == "failure_analysis":
+            # Avoid always-pass behavior: require both diagnosis/fix structure and content overlap.
+            has_diag_fix = (
+                ("diagnosis" in actual_norm or "root cause" in actual_norm)
+                and ("fix" in actual_norm or "resolve" in actual_norm or "mitigation" in actual_norm)
+            )
+            expected_words = {
+                w.strip(".,:;()[]{}\"'`)`(")
+                for w in expected_norm.split()
+                if len(w.strip(".,:;()[]{}\"'`)`(")) >= 4
+            }
+            actual_words = {
+                w.strip(".,:;()[]{}\"'`)`(")
+                for w in actual_norm.split()
+                if len(w.strip(".,:;()[]{}\"'`)`(")) >= 4
+            }
+            overlap = len(expected_words & actual_words) / max(len(expected_words), 1)
+            return has_diag_fix and overlap >= 0.20
+
+        elif task == "flow_analysis":
+            # Structured robustness: accept prose/json if it captures auth + flow type signals.
+            has_auth_signal = any(token in actual_norm for token in ["requires_auth", "auth", "login", "unauthenticated"])
+            has_flow_signal = any(
+                token in actual_norm
+                for token in [
+                    "authenticated_page",
+                    "public_form",
+                    "multi_step_authenticated",
+                    "admin_authenticated",
+                    "public_static",
+                    "mixed_auth",
+                    "flow_type",
+                ]
+            )
+            has_setup_signal = any(token in actual_norm for token in ["setup", "create_user", "seed", "role", "prerequisite"])
+            return has_auth_signal and has_flow_signal and has_setup_signal
+
+        elif task == "test_building":
+            # Require test-building behavior, not arbitrary text.
+            has_playwright_signal = any(token in actual_norm for token in ["await", "page.", "expect("])
+            has_assertion_signal = any(token in actual_norm for token in ["tobe", "tocontain", "assert", "expect"])
+            expected_words = set(expected_norm.split())
+            actual_words = set(actual_norm.split())
+            overlap = len(expected_words & actual_words) / max(len(expected_words), 1)
+            return has_playwright_signal and has_assertion_signal and overlap >= 0.10
+
+        elif task == "test_generation":
+            # For step-to-code tasks, require executable shape plus key action overlap.
+            has_playwright_shape = "await" in actual_norm and "page." in actual_norm
+            expected_words = set(expected_norm.split())
+            actual_words = set(actual_norm.split())
+            overlap = len(expected_words & actual_words) / max(len(expected_words), 1)
+            return has_playwright_shape and overlap >= 0.12
+
         elif task in (
-            "test_generation",
-            "failure_analysis",
-            "flow_analysis",
-            "test_building",
             "pr_description",
             "repo_intelligence",
             "memdiff",
