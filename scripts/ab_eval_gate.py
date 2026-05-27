@@ -18,9 +18,23 @@ from evaluate import ModelEvaluator
 
 DEFAULT_TEST_DATA = {
     ("specpilot", "selector_optimization"): "training/specpilot/data/selector_optimization.jsonl",
+    ("specpilot", "test_generation"): "training/specpilot/data/test_generation.jsonl",
+    ("specpilot", "failure_analysis"): "training/specpilot/data/failure_analysis.jsonl",
+    ("specpilot", "flow_analysis"): "training/specpilot/data/flow_analysis.jsonl",
+    ("specpilot", "test_building"): "training/specpilot/data/test_building.jsonl",
+    ("gitlark", "code_explanation"): "training/gitlark/data/code_explanation.jsonl",
+    ("gitlark", "pr_description"): "training/gitlark/data/pr_descriptions.jsonl",
     ("gitlark", "code_review"): "training/gitlark/data/code_review.jsonl",
+    ("gitlark", "commit_message"): "training/gitlark/data/commit_messages.jsonl",
+    ("gitlark", "repo_intelligence"): "training/gitlark/data/repo_intelligence.jsonl",
+    ("gitlark", "memdiff"): "training/gitlark/data/memdiff.jsonl",
+    ("billwatch", "summarization"): "training/billwatch/data/bill_summaries.jsonl",
     ("shared", "code_review"): "training/gitlark/data/code_review.jsonl",
+    ("shared", "moderation"): "training/shared/data/moderation.jsonl",
     ("billwatch", "classification"): "training/billwatch/data/classification.jsonl",
+    ("billwatch", "impact"): "training/billwatch/data/impact.jsonl",
+    ("billwatch", "bill_background"): "training/billwatch/data/bill_background.jsonl",
+    ("billwatch", "article_relevance"): "training/billwatch/data/article_relevance.jsonl",
 }
 
 

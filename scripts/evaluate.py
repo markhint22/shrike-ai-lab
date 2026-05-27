@@ -173,6 +173,26 @@ class ModelEvaluator:
             actual_words = set(actual_norm.split())
             overlap = len(expected_words & actual_words) / max(len(expected_words), 1)
             return overlap > 0.3
+
+        elif task in (
+            "test_generation",
+            "failure_analysis",
+            "flow_analysis",
+            "test_building",
+            "pr_description",
+            "repo_intelligence",
+            "memdiff",
+            "bill_background",
+            "article_relevance",
+        ):
+            # Structured outputs vary, so use loose lexical overlap.
+            expected_words = set(expected_norm.split())
+            actual_words = set(actual_norm.split())
+            overlap = len(expected_words & actual_words) / max(len(expected_words), 1)
+            return overlap > 0.15
+
+        elif task == "moderation":
+            return expected_norm in actual_norm
         
         elif task == "commit_message":
             # Check format and key words
@@ -263,6 +283,77 @@ class ModelEvaluator:
             return example.get("diff", ""), example.get("commit_message", "")
         elif task == "selector_optimization":
             return example.get("html", ""), example.get("good_selector", "")
+        elif task == "test_generation":
+            return example.get("instruction", ""), example.get("playwright_code", "")
+        elif task == "failure_analysis":
+            input_text = f"Error: {example.get('error', '')}\nSelector: {example.get('selector', '')}"
+            expected = f"Diagnosis: {example.get('diagnosis', '')}\nFix: {example.get('fix', '')}"
+            return input_text, expected
+        elif task == "flow_analysis":
+            input_text = (
+                f"Step: {example.get('test_plan_step', '')}\n"
+                f"HTML: {example.get('page_html_snippet', '')}"
+            )
+            expected = json.dumps(
+                {
+                    "requires_auth": example.get("requires_auth"),
+                    "flow_type": example.get("flow_type"),
+                    "recommended_setup": example.get("recommended_setup", {}),
+                },
+                ensure_ascii=False,
+            )
+            return input_text, expected
+        elif task == "test_building":
+            input_text = f"Goal: {example.get('test_goal', '')}\nFlow: {example.get('flow_type', '')}"
+            return input_text, example.get("full_test", "")
+        elif task == "pr_description":
+            input_text = example.get("diff", "")
+            expected = f"Title: {example.get('title', '')}\n\n{example.get('description', '')}".strip()
+            return input_text, expected
+        elif task == "repo_intelligence":
+            input_text = (
+                f"Repo: {example.get('repo_name', '')}\n"
+                f"File tree:\n{example.get('file_tree', '')}\n"
+                f"Metadata: {example.get('metadata', {})}"
+            )
+            expected = json.dumps(
+                {
+                    "suggested_features": example.get("suggested_features", []),
+                    "learning_path": example.get("learning_path", []),
+                },
+                ensure_ascii=False,
+            )
+            return input_text, expected
+        elif task == "memdiff":
+            input_text = (
+                f"Scenario: {example.get('scenario', '')}\n"
+                f"Query: {example.get('user_query', '')}\n"
+                f"Memory: {example.get('memory_state', {})}"
+            )
+            expected = json.dumps(
+                {
+                    "decision": example.get("decision", ""),
+                    "action": example.get("action", ""),
+                    "reasoning": example.get("reasoning", ""),
+                    "response_plan": example.get("response_plan", ""),
+                },
+                ensure_ascii=False,
+            )
+            return input_text, expected
+        elif task == "bill_background":
+            input_text = f"Title: {example.get('title', '')}\nBill: {example.get('bill_text', '')}"
+            expected = json.dumps(example.get("background_brief", {}), ensure_ascii=False)
+            return input_text, expected
+        elif task == "article_relevance":
+            input_text = (
+                f"Topics: {example.get('bill_topics', [])}\n"
+                f"Candidates: {example.get('candidate_articles', [])}"
+            )
+            expected = json.dumps(example.get("ranked_selection", []), ensure_ascii=False)
+            return input_text, expected
+        elif task == "moderation":
+            input_text = f"Context: {example.get('context', '')}\nMessage: {example.get('message', '')}"
+            return input_text, example.get("decision", "")
         else:
             # Generic fallback
             return str(example.get("input", "")), str(example.get("output", ""))

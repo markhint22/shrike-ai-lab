@@ -43,6 +43,20 @@ TASK_CONFIGS = {
         "lora_r": 8,  # Lower rank for simpler task
         "learning_rate": 3e-4,
     },
+    "repo_intelligence": {
+        "system_prompt": "You are a repository analyst. Extract stack details and provide practical next steps.",
+        "input_template": "Analyze this repository snapshot and suggest what to build next.\n\nRepo: {repo_name}\n\nFile tree:\n{file_tree}\n\nMetadata:\n{metadata}",
+        "output_template": "Suggested features: {suggested_features}\n\nLearning path: {learning_path}",
+        "lora_r": 16,
+        "learning_rate": 2e-4,
+    },
+    "memdiff": {
+        "system_prompt": "You are a memory-aware coding assistant. Decide whether to pull fresh repo data or use cache.",
+        "input_template": "Scenario: {scenario}\n\nUser query: {user_query}\n\nMemory state: {memory_state}",
+        "output_template": "Decision: {decision}\nAction: {action}\nReasoning: {reasoning}\nResponse plan: {response_plan}",
+        "lora_r": 12,
+        "learning_rate": 2e-4,
+    },
 }
 
 

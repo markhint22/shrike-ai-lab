@@ -35,6 +35,20 @@ TASK_CONFIGS = {
         "lora_r": 16,
         "learning_rate": 2e-4,
     },
+    "bill_background": {
+        "system_prompt": "You are a policy analyst. Produce a full background brief for this bill.",
+        "input_template": "Create a background brief for this bill:\n\nTitle: {title}\n\nText: {bill_text}\n\nTopics: {topics}",
+        "output_field": "background_brief",
+        "lora_r": 16,
+        "learning_rate": 2e-4,
+    },
+    "article_relevance": {
+        "system_prompt": "You are a policy research assistant. Rank and classify article relevance to a bill.",
+        "input_template": "Given these bill topics and candidate articles, rank relevance.\n\nBill topics: {bill_topics}\n\nCandidate articles: {candidate_articles}",
+        "output_field": "ranked_selection",
+        "lora_r": 12,
+        "learning_rate": 2e-4,
+    },
 }
 
 
