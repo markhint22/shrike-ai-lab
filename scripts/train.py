@@ -340,6 +340,8 @@ def train_model(
     if removed_locks:
         print(f"Removed {removed_locks} stale HF lock file(s) for {base_model}")
 
+    has_cuda_for_training = False
+
     if selected_engine == "unsloth":
         from unsloth import FastLanguageModel
         from trl import SFTTrainer
@@ -379,6 +381,7 @@ def train_model(
         )
 
         has_cuda = torch.cuda.is_available()
+        has_cuda_for_training = has_cuda
         print(f"Loading base model: {base_model}...")
         model_source = prefetch_model_snapshot(base_model, hf_cache_dir)
         load_kwargs = {
@@ -472,6 +475,8 @@ def train_model(
     normalized = [{"text": _normalize_example_to_text(record)} for record in formatted]
     dataset = Dataset.from_list(normalized)
 
+    use_cpu_safe_mode = selected_engine == "hf" and not has_cuda_for_training
+
     if selected_engine == "hf":
         model_max_positions = getattr(model.config, "max_position_embeddings", None)
         if model_max_positions is None:
@@ -487,6 +492,16 @@ def train_model(
             tokenizer_max_length,
             model_max_positions or max_seq_length,
         )
+
+        if use_cpu_safe_mode:
+            cpu_max_seq_len = int(os.environ.get("TRAIN_CPU_MAX_SEQ_LEN", "512"))
+            if effective_max_length > cpu_max_seq_len:
+                print(
+                    f"CPU-safe mode: capping max length from {effective_max_length} "
+                    f"to {cpu_max_seq_len}"
+                )
+                effective_max_length = cpu_max_seq_len
+
         print(f"Using effective max length: {effective_max_length}")
 
         def tokenize_example(batch):
@@ -494,7 +509,7 @@ def train_model(
                 batch["text"],
                 truncation=True,
                 max_length=effective_max_length,
-                padding="max_length",
+                padding=(False if use_cpu_safe_mode else "max_length"),
             )
             encoded["labels"] = encoded["input_ids"].copy()
             return encoded
@@ -506,7 +521,7 @@ def train_model(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     has_cuda_for_args = _is_module_available("torch") and __import__("torch").cuda.is_available()
-    # CPU training on Windows is more stable with pin_memory off and Adafactor.
+    # CPU training on Windows is more stable with pin_memory off and conservative Trainer settings.
     use_cpu_safe_mode = selected_engine == "hf" and not has_cuda_for_args
     if use_cpu_safe_mode:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -517,8 +532,8 @@ def train_model(
         output_dir=str(output_dir),
         num_train_epochs=epochs,
         per_device_train_batch_size=batch_size,
-        gradient_accumulation_steps=4,
-        warmup_steps=10,
+        gradient_accumulation_steps=(1 if use_cpu_safe_mode else 4),
+        warmup_steps=(1 if use_cpu_safe_mode else 10),
         learning_rate=learning_rate,
         fp16=has_cuda_for_args,
         max_steps=(max_steps_override if max_steps_override is not None else -1),
