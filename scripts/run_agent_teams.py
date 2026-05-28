@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from agents.autonomous.gitlark_memdiff_team import (
     GitlarkMemdiffEfficiencyTeam,
@@ -107,6 +108,8 @@ def main() -> int:
     if args.materialize_dir:
         materialize_dir = Path(args.materialize_dir)
         materialize_dir.mkdir(parents=True, exist_ok=True)
+
+        notes_block = _format_notes(payload.get("notes"))
         for artifact_name in payload.get("artifacts", []):
             artifact_path = materialize_dir / artifact_name
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,12 +127,73 @@ def main() -> int:
             for idx, action in enumerate(payload.get("actions", []), start=1):
                 content.append(f"{idx}. {action}")
 
-            content.extend(["", "## Metrics", "```json", json.dumps(payload.get("metrics", {}), indent=2), "```", ""])
+            content.extend(
+                [
+                    "",
+                    "## Metrics",
+                    "```json",
+                    json.dumps(payload.get("metrics", {}), indent=2),
+                    "```",
+                    "",
+                    "## Notes",
+                    notes_block,
+                    "",
+                ]
+            )
             artifact_path.write_text("\n".join(content), encoding="utf-8")
+
+        notes_path = materialize_dir / "llm-notes.md"
+        notes_path.write_text(
+            "\n".join(
+                [
+                    "# LLM Notes",
+                    "",
+                    f"Team: {payload.get('team')}",
+                    f"Mode: {payload.get('mode')}",
+                    "",
+                    _format_notes(payload.get("notes")),
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
 
         print(f"Materialized artifacts in: {materialize_dir}")
 
     return 0
+
+
+def _format_notes(notes: Any) -> str:
+    """Render notes payload into readable markdown text."""
+
+    if notes is None:
+        return "(none)"
+
+    if isinstance(notes, str):
+        return notes.strip() or "(none)"
+
+    if isinstance(notes, list):
+        lines = []
+        for item in notes:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    lines.append(f"- {text}")
+            elif isinstance(item, dict):
+                title = str(item.get("title", "Note")).strip()
+                body = str(item.get("content", item)).strip()
+                lines.append(f"- {title}: {body}")
+            else:
+                lines.append(f"- {str(item).strip()}")
+        return "\n".join(lines) if lines else "(none)"
+
+    if isinstance(notes, dict):
+        lines = []
+        for key, value in notes.items():
+            lines.append(f"- {key}: {value}")
+        return "\n".join(lines) if lines else "(none)"
+
+    return str(notes).strip() or "(none)"
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import os
 import json
 import asyncio
 import argparse
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -152,7 +153,14 @@ class ModelEvaluator:
         actual_norm = actual.lower().strip()
         
         if task == "classification":
-            # Exact match for classification
+            # Normalize expected/predicted labels so formatting and phrasing differences
+            # do not count as incorrect when the policy area intent matches.
+            expected_label = self._canonical_policy_area(expected)
+            predicted_label = self._canonical_policy_area(self._extract_classification_label(actual))
+
+            if expected_label != "unknown" and predicted_label != "unknown":
+                return expected_label == predicted_label
+
             return expected_norm in actual_norm
         
         elif task == "code_review":
@@ -252,6 +260,92 @@ class ModelEvaluator:
         else:
             # Default: substring match
             return expected_norm in actual_norm or actual_norm in expected_norm
+
+    def _extract_classification_label(self, actual: str) -> str:
+        """Extract likely policy label from freeform or JSON output."""
+
+        text = actual.strip()
+        if not text:
+            return ""
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                for key in ("policy_area", "label", "category", "classification"):
+                    value = parsed.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+            if isinstance(parsed, str) and parsed.strip():
+                return parsed.strip()
+        except json.JSONDecodeError:
+            pass
+
+        label_match = re.search(
+            r"(?:policy\s*area|classification|category|label)\s*[:\-]\s*([a-zA-Z][a-zA-Z\s&\-/]{2,})",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if label_match:
+            return label_match.group(1).strip()
+
+        return text
+
+    def _canonical_policy_area(self, label: str) -> str:
+        """Map policy area variants/synonyms to canonical labels."""
+
+        if not label:
+            return "unknown"
+
+        normalized = re.sub(r"[^a-z0-9\s&/-]", " ", label.lower())
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        if not normalized:
+            return "unknown"
+
+        canonical_terms = {
+            "agriculture": "agriculture",
+            "commerce": "commerce",
+            "education": "education",
+            "energy": "energy",
+            "environment": "environment",
+            "foreign affairs": "foreign affairs",
+            "government operations": "government operations",
+            "healthcare": "healthcare",
+            "housing": "housing",
+            "immigration": "immigration",
+            "justice": "justice",
+            "labor": "labor",
+            "science": "science",
+            "social welfare": "social welfare",
+            "taxation": "taxation",
+            "transportation": "transportation",
+            "veterans affairs": "veterans affairs",
+        }
+
+        if normalized in canonical_terms:
+            return canonical_terms[normalized]
+
+        for term in canonical_terms:
+            if term in normalized:
+                return canonical_terms[term]
+
+        keyword_map = {
+            "government operations": ["procurement", "oversight", "federal agency", "federal operations"],
+            "transportation": ["transit", "rail", "airport", "aviation", "highway", "freight"],
+            "healthcare": ["health", "medicaid", "medicare", "hospital", "maternal", "mental health"],
+            "environment": ["climate", "emissions", "water", "conservation", "wetland", "air quality"],
+            "commerce": ["broadband", "telecom", "trade", "small business", "manufacturing"],
+            "labor": ["workforce", "employment", "apprenticeship", "worker", "wage"],
+            "education": ["school", "student", "classroom", "teacher", "k-12"],
+            "energy": ["grid", "electricity", "transmission", "power", "renewable"],
+            "veterans affairs": ["veteran", "va"],
+            "agriculture": ["farm", "crop", "agriculture", "ranch"],
+        }
+
+        for canonical, keywords in keyword_map.items():
+            if any(keyword in normalized for keyword in keywords):
+                return canonical
+
+        return "unknown"
     
     async def evaluate_test_set(
         self,

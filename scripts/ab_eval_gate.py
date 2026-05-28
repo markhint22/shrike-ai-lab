@@ -28,13 +28,13 @@ DEFAULT_TEST_DATA = {
     ("gitlark", "commit_message"): "training/gitlark/data/commit_messages.jsonl",
     ("gitlark", "repo_intelligence"): "training/gitlark/data/repo_intelligence.jsonl",
     ("gitlark", "memdiff"): "training/gitlark/data/memdiff.jsonl",
-    ("billwatch", "summarization"): "training/billwatch/data/bill_summaries.jsonl",
+    ("billwatch", "summarization"): "training/billwatch/eval/summarization_eval.jsonl",
     ("shared", "code_review"): "training/gitlark/data/code_review.jsonl",
     ("shared", "moderation"): "training/shared/data/moderation.jsonl",
-    ("billwatch", "classification"): "training/billwatch/data/classification.jsonl",
-    ("billwatch", "impact"): "training/billwatch/data/impact.jsonl",
-    ("billwatch", "bill_background"): "training/billwatch/data/bill_background.jsonl",
-    ("billwatch", "article_relevance"): "training/billwatch/data/article_relevance.jsonl",
+    ("billwatch", "classification"): "training/billwatch/eval/classification_eval.jsonl",
+    ("billwatch", "impact"): "training/billwatch/eval/impact_eval.jsonl",
+    ("billwatch", "bill_background"): "training/billwatch/eval/bill_background_eval.jsonl",
+    ("billwatch", "article_relevance"): "training/billwatch/eval/article_relevance_eval.jsonl",
 }
 
 
