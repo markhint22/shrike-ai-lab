@@ -1,0 +1,14 @@
+{
+  "test-automation": {
+    "benchmark_min_avg_score": 0.8,
+    "required_case_min_score": 0.75,
+    "max_missing_keywords_per_case": 2,
+    "max_missing_artifacts_per_case": 1
+  },
+  "gitlark-memdiff": {
+    "benchmark_min_avg_score": 0.8,
+    "required_case_min_score": 0.75,
+    "max_missing_keywords_per_case": 2,
+    "max_missing_artifacts_per_case": 1
+  }
+}

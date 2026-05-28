@@ -25,7 +25,13 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from log_layout import ensure_log_layout, log_dir, logs_root
+from log_layout import (
+    ensure_log_layout,
+    log_dir,
+    logs_root,
+    queue_legacy_pid_candidates,
+    queue_pid_file,
+)
 
 
 def utc_now_iso() -> str:
@@ -271,16 +277,17 @@ def cleanup_extra_litellm() -> dict[str, Any]:
 
 
 def training_running(repo_root: Path) -> bool:
-    queue_pid = log_dir(repo_root, "queue") / "nightly-queue.pid"
-    legacy_pid = logs_root(repo_root) / "nightly-queue.pid"
-    pid_file = queue_pid if queue_pid.exists() else legacy_pid
-    if not pid_file.exists():
-        return False
-    try:
-        pid = int(pid_file.read_text(encoding="ascii").strip())
-    except ValueError:
-        return False
-    return process_exists(pid)
+    candidates = [queue_pid_file(repo_root)] + queue_legacy_pid_candidates(repo_root)
+    for pid_file in candidates:
+        if not pid_file.exists():
+            continue
+        try:
+            pid = int(pid_file.read_text(encoding="ascii").strip())
+        except ValueError:
+            continue
+        if process_exists(pid):
+            return True
+    return False
 
 
 def start_training_queue(repo_root: Path, py_exe: Path) -> tuple[bool, str]:

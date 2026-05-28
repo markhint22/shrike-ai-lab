@@ -1,7 +1,7 @@
 # Shrike AI Lab - Makefile
 # Common commands for development and operations
 
-.PHONY: help setup start stop logs test train benchmark clean
+.PHONY: help setup start stop logs test train benchmark clean queue-status queue-jobs queue-tail queue-failures queue-pids queue-cleanup
 
 # Default target
 help:
@@ -24,6 +24,14 @@ help:
 	@echo "Training:"
 	@echo "  make train      - Run SpecPilot fine-tuning"
 	@echo "  make export     - Export model to Ollama"
+	@echo ""
+	@echo "Queue Ops (No-token local checks):"
+	@echo "  make queue-status   - Queue summary (pid/lock, running jobs, latest cycle)"
+	@echo "  make queue-jobs     - Show all jobs in nightly queue"
+	@echo "  make queue-tail     - Tail latest queue launch log"
+	@echo "  make queue-failures - Show recent queue failures"
+	@echo "  make queue-pids     - Show queue pid and lock ownership"
+	@echo "  make queue-cleanup  - Remove stale queue pid/lock files"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean      - Remove cached data"
@@ -116,6 +124,24 @@ train-18h:
 train-progress:
 	@echo "Showing training progress summary..."
 	python scripts/train_progress.py --logs-dir training/logs --tail 20
+
+queue-status:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action status
+
+queue-jobs:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action jobs
+
+queue-tail:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action tail -TailLines 120
+
+queue-failures:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action failures -Recent 30
+
+queue-pids:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action pids
+
+queue-cleanup:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action cleanup
 
 train:
 	@echo "Usage: make train-<project>-<task>"

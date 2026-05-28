@@ -380,6 +380,46 @@ Notes:
 - Startup launcher path: `C:\Users\<you>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\ShrikeAILabRecovery.cmd`
 - Recovery summaries and diagnostics are written to `training/logs/`.
 
+## Queue Ops (Windows, No API Tokens)
+
+Use local queue helpers to inspect and manage training queue state without any LLM calls:
+
+```powershell
+# Summary: pid/lock health, active queue/train processes, latest queue log hints
+scripts\queue.cmd status
+
+# List all jobs in nightly queue definition
+scripts\queue.cmd jobs
+
+# Tail latest queue launch log
+scripts\queue.cmd tail
+
+# Follow latest queue launch log live
+scripts\queue.cmd tailf
+
+# Tail latest per-job run log (often most detailed live output)
+scripts\queue.cmd tailrun
+
+# Follow latest per-job run log live
+scripts\queue.cmd tailrunf
+
+# Show recent failure-related lines
+scripts\queue.cmd failures
+
+# Show pid/lock ownership only
+scripts\queue.cmd pids
+
+# Remove stale pid/lock files only (safe; keeps active locks)
+scripts\queue.cmd cleanup
+```
+
+Advanced usage (direct PowerShell script):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action status
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action tail -TailLines 120 -Follow
+```
+
 ## Troubleshooting
 
 ### "CUDA out of memory"

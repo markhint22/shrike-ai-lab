@@ -11,7 +11,7 @@ param(
 $projectRoot = "d:\LocalProjects\shrike-ai-lab"
 $startupLogDir = "$projectRoot\training\logs\startup"
 $servicesLogDir = "$projectRoot\training\logs\services"
-$queueLogDir = "$projectRoot\training\logs\queue"
+$queueLogDir = "$projectRoot\runtime\queue"
 $recoveryLog = "$startupLogDir\startup-recovery-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
 New-Item -ItemType Directory -Path $startupLogDir -Force | Out-Null
@@ -90,6 +90,7 @@ function Start-LiteLLM {
             -ArgumentList "-m", "litellm.proxy.proxy_cli", "--config", $ConfigPath, "--host", "0.0.0.0", "--port", "4000" `
             -WorkingDirectory $projectRoot `
             -NoNewWindow `
+            -WindowStyle Hidden `
             -PassThru `
             -ErrorAction Stop
         
@@ -141,21 +142,19 @@ function Start-TrainingQueue {
     }
     
     $pythonPath = "C:\Users\markh\AppData\Local\Programs\Python\Python311\python.exe"
-    $queueScript = "scripts\train_queue.py"
+    $queueScript = "scripts\start_nightly_queue.py"
     
     try {
         $process = Start-Process `
             -FilePath $pythonPath `
-            -ArgumentList $queueScript, "--jobs-file", $JobsFile, "--continue-on-error", "--repeat", "--stamp-version", "--max-hours", "$MaxHours" `
+            -ArgumentList $queueScript, "--python", $pythonPath, "--jobs-file", $JobsFile, "--max-hours", "$MaxHours" `
             -WorkingDirectory $projectRoot `
             -NoNewWindow `
+            -WindowStyle Hidden `
             -PassThru `
             -ErrorAction Stop
         
         Log "Started training queue PID $($process.Id)" "SUCCESS"
-        
-        # Save PID for monitoring
-        Set-Content -Path "$queueLogDir\nightly-queue.pid" -Value $process.Id -Encoding ASCII
         
         return $true
         

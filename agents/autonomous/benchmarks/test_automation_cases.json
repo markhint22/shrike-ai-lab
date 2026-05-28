@@ -1,0 +1,29 @@
+[
+  {
+    "id": "ta-001",
+    "objective": "Assess and build a reliable login and checkout smoke suite",
+    "app_stack": "vue3 + fastapi",
+    "test_framework": "playwright",
+    "scope": "smoke + regression",
+    "required_action_keywords": ["testability", "smoke", "regression", "flaky", "selectors"],
+    "required_artifacts": ["testability-assessment.md", "playwright-suite-seed.spec.ts"]
+  },
+  {
+    "id": "ta-002",
+    "objective": "Generate an API + UI regression plan for billing flows",
+    "app_stack": "react + fastapi",
+    "test_framework": "playwright",
+    "scope": "regression",
+    "required_action_keywords": ["inventory", "gaps", "regression", "assertions"],
+    "required_artifacts": ["test-plan-priority-matrix.md", "failure-triage-checklist.md"]
+  },
+  {
+    "id": "ta-003",
+    "objective": "Stabilize flaky tests for onboarding and account settings",
+    "app_stack": "vue3 + fastapi",
+    "test_framework": "playwright",
+    "scope": "stabilization",
+    "required_action_keywords": ["flaky", "stabilization", "waits", "selectors"],
+    "required_artifacts": ["failure-triage-checklist.md"]
+  }
+]

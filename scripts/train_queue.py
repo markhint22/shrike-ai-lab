@@ -19,14 +19,34 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from log_layout import ensure_log_layout, log_dir
+from log_layout import ensure_log_layout, log_dir, queue_lock_file, queue_pid_file
 
 
 @dataclass
 class Job:
-    project: str
-    task: str
-    version: str
+    project: str = ""
+    task: str = ""
+    version: str = ""
+    kind: str = "llm_train"
+    team: str = ""
+    objective: str = ""
+    mode: str = "dry-run"
+    materialize_dir: str = ""
+    app_stack: str = "unknown"
+    test_framework: str = "playwright"
+    scope: str = "smoke + regression"
+    query_type: str = "mixed"
+    freshness_sla_minutes: int = 30
+    repo_scope: str = "gitlark"
+    pass_threshold: float = 0.7
+    output_json: str = ""
+    benchmark_report: str = ""
+    thresholds: str = ""
+    rollout_json: str = ""
+    queue_json: str = ""
+    auto_apply: bool = False
+    apply_hold_disable: bool = False
+    hold_streak_limit: int = 3
     engine: str = "hf"
     epochs: int = 1
     batch_size: int = 1
@@ -46,6 +66,20 @@ def process_exists(pid: int) -> bool:
         text=True,
     )
     return str(pid) in (result.stdout or "")
+
+
+def _subprocess_window_kwargs() -> dict[str, Any]:
+    if sys.platform != "win32":
+        return {}
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0
+    return {
+        "creationflags": creationflags,
+        "startupinfo": startupinfo,
+    }
 
 
 def acquire_queue_lock(lock_file: Path) -> int | None:
@@ -113,11 +147,40 @@ def load_jobs(jobs_file: Path) -> list[Job]:
     raw_jobs = payload.get("jobs", [])
     jobs: list[Job] = []
     for item in raw_jobs:
+        if not bool(item.get("enabled", True)):
+            continue
         jobs.append(
             Job(
-                project=item["project"],
-                task=item["task"],
-                version=item.get("version", f"nightly-{item['project']}-{item['task']}"),
+                kind=item.get("kind", "llm_train"),
+                project=item.get("project", ""),
+                task=item.get("task", ""),
+                version=item.get(
+                    "version",
+                    (
+                        f"nightly-{item['project']}-{item['task']}"
+                        if item.get("project") and item.get("task")
+                        else f"nightly-{item.get('kind', 'job')}"
+                    ),
+                ),
+                team=item.get("team", ""),
+                objective=item.get("objective", ""),
+                mode=item.get("mode", "dry-run"),
+                materialize_dir=item.get("materialize_dir", ""),
+                app_stack=item.get("app_stack", "unknown"),
+                test_framework=item.get("test_framework", "playwright"),
+                scope=item.get("scope", "smoke + regression"),
+                query_type=item.get("query_type", "mixed"),
+                freshness_sla_minutes=int(item.get("freshness_sla_minutes", 30)),
+                repo_scope=item.get("repo_scope", "gitlark"),
+                pass_threshold=float(item.get("pass_threshold", 0.7)),
+                output_json=item.get("output_json", ""),
+                benchmark_report=item.get("benchmark_report", ""),
+                thresholds=item.get("thresholds", ""),
+                rollout_json=item.get("rollout_json", ""),
+                queue_json=item.get("queue_json", ""),
+                auto_apply=bool(item.get("auto_apply", False)),
+                apply_hold_disable=bool(item.get("apply_hold_disable", False)),
+                hold_streak_limit=int(item.get("hold_streak_limit", 3)),
                 engine=item.get("engine", "hf"),
                 epochs=int(item.get("epochs", 1)),
                 batch_size=int(item.get("batch_size", 1)),
@@ -178,6 +241,7 @@ def run_ab_gate_for_job(
             stderr=subprocess.STDOUT,
             text=True,
             check=False,
+            **_subprocess_window_kwargs(),
         )
         log.write(f"\nEND {datetime.now().isoformat()}\n")
         log.write(f"EXIT {proc.returncode}\n")
@@ -189,6 +253,122 @@ def run_ab_gate_for_job(
 
 def run_job(python_exe: Path, repo_root: Path, job: Job, logs_dir: Path) -> int:
     return run_job_with_version(python_exe, repo_root, job, logs_dir, job.version)
+
+
+def _job_logs_dir(repo_root: Path, job: Job) -> Path:
+    if job.kind == "llm_train":
+        return log_dir(repo_root, "runs")
+    return log_dir(repo_root, "interventions")
+
+
+def run_agent_job(
+    python_exe: Path,
+    repo_root: Path,
+    job: Job,
+    timeout_seconds: float | None = None,
+) -> int:
+    logs_dir = _job_logs_dir(repo_root, job)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    team_slug = job.team or "all"
+    log_file = logs_dir / f"{timestamp}-{job.kind}-{team_slug}-{job.version}.log"
+
+    if job.kind == "agent_run":
+        if not job.team:
+            raise ValueError("agent_run queue job requires a team")
+        if not job.objective:
+            raise ValueError("agent_run queue job requires an objective")
+
+        cmd = [
+            str(python_exe),
+            str(repo_root / "scripts" / "run_agent_teams.py"),
+            "--team",
+            job.team,
+            "--objective",
+            job.objective,
+            "--mode",
+            job.mode,
+        ]
+        if job.output_json:
+            cmd.extend(["--output-json", job.output_json])
+        if job.materialize_dir:
+            cmd.extend(["--materialize-dir", job.materialize_dir])
+        if job.team == "test-automation":
+            cmd.extend(["--app-stack", job.app_stack, "--test-framework", job.test_framework, "--scope", job.scope])
+        elif job.team == "gitlark-memdiff":
+            cmd.extend(
+                [
+                    "--query-type",
+                    job.query_type,
+                    "--freshness-sla-minutes",
+                    str(max(1, job.freshness_sla_minutes)),
+                    "--repo-scope",
+                    job.repo_scope,
+                ]
+            )
+    elif job.kind == "agent_benchmark":
+        cmd = [
+            str(python_exe),
+            str(repo_root / "scripts" / "evaluate_agent_teams.py"),
+            "--team",
+            (job.team or "all"),
+            "--mode",
+            job.mode,
+            "--pass-threshold",
+            str(job.pass_threshold),
+        ]
+        if job.output_json:
+            cmd.extend(["--output-json", job.output_json])
+    elif job.kind == "agent_promote":
+        cmd = [
+            str(python_exe),
+            str(repo_root / "scripts" / "decide_agent_team_promotion.py"),
+        ]
+        if job.benchmark_report:
+            cmd.extend(["--benchmark-report", job.benchmark_report])
+        if job.thresholds:
+            cmd.extend(["--thresholds", job.thresholds])
+        if job.output_json:
+            cmd.extend(["--output-json", job.output_json])
+        if job.auto_apply:
+            cmd.append("--auto-apply")
+        if job.rollout_json:
+            cmd.extend(["--rollout-json", job.rollout_json])
+        if job.queue_json:
+            cmd.extend(["--queue-json", job.queue_json])
+        if job.apply_hold_disable:
+            cmd.append("--apply-hold-disable")
+        cmd.extend(["--hold-streak-limit", str(max(1, job.hold_streak_limit))])
+    else:
+        raise ValueError(f"Unsupported queue job kind: {job.kind}")
+
+    env = os.environ.copy()
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+
+    with log_file.open("w", encoding="utf-8") as log:
+        log.write(f"START {datetime.now().isoformat()}\n")
+        log.write("COMMAND " + " ".join(cmd) + "\n\n")
+        log.flush()
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(repo_root),
+                env=env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+                **_subprocess_window_kwargs(),
+            )
+        except subprocess.TimeoutExpired:
+            log.write(f"\nTIMEOUT after {timeout_seconds} seconds\n")
+            log.write(f"END {datetime.now().isoformat()}\n")
+            log.write("EXIT 124\n")
+            return 124
+        log.write(f"\nEND {datetime.now().isoformat()}\n")
+        log.write(f"EXIT {proc.returncode}\n")
+
+    return proc.returncode
 
 
 def run_job_with_version(
@@ -246,6 +426,7 @@ def run_job_with_version(
                 text=True,
                 check=False,
                 timeout=timeout_seconds,
+                **_subprocess_window_kwargs(),
             )
         except subprocess.TimeoutExpired:
             log.write(f"\nTIMEOUT after {timeout_seconds} seconds\n")
@@ -272,6 +453,15 @@ def run_with_retries(
 
     Returns: (exit_code, attempts_used)
     """
+    if job.kind != "llm_train":
+        code = run_agent_job(
+            python_exe=python_exe,
+            repo_root=repo_root,
+            job=job,
+            timeout_seconds=timeout_seconds,
+        )
+        return code, 1
+
     code = run_job_with_version(
         python_exe,
         repo_root,
@@ -391,11 +581,12 @@ def main() -> int:
     python_exe = Path(args.python).resolve()
     ensure_log_layout(repo_root)
     logs_dir = log_dir(repo_root, "runs")
-    queue_dir = log_dir(repo_root, "queue")
-    lock_file = queue_dir / "train-queue.lock"
+    lock_file = queue_lock_file(repo_root)
+    pid_file = queue_pid_file(repo_root)
     lock_fd = acquire_queue_lock(lock_file)
     if lock_fd is None:
         return 0
+    pid_file.write_text(str(os.getpid()), encoding="ascii")
 
     try:
         if not jobs_file.exists():
@@ -407,8 +598,8 @@ def main() -> int:
             print("No jobs found in queue file")
             return 1
 
-        print(f"Running {len(jobs)} training jobs sequentially")
-        print(f"Logs directory: {logs_dir}")
+        print(f"Running {len(jobs)} queue jobs sequentially")
+        print(f"Training logs directory: {logs_dir}")
 
         failures = 0
         successes = 0
@@ -438,7 +629,12 @@ def main() -> int:
                     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
                     version = f"{job.version}-c{cycle:03d}-{stamp}"
 
-                print(f"[{idx}/{len(jobs)}] {job.project}/{job.task} ({version})")
+                job_label = (
+                    f"{job.project}/{job.task}"
+                    if job.kind == "llm_train"
+                    else f"{job.kind}/{job.team or 'all'}"
+                )
+                print(f"[{idx}/{len(jobs)}] {job_label} ({version})")
                 code, attempts = run_with_retries(
                     python_exe=python_exe,
                     repo_root=repo_root,
@@ -454,7 +650,7 @@ def main() -> int:
                 if code != 0:
                     failures += 1
                     consecutive_failures += 1
-                    print(f"Job failed with exit code {code}: {job.project}/{job.task}")
+                    print(f"Job failed with exit code {code}: {job_label}")
                     if args.repeat and consecutive_failures >= max(1, args.max_consecutive_failures):
                         print(
                             f"Stopping queue after {consecutive_failures} consecutive failures "
@@ -467,18 +663,19 @@ def main() -> int:
                 else:
                     successes += 1
                     consecutive_failures = 0
-                    gate_ok, gate_note = run_ab_gate_for_job(
-                        python_exe=python_exe,
-                        repo_root=repo_root,
-                        job=job,
-                        logs_dir=logs_dir,
-                    )
-                    print(f"A/B gate: {gate_note}")
-                    if not gate_ok:
-                        failures += 1
-                        if not args.continue_on_error:
-                            print("Stopping queue due to A/B gate failure")
-                            return 2
+                    if job.kind == "llm_train":
+                        gate_ok, gate_note = run_ab_gate_for_job(
+                            python_exe=python_exe,
+                            repo_root=repo_root,
+                            job=job,
+                            logs_dir=logs_dir,
+                        )
+                        print(f"A/B gate: {gate_note}")
+                        if not gate_ok:
+                            failures += 1
+                            if not args.continue_on_error:
+                                print("Stopping queue due to A/B gate failure")
+                                return 2
 
             if not args.repeat:
                 break
@@ -498,6 +695,13 @@ def main() -> int:
         print("Queue completed successfully")
         return 0
     finally:
+        if pid_file.exists():
+            try:
+                current = int(pid_file.read_text(encoding="ascii").strip())
+            except ValueError:
+                current = None
+            if current == os.getpid():
+                pid_file.unlink(missing_ok=True)
         release_queue_lock(lock_fd, lock_file)
 
 

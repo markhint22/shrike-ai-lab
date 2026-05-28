@@ -18,7 +18,7 @@ def category_for(name: str) -> str | None:
 
     if RUN_LOG_RE.match(name):
         return "runs"
-    if name in {"nightly-queue.pid", "train-queue.lock"} or lower.startswith("queue-launch-"):
+    if name in {"nightly-queue.pid", "train-queue.lock", "training-queue.pid", "training-queue.lock"} or lower.startswith("queue-launch-"):
         return "queue"
     if lower == "intervention-board.json":
         return "interventions"

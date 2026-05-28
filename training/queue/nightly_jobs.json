@@ -1,149 +1,6 @@
 {
   "jobs": [
     {
-      "project": "specpilot",
-      "task": "selector_optimization",
-      "version": "nightly-specpilot-selector",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "specpilot-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "specpilot",
-      "task": "test_generation",
-      "version": "nightly-specpilot-test-gen",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "specpilot-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "specpilot",
-      "task": "failure_analysis",
-      "version": "nightly-specpilot-failure",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "specpilot-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "specpilot",
-      "task": "flow_analysis",
-      "version": "nightly-specpilot-flow",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "specpilot-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "specpilot",
-      "task": "test_building",
-      "version": "nightly-specpilot-build",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "specpilot-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "gitlark",
-      "task": "code_explanation",
-      "version": "nightly-gitlark-explain",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "gitlark",
-      "task": "pr_description",
-      "version": "nightly-gitlark-pr-desc",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "gitlark",
-      "task": "code_review",
-      "version": "nightly-gitlark-review",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "gitlark",
-      "task": "commit_message",
-      "version": "nightly-gitlark-commit-msg",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "gitlark",
-      "task": "repo_intelligence",
-      "version": "nightly-gitlark-repo-intel",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
-    },
-    {
-      "project": "gitlark",
-      "task": "memdiff",
-      "version": "nightly-gitlark-memdiff",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
-    },
-    {
       "project": "billwatch",
       "task": "summarization",
       "version": "nightly-billwatch-summary",
@@ -151,10 +8,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002,
+      "learning_rate": 0.00015,
       "ab_gate_baseline_model": "phi3-local",
       "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
+      "ab_gate_limit": 30
     },
     {
       "project": "billwatch",
@@ -164,10 +21,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002,
+      "learning_rate": 0.00015,
       "ab_gate_baseline_model": "phi3-local",
       "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
+      "ab_gate_limit": 30
     },
     {
       "project": "billwatch",
@@ -177,10 +34,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002,
+      "learning_rate": 0.0001,
       "ab_gate_baseline_model": "phi3-local",
       "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
+      "ab_gate_limit": 30
     },
     {
       "project": "billwatch",
@@ -190,10 +47,10 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002,
+      "learning_rate": 0.00008,
       "ab_gate_baseline_model": "phi3-local",
       "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
+      "ab_gate_limit": 30
     },
     {
       "project": "billwatch",
@@ -203,36 +60,54 @@
       "base_model": "unsloth/phi-3-mini-4k-instruct",
       "epochs": 1,
       "batch_size": 1,
-      "learning_rate": 0.0002,
+      "learning_rate": 0.00008,
       "ab_gate_baseline_model": "phi3-local",
       "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
+      "ab_gate_limit": 30
     },
     {
-      "project": "shared",
-      "task": "code_review",
-      "version": "nightly-shared-review",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
+      "kind": "agent_run",
+      "team": "test-automation",
+      "objective": "Assess and build a reliable login and checkout smoke suite",
+      "mode": "llm",
+      "version": "nightly-agent-run-test-automation",
+      "output_json": "training/logs/interventions/agent-run-test-automation.json",
+      "materialize_dir": "training/logs/interventions/agent-run-test-automation-artifacts",
+      "app_stack": "vue3 + fastapi",
+      "test_framework": "playwright",
+      "scope": "smoke + regression"
     },
     {
-      "project": "shared",
-      "task": "moderation",
-      "version": "nightly-shared-moderation",
-      "engine": "hf",
-      "base_model": "unsloth/phi-3-mini-4k-instruct",
-      "epochs": 1,
-      "batch_size": 1,
-      "learning_rate": 0.0002,
-      "ab_gate_baseline_model": "phi3-local",
-      "ab_gate_candidate_model": "mistral-local",
-      "ab_gate_limit": 20
+      "kind": "agent_run",
+      "team": "gitlark-memdiff",
+      "objective": "Reduce memdiff latency while preserving freshness for code-intel queries",
+      "mode": "llm",
+      "version": "nightly-agent-run-gitlark-memdiff",
+      "output_json": "training/logs/interventions/agent-run-gitlark-memdiff.json",
+      "materialize_dir": "training/logs/interventions/agent-run-gitlark-memdiff-artifacts",
+      "query_type": "code-semantics",
+      "freshness_sla_minutes": 30,
+      "repo_scope": "gitlark"
+    },
+    {
+      "kind": "agent_benchmark",
+      "team": "all",
+      "mode": "dry-run",
+      "pass_threshold": 0.7,
+      "version": "nightly-agent-benchmark",
+      "output_json": "training/logs/interventions/agent-team-benchmark.json"
+    },
+    {
+      "kind": "agent_promote",
+      "team": "all",
+      "version": "nightly-agent-promote",
+      "benchmark_report": "training/logs/interventions/agent-team-benchmark.json",
+      "thresholds": "configs/agent_team_promotion_thresholds.json",
+      "output_json": "training/logs/interventions/agent-team-promotion-decision.json",
+      "auto_apply": true,
+      "rollout_json": "configs/agent_team_rollout.json",
+      "queue_json": "training/queue/agent_team_promotions.json",
+      "hold_streak_limit": 3
     }
   ]
 }

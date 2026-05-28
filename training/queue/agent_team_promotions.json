@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-05-28T10:13:50.455824",
+  "promotions": [
+    {
+      "team": "test-automation",
+      "decision": "GO",
+      "enabled": true,
+      "avg_score": 0.9708,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T08:35:14.476479",
+      "applied_at": "2026-05-28T08:35:14.477478",
+      "source": "agent-team-promotion-decision"
+    },
+    {
+      "team": "gitlark-memdiff",
+      "decision": "GO",
+      "enabled": true,
+      "avg_score": 0.9708,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T08:35:14.476479",
+      "applied_at": "2026-05-28T08:35:14.477478",
+      "source": "agent-team-promotion-decision"
+    },
+    {
+      "team": "test-automation",
+      "decision": "GO",
+      "enabled": true,
+      "hold_streak": 0,
+      "intervention_required": false,
+      "pause_reason": "",
+      "avg_score": 0.9708,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T08:43:58.917057",
+      "applied_at": "2026-05-28T08:43:58.917057",
+      "source": "agent-team-promotion-decision"
+    },
+    {
+      "team": "gitlark-memdiff",
+      "decision": "GO",
+      "enabled": true,
+      "hold_streak": 0,
+      "intervention_required": false,
+      "pause_reason": "",
+      "avg_score": 0.9708,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T08:43:58.917057",
+      "applied_at": "2026-05-28T08:43:58.917057",
+      "source": "agent-team-promotion-decision"
+    },
+    {
+      "team": "test-automation",
+      "decision": "GO",
+      "enabled": true,
+      "hold_streak": 0,
+      "intervention_required": false,
+      "pause_reason": "",
+      "avg_score": 1.0,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T10:13:50.455256",
+      "applied_at": "2026-05-28T10:13:50.455824",
+      "source": "agent-team-promotion-decision"
+    },
+    {
+      "team": "gitlark-memdiff",
+      "decision": "GO",
+      "enabled": true,
+      "hold_streak": 0,
+      "intervention_required": false,
+      "pause_reason": "",
+      "avg_score": 1.0,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T10:13:50.455256",
+      "applied_at": "2026-05-28T10:13:50.455824",
+      "source": "agent-team-promotion-decision"
+    }
+  ]
+}

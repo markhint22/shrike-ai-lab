@@ -7,38 +7,14 @@ param(
 )
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$logsDir = Join-Path $repoRoot "training/logs/queue"
-New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
-
-$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$launcherLog = Join-Path $logsDir "queue-launch-$timestamp.log"
-$pidFile = Join-Path $logsDir "nightly-queue.pid"
-
 $args = @(
-    "scripts/train_queue.py",
+    "scripts/start_nightly_queue.py",
+    "--python", $PythonExe,
     "--jobs-file", $JobsFile,
-    "--continue-on-error",
+    "--max-hours", "$MaxHours",
     "--retry-count", "$RetryCount",
-    "--retry-lr-multiplier", "$RetryLrMultiplier",
-    "--repeat",
-    "--stamp-version",
-    "--max-hours", "$MaxHours"
+    "--retry-lr-multiplier", "$RetryLrMultiplier"
 )
 
-$stdoutLog = $launcherLog
-$stderrLog = Join-Path $logsDir "queue-launch-$timestamp.err.log"
-
-$process = Start-Process `
-    -FilePath $PythonExe `
-    -ArgumentList $args `
-    -WorkingDirectory $repoRoot `
-    -RedirectStandardOutput $stdoutLog `
-    -RedirectStandardError $stderrLog `
-    -PassThru
-
-Set-Content -Path $pidFile -Value $process.Id -Encoding ascii
-
-Write-Output "Started nightly queue"
-Write-Output "PID: $($process.Id)"
-Write-Output "Launcher log: $launcherLog"
-Write-Output "PID file: $pidFile"
+& $PythonExe @args
+exit $LASTEXITCODE

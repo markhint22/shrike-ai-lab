@@ -1,0 +1,29 @@
+[
+  {
+    "id": "md-001",
+    "objective": "Reduce memdiff latency while preserving freshness for code-intel queries",
+    "query_type": "code-semantics",
+    "freshness_sla_minutes": 30,
+    "repo_scope": "gitlark",
+    "required_action_keywords": ["cache", "selective", "full-refresh", "freshness", "thresholds"],
+    "required_artifacts": ["memdiff-decision-rubric.md", "query-to-scope-mapping.json"]
+  },
+  {
+    "id": "md-002",
+    "objective": "Prevent stale answers around release-day file changes",
+    "query_type": "freshness-sensitive",
+    "freshness_sla_minutes": 5,
+    "repo_scope": "gitlark",
+    "required_action_keywords": ["freshness", "guardrails", "full-refresh", "policy"],
+    "required_artifacts": ["policy-thresholds.yaml", "memdiff-efficiency-scorecard.md"]
+  },
+  {
+    "id": "md-003",
+    "objective": "Improve memdiff cost profile for repeated architectural questions",
+    "query_type": "structure",
+    "freshness_sla_minutes": 60,
+    "repo_scope": "gitlark",
+    "required_action_keywords": ["cache", "classify", "track", "update policy"],
+    "required_artifacts": ["query-to-scope-mapping.json"]
+  }
+]

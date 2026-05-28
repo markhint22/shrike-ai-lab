@@ -1,0 +1,12 @@
+{
+  "test-automation": [
+    {"project": "specpilot", "task": "flow_analysis"},
+    {"project": "specpilot", "task": "test_building"},
+    {"project": "specpilot", "task": "failure_analysis"}
+  ],
+  "gitlark-memdiff": [
+    {"project": "gitlark", "task": "memdiff"},
+    {"project": "gitlark", "task": "repo_intelligence"},
+    {"project": "gitlark", "task": "code_explanation"}
+  ]
+}

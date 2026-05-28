@@ -40,6 +40,304 @@ console = Console()
 
 
 # ===========================================
+# Agent Team Commands
+# ===========================================
+
+agents_app = typer.Typer(help="Autonomous team commands")
+app.add_typer(agents_app, name="agents")
+
+
+@agents_app.command("run")
+def agents_run(
+    team: str = typer.Argument(..., help="Team: test-automation or gitlark-memdiff"),
+    objective: str = typer.Argument(..., help="Primary objective"),
+    mode: str = typer.Option("dry-run", "--mode", help="dry-run or llm"),
+    output_json: str = typer.Option("", "--output-json", help="Optional JSON output path"),
+    materialize_dir: str = typer.Option(
+        "",
+        "--materialize-dir",
+        help="Optional directory to create output artifact files",
+    ),
+):
+    """Run an autonomous team workflow."""
+    import subprocess
+
+    cmd = [
+        sys.executable,
+        "scripts/run_agent_teams.py",
+        "--team",
+        team,
+        "--objective",
+        objective,
+        "--mode",
+        mode,
+    ]
+    if output_json:
+        cmd.extend(["--output-json", output_json])
+    if materialize_dir:
+        cmd.extend(["--materialize-dir", materialize_dir])
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(result.stderr or result.stdout)
+        raise typer.Exit(result.returncode)
+
+    console.print(result.stdout)
+
+
+@agents_app.command("benchmark")
+def agents_benchmark(
+    team: str = typer.Option("all", "--team", help="test-automation, gitlark-memdiff, or all"),
+    mode: str = typer.Option("dry-run", "--mode", help="dry-run or llm"),
+    pass_threshold: float = typer.Option(0.7, "--pass-threshold", help="Pass score threshold"),
+    output_json: str = typer.Option(
+        "training/logs/interventions/agent-team-benchmark.json",
+        "--output-json",
+        help="Benchmark report JSON path",
+    ),
+):
+    """Evaluate autonomous teams against benchmark cases."""
+    import subprocess
+
+    cmd = [
+        sys.executable,
+        "scripts/evaluate_agent_teams.py",
+        "--team",
+        team,
+        "--mode",
+        mode,
+        "--pass-threshold",
+        str(pass_threshold),
+        "--output-json",
+        output_json,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(result.stderr or result.stdout)
+        raise typer.Exit(result.returncode)
+
+    console.print(result.stdout)
+
+
+@agents_app.command("promote")
+def agents_promote(
+    benchmark_report: str = typer.Option(
+        "training/logs/interventions/agent-team-benchmark.json",
+        "--benchmark-report",
+        help="Benchmark report JSON path",
+    ),
+    thresholds: str = typer.Option(
+        "configs/agent_team_promotion_thresholds.json",
+        "--thresholds",
+        help="Promotion thresholds JSON path",
+    ),
+    output_json: str = typer.Option(
+        "training/logs/interventions/agent-team-promotion-decision.json",
+        "--output-json",
+        help="Promotion decision JSON output path",
+    ),
+    auto_apply: bool = typer.Option(
+        True,
+        "--auto-apply/--no-auto-apply",
+        help="Automatically apply promotion decisions to rollout/audit files",
+    ),
+    rollout_json: str = typer.Option(
+        "configs/agent_team_rollout.json",
+        "--rollout-json",
+        help="Rollout state JSON path",
+    ),
+    queue_json: str = typer.Option(
+        "training/queue/agent_team_promotions.json",
+        "--queue-json",
+        help="Promotion audit queue JSON path",
+    ),
+    apply_hold_disable: bool = typer.Option(
+        False,
+        "--apply-hold-disable/--keep-hold-state",
+        help="Disable rollout on HOLD when auto-apply is enabled",
+    ),
+    hold_streak_limit: int = typer.Option(
+        3,
+        "--hold-streak-limit",
+        help="Consecutive HOLD decisions before auto-pausing rollout",
+    ),
+):
+    """Generate GO/HOLD decisions and intervention tickets from benchmark scores."""
+    import subprocess
+
+    cmd = [
+        sys.executable,
+        "scripts/decide_agent_team_promotion.py",
+        "--benchmark-report",
+        benchmark_report,
+        "--thresholds",
+        thresholds,
+        "--output-json",
+        output_json,
+    ]
+    if auto_apply:
+        cmd.extend(
+            [
+                "--auto-apply",
+                "--rollout-json",
+                rollout_json,
+                "--queue-json",
+                queue_json,
+                "--hold-streak-limit",
+                str(max(1, int(hold_streak_limit))),
+            ]
+        )
+        if apply_hold_disable:
+            cmd.append("--apply-hold-disable")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(result.stderr or result.stdout)
+        raise typer.Exit(result.returncode)
+
+    console.print(result.stdout)
+
+
+@agents_app.command("bootstrap-train")
+def agents_bootstrap_train(
+    jobs_file: str = typer.Option(
+        "training/queue/agent_team_bootstrap_jobs.json",
+        "--jobs-file",
+        help="Bootstrap queue jobs file",
+    ),
+    max_hours: float = typer.Option(6.0, "--max-hours", help="Bootstrap runtime window"),
+):
+    """Start bootstrap training queue if free, otherwise stage pending launch metadata."""
+    import subprocess
+
+    cmd = [
+        sys.executable,
+        "scripts/start_agent_team_bootstrap.py",
+        "--python",
+        sys.executable,
+        "--jobs-file",
+        jobs_file,
+        "--max-hours",
+        str(max_hours),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(result.stderr or result.stdout)
+        raise typer.Exit(result.returncode)
+
+    console.print(result.stdout)
+
+
+@agents_app.command("bootstrap-watch")
+def agents_bootstrap_watch(
+    jobs_file: str = typer.Option(
+        "training/queue/agent_team_bootstrap_jobs.json",
+        "--jobs-file",
+        help="Bootstrap queue jobs file",
+    ),
+    max_hours: float = typer.Option(6.0, "--max-hours", help="Bootstrap runtime window"),
+    poll_seconds: float = typer.Option(30.0, "--poll-seconds", help="Queue poll interval"),
+    timeout_minutes: float = typer.Option(720.0, "--timeout-minutes", help="Watcher timeout"),
+):
+    """Watch queue and auto-launch bootstrap training as soon as current queue finishes."""
+    import subprocess
+
+    cmd = [
+        sys.executable,
+        "scripts/watch_and_start_agent_team_bootstrap.py",
+        "--python",
+        sys.executable,
+        "--jobs-file",
+        jobs_file,
+        "--max-hours",
+        str(max_hours),
+        "--poll-seconds",
+        str(poll_seconds),
+        "--timeout-minutes",
+        str(timeout_minutes),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(result.stderr or result.stdout)
+        raise typer.Exit(result.returncode)
+
+    console.print(result.stdout)
+
+
+@agents_app.command("resume")
+def agents_resume(
+    team: list[str] = typer.Option(
+        [],
+        "--team",
+        help="Team id to resume (repeat for multiple teams)",
+    ),
+    all_teams: bool = typer.Option(
+        False,
+        "--all",
+        help="Resume all teams in rollout state",
+    ),
+    rollout_json: str = typer.Option(
+        "configs/agent_team_rollout.json",
+        "--rollout-json",
+        help="Rollout state JSON path",
+    ),
+    reason: str = typer.Option(
+        "Manual intervention completed.",
+        "--reason",
+        help="Reason included in resume metadata",
+    ),
+):
+    """Clear intervention pause and resume team rollout."""
+    import subprocess
+
+    cmd = [
+        sys.executable,
+        "scripts/resume_agent_team_rollout.py",
+        "--rollout-json",
+        rollout_json,
+        "--reason",
+        reason,
+    ]
+    if all_teams:
+        cmd.append("--all")
+    for item in team:
+        cmd.extend(["--team", item])
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(result.stderr or result.stdout)
+        raise typer.Exit(result.returncode)
+
+    console.print(result.stdout)
+
+
+@agents_app.command("validate-pipeline")
+def agents_validate_pipeline(
+    include_paused: bool = typer.Option(
+        False,
+        "--include-paused",
+        help="Also validate paused/disabled queue jobs",
+    ),
+):
+    """Validate agent + training pipeline wiring and JSONL integrity."""
+    import subprocess
+
+    cmd = [
+        sys.executable,
+        "scripts/validate_training_pipeline.py",
+    ]
+    if include_paused:
+        cmd.append("--include-paused")
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(result.stderr or result.stdout)
+        raise typer.Exit(result.returncode)
+
+    console.print(result.stdout)
+
+
+# ===========================================
 # Status Commands
 # ===========================================
 

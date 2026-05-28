@@ -265,10 +265,20 @@ class ModelEvaluator:
         
         # Load test data
         examples = []
-        with open(test_data_path) as f:
-            for line in f:
-                if line.strip():
-                    examples.append(json.loads(line))
+        with open(test_data_path, encoding="utf-8") as f:
+            for line_number, line in enumerate(f, start=1):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    examples.append(json.loads(stripped))
+                except json.JSONDecodeError as exc:
+                    preview = stripped[:180]
+                    raise RuntimeError(
+                        "Invalid JSONL record in evaluation data: "
+                        f"{test_data_path} line {line_number}: {exc.msg}. "
+                        f"Preview: {preview}"
+                    ) from exc
         
         if limit:
             examples = examples[:limit]

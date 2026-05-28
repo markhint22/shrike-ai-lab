@@ -422,10 +422,20 @@ def train_model(
     # Load and format data
     print(f"Loading training data...")
     examples = []
-    with open(data_path) as f:
-        for line in f:
-            if line.strip():
-                examples.append(json.loads(line))
+    with open(data_path, encoding="utf-8") as f:
+        for line_number, line in enumerate(f, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                examples.append(json.loads(stripped))
+            except json.JSONDecodeError as exc:
+                preview = stripped[:180]
+                raise RuntimeError(
+                    "Invalid JSONL record in training data: "
+                    f"{data_path} line {line_number}: {exc.msg}. "
+                    f"Preview: {preview}"
+                ) from exc
     
     # Project-specific formatting
     finetune_module = get_finetune_module(project)

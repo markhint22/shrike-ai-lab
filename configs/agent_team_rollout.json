@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-05-28T10:13:50.455824",
+  "teams": {
+    "test-automation": {
+      "enabled": true,
+      "last_decision": "GO",
+      "hold_streak": 0,
+      "intervention_required": false,
+      "pause_reason": "",
+      "avg_score": 1.0,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T10:13:50.455256",
+      "applied_at": "2026-05-28T10:13:50.455824"
+    },
+    "gitlark-memdiff": {
+      "enabled": true,
+      "last_decision": "GO",
+      "hold_streak": 0,
+      "intervention_required": false,
+      "pause_reason": "",
+      "avg_score": 1.0,
+      "reasons": [],
+      "decision_timestamp": "2026-05-28T10:13:50.455256",
+      "applied_at": "2026-05-28T10:13:50.455824"
+    }
+  },
+  "policy": {
+    "hold_streak_limit": 3
+  }
+}
