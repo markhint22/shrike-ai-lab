@@ -1,0 +1,30 @@
+# policy-thresholds.yaml
+
+Team: gitlark-memdiff-efficiency-team
+Mode: dry-run
+
+## Summary
+Prepared a memdiff policy blueprint to reduce unnecessary full refreshes while protecting freshness-sensitive queries.
+
+## Recommended Actions
+1. Classify incoming queries into structure/code/freshness-sensitive buckets.
+2. Apply cache-read by default for stable structural queries.
+3. Use selective subtree refresh for medium-risk freshness queries.
+4. Reserve full-refresh for high-risk or release-sensitive requests.
+5. Enforce guardrails: max staleness budget, refresh escalation rules, and rollback triggers.
+6. Track decision outcomes and update policy thresholds weekly.
+
+## Metrics
+```json
+{
+  "target_cache_hit_ratio_min": 0.65,
+  "target_freshness_miss_rate_max": 0.08,
+  "target_latency_reduction_pct": 25
+}
+```
+
+## Notes
+- Objective: Verify notes materialization path
+- Query type: mixed
+- Freshness SLA (minutes): 30
+- Repo scope: gitlark

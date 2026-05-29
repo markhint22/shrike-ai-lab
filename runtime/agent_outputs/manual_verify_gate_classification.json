@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-05-28T16:31:53.034198",
+  "project": "billwatch",
+  "task": "classification",
+  "test_data": "training/billwatch/eval/classification_eval.jsonl",
+  "gate": {
+    "min_accuracy_delta": 0.02,
+    "max_latency_regression_pct": 0.2
+  },
+  "baseline": {
+    "task": "classification",
+    "model": "phi3-local",
+    "total_examples": 2,
+    "correct": 0,
+    "accuracy": 0.0,
+    "avg_latency_ms": 7141.88814163208,
+    "total_tokens": 1102,
+    "timestamp": "2026-05-28T16:31:40.334861"
+  },
+  "candidate": {
+    "task": "classification",
+    "model": "mistral-local",
+    "total_examples": 2,
+    "correct": 1,
+    "accuracy": 0.5,
+    "avg_latency_ms": 6349.668860435486,
+    "total_tokens": 1102,
+    "timestamp": "2026-05-28T16:31:53.034198"
+  },
+  "raw_decision": "PROMOTE",
+  "raw_reasons": [
+    "Meets accuracy and latency gates."
+  ],
+  "decision": "PROMOTE",
+  "reasons": [
+    "Meets accuracy and latency gates.",
+    "Promotion stability rule satisfied."
+  ],
+  "stability": {
+    "required_consecutive_promotes": 1,
+    "min_eval_examples": 1,
+    "current_eval_examples": 2,
+    "history_reports_considered": 0,
+    "promote_streak": 1,
+    "matching_history_reports": 0
+  },
+  "deltas": {
+    "accuracy": 0.5,
+    "avg_latency_ms": -792.2192811965942,
+    "latency_regression_pct": -0.11092574757346375,
+    "total_tokens": 0
+  }
+}
