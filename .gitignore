@@ -48,3 +48,6 @@ logs/
 # Temporary files
 tmp/
 temp/
+
+# Claude Code personal overrides
+.claude/settings.local.json
