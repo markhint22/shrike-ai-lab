@@ -20,10 +20,10 @@
   {
     "id": "specpilot-selector-optimization-smoke",
     "type": "train_job",
-    "enabled": false,
+    "enabled": true,
     "project": "specpilot",
     "task": "selector_optimization",
     "engine": "unsloth",
-    "_comment": "Template/example train_job task, disabled by default. Flip enabled to true once you've decided on the base-model question in docs/ops/LOCAL_LLM_UPGRADE_PLAN.md and are ready for a real run. Stops the inference container automatically before training and always restarts it after, even on failure."
+    "_comment": "Verified working end-to-end 2026-08-02 (manual smoke test, real GPU run, saved a real adapter). Still trains on the 13-example seed dataset, not real data - the base-model question in docs/ops/LOCAL_LLM_UPGRADE_PLAN.md is still open. Enabled so the overnight queue exercises the full stop-inference/train/restart-inference path for real; edit project/task/data once you have real training data ready."
   }
 ]

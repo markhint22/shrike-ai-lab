@@ -16,7 +16,7 @@ help:
 	@echo "  make logs       - View service logs"
 	@echo "  make status     - Check service health"
 	@echo ""
-	@echo "Remote GPU Server (192.168.68.145 - see .env for connection details):"
+	@echo "Remote GPU Server (Tailscale IP - see .env for connection details):"
 	@echo "  make gpu-ssh          - SSH into the GPU server"
 	@echo "  make gpu-status       - Check containers, GPU usage, API health"
 	@echo "  make gpu-logs [C=..]  - Tail logs (default: shrike-llama-dflash-35b)"
@@ -24,7 +24,18 @@ help:
 	@echo "  make gpu-test [M=..]  - Send a test completion (default: qwen-dflash-35B-A3B)"
 	@echo "  make gpu-stop-inference [C=..] - Stop the inference container to free the GPU (e.g. for training)"
 	@echo ""
-	@echo "Overnight Local-LLM Task Queue (agents/overnight/ - see its README):"
+	@echo "Overnight Local-LLM Task Queue - SERVER-RESIDENT, authoritative (agents/overnight/):"
+	@echo "  Runs on the GPU server via cron - works even when the Mac is off/traveling."
+	@echo "  make overnight-server-run-now  - Manually trigger a run now on the server"
+	@echo "  make overnight-server-status   - Show cron job + pause state + last completed run"
+	@echo "  make overnight-server-report   - Print the latest morning report"
+	@echo "  make overnight-server-pause    - Stop the server queue from starting further tasks"
+	@echo "  make overnight-server-resume   - Clear the pause"
+	@echo "  make overnight-server-deploy   - Push an updated run_overnight_server.sh to the server"
+	@echo ""
+	@echo "Overnight Local-LLM Task Queue - Mac-resident, MANUAL/LOCAL TESTING ONLY:"
+	@echo "  Requires the Mac awake+plugged in+on the home LAN - launchd job is disabled,"
+	@echo "  not scheduled. Use these only when testing from the Mac while home."
 	@echo "  make overnight-install  - Install aider, load the launchd scheduled job"
 	@echo "  make overnight-run-now  - Manually trigger a run now (bypasses the nightly marker)"
 	@echo "  make overnight-smoke    - Check tooling + GPU server/model reachability"
@@ -192,6 +203,48 @@ overnight-pause:
 overnight-resume:
 	@rm -f agents/overnight/state/PAUSED
 	@echo "Resumed. The queue will start tasks normally again."
+
+# ===========================================
+# Overnight Queue - SERVER-RESIDENT (authoritative)
+# ===========================================
+# The Mac-resident overnight-* targets above require the Mac to be awake,
+# plugged in, and on the home LAN every night - fine for local testing, but
+# useless while traveling (e.g. on vacation). The real nightly automation
+# lives ON the GPU server instead (cron, not launchd/pmset - the server
+# never sleeps and doesn't travel). agents/overnight/tasks.json is the
+# Mac-side copy for editing; agents/overnight/server_tasks.json documents
+# the server's actual repo paths. Push edits to the server with
+# overnight-server-deploy.
+
+overnight-server-run-now:
+	@./scripts/gpu_server_ssh.sh "~/overnight-queue/run_overnight.sh --force"
+
+overnight-server-status:
+	@echo "=== cron job ==="
+	@./scripts/gpu_server_ssh.sh "crontab -l | grep overnight-queue || echo 'Not scheduled'"
+	@echo ""
+	@echo "=== pause state ==="
+	@./scripts/gpu_server_ssh.sh "if [ -f ~/overnight-queue/state/PAUSED ]; then echo 'PAUSED (make overnight-server-resume to clear)'; else echo 'Not paused'; fi"
+	@echo ""
+	@echo "=== last run marker ==="
+	@./scripts/gpu_server_ssh.sh "ls -t ~/overnight-queue/state/*.done 2>/dev/null | head -1 || echo 'No completed run yet'"
+
+overnight-server-report:
+	@./scripts/gpu_server_ssh.sh "LATEST=\$$(ls -t ~/overnight-queue/reports/*.md 2>/dev/null | head -1); if [ -z \"\$$LATEST\" ]; then echo 'No reports yet.'; else cat \"\$$LATEST\"; fi"
+
+overnight-server-pause:
+	@./scripts/gpu_server_ssh.sh "mkdir -p ~/overnight-queue/state && touch ~/overnight-queue/state/PAUSED"
+	@echo "Paused on the server. An in-progress task still finishes. 'make overnight-server-resume' to clear."
+
+overnight-server-resume:
+	@./scripts/gpu_server_ssh.sh "rm -f ~/overnight-queue/state/PAUSED"
+	@echo "Resumed on the server."
+
+overnight-server-deploy:
+	@. ./.env && scp agents/overnight/run_overnight_server.sh mhintermeister@$$GPU_SERVER_HOST:~/overnight-queue/run_overnight.sh
+	@echo "Deployed run_overnight.sh. To update tasks.json, edit agents/overnight/server_tasks.json here, then:"
+	@. ./.env && echo "  scp agents/overnight/server_tasks.json mhintermeister@$$GPU_SERVER_HOST:~/overnight-queue/tasks.json"
+	@echo "(tasks.json isn't auto-synced since repo paths on the server differ from the Mac - review before copying.)"
 
 # ===========================================
 # Testing

@@ -177,7 +177,14 @@ run_aider_fix_task() {
       fi
     done
 
-    aider --yes-always --no-check-update \
+    # --edit-format udiff: aider doesn't recognize this custom model name, so
+    # it defaults to the fragile "whole" format (expects the model to output
+    # the entire file). This model naturally outputs unified-diff hunks
+    # instead, which "whole" can't parse - aider then silently no-ops (shows
+    # a plausible-looking diff in the log, but never actually commits).
+    # Confirmed by testing: forcing "udiff" (which matches the model's
+    # natural output) fixes this - verified a real commit gets created.
+    aider --yes-always --no-check-update --edit-format udiff \
       --model "openai/${MODEL_NAME}" \
       --openai-api-base "${LITELLM_BASE}/v1" \
       --openai-api-key "${LITELLM_MASTER_KEY}" \
