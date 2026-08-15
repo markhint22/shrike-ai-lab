@@ -2,13 +2,23 @@
 # ===========================================
 # Shrike AI Lab - Overnight Task Runner (SERVER-RESIDENT VERSION)
 # ===========================================
-# Runs entirely ON the GPU server, scheduled via cron (every 2 hours as of
-# 2026-08-04 - not once-nightly anymore, see below), not launchd. This exists
-# because the original Mac-resident version (run_overnight.sh) requires the
-# Mac to be awake, plugged in, and reachable on the home LAN every night -
-# which breaks the moment the Mac travels and isn't reliably connected. This
-# box stays home, stays on, and doesn't sleep, so it's the right place for
-# unattended automation to actually live.
+# Runs entirely ON the GPU server, scheduled by the overnight-queue.service
+# systemd unit (CHANGED 2026-08-15 - was cron, every 2 hours; see below),
+# not launchd. This exists because the original Mac-resident version
+# (run_overnight.sh) requires the Mac to be awake, plugged in, and reachable
+# on the home LAN every night - which breaks the moment the Mac travels and
+# isn't reliably connected. This box stays home, stays on, and doesn't
+# sleep, so it's the right place for unattended automation to actually live.
+#
+# CHANGED 2026-08-15: replaced the "every 2 hours" cron entry with a
+# continuous systemd loop (Restart=always, RestartSec=20 - see
+# /etc/systemd/system/overnight-queue.service). Measured live: the 2-hour
+# cadence left the GPU idle ~88% of the time (real work was only ~126 of
+# 1080 minutes across 9 cycles in one day), because a cycle finishing in
+# 2-20 minutes still had to wait out the rest of the 2-hour window before
+# the next one started. The lock file below still exists as a genuine
+# safety net (e.g. a manual `queue.sh run-now` overlapping a scheduled
+# invocation), not as the primary cadence control anymore.
 #
 # Two task types:
 #   - aider_fix: runs aider against a repo cloned locally under repos/,
@@ -25,16 +35,17 @@
 #
 # CHANGED 2026-08-04: removed the old "already ran tonight" marker/skip
 # logic entirely. That was designed for a once-per-night cron trigger; now
-# that cron fires every 2 hours and tasks are meant to run every single
-# time they're enabled, a per-calendar-day dedup marker would just skip
-# every run after the first each day. Cadence is controlled purely by cron
-# now - this script always runs its full task loop when invoked. Logs and
-# reports are named by a full run timestamp (not just date) so multiple
-# same-day runs don't overwrite each other's history.
+# that this fires continuously (systemd loop, ~20s between cycles) and
+# tasks are meant to run every single time they're enabled, a per-calendar-
+# day dedup marker would just skip every run after the first each day.
+# Cadence is controlled by the systemd unit now - this script always runs
+# its full task loop when invoked. Logs and reports are named by a full run
+# timestamp (not just date) so multiple same-day runs don't overwrite each
+# other's history.
 #
 # Safety valve: if the SAME task fails 3 runs in a row, THAT TASK is
 # auto-disabled (enabled:false in tasks.json) rather than silently burning
-# GPU time on a broken task every 2 hours for weeks. CHANGED 2026-08-08: this
+# GPU time on a broken task indefinitely. CHANGED 2026-08-08: this
 # used to pause the whole queue - live testing showed one structurally-stuck
 # task (gitlark repeatedly overflowing context on the same item) took down
 # 6 other healthy repos for 4 days with nobody noticing. Now only the
@@ -52,8 +63,8 @@
 # Usage:
 #   ./run_overnight_server.sh   # always runs the full task loop once
 #
-# Scheduled via cron (see README.md) - nothing here depends on the Mac
-# being present, awake, or reachable.
+# Scheduled continuously by overnight-queue.service (systemd) - nothing
+# here depends on the Mac being present, awake, or reachable.
 # ===========================================
 
 set -uo pipefail

@@ -76,6 +76,30 @@ Or directly:
 - The script itself then polls the GPU server for up to 30 minutes in case
   the Mac is slow to reconnect to the home WiFi after waking.
 
+## Server-resident version (authoritative, `run_overnight_server.sh`)
+
+The version above requires the Mac to be awake, plugged in, and on the home
+LAN every night. `run_overnight_server.sh` is a separate variant that runs
+directly ON the GPU server itself (deployed via `scp` to
+`~/overnight-queue/run_overnight.sh` there) using its own `tasks.json` (real
+absolute paths under `~/overnight-queue/repos/`, not this Mac's paths) - this
+is the one actually running unattended 24/7.
+
+**Scheduling (CHANGED 2026-08-15)**: runs continuously via the
+`overnight-queue.service` systemd unit (see `overnight-queue.service` in this
+directory - install with
+`sudo cp overnight-queue.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now overnight-queue.service`),
+not cron. `Restart=always` + `RestartSec=20` means it re-runs the full task
+loop back-to-back with just a 20-second cooldown, rather than waiting on a
+fixed interval. This replaced a `0 */2 * * *` cron entry (every 2 hours)
+after live measurement showed that cadence left the GPU idle ~88% of the
+time - most cycles finish in 2-20 minutes, so the fixed-interval gap was
+almost entirely wasted capacity. The existing `state/run.lock` flock is still
+in place as a genuine overlap guard (e.g. a manual `queue.sh run-now` racing
+a scheduled invocation), it's just no longer the primary cadence control.
+Check status with `queue.sh status` (shows `overnight-queue.service: active`)
+or `systemctl status overnight-queue.service` directly on the server.
+
 ## Notes / known limitations
 
 - Model name defaults to `qwen-dflash-35B-A3B` (whatever's currently loaded

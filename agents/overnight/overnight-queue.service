@@ -1,0 +1,14 @@
+[Unit]
+Description=Shrike AI Lab overnight aider task queue (continuous loop)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mhintermeister
+ExecStart=/home/mhintermeister/overnight-queue/run_overnight.sh
+Restart=always
+RestartSec=20
+
+[Install]
+WantedBy=multi-user.target

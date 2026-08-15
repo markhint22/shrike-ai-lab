@@ -33,8 +33,18 @@ cmd="${1:-status}"
 
 case "$cmd" in
   status)
-    echo "=== cron ==="
-    crontab -l 2>/dev/null | grep overnight-queue || echo "Not scheduled"
+    echo "=== scheduling ==="
+    # CHANGED 2026-08-15: was a fixed "every 2 hours" cron entry, which left
+    # the GPU idle ~88% of the time (measured live: ~126 min of real work
+    # out of 1080 min/9 cycles on 2026-08-15). Replaced with a systemd
+    # service (Restart=always, RestartSec=20) that re-runs the queue back
+    # to back with just a 20s cooldown, so it's actually working almost
+    # continuously instead of waiting up to 2 hours between attempts.
+    if systemctl is-active overnight-queue.service >/dev/null 2>&1; then
+      echo "overnight-queue.service: active (continuous loop, ~20s between cycles)"
+    else
+      echo "overnight-queue.service: NOT ACTIVE - check: systemctl status overnight-queue.service"
+    fi
     echo ""
     echo "=== pause state ==="
     if [ -f "$DIR/state/PAUSED" ]; then echo "PAUSED (queue.sh resume to continue)"; else echo "Not paused"; fi
