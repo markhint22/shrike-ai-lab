@@ -80,7 +80,7 @@ MODEL_METADATA_FILE="$SCRIPT_DIR/model-metadata.json"
 # and applies uniformly to one-off tasks added later via `queue.sh add` too.
 STANDARDS_SUFFIX="
 
-Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Edit OVERNIGHT_PROGRESS.md's existing 'Next Steps' section in place (never add a second one; never re-add a done/existing item). Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up. Do NOT quote, restate, or diff OVERNIGHT_PROGRESS.md's Next Steps list back in your response - you have already read it, just silently pick an item and go straight to the code change; only touch that file again at the very end to mark your one item done. If a file you need isn't visible, use the repo-map/existing open files to find its real path first - don't guess a path (e.g. assuming a services/ location for something that actually lives under routers/ or schemas/) and ask for the wrong file, which wastes the whole turn when it silently isn't found. If an item is tagged NEEDS DECISION or NEEDS HUMAN DECISION, do not skip it: use your best engineering/product judgment, make a real, reasonable choice, and implement it - but you MUST clearly record what you decided and a one-line why in both the commit message and a '## Decisions Made' section in OVERNIGHT_PROGRESS.md (create that section if it doesn't exist), so a human can review and override it later. Never silently guess without leaving that record."
+Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Edit OVERNIGHT_PROGRESS.md's existing 'Next Steps' section in place (never add a second one; never re-add a done/existing item). Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up. Do NOT quote, restate, or diff OVERNIGHT_PROGRESS.md's Next Steps list back in your response - you have already read it, just silently pick an item and go straight to the code change; only touch that file again at the very end to mark your one item done. If a file you need isn't visible, use the repo-map/existing open files to find its real path first - don't guess a path (e.g. assuming a services/ location for something that actually lives under routers/ or schemas/) and ask for the wrong file, which wastes the whole turn when it silently isn't found. If an item is tagged NEEDS DECISION or NEEDS HUMAN DECISION, do not skip it: use your best engineering/product judgment, make a real, reasonable choice, and implement it - but you MUST clearly record what you decided and a one-line why in both the commit message and a '## Decisions Made' section in OVERNIGHT_PROGRESS.md (create that section if it doesn't exist), so a human can review and override it later. Never silently guess without leaving that record. This model generates at roughly 5 tokens/second on this box and each call is hard-killed at 600 seconds (~3000 tokens) - if you spend more than a few hundred tokens reasoning before writing the actual diff, the call WILL be killed with no commit and the cycle is wasted. Budget yourself: a couple sentences on what you're changing and why, then the diff. If you notice you're still explaining/exploring after that, stop explaining and write the diff with your current best understanding instead - a slightly imperfect real change beats a well-reasoned non-answer that gets killed mid-thought."
 TRAINING_DIR="$HOME/shrike-ai-lab-training"
 
 TASKS_FILE="$SCRIPT_DIR/tasks.json"
@@ -286,15 +286,27 @@ STUB
 
     BEFORE_SHA="$(git rev-parse HEAD)"
 
-    # OVERNIGHT_PROGRESS.md is always pre-loaded as an editable file, not
-    # counted against max_files - it's the queue's own bookkeeping doc
-    # (typically 1-2KB) and was previously never actually added to the
-    # chat (excluded from scan_for_new_files as a .md file), meaning the
-    # model edited it "blind" without ever seeing its real current
-    # content - the likely cause of the duplicate "Next Steps" sections
-    # found in iptv_apps and test-automation-agent (2026-08-13).
+    # OVERNIGHT_PROGRESS.md is always pre-loaded, not counted against
+    # max_files - it's the queue's own bookkeeping doc (typically 1-2KB) and
+    # was previously never actually added to the chat (excluded from
+    # scan_for_new_files as a .md file), meaning the model edited it "blind"
+    # without ever seeing its real current content - the likely cause of the
+    # duplicate "Next Steps" sections found in iptv_apps and
+    # test-automation-agent (2026-08-13).
+    #
+    # Read-only for the scout pass, editable only for implement (2026-08-15
+    # hardening): scout's only job is to reply with a file list - it never
+    # needs to WRITE to this doc. Live logs showed the model repeatedly
+    # opening implement attempts by re-diffing the entire Next Steps list
+    # back into its own response before ever touching real code, burning
+    # most of the 600s budget on pure restatement despite an explicit prompt
+    # instruction not to. Giving edit access only where it's actually needed
+    # removes the affordance instead of just asking nicely not to use it -
+    # the same lesson as the scout --no-auto-commits fix.
+    PROGRESS_READ_ARGS=()
     PROGRESS_FILE_ARGS=()
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
+      PROGRESS_READ_ARGS=(--read "OVERNIGHT_PROGRESS.md")
       PROGRESS_FILE_ARGS=(--file "OVERNIGHT_PROGRESS.md")
     fi
 
@@ -431,7 +443,7 @@ Task: ${full_prompt}"
     # real implement pass runs, so it can never leak in as a base state.
     timeout 600 aider "${AIDER_BASE_ARGS[@]}" --no-auto-commits \
       ${READ_ARGS[@]+"${READ_ARGS[@]}"} \
-      ${PROGRESS_FILE_ARGS[@]+"${PROGRESS_FILE_ARGS[@]}"} \
+      ${PROGRESS_READ_ARGS[@]+"${PROGRESS_READ_ARGS[@]}"} \
       --message "${SCOUT_PROMPT}" \
       > "$task_log" 2>&1
     AIDER_EXIT=$?
