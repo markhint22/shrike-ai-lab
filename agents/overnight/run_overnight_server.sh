@@ -80,7 +80,7 @@ MODEL_METADATA_FILE="$SCRIPT_DIR/model-metadata.json"
 # and applies uniformly to one-off tasks added later via `queue.sh add` too.
 STANDARDS_SUFFIX="
 
-Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Edit OVERNIGHT_PROGRESS.md's existing 'Next Steps' section in place (never add a second one; never re-add a done/existing item). Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up."
+Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Edit OVERNIGHT_PROGRESS.md's existing 'Next Steps' section in place (never add a second one; never re-add a done/existing item). Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up. Do NOT quote, restate, or diff OVERNIGHT_PROGRESS.md's Next Steps list back in your response - you have already read it, just silently pick an item and go straight to the code change; only touch that file again at the very end to mark your one item done. If a file you need isn't visible, use the repo-map/existing open files to find its real path first - don't guess a path (e.g. assuming a services/ location for something that actually lives under routers/ or schemas/) and ask for the wrong file, which wastes the whole turn when it silently isn't found. If an item is tagged NEEDS DECISION or NEEDS HUMAN DECISION, do not skip it: use your best engineering/product judgment, make a real, reasonable choice, and implement it - but you MUST clearly record what you decided and a one-line why in both the commit message and a '## Decisions Made' section in OVERNIGHT_PROGRESS.md (create that section if it doesn't exist), so a human can review and override it later. Never silently guess without leaving that record."
 TRAINING_DIR="$HOME/shrike-ai-lab-training"
 
 TASKS_FILE="$SCRIPT_DIR/tasks.json"
@@ -204,6 +204,27 @@ run_repo_verification() {
     fi
   done < <(find . -maxdepth 4 -type f -name "package.json" -not -path "*/node_modules/*" -print0 2>/dev/null)
 
+  # Android (Gradle) - added 2026-08-14 after finding a repo where a
+  # non-compiling 2-line stub file had been sitting committed for a full
+  # day: nothing was ever running ./gradlew to catch it, since the server
+  # had no JDK/Android SDK installed at all until this same day. Requires
+  # ANDROID_HOME set (see setup: JDK 17 + cmdline-tools + platform-34 +
+  # build-tools;34.0.0 installed at $HOME/android-sdk).
+  while IFS= read -r -d '' gradlew; do
+    dir="$(dirname "$gradlew")"
+    if [ -f "${dir}/settings.gradle.kts" ] || [ -f "${dir}/settings.gradle" ]; then
+      echo "--- verify: ./gradlew test in ${dir} (240s cap) ---" >> "$task_log"
+      (
+        cd "$dir" &&
+        export ANDROID_HOME="$HOME/android-sdk" &&
+        [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
+        timeout 240 ./gradlew test --console=plain
+      ) >> "$task_log" 2>&1
+      [ $? -ne 0 ] && any_failed=1
+      any_ran=1
+    fi
+  done < <(find . -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
+
   if [ "$any_ran" -eq 0 ]; then
     echo "none"
   elif [ "$any_failed" -eq 1 ]; then
@@ -214,7 +235,7 @@ run_repo_verification() {
 }
 
 run_aider_fix_task() {
-  local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}"
+  local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}"
 
   if [ ! -d "$repo/.git" ]; then
     log "Repo ${repo} has no .git checkout — skipping"
@@ -343,6 +364,25 @@ STUB
     FILE_ARGS=()
     ADDED_FILES="|"
 
+    # Protected-file guard (2026-08-15 hardening): found live that a file
+    # path merely QUOTED as prose inside OVERNIGHT_PROGRESS.md's own diff
+    # (e.g. "do NOT touch iptv-android/app/build.gradle.kts, it has a secret")
+    # gets picked up by the plain path-token grep below exactly like a real
+    # file request, since the check only looks at "does this path exist on
+    # disk" - it can't tell a real request apart from a file being mentioned
+    # as something to avoid. Caught a case where this loaded the one file in
+    # the repo holding a plaintext secret into the aider chat as editable.
+    # protected_files is a comma-separated list from the task's tasks.json
+    # entry; skip any candidate that matches one exactly.
+    IFS=',' read -r -a PROTECTED_FILE_LIST <<< "$protected_files"
+    is_protected_file() {
+      local f="$1" p
+      for p in "${PROTECTED_FILE_LIST[@]}"; do
+        [ -n "$p" ] && [ "$f" = "$p" ] && return 0
+      done
+      return 1
+    }
+
     scan_for_new_files() {
       local found_new=0
       local cand
@@ -354,6 +394,10 @@ STUB
         case "$ADDED_FILES" in
           *"|${cand}|"*) continue ;;
         esac
+        if is_protected_file "$cand"; then
+          echo "--- skipping protected file mentioned in log: ${cand} ---" >> "$task_log"
+          continue
+        fi
         if [ -f "$cand" ] && [ "${#FILE_ARGS[@]}" -lt $((max_files * 2)) ]; then
           FILE_ARGS+=(--file "$cand")
           ADDED_FILES="${ADDED_FILES}${cand}|"
@@ -371,7 +415,21 @@ Task: ${full_prompt}"
     # mid-request, aider would otherwise block forever - combined with the
     # concurrency lock, that would freeze the queue permanently until
     # someone manually intervenes. 600s is generous for a single completion.
-    timeout 600 aider "${AIDER_BASE_ARGS[@]}" \
+    #
+    # --no-auto-commits on the scout call only (2026-08-14 hardening): the
+    # scout prompt asks for file names, not edits, but that's just a prompt
+    # instruction - nothing previously stopped the model from ignoring it
+    # and emitting a real diff, which aider (with --yes-always) would apply
+    # AND commit with zero oversight. Caught live: a scout pass rewrote an
+    # unrelated iOS file (SettingsView.swift) into a gutted stub with no
+    # connection to the actual task, and the only reason it didn't get
+    # pushed was that the same call also timed out (exit 124) and the
+    # exit-code check happened to short-circuit before the push step -
+    # pure luck, not a real safeguard. --no-auto-commits makes it structurally
+    # impossible for this call to create a commit; any edit the model still
+    # writes to disk gets wiped by the git checkout/clean below before the
+    # real implement pass runs, so it can never leak in as a base state.
+    timeout 600 aider "${AIDER_BASE_ARGS[@]}" --no-auto-commits \
       ${READ_ARGS[@]+"${READ_ARGS[@]}"} \
       ${PROGRESS_FILE_ARGS[@]+"${PROGRESS_FILE_ARGS[@]}"} \
       --message "${SCOUT_PROMPT}" \
@@ -379,34 +437,43 @@ Task: ${full_prompt}"
     AIDER_EXIT=$?
     scan_for_new_files || true
 
-    SCOUT_SHA="$(git rev-parse HEAD)"
-    if [ "$SCOUT_SHA" = "$BEFORE_SHA" ]; then
-      ATTEMPT=1
-      while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
-        echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
-        timeout 600 aider "${AIDER_BASE_ARGS[@]}" \
-          ${READ_ARGS[@]+"${READ_ARGS[@]}"} \
-          ${PROGRESS_FILE_ARGS[@]+"${PROGRESS_FILE_ARGS[@]}"} \
-          ${FILE_ARGS[@]+"${FILE_ARGS[@]}"} \
-          --message "${full_prompt}" \
-          >> "$task_log" 2>&1
-        AIDER_EXIT=$?
+    # Scout is supposed to be read-only - forcibly discard any working-tree
+    # edits it left behind (whether or not it also tried to commit) so
+    # nothing from this pass can contaminate the real implement pass below.
+    git checkout -- . 2>/dev/null
+    git clean -fd --quiet 2>/dev/null
 
-        NOW_SHA="$(git rev-parse HEAD)"
-        if [ "$NOW_SHA" != "$BEFORE_SHA" ]; then
-          break
-        fi
-        if [ "$ATTEMPT" -eq "$MAX_IMPLEMENT_ATTEMPTS" ] || ! scan_for_new_files; then
-          break
-        fi
-        ATTEMPT=$((ATTEMPT + 1))
-      done
-    else
-      # Model ignored the "no edits" instruction and just did the work in
-      # the scout pass - don't run a second pass on top of it (a fresh model
-      # invocation could redo/duplicate what it already just committed).
-      echo "--- scout pass unexpectedly committed real work - skipping implement pass ---" >> "$task_log"
+    SCOUT_SHA="$(git rev-parse HEAD)"
+    if [ "$SCOUT_SHA" != "$BEFORE_SHA" ]; then
+      # Should be impossible with --no-auto-commits, but harden anyway:
+      # don't trust or push a commit from a pass that's meant to be
+      # read-only - reset and report a hard error instead.
+      git reset --hard "$BEFORE_SHA" --quiet
+      echo "--- scout pass committed despite --no-auto-commits; reset to ${BEFORE_SHA} ---" >> "$task_log"
+      echo "error(scout committed unexpectedly)"
+      return
     fi
+
+    ATTEMPT=1
+    while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
+      echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
+      timeout 600 aider "${AIDER_BASE_ARGS[@]}" \
+        ${READ_ARGS[@]+"${READ_ARGS[@]}"} \
+        ${PROGRESS_FILE_ARGS[@]+"${PROGRESS_FILE_ARGS[@]}"} \
+        ${FILE_ARGS[@]+"${FILE_ARGS[@]}"} \
+        --message "${full_prompt}" \
+        >> "$task_log" 2>&1
+      AIDER_EXIT=$?
+
+      NOW_SHA="$(git rev-parse HEAD)"
+      if [ "$NOW_SHA" != "$BEFORE_SHA" ]; then
+        break
+      fi
+      if [ "$ATTEMPT" -eq "$MAX_IMPLEMENT_ATTEMPTS" ] || ! scan_for_new_files; then
+        break
+      fi
+      ATTEMPT=$((ATTEMPT + 1))
+    done
 
     AFTER_SHA="$(git rev-parse HEAD)"
 
@@ -559,12 +626,13 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
     MAP_TOKENS="$(jq -r ".[$i].map_tokens // \"\"" "$TASKS_FILE")"
     SKIP_AGENTS_MD="$(jq -r ".[$i].skip_agents_md // false" "$TASKS_FILE")"
     MAX_FILES="$(jq -r ".[$i].max_files // 2" "$TASKS_FILE")"
+    PROTECTED_FILES="$(jq -r ".[$i].protected_files // [] | join(\",\")" "$TASKS_FILE")"
     if [ "$PERSISTENT" = "true" ]; then
       BRANCH="overnight/feature"
     else
       BRANCH="overnight/${RUN_KEY}/${ID}"
     fi
-    STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES")"
+    STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES" "$PROTECTED_FILES")"
     VERSION_OR_BRANCH="$BRANCH"
   fi
 
