@@ -59,13 +59,26 @@ class Job:
 
 
 def process_exists(pid: int) -> bool:
-    result = subprocess.run(
-        ["tasklist", "/FI", f"PID eq {pid}"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return str(pid) in (result.stdout or "")
+    if sys.platform == "win32":
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return str(pid) in (result.stdout or "")
+
+    # POSIX (Linux/macOS): signal 0 checks for existence without side effects.
+    # Same technique already used by log_layout.migrate_legacy_queue_state.
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, just owned by another user
+    except OSError:
+        return False
+    return True
 
 
 def _subprocess_window_kwargs() -> dict[str, Any]:

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "ongoing-billwatch",
+    "type": "aider_fix",
+    "enabled": true,
+    "persistent_branch": true,
+    "repo": "/home/mhintermeister/overnight-queue/repos/billwatch",
+    "prompt": "This is billwatch, a federal legislation tracker. IMPORTANT - your context window is only 16384 tokens, so be economical: never ask to add more than 2 files to the chat at once. OVERNIGHT_PROGRESS.md always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: also read README.md, then replace the stub content with a short 'Current Status' summary and a 'Next Steps' list of 5-10 small, single-PR-sized improvement ideas (bug fixes, missing tests, small features, docs) - reasonable guesses from the README are fine. If it already has a real Next Steps list: pick the single top not-yet-done item, ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it if the project has a test setup - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Update OVERNIGHT_PROGRESS.md marking the item done with today's date, and add a couple more ideas if fewer than 3 remain. Commit the code + doc update together with a clear message. Stay on the current branch only - never touch main or develop."
+  },
+  {
+    "id": "ongoing-gitlark",
+    "type": "aider_fix",
+    "enabled": true,
+    "persistent_branch": true,
+    "repo": "/home/mhintermeister/overnight-queue/repos/gitlark",
+    "prompt": "This is gitlark, an AI code workspace tool. IMPORTANT - your context window is only 16384 tokens, so be economical: never ask to add more than 2 files to the chat at once. OVERNIGHT_PROGRESS.md always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: also read README.md, then replace the stub content with a short 'Current Status' summary and a 'Next Steps' list of 5-10 small, single-PR-sized improvement ideas (bug fixes, missing tests, small features, docs) - reasonable guesses from the README are fine. If it already has a real Next Steps list: pick the single top not-yet-done item, ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it if the project has a test setup - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Update OVERNIGHT_PROGRESS.md marking the item done with today's date, and add a couple more ideas if fewer than 3 remain. Commit the code + doc update together with a clear message. Stay on the current branch only - never touch main or develop."
+  },
+  {
+    "id": "ongoing-task-manager-platform",
+    "type": "aider_fix",
+    "enabled": true,
+    "persistent_branch": true,
+    "repo": "/home/mhintermeister/overnight-queue/repos/task-manager-platform",
+    "prompt": "This is task-manager-platform (FlockWorks), an AI-powered task management app. IMPORTANT - your context window is only 16384 tokens, so be economical: never ask to add more than 2 files to the chat at once. OVERNIGHT_PROGRESS.md always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: also read README.md, then replace the stub content with a short 'Current Status' summary (note: some older docs may describe a React Native mobile stack that was reportedly replaced with native iOS/Android - don't assume either way from the README alone, just note it as something to verify later) and a 'Next Steps' list of 5-10 small, single-PR-sized improvement ideas - reasonable guesses are fine. If it already has a real Next Steps list: pick the single top not-yet-done item, ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it if the project has a test setup - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Update OVERNIGHT_PROGRESS.md marking the item done with today's date, and add a couple more ideas if fewer than 3 remain. Commit the code + doc update together with a clear message. Stay on the current branch only - never touch main or develop."
+  },
+  {
+    "id": "ongoing-shrike-labs-website",
+    "type": "aider_fix",
+    "enabled": true,
+    "persistent_branch": true,
+    "repo": "/home/mhintermeister/overnight-queue/repos/shrike-labs-website",
+    "prompt": "This is shrike-labs-website, the company marketing site. IMPORTANT - your context window is only 16384 tokens, so be economical: never ask to add more than 2 files to the chat at once. OVERNIGHT_PROGRESS.md always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: also read README.md, then replace the stub content with a short 'Current Status' summary and a 'Next Steps' list of 5-10 small, single-PR-sized improvement ideas (accessibility, SEO basics, broken content, small features, code quality) - reasonable guesses are fine. If it already has a real Next Steps list: pick the single top not-yet-done item, ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test if the project has a test setup - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Update OVERNIGHT_PROGRESS.md marking the item done with today's date, and add a couple more ideas if fewer than 3 remain. Commit the code + doc update together with a clear message. Stay on the current branch only - never touch main or develop."
+  },
+  {
+    "id": "ongoing-iptv-apps",
+    "type": "aider_fix",
+    "enabled": true,
+    "persistent_branch": true,
+    "repo": "/home/mhintermeister/overnight-queue/repos/iptv_apps",
+    "prompt": "This is iptv_apps (Chickadee Streams), an IPTV streaming app. IMPORTANT - your context window is only 16384 tokens, so be economical: never ask to add more than 2 files to the chat at once. OVERNIGHT_PROGRESS.md always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: also read README.md, then replace the stub content with a short 'Current Status' summary and a 'Next Steps' list of 5-10 small, single-PR-sized improvement ideas - reasonable guesses are fine. Do not duplicate the existing overnight/2026-08-01/chickadee-railway-404 branch's work (a Railway 404 Procfile fix, already pushed separately). If it already has a real Next Steps list: pick the single top not-yet-done item, ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it if the project has a test setup - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Update OVERNIGHT_PROGRESS.md marking the item done with today's date, and add a couple more ideas if fewer than 3 remain. Commit the code + doc update together with a clear message. Stay on the current branch only - never touch main or develop."
+  },
+  {
+    "id": "ongoing-social-media-manager",
+    "type": "aider_fix",
+    "enabled": true,
+    "persistent_branch": true,
+    "repo": "/home/mhintermeister/overnight-queue/repos/social-media-manager",
+    "prompt": "This is social-media-manager (Ripple), an AI content creation platform. IMPORTANT - your context window is only 16384 tokens, so be economical: never ask to add more than 2 files to the chat at once. OVERNIGHT_PROGRESS.md always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: also read README.md, then replace the stub content with a short 'Current Status' summary and a 'Next Steps' list of 5-10 small, single-PR-sized improvement ideas - reasonable guesses are fine. Note: several social platform OAuth credentials (Instagram/Meta, Facebook, TikTok, Pinterest, YouTube) are known to still be missing - don't pick items that require secrets you don't have. Do not duplicate the existing overnight/2026-08-01/ripple-backend-html branch's work (a content-type routing fix, already pushed separately). If it already has a real Next Steps list: pick the single top not-yet-done item, ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it if the project has a test setup - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Update OVERNIGHT_PROGRESS.md marking the item done with today's date, and add a couple more ideas if fewer than 3 remain. Commit the code + doc update together with a clear message. Stay on the current branch only - never touch main or develop."
+  },
+  {
+    "id": "ongoing-test-automation-agent",
+    "type": "aider_fix",
+    "enabled": true,
+    "persistent_branch": true,
+    "repo": "/home/mhintermeister/overnight-queue/repos/test-automation-agent",
+    "prompt": "This is test-automation-agent (SpecPilot), a test automation product. IMPORTANT - your context window is only 16384 tokens, so be economical: never ask to add more than 2 files to the chat at once. OVERNIGHT_PROGRESS.md always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: also read README.md, then replace the stub content with a short 'Current Status' summary and a 'Next Steps' list of 5-10 small, single-PR-sized improvement ideas - reasonable guesses are fine. Do not duplicate the existing overnight/2026-08-01/specpilot-railway-404 branch's work (a Railway 404 fix, already pushed separately). If it already has a real Next Steps list: pick the single top not-yet-done item, ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it - this is a testing product, its own test coverage matters - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Update OVERNIGHT_PROGRESS.md marking the item done with today's date, and add a couple more ideas if fewer than 3 remain. Commit the code + doc update together with a clear message. Stay on the current branch only - never touch main or develop."
+  }
+]

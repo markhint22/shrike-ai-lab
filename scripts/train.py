@@ -17,6 +17,13 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
 
+# Running this as `python scripts/train.py` (or from a different cwd, e.g. the
+# GPU server's ~/shrike-ai-lab-training deploy) puts scripts/ on sys.path[0],
+# not the repo root - so `import training.<project>.finetune` silently fails
+# and get_finetune_module() falls back to raw JSON formatting instead of the
+# project-specific formatter. Add the repo root explicitly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 
 # Project configurations
 PROJECT_CONFIGS = {
@@ -538,6 +545,13 @@ def train_model(
         os.environ.setdefault("OMP_NUM_THREADS", "1")
         os.environ.setdefault("MKL_NUM_THREADS", "1")
 
+    # Unsloth's FastLanguageModel.from_pretrained(dtype=None) auto-selects
+    # bfloat16 on Ampere+ GPUs (confirmed: RTX 3090) - Unsloth's SFTTrainer
+    # raises a TypeError if TrainingArguments then asks for fp16 on top of
+    # that. The "hf" engine instead explicitly loads in float16 (see
+    # load_kwargs above), so it still wants fp16 here - only unsloth needs bf16.
+    use_bf16 = selected_engine == "unsloth" and has_cuda_for_args
+
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=epochs,
@@ -545,10 +559,19 @@ def train_model(
         gradient_accumulation_steps=(1 if use_cpu_safe_mode else 4),
         warmup_steps=(1 if use_cpu_safe_mode else 10),
         learning_rate=learning_rate,
-        fp16=has_cuda_for_args,
+        fp16=(has_cuda_for_args and not use_bf16),
+        bf16=use_bf16,
         max_steps=(max_steps_override if max_steps_override is not None else -1),
         logging_steps=10,
-        save_strategy="epoch",
+        # "no", not "epoch": the code below already does its own final
+        # model.save_pretrained()/tokenizer.save_pretrained() once training
+        # finishes, and we never resume from a mid-training checkpoint. The
+        # automatic per-epoch checkpoint also pickles TrainingArguments,
+        # which crashes under unsloth - its compiled-cache module redefines
+        # trl.trainer.sft_config.SFTConfig as a distinct class object from
+        # the one in the installed trl package, so pickle refuses to save it
+        # ("it's not the same object as trl.trainer.sft_config.SFTConfig").
+        save_strategy="no",
         optim=("adafactor" if use_cpu_safe_mode else "adamw_torch"),
         dataloader_pin_memory=(False if use_cpu_safe_mode else True),
         dataloader_num_workers=0,

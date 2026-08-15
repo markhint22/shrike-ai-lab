@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start the nightly training queue as a detached background process on Windows."""
+"""Start the nightly training queue as a detached background process."""
 
 from __future__ import annotations
 
@@ -21,32 +21,57 @@ from log_layout import (
 
 
 def process_exists(pid: int) -> bool:
-    result = subprocess.run(
-        ["tasklist", "/FI", f"PID eq {pid}"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return str(pid) in (result.stdout or "")
+    if sys.platform == "win32":
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return str(pid) in (result.stdout or "")
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def active_train_queue_pids() -> list[int]:
-    query = (
-        "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'scripts\\\\train_queue\\.py' } | "
-        "Select-Object -ExpandProperty ProcessId"
-    )
-    result = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", query],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return []
+    if sys.platform == "win32":
+        query = (
+            "Get-CimInstance Win32_Process | "
+            "Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'scripts\\\\train_queue\\.py' } | "
+            "Select-Object -ExpandProperty ProcessId"
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", query],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return []
+        lines = (result.stdout or "").splitlines()
+    else:
+        # `pgrep -f` matches against the full command line, same intent as the
+        # Win32_Process CommandLine filter above.
+        result = subprocess.run(
+            ["pgrep", "-f", "scripts/train_queue.py"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode not in (0, 1):  # 1 = no matches, not an error here
+            return []
+        lines = (result.stdout or "").splitlines()
 
     out: list[int] = []
-    for line in (result.stdout or "").splitlines():
+    for line in lines:
         value = line.strip()
         if not value:
             continue
@@ -184,9 +209,15 @@ def main() -> int:
             str(args.max_hours),
         ]
 
-        creationflags = 0
+        detach_kwargs: dict = {}
         if sys.platform == "win32":
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            detach_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            )
+        else:
+            # POSIX equivalent of DETACHED_PROCESS: start a new session so the
+            # queue survives the parent (e.g. an SSH connection) going away.
+            detach_kwargs["start_new_session"] = True
 
         child_env = os.environ.copy()
         # Force line-buffered / unbuffered behavior so queue-launch logs stream in real time.
@@ -203,8 +234,8 @@ def main() -> int:
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 text=True,
-                creationflags=creationflags,
                 close_fds=False,
+                **detach_kwargs,
             )
 
         # Give detached child a brief startup window and resolve actual lock owner.

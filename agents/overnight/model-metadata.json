@@ -1,0 +1,20 @@
+{
+  "openai/qwen-dflash-35B-A3B": {
+    "max_input_tokens": 100000,
+    "max_output_tokens": 8192,
+    "litellm_provider": "openai",
+    "mode": "chat"
+  },
+  "openai/qwen-dflash-27B": {
+    "max_input_tokens": 200000,
+    "max_output_tokens": 8192,
+    "litellm_provider": "openai",
+    "mode": "chat"
+  },
+  "openai/qwen-dflash-9B": {
+    "max_input_tokens": 200000,
+    "max_output_tokens": 8192,
+    "litellm_provider": "openai",
+    "mode": "chat"
+  }
+}

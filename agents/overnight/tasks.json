@@ -1,0 +1,29 @@
+[
+  {
+    "id": "chickadee-railway-404",
+    "type": "aider_fix",
+    "repo": "/Users/mhintermeister/LocalProjects/iptv_apps",
+    "prompt": "The Railway-deployed backend for this project (Chickadee streaming app) is returning 404, per the deployment status tracked in the shared repo's CLAUDE.md. Note: this repo already has the asyncpg/aiosqlite async-driver fix applied (that's ruled out as the cause here). Investigate other common Railway causes instead: the app not binding to 0.0.0.0:$PORT, a wrong/missing start command in railway config (railway.json/nixpacks/Procfile-equivalent), a health-check path that doesn't match an actual route, or the service crashing on boot (check for a startup exception before assuming routing is the issue). Keep the change focused and minimal — don't refactor unrelated code."
+  },
+  {
+    "id": "ripple-backend-html",
+    "type": "aider_fix",
+    "repo": "/Users/mhintermeister/LocalProjects/social-media-manager",
+    "prompt": "The deployed backend API is returning HTML instead of JSON on its endpoints (wrong content-type), per the deployment status tracked in the shared repo's CLAUDE.md. Note: this repo already has the asyncpg async-driver fix applied (that's ruled out as the cause here). Investigate other common causes instead: a catch-all/static-file/frontend route registered ahead of the API routes and swallowing them, a reverse-proxy/rewrite rule sending API paths to the frontend, or the API service not actually running (requests landing on a different static host/error page instead). Keep the change focused and minimal — don't refactor unrelated code."
+  },
+  {
+    "id": "specpilot-railway-404",
+    "type": "aider_fix",
+    "repo": "/Users/mhintermeister/LocalProjects/test-automation-agent",
+    "prompt": "The Railway-deployed backend for this project (SpecPilot) is returning 404, per the deployment status tracked in the shared repo's CLAUDE.md (note: the frontend and the separate Fly-hosted backend are already reported working — this is specifically about the Railway-hosted piece). This repo already has both asyncpg and aiosqlite fixes applied (that's ruled out as the cause here). Investigate other common Railway causes instead: the app not binding to 0.0.0.0:$PORT, a wrong/missing start command in railway config, a health-check path that doesn't match an actual route, or the service crashing on boot. Keep the change focused and minimal — don't refactor unrelated code."
+  },
+  {
+    "id": "specpilot-selector-optimization-smoke",
+    "type": "train_job",
+    "enabled": true,
+    "project": "specpilot",
+    "task": "selector_optimization",
+    "engine": "unsloth",
+    "_comment": "Verified working end-to-end 2026-08-02 (manual smoke test, real GPU run, saved a real adapter). Still trains on the 13-example seed dataset, not real data - the base-model question in docs/ops/LOCAL_LLM_UPGRADE_PLAN.md is still open. Enabled so the overnight queue exercises the full stop-inference/train/restart-inference path for real; edit project/task/data once you have real training data ready."
+  }
+]
