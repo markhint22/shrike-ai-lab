@@ -16,7 +16,7 @@ echo ""
 
 # Check Ollama is running
 if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-    echo "❌ Ollama not running. Start with: docker-compose up -d"
+    echo "❌ Ollama not running. Start with: docker compose up -d"
     exit 1
 fi
 

@@ -14,6 +14,15 @@
 
 set -e
 
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+else
+    echo "❌ Neither 'docker compose' nor 'docker-compose' is available."
+    exit 1
+fi
+
 echo "🦅 Shrike AI Lab - Setup"
 echo "========================"
 echo ""
@@ -76,7 +85,7 @@ echo ""
 
 # Start services
 echo "5. Starting Docker services..."
-docker-compose up -d
+$COMPOSE_CMD up -d
 echo ""
 
 # Wait for Ollama to be ready
@@ -94,8 +103,10 @@ echo "7. Pulling recommended models for RTX 2080..."
 echo "   This will take a while on first run (downloading ~15GB)..."
 echo ""
 
-# Models optimized for 8-11GB VRAM
+# Models optimized for the current stack, plus the new Qwen coder targets
 MODELS=(
+    "qwen2.5-coder:32b"      # Qwen Coder 32B
+    "qwen3-coder:30b"        # Nearest current public large Qwen coder model to the requested 26B slot
     "codellama:7b-instruct"   # Primary for SpecPilot (~4GB)
     "mistral:7b-instruct"     # General purpose (~4GB)
     "phi3:mini"               # Fast, small tasks (~2GB)
@@ -130,7 +141,7 @@ curl -s http://localhost:11434/api/generate -d '{
 echo ""
 
 echo "   Testing LiteLLM proxy:"
-curl -s http://localhost:4000/health | jq . 2>/dev/null || echo "   LiteLLM health check"
+curl -s -H "Authorization: Bearer ${LITELLM_MASTER_KEY:-sk-shrike-local}" http://localhost:4000/health | jq . 2>/dev/null || echo "   LiteLLM health check"
 echo ""
 
 echo "=========================================="

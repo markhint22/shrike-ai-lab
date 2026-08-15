@@ -17,7 +17,7 @@ model_list:
   - model_name: specpilot-local
     litellm_params:
       model: ollama/phi3:mini
-      api_base: http://localhost:11434
+      api_base: http://ollama:11434
     model_info:
       description: "Temporary fallback to Phi-3 Mini for local validation"
       max_tokens: 4096
@@ -26,7 +26,7 @@ model_list:
   - model_name: mistral-local
     litellm_params:
       model: ollama/mistral:7b-instruct
-      api_base: http://localhost:11434
+      api_base: http://ollama:11434
     model_info:
       description: "Mistral 7B - General purpose, good for analysis"
       max_tokens: 8192
@@ -35,16 +35,82 @@ model_list:
   - model_name: phi3-local
     litellm_params:
       model: ollama/phi3:mini
-      api_base: http://localhost:11434
+      api_base: http://ollama:11434
     model_info:
       description: "Phi-3 Mini - Fast model for simple tasks"
       max_tokens: 4096
+
+  # Qwen Coder 32B for high-quality code generation
+  - model_name: qwen-coder-32b-local
+    litellm_params:
+      model: ollama/qwen2.5-coder:32b
+      api_base: http://ollama:11434
+    model_info:
+      description: "Qwen2.5 Coder 32B - Large local coding model"
+      max_tokens: 8192
+
+  # Qwen Coder large model family currently available in Ollama
+  - model_name: qwen-coder-30b-local
+    litellm_params:
+      model: ollama/qwen3-coder:30b
+      api_base: http://ollama:11434
+    model_info:
+      description: "Qwen3 Coder 30B - Latest large Qwen coder family in Ollama"
+      max_tokens: 8192
+
+  # 35B-A3B is wired to llama.cpp speculative decoding service.
+  - model_name: qwen-dflash-35B-A3B
+    litellm_params:
+      model: openai/qwen-dflash-35B-A3B
+      api_base: http://llama-dflash-35b:8080/v1
+      api_key: "sk-local"
+      chat_template_kwargs:
+        enable_thinking: false
+    model_info:
+      description: "Qwen DFlash 35B-A3B via llama.cpp speculative decoding"
+      # 2026-08-13: real ctx-size raised to 131072 (from 16384) via
+      # --flash-attn on + q8_0 KV cache quantization - capped below the
+      # model's own 262144 native max because only ~75MB VRAM is free at
+      # that size on this 24GB GPU, too risky for production.
+      max_input_tokens: 131072
+      max_tokens: 8192
+
+  - model_name: qwen-dflash-27B
+    litellm_params:
+      model: openai/qwen-dflash-27B
+      api_base: http://llama-dflash-35b:8080/v1
+      api_key: "sk-local"
+      chat_template_kwargs:
+        enable_thinking: false
+    model_info:
+      description: "Qwen DFlash 27B via llama.cpp speculative decoding"
+      # 2026-08-13: real ctx-size raised to 262144 (the model's own native
+      # training ceiling, n_ctx_train) via --flash-attn on + q8_0 KV cache
+      # quantization - ~1.2GB VRAM free at this size, comfortable margin.
+      max_input_tokens: 262144
+      max_tokens: 8192
+
+  # 2026-08-13: added - previously missing entirely, which is why the first
+  # activation attempt failed (litellm had no route for this model name).
+  # Target: Qwen/Qwen3.5-9B (bartowski GGUF quant). Draft: a third-party
+  # DFlash draft that was already present locally, verified compatible live.
+  - model_name: qwen-dflash-9B
+    litellm_params:
+      model: openai/qwen-dflash-9B
+      api_base: http://llama-dflash-35b:8080/v1
+      api_key: "sk-local"
+      chat_template_kwargs:
+        enable_thinking: false
+    model_info:
+      description: "Qwen3.5 DFlash 9B via llama.cpp speculative decoding - much smaller model, much bigger safe context margin (~9.1GB VRAM free at 262144)"
+      max_input_tokens: 262144
+      max_tokens: 8192
 
   # Larger model (uses CPU offloading with 64GB RAM)
   - model_name: codellama-13b-local
     litellm_params:
       model: ollama/codellama:13b-instruct
-      api_base: http://localhost:11434
+      api_base: http://ollama:11434
     model_info:
       description: "CodeLlama 13B - Higher quality, slower (CPU offload)"
       max_tokens: 4096

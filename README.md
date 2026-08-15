@@ -22,6 +22,9 @@ Local LLM infrastructure for Shrike Labs development. Run AI models on your own 
 git clone https://github.com/markhint22/shrike-ai-lab.git
 cd shrike-ai-lab
 
+# Setup (Linux host)
+./scripts/setup-linux.sh
+
 # Setup (Windows)
 ./scripts/setup-windows.sh
 
@@ -82,11 +85,24 @@ curl http://localhost:4000/chat/completions \
     "model": "specpilot-local",
     "messages": [{"role": "user", "content": "Hello"}]
   }'
+
+# Health check (requires auth header)
+curl -H "Authorization: Bearer sk-shrike-local" http://localhost:4000/health
 ```
 
 ### 3. Chat Interface
 
 Open http://localhost:3000 for a ChatGPT-like UI powered by your local models.
+
+### LAN Access
+
+Once the services are running, other machines on your local network can reach them through the host's LAN IP:
+
+- Ollama: `http://<host-ip>:11434`
+- LiteLLM/OpenAI-compatible API: `http://<host-ip>:4000`
+- Open WebUI: `http://<host-ip>:3000`
+
+If you want to target the Qwen coder models directly, use `qwen-coder-32b-local` or `qwen-coder-30b-local` through LiteLLM, or `qwen2.5-coder:32b` and `qwen3-coder:30b` directly in Ollama. There is no official public Qwen Coder 26B release in the current library, so `qwen3-coder:30b` is the closest current large-model option.
 
 ## Architecture
 
@@ -118,6 +134,28 @@ Open http://localhost:3000 for a ChatGPT-like UI powered by your local models.
 │   64GB RAM          │
 └─────────────────────┘
 ```
+
+## One Active Model Mode (DFlash)
+
+For maximum speed and predictable memory usage, use one active model at a time.
+
+### Recommended starting model
+
+- `qwen-dflash-35B-A3B`
+
+### Activate and monitor
+
+```bash
+# Start/activate 35B DFlash runtime
+make active-35b
+
+# Check download and service readiness
+make active-35b-status
+```
+
+When activation is complete, clients can call LiteLLM with model `qwen-dflash-35B-A3B` and it will route automatically.
+
+Detailed runbook: `docs/ops/DFLASH_SINGLE_ACTIVE_MODEL.md`.
 
 ## Directory Structure
 

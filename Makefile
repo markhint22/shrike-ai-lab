@@ -3,12 +3,15 @@
 
 .PHONY: help setup start stop logs test train benchmark clean queue-status queue-jobs queue-tail queue-failures queue-pids queue-cleanup
 
+DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
+
 # Default target
 help:
 	@echo "Shrike AI Lab - Available Commands"
 	@echo "==================================="
 	@echo ""
 	@echo "Setup & Infrastructure:"
+	@echo "  make setup-linux - Install Docker/NVIDIA runtime on Linux host"
 	@echo "  make setup      - Initial setup (Docker, models)"
 	@echo "  make start      - Start all services"
 	@echo "  make stop       - Stop all services"
@@ -33,6 +36,14 @@ help:
 	@echo "  make queue-pids     - Show queue pid and lock ownership"
 	@echo "  make queue-cleanup  - Remove stale queue pid/lock files"
 	@echo ""
+	@echo "Active Model Switching:"
+	@echo "  make active-35b     - Activate qwen-dflash-35B-A3B (llama.cpp DFlash)"
+	@echo "  make active-35b-preflight - Validate/fix dflash bind mounts before activation"
+	@echo "  make active-35b-status - Check qwen-dflash-35B-A3B download and service status"
+	@echo "  make active-27b     - Switch active model to qwen-dflash-27B (experimental)"
+	@echo "  make active-9b      - Switch active model to qwen-dflash-9B (experimental)"
+	@echo "  make active-30b     - Switch active model to qwen3-coder:30b"
+	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean      - Remove cached data"
 	@echo "  make pull-models - Update Ollama models"
@@ -41,6 +52,11 @@ help:
 # Setup & Infrastructure
 # ===========================================
 
+setup-linux:
+	@echo "Bootstrapping Linux host dependencies..."
+	chmod +x scripts/setup-linux.sh
+	./scripts/setup-linux.sh
+
 setup:
 	@echo "Running initial setup..."
 	chmod +x scripts/*.sh
@@ -48,24 +64,24 @@ setup:
 
 start:
 	@echo "Starting services..."
-	docker-compose up -d
+	$(DOCKER_COMPOSE) up -d
 	@echo "Waiting for services to be ready..."
 	@sleep 5
 	@make status
 
 stop:
 	@echo "Stopping services..."
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 restart: stop start
 
 logs:
-	docker-compose logs -f --tail=100
+	$(DOCKER_COMPOSE) logs -f --tail=100
 
 status:
 	@echo "=== Service Health ==="
 	@echo -n "Ollama:   " && curl -s http://localhost:11434/api/tags > /dev/null && echo "✅ Running" || echo "❌ Not running"
-	@echo -n "LiteLLM:  " && curl -s http://localhost:4000/health > /dev/null && echo "✅ Running" || echo "❌ Not running"
+	@echo -n "LiteLLM:  " && curl -s -H "Authorization: Bearer $${LITELLM_MASTER_KEY:-sk-shrike-local}" http://localhost:4000/health > /dev/null && echo "✅ Running" || echo "❌ Not running"
 	@echo -n "Open WebUI: " && curl -s http://localhost:3000 > /dev/null && echo "✅ Running" || echo "❌ Not running"
 
 # ===========================================
@@ -126,22 +142,46 @@ train-progress:
 	python scripts/train_progress.py --logs-dir training/logs --tail 20
 
 queue-status:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action status
+	@command -v powershell >/dev/null 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action status || echo "Queue ops are currently PowerShell-only. Run from Windows or add Linux queue wrappers."
 
 queue-jobs:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action jobs
+	@command -v powershell >/dev/null 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action jobs || echo "Queue ops are currently PowerShell-only. Run from Windows or add Linux queue wrappers."
 
 queue-tail:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action tail -TailLines 120
+	@command -v powershell >/dev/null 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action tail -TailLines 120 || echo "Queue ops are currently PowerShell-only. Run from Windows or add Linux queue wrappers."
 
 queue-failures:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action failures -Recent 30
+	@command -v powershell >/dev/null 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action failures -Recent 30 || echo "Queue ops are currently PowerShell-only. Run from Windows or add Linux queue wrappers."
 
 queue-pids:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action pids
+	@command -v powershell >/dev/null 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action pids || echo "Queue ops are currently PowerShell-only. Run from Windows or add Linux queue wrappers."
 
 queue-cleanup:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action cleanup
+	@command -v powershell >/dev/null 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/queue_ops.ps1 -Action cleanup || echo "Queue ops are currently PowerShell-only. Run from Windows or add Linux queue wrappers."
+
+active-35b:
+	chmod +x scripts/activate-dflash-35b.sh
+	./scripts/activate-dflash-35b.sh
+
+active-35b-preflight:
+	chmod +x scripts/preflight-dflash-35b.sh
+	./scripts/preflight-dflash-35b.sh --fix
+
+active-35b-status:
+	chmod +x scripts/status-dflash-35b.sh
+	./scripts/status-dflash-35b.sh
+
+active-27b:
+	chmod +x scripts/switch-active-model.sh
+	./scripts/switch-active-model.sh qwen-dflash-27B
+
+active-9b:
+	chmod +x scripts/switch-active-model.sh
+	./scripts/switch-active-model.sh qwen-dflash-9B
+
+active-30b:
+	chmod +x scripts/switch-active-model.sh
+	./scripts/switch-active-model.sh qwen3-coder:30b
 
 train:
 	@echo "Usage: make train-<project>-<task>"
@@ -248,6 +288,8 @@ collect-billwatch:
 
 pull-models:
 	@echo "Pulling/updating Ollama models..."
+	docker exec shrike-ollama ollama pull qwen2.5-coder:32b
+	docker exec shrike-ollama ollama pull qwen3-coder:30b
 	docker exec shrike-ollama ollama pull codellama:7b-instruct
 	docker exec shrike-ollama ollama pull mistral:7b-instruct
 	docker exec shrike-ollama ollama pull phi3:mini
@@ -269,7 +311,7 @@ clean:
 clean-models:
 	@echo "⚠️  This will delete all downloaded models!"
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ] && \
-		docker-compose down -v && echo "Models removed." || echo "Cancelled."
+		$(DOCKER_COMPOSE) down -v && echo "Models removed." || echo "Cancelled."
 
 # ===========================================
 # Development
