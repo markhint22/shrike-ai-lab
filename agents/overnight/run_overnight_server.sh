@@ -273,7 +273,13 @@ run_repo_verification() {
         ) > "$GODOT_OUT" 2>&1
         cat "$GODOT_OUT" >> "$task_log"
         [ -f "$XML_OUT" ] && cat "$XML_OUT" >> "$task_log"
-        if [ ! -s "$XML_OUT" ] || ! grep -qE 'failures="0"' "$XML_OUT"; then
+        # failures="0" alone is NOT enough: confirmed live that a test calling a
+        # nonexistent function throws a runtime script error, silently never
+        # reaches its assertion, and GUT reports it as status="no asserts"
+        # (Risky) rather than a failure - the JUnit failures count stays 0 even
+        # though the test proved nothing. Treat any no-asserts testcase as a
+        # real failure too.
+        if [ ! -s "$XML_OUT" ] || ! grep -qE 'failures="0"' "$XML_OUT" || grep -qE 'status="no asserts"' "$XML_OUT"; then
           any_failed=1
         fi
         rm -f "$XML_OUT"
