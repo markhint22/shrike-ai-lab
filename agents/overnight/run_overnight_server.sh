@@ -243,28 +243,51 @@ run_repo_verification() {
     fi
   done < <(find . -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
 
-  # Godot (GDScript) - added 2026-08-16 for the xlite onboarding. Confirmed
-  # live: Godot exits 0 even when a script has a real "Could not find type X
-  # in the current scope" parse error - the exit code cannot be trusted, so
-  # grep the output instead. --import must run first and separately: a
-  # fresh clone has no .godot/ cache (gitignored), so any class_name-
-  # declared script (this project's convention for every gameplay class)
-  # fails to resolve until the cache is built - confirmed the same real
-  # parse errors disappear once --import has run. Both steps together take
-  # ~5s on this box; requires $HOME/godot/godot4 (Godot 4.3 headless Linux
-  # build, installed once, not project-specific).
+  # Godot (GDScript) - added 2026-08-16 for the xlite onboarding. Godot's own
+  # process exit code cannot be trusted AT ALL for pass/fail here: confirmed
+  # live that a raw `--quit-after` scene run exits 0 even with a real
+  # "Could not find type X" parse error, AND that GUT's own -gexit /
+  # -gexit_on_success flags ALSO always exit 0 regardless of test outcome
+  # (tested with a deliberately-broken assertion). --import must run first
+  # and separately: a fresh clone has no .godot/ cache (gitignored), so any
+  # class_name-declared script (this project's convention for every
+  # gameplay class) fails to resolve until the cache is built. Requires
+  # $HOME/godot/godot4 (Godot 4.3 headless Linux build, installed once, not
+  # project-specific). IMPORTANT: GUT 9.4.0 is the version that actually
+  # supports Godot 4.3.x - the newer 9.7.x line requires Godot 4.7.x and
+  # fails to even parse ("Could not resolve class GutErrorTracker") on 4.3 -
+  # check plugin.cfg's version before ever upgrading addons/gut here.
   while IFS= read -r -d '' godot_proj; do
     dir="$(dirname "$godot_proj")"
     if [ -x "$HOME/godot/godot4" ]; then
-      echo "--- verify: godot4 --headless in ${dir} (90s cap) ---" >> "$task_log"
       GODOT_OUT="$(mktemp)"
-      (
-        cd "$dir" &&
-        timeout 60 "$HOME/godot/godot4" --headless --path . --import &&
-        timeout 30 "$HOME/godot/godot4" --headless --path . --quit-after 60
-      ) > "$GODOT_OUT" 2>&1
-      cat "$GODOT_OUT" >> "$task_log"
-      grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" && any_failed=1
+      if [ -f "${dir}/addons/gut/gut_cmdln.gd" ]; then
+        # GUT installed: real per-test pass/fail via JUnit XML, not exit code.
+        echo "--- verify: GUT tests in ${dir} (90s cap) ---" >> "$task_log"
+        XML_OUT="$(mktemp)"
+        (
+          cd "$dir" &&
+          timeout 60 "$HOME/godot/godot4" --headless --path . --import &&
+          timeout 30 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd \
+            -gdir=res://tests -gexit "-gjunit_xml_file=${XML_OUT}"
+        ) > "$GODOT_OUT" 2>&1
+        cat "$GODOT_OUT" >> "$task_log"
+        [ -f "$XML_OUT" ] && cat "$XML_OUT" >> "$task_log"
+        if [ ! -s "$XML_OUT" ] || ! grep -qE 'failures="0"' "$XML_OUT"; then
+          any_failed=1
+        fi
+        rm -f "$XML_OUT"
+      else
+        # No test framework yet: just confirm the project still parses/runs.
+        echo "--- verify: godot4 --headless in ${dir} (90s cap, no GUT yet) ---" >> "$task_log"
+        (
+          cd "$dir" &&
+          timeout 60 "$HOME/godot/godot4" --headless --path . --import &&
+          timeout 30 "$HOME/godot/godot4" --headless --path . --quit-after 60
+        ) > "$GODOT_OUT" 2>&1
+        cat "$GODOT_OUT" >> "$task_log"
+        grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" && any_failed=1
+      fi
       rm -f "$GODOT_OUT"
       any_ran=1
     fi
