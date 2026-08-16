@@ -507,6 +507,31 @@ Task: ${full_prompt}"
 
     AFTER_SHA="$(git rev-parse HEAD)"
 
+    # Auto-remove junk files (2026-08-16 hardening): the model has repeatedly
+    # tried to "ask for more files" or "run a shell command" by emitting a
+    # diff that creates a real file whose path IS the command/request text
+    # (seen so far: `ask_for_files`, a `git grep --files-with-matches ...`
+    # invocation) instead of just asking in plain English, which works fine
+    # elsewhere in these same logs. Harmless to the actual code, but it
+    # recurred 3x in one session despite a prompt-level caution, so detect
+    # and strip it here instead of relying on the model to stop doing it.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
+      JUNK_FILES="$(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- . \
+        | grep -E '(^| )(git|cat|ls|find|grep|echo) |[|"\\]|^ask_for_file|^please_add|^files_needed|^request_files' \
+        || true)"
+      if [ -n "$JUNK_FILES" ]; then
+        echo "--- auto-removing junk file(s) accidentally committed: ---" >> "$task_log"
+        echo "$JUNK_FILES" >> "$task_log"
+        echo "$JUNK_FILES" | while IFS= read -r f; do
+          [ -n "$f" ] && git rm -f -- "$f" >/dev/null 2>>"$task_log"
+        done
+        if ! git diff --cached --quiet; then
+          git commit -m "chore: auto-remove junk file(s) accidentally committed by aider" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
     if [ "$AIDER_EXIT" -ne 0 ]; then
       echo "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
