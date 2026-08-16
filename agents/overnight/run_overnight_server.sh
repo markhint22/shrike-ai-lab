@@ -394,6 +394,16 @@ STUB
     FILE_ARGS=()
     ADDED_FILES="|"
 
+    # Shared pattern for detecting a "junk" file: one whose path IS a shell
+    # command or file-request text rather than a real source file. The model
+    # has repeatedly tried to "ask for more files" or "run a command" by
+    # emitting a diff that creates a real file named after that command/
+    # request instead of just asking in plain English (which works fine
+    # elsewhere in these same logs) - e.g. `ask_for_files`, a
+    # `git grep --files-with-matches ...` invocation as a filename. Used both
+    # to retry mid-loop (below) and to sweep any straggler after the loop.
+    JUNK_FILE_PATTERN='(^| )(git|cat|ls|find|grep|echo) |[|"\\]|^ask_for_file|^please_add|^files_needed|^request_files'
+
     # Protected-file guard (2026-08-15 hardening): found live that a file
     # path merely QUOTED as prose inside OVERNIGHT_PROGRESS.md's own diff
     # (e.g. "do NOT touch iptv-android/app/build.gradle.kts, it has a secret")
@@ -497,6 +507,26 @@ Task: ${full_prompt}"
 
       NOW_SHA="$(git rev-parse HEAD)"
       if [ "$NOW_SHA" != "$BEFORE_SHA" ]; then
+        # Junk-only-commit guard (2026-08-16 hardening): aider auto-commits
+        # whatever it wrote, including a junk file - naively breaking here
+        # on "a commit happened" wastes the whole cycle, since the next
+        # attempt (which would load the very files the model just asked
+        # for, via scan_for_new_files below) never runs. If every file this
+        # attempt touched is junk, discard it and keep iterating instead of
+        # treating "a commit happened" as "real progress happened."
+        CHANGED_FILES="$(git diff --name-only "$BEFORE_SHA" "$NOW_SHA" -- .)"
+        JUNK_FILES="$(echo "$CHANGED_FILES" | grep -E "$JUNK_FILE_PATTERN" || true)"
+        NONJUNK_FILES="$(echo "$CHANGED_FILES" | grep -vE "$JUNK_FILE_PATTERN" | grep -v '^$' || true)"
+        if [ -n "$JUNK_FILES" ] && [ -z "$NONJUNK_FILES" ]; then
+          echo "--- attempt ${ATTEMPT} only committed junk file(s), discarding and retrying: ---" >> "$task_log"
+          echo "$JUNK_FILES" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          if [ "$ATTEMPT" -eq "$MAX_IMPLEMENT_ATTEMPTS" ] || ! scan_for_new_files; then
+            break
+          fi
+          ATTEMPT=$((ATTEMPT + 1))
+          continue
+        fi
         break
       fi
       if [ "$ATTEMPT" -eq "$MAX_IMPLEMENT_ATTEMPTS" ] || ! scan_for_new_files; then
@@ -507,17 +537,14 @@ Task: ${full_prompt}"
 
     AFTER_SHA="$(git rev-parse HEAD)"
 
-    # Auto-remove junk files (2026-08-16 hardening): the model has repeatedly
-    # tried to "ask for more files" or "run a shell command" by emitting a
-    # diff that creates a real file whose path IS the command/request text
-    # (seen so far: `ask_for_files`, a `git grep --files-with-matches ...`
-    # invocation) instead of just asking in plain English, which works fine
-    # elsewhere in these same logs. Harmless to the actual code, but it
-    # recurred 3x in one session despite a prompt-level caution, so detect
-    # and strip it here instead of relying on the model to stop doing it.
+    # Auto-remove junk files (2026-08-16 hardening): belt-and-suspenders
+    # sweep for any junk file (see JUNK_FILE_PATTERN above) that survived
+    # the in-loop guard - e.g. a mixed commit with some real progress
+    # alongside a junk file, which the in-loop guard deliberately leaves
+    # alone since it only discards attempts that are ENTIRELY junk.
     if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
       JUNK_FILES="$(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- . \
-        | grep -E '(^| )(git|cat|ls|find|grep|echo) |[|"\\]|^ask_for_file|^please_add|^files_needed|^request_files' \
+        | grep -E "$JUNK_FILE_PATTERN" \
         || true)"
       if [ -n "$JUNK_FILES" ]; then
         echo "--- auto-removing junk file(s) accidentally committed: ---" >> "$task_log"
