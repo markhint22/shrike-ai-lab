@@ -282,6 +282,12 @@ run_repo_verification() {
         if [ ! -s "$XML_OUT" ] || ! grep -qE 'failures="0"' "$XML_OUT" || grep -qE 'status="no asserts"' "$XML_OUT"; then
           any_failed=1
         fi
+        # GUT only tests res://tests - a genuine compile error elsewhere in the
+        # project (confirmed live: a new script with a bad type annotation broke
+        # battle.gd's loadability entirely) can coexist with a clean GUT run,
+        # since GUT never touches that file. $GODOT_OUT already has the --import
+        # step's own output (runs before GUT) - check it too.
+        grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" && any_failed=1
         rm -f "$XML_OUT"
       else
         # No test framework yet: just confirm the project still parses/runs.
