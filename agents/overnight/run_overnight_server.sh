@@ -243,6 +243,33 @@ run_repo_verification() {
     fi
   done < <(find . -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
 
+  # Godot (GDScript) - added 2026-08-16 for the xlite onboarding. Confirmed
+  # live: Godot exits 0 even when a script has a real "Could not find type X
+  # in the current scope" parse error - the exit code cannot be trusted, so
+  # grep the output instead. --import must run first and separately: a
+  # fresh clone has no .godot/ cache (gitignored), so any class_name-
+  # declared script (this project's convention for every gameplay class)
+  # fails to resolve until the cache is built - confirmed the same real
+  # parse errors disappear once --import has run. Both steps together take
+  # ~5s on this box; requires $HOME/godot/godot4 (Godot 4.3 headless Linux
+  # build, installed once, not project-specific).
+  while IFS= read -r -d '' godot_proj; do
+    dir="$(dirname "$godot_proj")"
+    if [ -x "$HOME/godot/godot4" ]; then
+      echo "--- verify: godot4 --headless in ${dir} (90s cap) ---" >> "$task_log"
+      GODOT_OUT="$(mktemp)"
+      (
+        cd "$dir" &&
+        timeout 60 "$HOME/godot/godot4" --headless --path . --import &&
+        timeout 30 "$HOME/godot/godot4" --headless --path . --quit-after 60
+      ) > "$GODOT_OUT" 2>&1
+      cat "$GODOT_OUT" >> "$task_log"
+      grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" && any_failed=1
+      rm -f "$GODOT_OUT"
+      any_ran=1
+    fi
+  done < <(find . -maxdepth 3 -type f -name "project.godot" -print0 2>/dev/null)
+
   if [ "$any_ran" -eq 0 ]; then
     echo "none"
   elif [ "$any_failed" -eq 1 ]; then
