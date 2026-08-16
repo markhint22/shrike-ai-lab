@@ -537,6 +537,22 @@ Task: ${full_prompt}"
 
     AFTER_SHA="$(git rev-parse HEAD)"
 
+    # Working-tree residue guard (2026-08-16 hardening): if nothing got
+    # committed (e.g. an attempt timed out mid-write, or staged a file it
+    # never committed), leftover staged/untracked/modified state would
+    # otherwise persist into the NEXT cycle's git status, since this
+    # directory is reused across cycles rather than freshly cloned each
+    # time. Caught live: a `git grep -l "defineStore" ...` junk file left
+    # staged-then-modified after a no-op cycle. Since nothing here was ever
+    # committed, none of it is "real" progress by this script's own
+    # definition - safe to discard unconditionally.
+    if [ "$AFTER_SHA" = "$BEFORE_SHA" ] && [ -n "$(git status --porcelain)" ]; then
+      echo "--- discarding uncommitted working-tree residue from an incomplete attempt ---" >> "$task_log"
+      git status --porcelain >> "$task_log"
+      git reset --hard "$BEFORE_SHA" --quiet
+      git clean -fd --quiet
+    fi
+
     # Auto-remove junk files (2026-08-16 hardening): belt-and-suspenders
     # sweep for any junk file (see JUNK_FILE_PATTERN above) that survived
     # the in-loop guard - e.g. a mixed commit with some real progress
