@@ -41,6 +41,7 @@ AUTO_MERGE_DEFAULT="${AUTO_MERGE_DEFAULT:-true}"  # gated auto-merge on green te
 TEST_TIMEOUT="${TEST_TIMEOUT:-900}"               # seconds for the test/build gate
 STATE_DIR="${STATE_DIR:-$SCRIPT_DIR/state}"
 REPORT_FILE="${REPORT_FILE:-}"                    # optional markdown report to append to
+DRY_RUN="${DRY_RUN:-0}"                           # 1 = log mutations instead of running them
 NOW_EPOCH="$(date +%s)"
 
 # Per-repo auto-merge opt-out (basename). Set to "false" to flag-only (no merge to main).
@@ -118,7 +119,8 @@ for repo in "${REPOS[@]}"; do
     | while IFS= read -r b; do
         [ -z "$b" ] && continue
         if git -C "$repo" merge-base --is-ancestor "$b" "origin/$DEF" 2>/dev/null; then
-          git -C "$repo" branch -D "$b" >/dev/null 2>&1 && log "  pruned local (merged): $b"
+          if [ "$DRY_RUN" = 1 ]; then log "  [dry-run] would prune local (merged): $b"
+          else git -C "$repo" branch -D "$b" >/dev/null 2>&1 && log "  pruned local (merged): $b"; fi
         fi
       done
   git -C "$repo" for-each-ref --format='%(refname:short)' refs/remotes/origin \
@@ -127,7 +129,8 @@ for repo in "${REPOS[@]}"; do
     | while IFS= read -r b; do
         [ -z "$b" ] && continue
         if git -C "$repo" merge-base --is-ancestor "origin/$b" "origin/$DEF" 2>/dev/null; then
-          git -C "$repo" push --quiet origin --delete "$b" >/dev/null 2>&1 && log "  pruned remote (merged): $b"
+          if [ "$DRY_RUN" = 1 ]; then log "  [dry-run] would prune remote (merged): $b"
+          else git -C "$repo" push --quiet origin --delete "$b" >/dev/null 2>&1 && log "  pruned remote (merged): $b"; fi
         fi
       done
 
@@ -141,8 +144,11 @@ for repo in "${REPOS[@]}"; do
         [ -z "$de" ] && continue
         age=$(( (NOW_EPOCH - de) / 86400 ))
         if [ "$age" -gt "$KEEP_DAYS" ]; then
-          git -C "$repo" push --quiet origin --delete "$b" >/dev/null 2>&1 && log "  pruned stale dated: $b (${age}d)"
-          git -C "$repo" branch -D "$b" >/dev/null 2>&1
+          if [ "$DRY_RUN" = 1 ]; then log "  [dry-run] would prune stale dated: $b (${age}d)"
+          else
+            git -C "$repo" push --quiet origin --delete "$b" >/dev/null 2>&1 && log "  pruned stale dated: $b (${age}d)"
+            git -C "$repo" branch -D "$b" >/dev/null 2>&1
+          fi
         fi
       done
 
@@ -184,6 +190,10 @@ for repo in "${REPOS[@]}"; do
   fi
 
   # gate passed (0) or nothing-to-run (2). Merge overnight/feature into main.
+  if [ "$DRY_RUN" = 1 ]; then
+    log "  [dry-run] gate ok (g=$g) — would merge overnight/feature (+$ahead) -> $DEF, push, sync feature"
+    report "| $name | [dry-run] would merge +$ahead |"; continue
+  fi
   tmp_main="$(mktemp -d "/tmp/hygiene-main-${name}.XXXX")"
   if ! git -C "$repo" worktree add --quiet "$tmp_main" "origin/$DEF" 2>/dev/null; then
     log "  could not create main worktree — flagging"; echo "main worktree failed $(date)" > "$flag"
