@@ -48,8 +48,9 @@ NOW_EPOCH="$(date +%s)"
 # Leaving these on gated-auto-merge per the "no orphaned branches" directive; flip to
 # false for any repo where you want a human to approve production deploys.
 declare -A AUTO_MERGE_OVERRIDE=(
-  # [billwatch]=false
-  # [shrike-labs-website]=false
+  # Live production sites: prune + flag daily, but a human approves the deploy.
+  [billwatch]=false
+  [shrike-labs-website]=false
 )
 
 log()  { echo "[branch-hygiene $(date '+%H:%M:%S')] $*"; }
