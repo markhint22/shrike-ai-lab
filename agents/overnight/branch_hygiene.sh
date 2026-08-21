@@ -56,8 +56,16 @@ log()  { echo "[branch-hygiene $(date '+%H:%M:%S')] $*"; }
 report(){ [ -n "$REPORT_FILE" ] && echo "$*" >> "$REPORT_FILE" || true; }
 
 # --- resolve repo list -------------------------------------------------------
+#   --repos-dir <dir>  : every git repo directly under <dir>   (server layout)
+#   --from-config      : persistent_branch repos in recurring_tasks.json
+#   <path> [<path>...] : explicit repo paths
 REPOS=()
-if [ "${1:-}" = "--from-config" ]; then
+if [ "${1:-}" = "--repos-dir" ]; then
+  base="${2:-}"
+  if [ -d "$base" ]; then
+    for d in "$base"/*/; do [ -d "$d/.git" ] && REPOS+=("${d%/}"); done
+  fi
+elif [ "${1:-}" = "--from-config" ]; then
   CFG="$SCRIPT_DIR/recurring_tasks.json"
   if [ -f "$CFG" ]; then
     while IFS= read -r r; do [ -n "$r" ] && [ "$r" != "null" ] && REPOS+=("$r"); done \
@@ -67,7 +75,7 @@ else
   for a in "$@"; do REPOS+=("$a"); done
 fi
 if [ "${#REPOS[@]}" -eq 0 ]; then
-  echo "no repos to process (pass paths or --from-config)"; exit 0
+  echo "no repos to process (use --repos-dir <dir>, --from-config, or pass paths)"; exit 0
 fi
 
 # --- gate: build + test the current worktree; 0=pass, 1=fail, 2=nothing-to-run ---
@@ -183,16 +191,20 @@ for repo in "${REPOS[@]}"; do
   run_gate "$wt"; g=$?
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
 
-  if [ "$g" -eq 1 ]; then
-    echo "GATE FAILED: overnight/feature +$ahead does not build/test cleanly $(date)" > "$flag"
-    log "  GATE FAILED for $name — NOT merging, flagged for review"
-    report "| $name | 🔴 +$ahead, gate FAILED — needs review |"; continue
+  # Auto-merge ONLY when tests actually ran and passed (g==0). A failed gate (1)
+  # OR "no build/test to gate on" (2) is flagged, never merged — so a repo whose
+  # tests we can't detect can never be silently auto-deployed.
+  if [ "$g" -ne 0 ]; then
+    reason=$([ "$g" -eq 1 ] && echo "gate FAILED (build/tests red)" || echo "no build/test gate available")
+    echo "$reason: overnight/feature +$ahead $(date)" > "$flag"
+    log "  $reason for $name — NOT merging, flagged for review"
+    report "| $name | 🔴 +$ahead, $reason — needs review |"; continue
   fi
 
-  # gate passed (0) or nothing-to-run (2). Merge overnight/feature into main.
+  # gate passed: tests ran green. Merge overnight/feature into main.
   if [ "$DRY_RUN" = 1 ]; then
-    log "  [dry-run] gate ok (g=$g) — would merge overnight/feature (+$ahead) -> $DEF, push, sync feature"
-    report "| $name | [dry-run] would merge +$ahead |"; continue
+    log "  [dry-run] gate green — would merge overnight/feature (+$ahead) -> $DEF, push, sync feature"
+    report "| $name | [dry-run] would merge +$ahead (gate green) |"; continue
   fi
   tmp_main="$(mktemp -d "/tmp/hygiene-main-${name}.XXXX")"
   if ! git -C "$repo" worktree add --quiet "$tmp_main" "origin/$DEF" 2>/dev/null; then
