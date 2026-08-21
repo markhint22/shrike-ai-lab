@@ -806,3 +806,13 @@ if [ "$REMAINING_SKIPPED" -eq 1 ]; then
 else
   log "Run ${RUN_KEY} complete. Report: ${REPORT_FILE}"
 fi
+
+# --- daily branch hygiene: reconcile overnight/feature -> main, prune dead branches ---
+# Runs after each full pass so agent work never silently orphans on overnight/feature.
+# Skip when paused mid-run, or disable via RUN_BRANCH_HYGIENE=0.
+HYGIENE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$REMAINING_SKIPPED" -ne 1 ] && [ "${RUN_BRANCH_HYGIENE:-1}" = "1" ] && [ -x "$HYGIENE_DIR/branch_hygiene.sh" ]; then
+  log "Running daily branch hygiene..."
+  { echo ""; echo "### Branch hygiene"; echo "| repo | outcome |"; echo "|---|---|"; } >> "$REPORT_FILE"
+  REPORT_FILE="$REPORT_FILE" "$HYGIENE_DIR/branch_hygiene.sh" --from-config 2>&1 | while IFS= read -r l; do log "$l"; done
+fi

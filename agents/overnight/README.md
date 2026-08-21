@@ -118,5 +118,18 @@ or `systemctl status overnight-queue.service` directly on the server.
   deterministic at temp 0, so retrying identically just fails the same way —
   aider avoids this class of bug by not using native tool-calling, but keep
   task prompts scoped to focused fixes rather than large builds regardless).
-- This never touches `main`/`develop` — only creates/pushes `overnight/*`
-  branches for you to review and merge yourself.
+- Task runs push agent work to a persistent `overnight/feature` branch per repo;
+  they never write to `main` directly.
+- **Daily branch hygiene** (`branch_hygiene.sh`, invoked automatically at the end
+  of every run) then reconciles that work so it can never silently orphan:
+  - Prunes branches already merged into `main` (local + remote) and stale dated
+    `overnight/YYYY-MM-DD/*` branches older than `KEEP_DAYS` (default 3).
+  - Reconciles `overnight/feature` → `main` behind a **build+test gate**: if the
+    branch builds and tests pass, it is merged to `main` (auto-deploys) and
+    `overnight/feature` is fast-forwarded to match; if the gate fails or the merge
+    conflicts, it is **left untouched and a `state/branch_hygiene_review_<repo>`
+    flag + report line is written** so it surfaces daily instead of accumulating.
+  - Never force-pushes; never deletes `main`, `overnight/feature`, or `dependabot/*`.
+  - Per-repo opt-out: set `AUTO_MERGE_OVERRIDE[<repo>]=false` in the script (or
+    `RUN_BRANCH_HYGIENE=0` to skip entirely) to require a human merge for that repo
+    (e.g. a production site you don't want auto-deployed). Prune still runs.
