@@ -637,6 +637,28 @@ Task: ${full_prompt}"
       fi
     fi
 
+    # Duplicate-section-header auto-merge (2026-08-24 hardening): the model
+    # sometimes appends a brand-new "## Decisions Made" (or other "## "
+    # section) header instead of scrolling up to find the existing one,
+    # especially right after editing near the bottom of the file (e.g.
+    # right after "## Completed"). An in-doc instruction telling it not to
+    # do this was tried first and failed twice within two cycles on xlite -
+    # this merges duplicate same-titled top-level sections back into one
+    # automatically (first-seen order, content concatenated in encounter
+    # order), rather than relying on the model's compliance. No-ops (exits
+    # "unchanged", no commit) when there's nothing to merge.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
+      DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_progress_headers.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
+      if [ "$DEDUPE_OUT" != "unchanged" ]; then
+        echo "--- OVERNIGHT_PROGRESS.md: ${DEDUPE_OUT} ---" >> "$task_log"
+        git add OVERNIGHT_PROGRESS.md
+        if ! git diff --cached --quiet; then
+          git commit -m "docs: auto-merge duplicate section header(s) in OVERNIGHT_PROGRESS.md" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
     if [ "$AIDER_EXIT" -ne 0 ]; then
       echo "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
