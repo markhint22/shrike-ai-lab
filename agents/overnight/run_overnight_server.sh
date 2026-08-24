@@ -659,6 +659,35 @@ Task: ${full_prompt}"
       fi
     fi
 
+    # Duplicate-GDScript-function auto-merge (2026-08-24 hardening, same day
+    # as the header dedup above): xlite's TurnManager.get_phase_display_name()
+    # was independently re-duplicated by 4 SEPARATE cycles (a fix for one
+    # occurrence never stopped the next cycle from reintroducing it) - each
+    # time a byte-identical copy of the same function, which GDScript can't
+    # parse (duplicate function name), breaking every other script that
+    # references the class (TurnManager is a class_name global). Runs on
+    # every .gd file the commit actually touched; only removes a LATER
+    # occurrence when its body is byte-identical to an earlier same-named
+    # one - a genuine same-name-different-body conflict is left alone and
+    # reported, never auto-resolved.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
+      CHANGED_GD_FILES="$(git diff --name-only --diff-filter=AM "$BEFORE_SHA" "$AFTER_SHA" -- '*.gd' || true)"
+      if [ -n "$CHANGED_GD_FILES" ]; then
+        echo "$CHANGED_GD_FILES" | while IFS= read -r gd_file; do
+          [ -f "$gd_file" ] || continue
+          GD_DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_gd_duplicate_functions.py" "$gd_file" 2>>"$task_log")"
+          if [ "$GD_DEDUPE_OUT" != "unchanged" ]; then
+            echo "--- ${gd_file}: ${GD_DEDUPE_OUT} ---" >> "$task_log"
+            git add "$gd_file"
+          fi
+        done
+        if ! git diff --cached --quiet; then
+          git commit -m "fix: auto-remove duplicate GDScript function definition(s)" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
     if [ "$AIDER_EXIT" -ne 0 ]; then
       echo "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
