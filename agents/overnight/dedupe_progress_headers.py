@@ -91,7 +91,13 @@ def dedupe(text):
     return "\n".join(out) + "\n", dup_titles
 
 
-def dedupe_adjacent_bullets(text):
+def dedupe_bullets(text):
+    """Drop any bullet block that's byte-identical to an EARLIER one in the
+    same file, not just the immediately adjacent one - a real case had 4
+    unrelated entries sitting between two exact-duplicate lines. Matching is
+    strict byte-equality on the whole block, so this only ever catches a
+    genuine re-log of the same event, never two merely-similar entries.
+    """
     lines = text.splitlines()
     starts = [i for i, line in enumerate(lines) if BULLET_RE.match(line)]
     if len(starts) < 2:
@@ -108,19 +114,16 @@ def dedupe_adjacent_bullets(text):
                 break
         blocks.append((start, end))
 
-    # keep[i] decides whether block i survives - compared against the block
-    # immediately before it (not the nearest SURVIVING one), which still
-    # correctly finds a duplicate since every real case seen is either one
-    # exact repeat or a run of exact repeats (all content-identical to each
-    # other transitively).
     keep = [True] * len(blocks)
+    seen = set()
     removed = 0
-    for i in range(1, len(blocks)):
-        start, end = blocks[i]
-        prev_start, prev_end = blocks[i - 1]
-        if lines[start:end] == lines[prev_start:prev_end]:
+    for i, (start, end) in enumerate(blocks):
+        body = tuple(lines[start:end])
+        if body in seen:
             keep[i] = False
             removed += 1
+        else:
+            seen.add(body)
 
     if not removed:
         return None, 0
@@ -160,7 +163,7 @@ def main():
         current = merged
         changes.append("merged headers: " + ", ".join(dup_titles))
 
-    bullet_merged, removed_count = dedupe_adjacent_bullets(current)
+    bullet_merged, removed_count = dedupe_bullets(current)
     if bullet_merged is not None and bullet_merged != current:
         current = bullet_merged
         changes.append(f"collapsed {removed_count} duplicate bullet line(s)")
