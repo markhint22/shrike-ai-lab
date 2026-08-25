@@ -1,84 +1,73 @@
 #!/usr/bin/env bash
-# ===========================================
-# Model bake-off: current 27B+MTP vs Qwen3-Coder-30B-A3B vs Qwen3.8-27B+DFlash2
-# ===========================================
-# Measures real tokens/sec + a coding-quality sample for each candidate, on the
-# SAME GPU, one at a time (they can't co-reside in 24GB). Safe with production:
-# it STOPS (never removes) the prod container, runs each candidate as a separate
-# throwaway container on the prod port, then `docker start`s prod back exactly as
-# it was. Pause the overnight queue before running (the model is briefly down).
-#
-# Usage:  ./model_bakeoff.sh            # runs baseline + both candidates
-# ===========================================
+# Comprehensive model bake-off on the single 24GB GPU. Disconnect-safe: a trap
+# ALWAYS restores production. Measures tok/s + a code sample for each candidate.
+# One prod-down window: baseline (prod) -> stop prod -> test all candidates -> restore.
 set -uo pipefail
+MODELS=/run/media/mhintermeister/secondary_drive1/LocalProjects/shrike-ai-lab/models
+DF=$MODELS/deepflash
+IMG=ghcr.io/ggml-org/llama.cpp:server-cuda
+KEY=sk-shrike-local
+PROD=shrike-llama-dflash-35b
+OUT=/home/mhintermeister/overnight-queue/reports/bakeoff.out
+: > "$OUT"
 
-MODELS_HOST="/run/media/mhintermeister/secondary_drive1/LocalProjects/shrike-ai-lab/models"
-IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda"
-PROD_CONTAINER="shrike-llama-dflash-35b"
-PORT=8081
-KEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
-CAND="bakeoff-cand"
-TEST_CTX=32768   # smaller than prod's 262144 — safe for a speed/quality probe, avoids OOM
-CODE_PROMPT='Write a Python function is_palindrome(s) that ignores case and non-alphanumeric characters, with a docstring. Then show a unified diff that adds a type hint to it.'
+restore() { docker rm -f cand >/dev/null 2>&1 || true
+  docker start "$PROD" >/dev/null 2>&1 || true
+  for i in $(seq 1 90); do curl -sf http://localhost:8081/health >/dev/null 2>&1 && break; sleep 2; done
+  echo "[restore] production: $(docker ps --filter name=$PROD --format '{{.Status}}')" >> "$OUT"; }
+trap restore EXIT
 
-measure() {  # $1 = base url ; prints "tok/s | sample"
-  local base="$1" total_t=0 total_ct=0 i resp ct
-  for i in 1 2 3; do
-    resp="$(curl -s -w '\nWALL:%{time_total}' --max-time 120 -H "Authorization: Bearer $KEY" \
-      -H 'Content-Type: application/json' \
-      -d '{"model":"probe","prompt":"Count slowly from 1 to 50, one number per line.","max_tokens":120,"temperature":0}' \
-      "$base/v1/completions")"
-    local wall ctok
-    wall="$(echo "$resp" | grep -oE 'WALL:[0-9.]+' | cut -d: -f2)"
-    ctok="$(echo "$resp" | sed 's/WALL:.*//' | python3 -c 'import sys,json;print(json.load(sys.stdin)["usage"]["completion_tokens"])' 2>/dev/null || echo 0)"
-    total_t="$(python3 -c "print($total_t + ${wall:-0})")"
-    total_ct=$((total_ct + ${ctok:-0}))
+toks() { # $1=url -> best tok/s over 2 coding completions
+  local base="$1" best=0 i r w c ts
+  for i in 1 2; do
+    r=$(curl -s -w '\nWALL:%{time_total}' --max-time 120 -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+      -d '{"model":"probe","prompt":"Write a Python function merge_sort(arr) with a helper and comments.","max_tokens":180,"temperature":0}' "$base/v1/completions")
+    w=$(echo "$r" | grep -oE 'WALL:[0-9.]+' | cut -d: -f2)
+    c=$(echo "$r" | sed 's/WALL:.*//' | python3 -c 'import sys,json;print(json.load(sys.stdin)["usage"]["completion_tokens"])' 2>/dev/null || echo 0)
+    [ "${c:-0}" -gt 0 ] && ts=$(python3 -c "print(round(${c}/${w},1))" 2>/dev/null) || ts=0
+    [ "$(python3 -c "print(1 if ${ts:-0}>${best} else 0)")" = 1 ] && best=$ts
   done
-  python3 -c "print(f'{$total_ct/$total_t:.1f} tok/s (idle)')" 2>/dev/null || echo "?"
-  # coding-quality sample (udiff format — the aider-critical bit)
-  echo "--- coding sample ---"
-  curl -s --max-time 180 -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
-    -d "$(jq -n --arg p "$CODE_PROMPT" '{model:"probe",messages:[{role:"user",content:$p}],max_tokens:400,temperature:0}')" \
-    "$base/v1/chat/completions" | jq -r '.choices[0].message.content // "NO RESPONSE"' 2>/dev/null | head -40
+  echo "$best"
 }
-
-wait_health() { for _ in $(seq 1 90); do curl -sf "http://localhost:$PORT/health" >/dev/null 2>&1 && return 0; sleep 2; done; return 1; }
-
-run_candidate() {  # $1 = label ; $2... = llama-server args after the model
-  local label="$1"; shift
-  echo "======================================================"
-  echo "=== CANDIDATE: $label"
-  echo "======================================================"
-  docker rm -f "$CAND" >/dev/null 2>&1 || true
-  docker run -d --rm --gpus all --name "$CAND" -p "$PORT:8080" \
-    -v "$MODELS_HOST:/models" --entrypoint /bin/sh "$IMAGE" \
-    -c "exec /app/llama-server $* --host 0.0.0.0 --port 8080 --alias probe --ctx-size $TEST_CTX --flash-attn on --cache-type-k q8_0 --cache-type-v q8_0" >/dev/null
-  if wait_health; then
+sample() { # $1=url -> short code-quality sample (SEARCH/REPLACE diff capability)
+  curl -s --max-time 150 -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+    -d '{"model":"probe","messages":[{"role":"user","content":"Given this code:\n\ndef add(a,b):\n    return a-b\n\nIt has a bug. Reply with ONLY a SEARCH/REPLACE diff block that fixes it (aider format: <<<<<<< SEARCH / ======= / >>>>>>> REPLACE)."}],"max_tokens":200,"temperature":0}' \
+    "$1/v1/chat/completions" | jq -r '.choices[0].message.content // "NO RESPONSE"' 2>/dev/null | head -18
+}
+gpu() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1; }
+launch() { # $1=label $2=extra llama-server args (model + ctx etc). auto-fit (no -ngl).
+  echo "======== CANDIDATE: $1 ========" >> "$OUT"
+  docker rm -f cand >/dev/null 2>&1 || true
+  docker run -d --gpus all --name cand -p 8081:8080 -v "$MODELS:/models" --entrypoint /bin/sh "$IMG" \
+    -c "exec /app/llama-server $2 --flash-attn on --cache-type-k q8_0 --cache-type-v q8_0 --host 0.0.0.0 --port 8080 --alias probe" >/dev/null
+  local ok=0
+  for i in $(seq 1 75); do
+    curl -sf http://localhost:8081/health >/dev/null 2>&1 && { ok=1; break; }
+    [ "$(docker inspect -f '{{.State.Running}}' cand 2>/dev/null)" != "true" ] && break
+    sleep 2
+  done
+  if [ "$ok" = 1 ]; then
     sleep 3
-    measure "http://localhost:$PORT"
+    echo "  tok/s: $(toks http://localhost:8081) | VRAM: $(nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader)" >> "$OUT"
+    echo "  --- code sample (SEARCH/REPLACE fix) ---" >> "$OUT"; sample http://localhost:8081 >> "$OUT"
   else
-    echo "  DID NOT BECOME HEALTHY — logs:"; docker logs "$CAND" 2>&1 | tail -15
+    echo "  FAILED to start — logs:" >> "$OUT"; docker logs cand 2>&1 | tail -12 >> "$OUT"
   fi
-  docker rm -f "$CAND" >/dev/null 2>&1 || true
+  docker rm -f cand >/dev/null 2>&1 || true
+  for i in $(seq 1 20); do [ "$(gpu)" -lt 3000 ] && break; sleep 2; done
 }
 
-echo "### Baseline: current production ($PROD_CONTAINER, 27B + native MTP) ###"
-measure "http://localhost:$PORT"
+for i in $(seq 1 8); do fuser /home/mhintermeister/overnight-queue/state/run.lock >/dev/null 2>&1 || break; sleep 8; done
+echo "======== BASELINE: current 27B hybrid (262k, MTP, auto-fit) via litellm ========" >> "$OUT"
+echo "  tok/s: $(toks http://localhost:4000)" >> "$OUT"
 
-echo ""
-echo "### Stopping production to free the GPU for candidates... ###"
-docker stop "$PROD_CONTAINER" >/dev/null && echo "  stopped $PROD_CONTAINER"
+echo "======== stopping prod, freeing GPU ========" >> "$OUT"
+docker stop "$PROD" >/dev/null
+for i in $(seq 1 30); do [ "$(gpu)" -lt 3000 ] && break; sleep 2; done
 
-# Candidate 1: Qwen3-Coder-30B-A3B (MoE coding specialist; no spec decoding)
-run_candidate "Qwen3-Coder-30B-A3B (MoE)" \
-  '-m /models/deepflash/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf'
+CTX='--ctx-size 65536'
+[ -f "$DF/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf" ] && launch "Qwen3-Coder-30B-A3B (MoE ~3B active)" "-m /models/deepflash/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf $CTX"
+[ -f "$DF/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf" ] && launch "Devstral-Small-2-24B (dense, agentic)" "-m /models/deepflash/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf $CTX"
+[ -f "$DF/GLM-4.7-Flash-UD-Q4_K_XL.gguf" ] && launch "GLM-4.7-Flash (MoE, MLA, thinking)" "-m /models/deepflash/GLM-4.7-Flash-UD-Q4_K_XL.gguf $CTX"
 
-# Candidate 2: Qwen3.8-27B + DFlash2 external drafter (vs current native MTP)
-run_candidate "Qwen3.8-27B + DFlash2 drafter" \
-  '-m /models/deepflash/Qwen3.8-27B-Q4_K_M.gguf -md /models/deepflash/Qwen3.8-27B-DFlash2-Q8_0.gguf --chat-template-file /models/deepflash/fixed_template_qwen3.8.jinja'
-
-echo ""
-echo "### Restoring production... ###"
-docker start "$PROD_CONTAINER" >/dev/null && echo "  started $PROD_CONTAINER"
-for _ in $(seq 1 120); do curl -sf "http://localhost:$PORT/health" >/dev/null 2>&1 && { echo "  production healthy again"; break; }; sleep 2; done
-echo "### bake-off complete ###"
+echo "======== DONE ========" >> "$OUT"
