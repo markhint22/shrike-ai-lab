@@ -123,6 +123,46 @@ if [ -d "$REPOS" ]; then
   done
 fi
 
+# --- optional AI review pass (runs BEFORE the digest so findings land in both
+#     the digest and the push). Claude if creds are present; else the FREE
+#     on-server local 27B when SUPERVISOR_USE_LOCAL=1. ------------------------
+REVIEW_TITLE=""; REVIEW_TEXT=""; REVIEW_NOTE=""
+if command -v claude >/dev/null 2>&1 && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  REVIEW_TITLE="Claude review"; REVIEW_NOTE=" (+Claude review)"
+  PROMPT="You are the overnight-queue supervisor. For each active repo clone under ${REPOS} on branch overnight/feature, inspect the last 5 commits (git log -p -5 origin/main..overnight/feature). Flag ONLY: (a) a commit whose diff does NOT do what its message claims (e.g. 'remove duplicate' that adds one), (b) a test that looks vacuous or mirrors the code's own assumption, (c) an OVERNIGHT_PROGRESS.md item that is oversized or stale. Output a terse bulleted list of real findings with repo + commit sha, or 'no issues found'. Do not edit anything."
+  REVIEW_TEXT="$(timeout 900 claude -p "$PROMPT" --allowedTools "Bash(git*),Read,Grep,Glob" 2>>"$DIR/logs/supervisor.log")" || REVIEW_TEXT="_(Claude review failed — see logs/supervisor.log)_"
+elif [ "${SUPERVISOR_USE_LOCAL:-0}" = "1" ]; then
+  # FREE review using the already-running local model via LiteLLM. No API cost;
+  # competes with the queue for GPU only for this one bounded call every 3h.
+  LITELLM_BASE="${LITELLM_BASE:-http://localhost:4000}"
+  LITELLM_KEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
+  MODEL="${OVERNIGHT_MODEL:-qwen-dflash-27B}"
+  REVIEW_TITLE="Local-27B review"; REVIEW_NOTE=" (+local-27B review)"
+  if curl -sf --max-time 8 "$LITELLM_BASE/health/liveliness" >/dev/null 2>&1; then
+    CTX="$(for r in "$REPOS"/*/; do
+      [ -d "$r/.git" ] || continue
+      n="$(basename "$r")"
+      lo="$(git -C "$r" log origin/overnight/feature -3 -p --stat 2>/dev/null | head -c 4000)"
+      [ -n "$lo" ] && printf '### %s\n%s\n\n' "$n" "$lo"
+    done | head -c 14000)"
+    if [ -n "$CTX" ]; then
+      RP="You are reviewing recent commits from an autonomous coding queue. Flag ONLY real problems: a diff that contradicts its commit message (e.g. 'remove duplicate' that adds code), a vacuous or mirror test, or an obvious bug. Be terse: one bullet per finding as 'repo@sha: problem', or exactly 'no issues found'.
+
+Commits:
+${CTX}"
+      PAYLOAD="$(jq -n --arg m "$MODEL" --arg p "$RP" '{model:$m,messages:[{role:"user",content:$p}],max_tokens:500,temperature:0}')"
+      REVIEW_TEXT="$(curl -sf --max-time 300 -H "Authorization: Bearer $LITELLM_KEY" -H "Content-Type: application/json" -d "$PAYLOAD" "$LITELLM_BASE/v1/chat/completions" 2>>"$DIR/logs/supervisor.log" | jq -r '.choices[0].message.content // ""')"
+      [ -z "$REVIEW_TEXT" ] && REVIEW_TEXT="_(local review returned nothing)_"
+    fi
+  else
+    REVIEW_TEXT="_(litellm unreachable — local review skipped)_"
+  fi
+fi
+# surface one digest/push line only if the review flagged something real
+if [ -n "$REVIEW_TEXT" ] && ! echo "$REVIEW_TEXT" | grep -qiE 'no issues found|returned nothing|unreachable|review failed'; then
+  findings+=("${REVIEW_TITLE} flagged commit(s) — see supervisor report")
+fi
+
 # --- assemble digest ------------------------------------------------------
 REPORT_FILE="$REPORT_DIR/supervisor-$(date +%Y%m%d-%H%M%S).md"
 {
@@ -134,23 +174,12 @@ REPORT_FILE="$REPORT_DIR/supervisor-$(date +%Y%m%d-%H%M%S).md"
     echo "## Actionable (${#findings[@]})"
     for f in "${findings[@]}"; do echo "- $f"; done
   fi
+  if [ -n "$REVIEW_TEXT" ]; then
+    echo ""; echo "## ${REVIEW_TITLE}"; echo "$REVIEW_TEXT"
+  fi
 } > "$REPORT_FILE"
 
-# --- optional: Claude review pass (only if creds present) -----------------
-CLAUDE_NOTE=""
-if command -v claude >/dev/null 2>&1 && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "" >> "$REPORT_FILE"
-  echo "## Claude review" >> "$REPORT_FILE"
-  PROMPT="You are the overnight-queue supervisor. For each active repo clone under ${REPOS} on branch overnight/feature, inspect the last 5 commits (git log -p -5 origin/main..overnight/feature). Flag ONLY: (a) a commit whose diff does NOT do what its message claims (e.g. 'remove duplicate' that adds one), (b) a test that looks vacuous or mirrors the code's own assumption, (c) an OVERNIGHT_PROGRESS.md item that is oversized or stale. Output a terse bulleted list of real findings with repo + commit sha, or 'no issues found'. Do not edit anything."
-  # headless, read-only, time-boxed
-  if timeout 900 claude -p "$PROMPT" --allowedTools "Bash(git*),Read,Grep,Glob" >> "$REPORT_FILE" 2>>"$DIR/logs/supervisor.log"; then
-    CLAUDE_NOTE=" (+Claude review)"
-  else
-    echo "_(Claude review failed — see logs/supervisor.log)_" >> "$REPORT_FILE"
-  fi
-fi
-
-echo "supervisor: ${#findings[@]} finding(s)${CLAUDE_NOTE} -> $REPORT_FILE"
+echo "supervisor: ${#findings[@]} finding(s)${REVIEW_NOTE} -> $REPORT_FILE"
 
 # --- phone push (only when actionable and a topic is configured) ----------
 if [ "${#findings[@]}" -gt 0 ] && [ -n "$NTFY_TOPIC" ]; then
