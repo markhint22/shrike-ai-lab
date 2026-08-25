@@ -723,6 +723,35 @@ Task: ${full_prompt}"
       fi
     fi
 
+    # Duplicate-Python-definition auto-merge (2026-08-25 hardening, same
+    # shape as the GDScript one above): test-automation-agent's
+    # TestOrchestratorExecutePhaseIntegration test class was independently
+    # re-added, byte-identical, by 2 SEPARATE cycles two apart - Python
+    # silently lets a later same-named top-level class/def shadow an
+    # earlier one at module scope (not a parse error like GDScript, just
+    # dead, invisible-to-pytest code). Runs on every .py file the commit
+    # actually touched; only removes a LATER top-level class/def when its
+    # body is byte-identical to an earlier same-name one - a genuine
+    # same-name-different-body conflict is left alone and reported, never
+    # auto-resolved.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
+      CHANGED_PY_FILES="$(git diff --name-only --diff-filter=AM "$BEFORE_SHA" "$AFTER_SHA" -- '*.py' || true)"
+      if [ -n "$CHANGED_PY_FILES" ]; then
+        echo "$CHANGED_PY_FILES" | while IFS= read -r py_file; do
+          [ -f "$py_file" ] || continue
+          PY_DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_python_duplicate_defs.py" "$py_file" 2>>"$task_log")"
+          if [ "$PY_DEDUPE_OUT" != "unchanged" ]; then
+            echo "--- ${py_file}: ${PY_DEDUPE_OUT} ---" >> "$task_log"
+            git add "$py_file"
+          fi
+        done
+        if ! git diff --cached --quiet; then
+          git commit -m "fix: auto-remove duplicate Python class/function definition(s)" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
     if [ "$AIDER_EXIT" -ne 0 ]; then
       echo "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
