@@ -90,20 +90,25 @@ fi
 # a GUT gate for Godot repos.
 run_gate() {
   local repo="$1" dir="$2" ran=0 rc=0
-  # web build+test (self-provisions via npm ci in the worktree)
-  if [ -f "$dir/package.json" ]; then
-    if jq -e '.scripts.build' "$dir/package.json" >/dev/null 2>&1; then
-      log "  gate: npm build in $dir"
-      ( cd "$dir" && timeout "$TEST_TIMEOUT" bash -c 'npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund; npm run build' ) >/dev/null 2>&1 || return 1
+  # web build+test (self-provisions via npm ci in the worktree). 2026-08-25 #6:
+  # scan root AND one-level subdirs (web/, billwatch-web/, ...) - the frontend
+  # is rarely at the repo root, so the old root-only check silently gated nothing
+  # for most repos' web app.
+  while IFS= read -r pj; do
+    [ -z "$pj" ] && continue
+    pdir="$(dirname "$pj")"
+    if jq -e '.scripts.build' "$pj" >/dev/null 2>&1; then
+      log "  gate: npm build in $pdir"
+      ( cd "$pdir" && timeout "$TEST_TIMEOUT" bash -c 'npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund; npm run build' ) >/dev/null 2>&1 || return 1
       ran=1
     fi
-    if jq -e '.scripts.test' "$dir/package.json" >/dev/null 2>&1; then
-      log "  gate: npm test in $dir"
-      ( cd "$dir" && CI=1 timeout "$TEST_TIMEOUT" npm test --silent -- --run 2>/dev/null ) ; rc=$?
+    if jq -e '.scripts.test' "$pj" >/dev/null 2>&1; then
+      log "  gate: npm test in $pdir"
+      ( cd "$pdir" && CI=1 timeout "$TEST_TIMEOUT" npm test --silent -- --run 2>/dev/null ) ; rc=$?
       [ "$rc" -gt 1 ] && return 1
       ran=1
     fi
-  fi
+  done < <(find "$dir" -maxdepth 2 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
   # python: reuse the main clone's PROVISIONED venv against the worktree code.
   local venv_pytest pkg_rel wt_pkg
   venv_pytest="$(find "$repo" -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
