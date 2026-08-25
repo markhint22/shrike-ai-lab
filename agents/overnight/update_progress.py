@@ -162,48 +162,72 @@ def main():
 
     ns = find_section_bounds(lines, 'Next Steps')
 
-    # --- DONE: mark a matching open item; be a no-op if it's already done;
-    #     only record as new work if it matches nothing at all. ---
-    def best_match(spans, key, done_state):
-        """Best (idx, score) among spans whose is_done_item == done_state."""
-        best, best_score = None, 0.0
+    # --- DONE matching. STRICT to avoid false-marking the wrong item when the
+    #     list has near-identical siblings (e.g. seven "Delete .../X.py" items):
+    #     a real match is an item whose normalized text is a UNIQUE exact
+    #     substring of / superset of the DONE key, or a token-overlap winner
+    #     that clears a high bar AND beats the runner-up by a clear margin.
+    #     Anything ambiguous is SKIPPED and logged, never guessed. ---
+    STRONG = 0.75      # token-overlap floor for a fuzzy match
+    MARGIN = 0.15      # winner must beat runner-up by this much
+    NEWWORK = 0.40     # below this against every item => genuinely new work
+
+    def classify(spans, key, done_state):
+        """Return ('exact-unique', idx) | ('exact-many', None) |
+        ('fuzzy', idx) | ('weak', best_score) | ('none', 0.0)."""
+        exact, scored = [], []
         for (s, _e) in spans:
             if is_done_item(lines[s]) != done_state:
                 continue
             ik = normalize(lines[s])
             if not ik:
                 continue
-            score = 1.0 if (key in ik or ik in key) else token_overlap(key, ik)
-            if score > best_score:
-                best, best_score = s, score
-        return best, best_score
+            if key in ik or ik in key:
+                exact.append(s)
+            else:
+                scored.append((token_overlap(key, ik), s))
+        if len(exact) == 1:
+            return 'exact-unique', exact[0]
+        if len(exact) > 1:
+            return 'exact-many', None
+        scored.sort(reverse=True)
+        if scored and scored[0][0] >= STRONG and (
+                len(scored) == 1 or scored[0][0] - scored[1][0] >= MARGIN):
+            return 'fuzzy', scored[0][1]
+        return ('weak', scored[0][0]) if scored else ('none', 0.0)
 
     for done in dones:
         key = normalize(done)
         if not key:
             continue
         spans = item_spans(lines, ns[1], ns[2]) if ns else []
-        open_idx, open_score = best_match(spans, key, False)
-        if open_idx is not None and open_score >= 0.6:
-            mark_done_in_place(lines, open_idx)
+        kind, val = classify(spans, key, False)
+        if kind in ('exact-unique', 'fuzzy'):
+            mark_done_in_place(lines, val)
             changes.append(f"marked done: {done[:60]}")
             continue
-        # Already-done item matches this DONE (a re-declared / re-attempted
-        # item): do nothing. This is what makes re-processing idempotent and
-        # stops the re-add-duplicate class at the doc level.
-        _di, done_score = best_match(spans, key, True)
-        if done_score >= 0.6:
+        if kind == 'exact-many':
+            changes.append(f"SKIPPED ambiguous DONE (matches several items): "
+                           f"{done[:50]}")
             continue
-        # Matches nothing — record autonomously-chosen work, never drop it.
-        # Prefer a ## Completed section if the doc has one; else end of
-        # Next Steps (a [x] item there is simply skipped when picking the top).
+        # Not a confident open match. Is it an already-done item (idempotent
+        # re-run, or the model re-declaring something already finished)?
+        dkind, _dval = classify(spans, key, True)
+        if dkind in ('exact-unique', 'exact-many', 'fuzzy'):
+            continue  # already done — no-op
+        # Neither open nor done matched confidently. Only RECORD it as new
+        # work when it's clearly unrelated to every listed item; a middling
+        # score means "probably an existing item, worded differently" — do NOT
+        # guess and do NOT duplicate; skip and log for the supervisor/human.
+        best_open = val if kind == 'weak' else 0.0
+        if best_open >= NEWWORK:
+            changes.append(f"SKIPPED unmatched DONE (ambiguous, ~{best_open:.2f}): "
+                           f"{done[:50]}")
+            continue
         comp = find_section_bounds(lines, 'Completed')
-        if comp is not None:
-            lines.insert(comp[2], f"- [x] {done} (done {today})")
-            changes.append(f"recorded completed (no prior item): {done[:50]}")
-            ns = find_section_bounds(lines, 'Next Steps')
-        elif ns:
-            lines.insert(ns[2], f"- [x] {done} (done {today})")
+        target_end = comp[2] if comp is not None else (ns[2] if ns else None)
+        if target_end is not None:
+            lines.insert(target_end, f"- [x] {done} (done {today})")
             changes.append(f"recorded completed (no prior item): {done[:50]}")
             ns = find_section_bounds(lines, 'Next Steps')
 
