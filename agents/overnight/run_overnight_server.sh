@@ -338,6 +338,57 @@ run_repo_verification() {
   fi
 }
 
+# Red-green verification (2026-08-25 Tier-3 hardening). Makes "tests pass" mean
+# "the test earned its pass." For a BUGFIX commit (changes BOTH non-test source
+# AND test files), a genuine regression test must FAIL against the pre-fix
+# source. If the new test(s) still PASS with the source reverted, the test is
+# vacuous or mirrors the bug's own wrong assumption - a failure mode seen
+# repeatedly here (e.g. a settings int-vs-string test that passed because it
+# made the exact same mistake as the code it was "testing"). ADVISORY ONLY:
+# reports + alerts, never auto-disables (green is already covered by
+# run_repo_verification; the runner can't tell a true regression from a flake).
+# Skips pure coverage-adds (no source change) and non-pytest repos. Must run
+# with cwd at the repo root (as inside run_aider_fix_task's subshell).
+# Echoes: "ok" | "suspect" | "n/a".
+run_redgreen_check() {
+  local before="$1" after="$2"
+  local changed tests src test_re='(^|/)(test_[^/]*|[^/]*_test)\.py$|/tests?/.*\.py$'
+  changed="$(git diff --name-only "$before" "$after")"
+  tests="$(echo "$changed" | grep -E "$test_re" || true)"
+  src="$(echo "$changed" | grep -E '\.py$' | grep -vE "$test_re" || true)"
+  [ -z "$tests" ] && { echo "n/a"; return; }
+  [ -z "$src" ] && { echo "n/a"; return; }   # coverage-only add, not a bugfix
+
+  local venv_pytest dir dir_rel
+  venv_pytest="$(find . -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  [ -z "$venv_pytest" ] && { echo "n/a"; return; }
+  dir="${venv_pytest%/.venv/bin/pytest}"
+  dir_rel="${dir#./}"
+
+  # Make the changed test paths relative to the venv's dir (repos commonly keep
+  # .venv + tests under backend/), and only run tests that live under it.
+  local dtests="" t
+  for t in $tests; do
+    if [ "$dir_rel" = "." ]; then
+      dtests="$dtests $t"
+    else
+      case "$t" in "$dir_rel"/*) dtests="$dtests ${t#"$dir_rel"/}" ;; esac
+    fi
+  done
+  [ -z "$dtests" ] && { echo "n/a"; return; }
+
+  # Revert ONLY the source to pre-fix (keep the new tests), run just the new
+  # tests, then restore. Cleanup restores source even if pytest is killed.
+  echo "--- red-green: running new test(s) against pre-fix source ---" >> "$task_log"
+  git checkout "$before" -- $src 2>>"$task_log"
+  local rc=0
+  ( cd "$dir" && timeout 120 ./.venv/bin/pytest -q --no-cov $dtests ) >> "$task_log" 2>&1 || rc=$?
+  git checkout "$after" -- $src 2>>"$task_log"
+
+  # rc==0 means the new tests PASSED without the fix -> they don't exercise it.
+  if [ "$rc" -eq 0 ]; then echo "suspect"; else echo "ok"; fi
+}
+
 run_aider_fix_task() {
   local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}"
 
@@ -830,6 +881,14 @@ Task: ${full_prompt}"
       # just surfacing it for you to glance at in the report.
       VERIFY_RESULT="$(run_repo_verification)"
 
+      # Red-green check (2026-08-25 Tier-3): did a bugfix's new test earn its
+      # pass? Runs on the code state before the bookkeeping doc commit.
+      REDGREEN="$(run_redgreen_check "$BEFORE_SHA" "$AFTER_SHA")"
+      if [ "$REDGREEN" = "suspect" ]; then
+        echo "--- RED-GREEN SUSPECT: new test(s) passed WITHOUT the fix (vacuous or mirrors the bug) ---" >> "$task_log"
+        emit_alert warn "$id" "red-green: a new test passed without the fix (possible vacuous/mirror test) — review the diff on ${branch}"
+      fi
+
       # Runner-owned progress bookkeeping (2026-08-25 Tier-1). The model declared
       # what it did via DONE:/DECISION:/NEW: trailers in its commit message(s);
       # apply them to OVERNIGHT_PROGRESS.md deterministically here. Gated on
@@ -850,10 +909,12 @@ Task: ${full_prompt}"
 
       if git push origin "$branch" --quiet 2>>"$task_log"; then
         case "$VERIFY_RESULT" in
-          fail) echo "pushed(tests:FAIL - see log)" ;;
-          pass) echo "pushed(tests:pass)" ;;
-          *) echo "pushed" ;;
+          fail) PUSH_STATUS="pushed(tests:FAIL - see log)" ;;
+          pass) PUSH_STATUS="pushed(tests:pass)" ;;
+          *) PUSH_STATUS="pushed" ;;
         esac
+        [ "$REDGREEN" = "suspect" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:SUSPECT]"
+        echo "$PUSH_STATUS"
       else
         echo "committed-but-push-failed"
       fi
