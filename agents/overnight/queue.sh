@@ -22,6 +22,10 @@
 #                                              # everything after <repo-name>
 #                                              # becomes the prompt verbatim.
 #   ~/overnight-queue/queue.sh remove <task-id>
+#   ~/overnight-queue/queue.sh hold <repo-name>    # skip a repo while you edit it
+#   ~/overnight-queue/queue.sh release <repo-name>
+#   ~/overnight-queue/queue.sh alerts [N]          # recent runner alerts
+#   ~/overnight-queue/queue.sh ack                 # clear current alerts
 # ===========================================
 
 set -uo pipefail
@@ -75,6 +79,13 @@ case "$cmd" in
       done
     fi
     echo ""
+    echo "=== holds (repos a human is editing; runner skips them) ==="
+    HELD="$(ls "$DIR"/state/HOLD_* 2>/dev/null | sed 's#.*/HOLD_##')"
+    if [ -z "$HELD" ]; then echo "None"; else echo "$HELD" | while read -r r; do echo "  ${r}  (queue.sh release ${r} to clear)"; done; fi
+    echo ""
+    echo "=== recent alerts (queue.sh alerts for more, queue.sh ack to clear) ==="
+    if [ -s "$DIR/state/alerts.log" ]; then tail -5 "$DIR/state/alerts.log"; else echo "None"; fi
+    echo ""
     echo "=== inference container ==="
     docker ps --filter name=shrike-llama --format '{{.Names}}: {{.Status}}'
     ;;
@@ -117,7 +128,12 @@ case "$cmd" in
     TASK_ID="${2:-}"
     if [ -z "$TASK_ID" ]; then echo "Usage: queue.sh enable <task-id>"; exit 1; fi
     jq --arg id "$TASK_ID" '(.[] | select(.id == $id)).enabled = true' "$TASKS" > "$TASKS.tmp" && mv "$TASKS.tmp" "$TASKS"
-    echo "Enabled ${TASK_ID}."
+    # Reset the safety-valve failure counter (2026-08-25 Tier-2 hardening).
+    # Forgetting to `rm state/failures/<id>.count` after a manual re-enable has
+    # bitten every single time — a stale count sitting at the trip threshold
+    # re-disables the task on its very next minor hiccup. Do it automatically.
+    rm -f "$DIR/state/failures/${TASK_ID}.count"
+    echo "Enabled ${TASK_ID} (failure counter reset)."
     ;;
 
   disable)
@@ -169,8 +185,46 @@ case "$cmd" in
     echo "Removed ${TASK_ID}."
     ;;
 
+  hold)
+    # Hold a repo the runner is cycling so you can safely edit its working tree
+    # without racing the ~20s reset. Keyed by repo BASENAME (as shown by
+    # `queue.sh repos`), not task id — one repo can back several tasks. Safer
+    # than `disable`: leaves the failure counter untouched, and auto-expires
+    # after HOLD_MAX_HOURS (6h) in the runner so a forgotten hold can't freeze
+    # a repo silently.
+    REPO_NAME="${2:-}"
+    if [ -z "$REPO_NAME" ]; then echo "Usage: queue.sh hold <repo-name>  (see: queue.sh repos)"; exit 1; fi
+    mkdir -p "$DIR/state"
+    touch "$DIR/state/HOLD_${REPO_NAME}"
+    echo "Held ${REPO_NAME}. Runner will skip its task(s) until 'queue.sh release ${REPO_NAME}' (auto-expires after 6h)."
+    ;;
+
+  release)
+    REPO_NAME="${2:-}"
+    if [ -z "$REPO_NAME" ]; then echo "Usage: queue.sh release <repo-name>"; exit 1; fi
+    rm -f "$DIR/state/HOLD_${REPO_NAME}"
+    echo "Released ${REPO_NAME}."
+    ;;
+
+  alerts)
+    N="${2:-20}"
+    if [ -s "$DIR/state/alerts.log" ]; then tail -"$N" "$DIR/state/alerts.log"; else echo "No alerts."; fi
+    ;;
+
+  ack)
+    # Archive-and-clear current alerts so `status` goes quiet again. History is
+    # preserved in alerts.log.acked.
+    if [ -s "$DIR/state/alerts.log" ]; then
+      cat "$DIR/state/alerts.log" >> "$DIR/state/alerts.log.acked"
+      : > "$DIR/state/alerts.log"
+      echo "Acknowledged; history kept in alerts.log.acked."
+    else
+      echo "No alerts to ack."
+    fi
+    ;;
+
   *)
-    echo "Usage: queue.sh {status|pause|resume|report [N]|log <task-id>|run-now|list|repos|enable <id>|disable <id>|add <id> <repo> <prompt...>|remove <id>}"
+    echo "Usage: queue.sh {status|pause|resume|report [N]|log <task-id>|run-now|list|repos|enable <id>|disable <id>|add <id> <repo> <prompt...>|remove <id>|hold <repo>|release <repo>|alerts [N]|ack}"
     exit 1
     ;;
 esac

@@ -97,15 +97,39 @@ TRAINING_DIR="$HOME/shrike-ai-lab-training"
 TASKS_FILE="$SCRIPT_DIR/tasks.json"
 STATE_DIR="$SCRIPT_DIR/state"
 FAIL_DIR="$STATE_DIR/failures"
+NOOP_DIR="$STATE_DIR/noops"
 LOG_DIR="$SCRIPT_DIR/logs"
 REPORT_DIR="$SCRIPT_DIR/reports"
-mkdir -p "$STATE_DIR" "$FAIL_DIR" "$LOG_DIR" "$REPORT_DIR"
+mkdir -p "$STATE_DIR" "$FAIL_DIR" "$NOOP_DIR" "$LOG_DIR" "$REPORT_DIR"
 
 PAUSE_FLAG="$STATE_DIR/PAUSED"
+ALERTS_FILE="$STATE_DIR/alerts.log"
 MAX_CONSECUTIVE_FAILURES=3
+# Human-hold auto-expiry (2026-08-25 Tier-2 hardening): a `queue.sh hold <repo>`
+# lets a human safely edit a repo's working tree without racing the ~20s loop
+# (the runner skips a held repo instead of resetting its tree). Auto-expire a
+# forgotten hold so it can't silently freeze a repo for days — the exact
+# silent-outage class this batch is closing.
+HOLD_MAX_HOURS=6
+# No-op streak alert (2026-08-25 Tier-2 hardening): a no-op never trips the
+# failure valve (by design — "nothing to do" isn't a failure), so a task that
+# silently stops making progress reads as healthy. Alert once when a task
+# no-ops this many cycles in a row so "silence == healthy" can't hide a stuck
+# backlog. Not a disable — a genuinely-exhausted backlog also no-ops.
+NOOP_STREAK_ALERT=30
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# Structured alert sink (2026-08-25 Tier-2 hardening). The runner can't push to
+# the phone itself (that's Claude-side), so it appends here; `queue.sh status`
+# surfaces recent alerts, and the scheduled Claude supervisor escalates real
+# ones to a push. Keep messages one-line.
+emit_alert() {
+  local sev="$1" id="$2" msg="$3"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${sev} | ${id} | ${msg}" >> "$ALERTS_FILE"
+  log "ALERT(${sev}) ${id}: ${msg}"
 }
 
 # Concurrency lock. Found by live testing (2026-08-08): a slow manual
@@ -340,6 +364,40 @@ run_aider_fix_task() {
       git checkout -B "$branch" "origin/${branch}" --quiet
     elif ! git checkout -B "$branch" "origin/${DEFAULT_BRANCH}" --quiet 2>/dev/null; then
       git checkout -B "$branch" "$DEFAULT_BRANCH" --quiet
+    fi
+
+    # Pre-cycle local-clone sync (2026-08-25 Tier-2 hardening). Root cause of
+    # the 2026-08-24 "silently disabled for 10 days" incident: a human salvage
+    # fast-forwarded origin/overnight/feature past a bug the local clone had
+    # failed on, but the runner only ever checked out the LOCAL branch as-is
+    # (above) and never reconciled it with origin — so the clone kept
+    # re-attempting an item that origin had already fixed. Fix, data-loss-safe:
+    #   - local strictly BEHIND origin (local is an ancestor of origin): the
+    #     human advanced origin — fast-forward the clone to match. No local-only
+    #     commits exist to lose.
+    #   - local strictly ahead (normal steady state — it pushes each cycle): do
+    #     nothing, the push at the end reconciles.
+    #   - genuinely DIVERGED (e.g. a human force-RESET origin back, discarding
+    #     commits the clone still has): do NOT auto-resolve — a reset here could
+    #     drop unpushed work. Flag once (deduped) for a human to reconcile.
+    if [ "$persistent" = "true" ] && git rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
+      LOCAL_HEAD="$(git rev-parse HEAD)"
+      ORIGIN_HEAD="$(git rev-parse "origin/${branch}")"
+      DIVERGE_FLAG="$STATE_DIR/diverged_${id}"
+      if [ "$LOCAL_HEAD" != "$ORIGIN_HEAD" ]; then
+        if git merge-base --is-ancestor "$LOCAL_HEAD" "$ORIGIN_HEAD"; then
+          echo "--- local ${branch} was behind origin; fast-forwarding clone to origin/${branch} ---" >> "$task_log"
+          git reset --hard "origin/${branch}" --quiet
+          rm -f "$DIVERGE_FLAG"
+        elif git merge-base --is-ancestor "$ORIGIN_HEAD" "$LOCAL_HEAD"; then
+          rm -f "$DIVERGE_FLAG"
+        elif [ ! -f "$DIVERGE_FLAG" ]; then
+          touch "$DIVERGE_FLAG"
+          emit_alert warn "$id" "local ${branch} has DIVERGED from origin (both have unique commits) — manual reconcile needed; runner left the clone untouched."
+        fi
+      else
+        rm -f "$DIVERGE_FLAG"
+      fi
     fi
 
     # Discovered by live testing: this model's udiff output is reliable for
@@ -853,10 +911,39 @@ check_and_record_failure() {
       if [ "$count" -ge "$MAX_CONSECUTIVE_FAILURES" ]; then
         jq --arg id "$id" '(.[] | select(.id == $id)).enabled = false' "$TASKS_FILE" > "$TASKS_FILE.tmp" && mv "$TASKS_FILE.tmp" "$TASKS_FILE"
         log "SAFETY VALVE: task '${id}' has failed ${count} times in a row — auto-disabled THIS TASK ONLY (the rest of the queue keeps running). Check ${FAIL_DIR}/${id}.count and its log, fix the issue, then 'queue.sh enable ${id}'."
+        emit_alert crit "$id" "AUTO-DISABLED after ${count} consecutive failures — check: queue.sh log ${id}"
       fi
       ;;
     *)
       rm -f "$count_file"
+      ;;
+  esac
+}
+
+# No-op streak tracking (2026-08-25 Tier-2 hardening). Separate from the failure
+# valve: a no-op is not a failure, so it never disables a task — but a long
+# no-op streak means a task has silently stopped making progress (stuck item, or
+# an exhausted backlog it isn't refilling). Alert exactly once at the threshold
+# (== not >=) so it surfaces without spamming every subsequent cycle. Any real
+# pushed progress resets the streak.
+track_progress_signal() {
+  local id="$1" status="$2"
+  local noop_file="$NOOP_DIR/${id}.count"
+  case "$status" in
+    no-op)
+      local c=0
+      [ -f "$noop_file" ] && c="$(cat "$noop_file")"
+      c=$((c + 1))
+      echo "$c" > "$noop_file"
+      if [ "$c" -eq "$NOOP_STREAK_ALERT" ]; then
+        emit_alert warn "$id" "no-op'd ${c} cycles in a row — likely a stuck item or an unrefilled backlog; check its Next Steps."
+      fi
+      ;;
+    pushed*)
+      rm -f "$noop_file"
+      ;;
+    *)
+      : # errors are the failure valve's job; leave the no-op streak as-is
       ;;
   esac
 }
@@ -896,6 +983,24 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
     VERSION_OR_BRANCH="$VERSION"
   else
     REPO="$(jq -r ".[$i].repo" "$TASKS_FILE")"
+
+    # Human-hold check (2026-08-25 Tier-2 hardening): skip a repo a human is
+    # actively editing, so live manual fixes don't race the working-tree reset.
+    # Safer than `disable` — doesn't touch the failure counter. Auto-expires.
+    REPO_BASENAME="$(basename "$REPO")"
+    HOLD_FILE="$STATE_DIR/HOLD_${REPO_BASENAME}"
+    if [ -f "$HOLD_FILE" ]; then
+      if [ -n "$(find "$HOLD_FILE" -mmin +$((HOLD_MAX_HOURS * 60)) 2>/dev/null)" ]; then
+        log "Hold on ${REPO_BASENAME} is older than ${HOLD_MAX_HOURS}h — auto-expiring and proceeding."
+        rm -f "$HOLD_FILE"
+        emit_alert warn "$ID" "auto-expired a stale ${HOLD_MAX_HOURS}h+ hold on ${REPO_BASENAME}"
+      else
+        log "Task ${ID} skipped — repo ${REPO_BASENAME} is on hold (queue.sh release ${REPO_BASENAME} to clear)."
+        echo "| ${ID} | ${TYPE} | held(${REPO_BASENAME}) | - | - |" >> "$REPORT_FILE"
+        continue
+      fi
+    fi
+
     PROMPT="$(jq -r ".[$i].prompt" "$TASKS_FILE")"
     PERSISTENT="$(jq -r ".[$i].persistent_branch // false" "$TASKS_FILE")"
     MAP_TOKENS="$(jq -r ".[$i].map_tokens // \"\"" "$TASKS_FILE")"
@@ -914,6 +1019,7 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   log "Task ${ID}: ${STATUS}"
   echo "| ${ID} | ${TYPE} | ${STATUS} | ${VERSION_OR_BRANCH} | ${TASK_LOG} |" >> "$REPORT_FILE"
   check_and_record_failure "$ID" "$STATUS"
+  track_progress_signal "$ID" "$STATUS"
 done
 
 if [ "$REMAINING_SKIPPED" -eq 1 ]; then
