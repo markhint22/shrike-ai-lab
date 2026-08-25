@@ -615,6 +615,41 @@ Task: ${full_prompt}"
       git clean -fd --quiet
     fi
 
+    # Hard-file-ban enforcement (2026-08-24 hardening): some repos declare
+    # specific files permanently off-limits to automated edits in their own
+    # OVERNIGHT_PROGRESS.md (e.g. xlite's battle.gd/mission_select.gd, both
+    # of which broke parsing repeatedly from automated attempts before being
+    # banned). The doc language alone has now failed for real at least once
+    # (xlite's mission_select.gd, caught live by a human monitoring session,
+    # not by this script) - a model can read "NEEDS HUMAN DECISION, this
+    # file is hard-banned" and still edit the file anyway. This makes the
+    # ban mechanical: a repo opts in by adding a `.queue-hard-banned-files`
+    # file at its root (one path or glob per line, '#' comments allowed);
+    # if this cycle's commit(s) touch any of those paths, the ENTIRE
+    # cycle's local, not-yet-pushed work is discarded (git reset --hard back
+    # to BEFORE_SHA) rather than trying to selectively revert just the
+    # offending file - simpler and safer than a partial revert (which
+    # itself can leave a stale .godot/ class-cache mismatch requiring a
+    # follow-up --import, as seen live undoing the mission_select.gd
+    # violation by hand). A discarded cycle is then correctly a plain
+    # no-op for every check below (AFTER_SHA back to equaling BEFORE_SHA).
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ] && [ -f ".queue-hard-banned-files" ]; then
+      BANNED_PATTERN="$(grep -v '^\s*#' .queue-hard-banned-files | grep -v '^\s*$' | paste -sd'|' - || true)"
+      if [ -n "$BANNED_PATTERN" ]; then
+        BANNED_HIT="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" | grep -E "$BANNED_PATTERN" || true)"
+        if [ -n "$BANNED_HIT" ]; then
+          echo "--- HARD-BAN VIOLATION: this cycle touched a permanently-banned file, discarding the whole cycle: ---" >> "$task_log"
+          echo "$BANNED_HIT" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          git clean -fd --quiet
+          if [ -x "$HOME/godot/godot4" ]; then
+            timeout 60 "$HOME/godot/godot4" --headless --path . --import > /dev/null 2>>"$task_log"
+          fi
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
     # Auto-remove junk files (2026-08-16 hardening): belt-and-suspenders
     # sweep for any junk file (see JUNK_FILE_PATTERN above) that survived
     # the in-loop guard - e.g. a mixed commit with some real progress
