@@ -132,6 +132,21 @@ emit_alert() {
   log "ALERT(${sev}) ${id}: ${msg}"
 }
 
+# Error classifier (2026-08-25). Distinguishes a TRANSIENT failure (a
+# LiteLLM/network blip, rate limit, upstream 5xx — retries fine next cycle) from
+# a real one, so a run of transient blips can't falsely trip the 3-strike safety
+# valve on an otherwise-healthy task. A ContextWindowExceededError is NOT
+# transient (the item is genuinely too big) so it always classifies as real.
+# $1 = task log, $2 = the real-error status to fall back to.
+error_status() {
+  if ! grep -q "ContextWindowExceededError" "$1" 2>/dev/null \
+     && grep -qE "RateLimitError|APIConnectionError|APITimeoutError|ServiceUnavailable|Connection (reset|aborted|refused|error)|reset by peer|Max retries exceeded|Read timed out|Temporary failure|50[234] (Bad Gateway|Service|Gateway)" "$1" 2>/dev/null; then
+    echo "error-transient(API/network - see log)"
+  else
+    echo "$2"
+  fi
+}
+
 # Concurrency lock. Found by live testing (2026-08-08): a slow manual
 # `run-now` was still in progress when the next scheduled cron tick fired,
 # producing two run_overnight.sh processes walking the same tasks.json
@@ -387,6 +402,38 @@ run_redgreen_check() {
 
   # rc==0 means the new tests PASSED without the fix -> they don't exercise it.
   if [ "$rc" -eq 0 ]; then echo "suspect"; else echo "ok"; fi
+}
+
+# Lint/format check (2026-08-25 improvement #5, advisory). Runs the repo's own
+# linter on ONLY the files THIS commit changed - not the whole repo, which is
+# all pre-existing noise - so it surfaces a style/type regression the change
+# introduced. Advisory: reported as [lint:N] on the push status, never fails
+# verification or trips the valve. Uses ruff (python) / eslint (js/ts) when
+# already provisioned; silent no-op otherwise. Must run with cwd at repo root.
+# Echoes an integer issue count.
+run_lint_check() {
+  local before="$1" after="$2" issues=0 changed n
+  changed="$(git diff --name-only "$before" "$after" 2>/dev/null)"
+  local pyfiles ruff
+  pyfiles="$(echo "$changed" | grep -E '\.py$' | grep -vE '/(migrations|\.venv)/' || true)"
+  if [ -n "$pyfiles" ]; then
+    ruff="$(find . -maxdepth 4 -path '*/.venv/bin/ruff' 2>/dev/null | head -1)"
+    [ -z "$ruff" ] && command -v ruff >/dev/null 2>&1 && ruff="ruff"
+    if [ -n "$ruff" ]; then
+      n="$("$ruff" check --quiet $pyfiles 2>/dev/null | grep -cE '^[^[:space:]]' || true)"
+      issues=$((issues + ${n:-0}))
+    fi
+  fi
+  local jsfiles eslint
+  jsfiles="$(echo "$changed" | grep -E '\.(js|ts|jsx|tsx|vue)$' | grep -v '/node_modules/' || true)"
+  if [ -n "$jsfiles" ]; then
+    eslint="$(find . -maxdepth 3 -path '*/node_modules/.bin/eslint' 2>/dev/null | head -1)"
+    if [ -n "$eslint" ]; then
+      n="$("$eslint" --format unix $jsfiles 2>/dev/null | grep -cE ':[0-9]+:[0-9]+:' || true)"
+      issues=$((issues + ${n:-0}))
+    fi
+  fi
+  echo "${issues:-0}"
 }
 
 run_aider_fix_task() {
@@ -890,7 +937,7 @@ Task: ${full_prompt}"
     fi
 
     if [ "$AIDER_EXIT" -ne 0 ]; then
-      echo "error(exit=${AIDER_EXIT})"
+      error_status "$task_log" "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
       # Post-commit verification (2026-08-08 hardening). Provisioned once,
       # server-side, for all 7 repos (real .venv/node_modules, not
@@ -937,19 +984,21 @@ Task: ${full_prompt}"
           *) PUSH_STATUS="pushed" ;;
         esac
         [ "$REDGREEN" = "suspect" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:SUSPECT]"
+        LINT_ISSUES="$(run_lint_check "$BEFORE_SHA" "$AFTER_SHA")"
+        [ "${LINT_ISSUES:-0}" -gt 0 ] && PUSH_STATUS="${PUSH_STATUS} [lint:${LINT_ISSUES}]"
         echo "$PUSH_STATUS"
       else
         echo "committed-but-push-failed"
       fi
     elif grep -qE "ContextWindowExceededError|BadRequestError|APIError|RateLimitError|Traceback \(most recent call last\)" "$task_log"; then
       # Aider often exits 0 even after an internal API exception (e.g. the
-      # model asking for more files than fit in its 16384-token context) -
-      # it just prints the error and stops, which looks identical to a
-      # genuine "nothing needed changing" no-op unless we check the log
-      # content too. Without this, a systematically-broken task (like a
-      # context overflow) would report "no-op" forever and never trip the
-      # consecutive-failure safety valve below.
-      echo "error(model/API error - see log)"
+      # model asking for more files than fit in context) - it just prints the
+      # error and stops, which looks identical to a genuine "nothing needed
+      # changing" no-op unless we check the log content too. Without this, a
+      # systematically-broken task would report "no-op" forever and never trip
+      # the safety valve. error_status downgrades a transient blip so it doesn't
+      # count toward the valve.
+      error_status "$task_log" "error(model/API error - see log)"
     else
       echo "no-op"
     fi
@@ -1011,6 +1060,13 @@ check_and_record_failure() {
   local id="$1" status="$2"
   local count_file="$FAIL_DIR/${id}.count"
   case "$status" in
+    error-transient*)
+      # A LiteLLM/network blip — do NOT count toward the valve (and don't reset
+      # a real streak either): just leave the counter untouched so a run of
+      # transient failures can't disable a healthy task, and a real failure
+      # before/after still accumulates correctly.
+      log "transient error for ${id} — not counted toward the safety valve"
+      ;;
     error*|committed-but-push-failed)
       local count=0
       [ -f "$count_file" ] && count="$(cat "$count_file")"
