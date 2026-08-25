@@ -45,12 +45,12 @@ DRY_RUN="${DRY_RUN:-0}"                           # 1 = log mutations instead of
 NOW_EPOCH="$(date +%s)"
 
 # Per-repo auto-merge opt-out (basename). Set to "false" to flag-only (no merge to main).
-# Leaving these on gated-auto-merge per the "no orphaned branches" directive; flip to
-# false for any repo where you want a human to approve production deploys.
+# 2026-08-25: per explicit user decision, billwatch + shrike-labs-website are now
+# treated EXACTLY like the other repos — green (gated) work auto-merges to main,
+# which for these two means an autonomous PRODUCTION deploy. The build+test gate
+# is the only guard (nothing merges unless tests ran green). Re-add an entry here
+# as [name]=false to restore human-approved deploys for any repo.
 declare -A AUTO_MERGE_OVERRIDE=(
-  # Live production sites: prune + flag daily, but a human approves the deploy.
-  [billwatch]=false
-  [shrike-labs-website]=false
 )
 
 log()  { echo "[branch-hygiene $(date '+%H:%M:%S')] $*"; }
