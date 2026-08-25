@@ -34,7 +34,7 @@ if ! curl -sf --max-time 8 "$LITELLM_BASE/health/liveliness" >/dev/null 2>&1; th
 fi
 
 count=0
-for id in $(jq -r '.[] | select((.enabled // true) == true and ((.type // "aider_fix") == "aider_fix")) | .id' "$TASKS" 2>/dev/null); do
+for id in $(jq -r '.[] | select(.enabled != false and ((.type // "aider_fix") == "aider_fix")) | .id' "$TASKS" 2>/dev/null); do
   repo="$(jq -r --arg id "$id" '.[]|select(.id==$id)|.repo' "$TASKS")"
   [ -d "$repo/.git" ] || continue
   name="$(basename "$repo")"

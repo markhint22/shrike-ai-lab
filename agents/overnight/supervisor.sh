@@ -43,7 +43,7 @@ if [ -f "$TASKS" ]; then
     if [ -f "$STATE/failures/${id}.count" ]; then
       findings+=("AUTO-DISABLED: ${id} (failed $(cat "$STATE/failures/${id}.count")x) — queue.sh log ${id}")
     fi
-  done < <(jq -r '.[] | select((.enabled // true) == false) | .id' "$TASKS" 2>/dev/null)
+  done < <(jq -r '.[] | select(.enabled == false) | .id' "$TASKS" 2>/dev/null)
 fi
 
 # --- 2. unacknowledged alerts ---------------------------------------------
@@ -134,10 +134,10 @@ if ! fuser "$STATE/run.lock" >/dev/null 2>&1; then
   for rec in "$STATE"/autorecovered_*; do
     [ -e "$rec" ] || continue
     rid="$(basename "$rec" | sed 's/^autorecovered_//')"
-    en="$(jq -r --arg id "$rid" '.[]|select(.id==$id)|.enabled // true' "$TASKS" 2>/dev/null)"
+    en="$(jq -r --arg id "$rid" '.[]|select(.id==$id)|(.enabled != false)' "$TASKS" 2>/dev/null)"
     [ "$en" = "true" ] && [ ! -f "$STATE/failures/${rid}.count" ] && rm -f "$rec"
   done
-  for id in $(jq -r '.[] | select((.enabled // true) == false) | .id' "$TASKS" 2>/dev/null); do
+  for id in $(jq -r '.[] | select(.enabled == false) | .id' "$TASKS" 2>/dev/null); do
     [ -f "$STATE/failures/${id}.count" ] || continue     # skip manual disables
     [ -f "$STATE/autorecovered_${id}" ] && continue      # already recovered once
     tos="$(grep -h "| ${id} |" $(ls -t "$REPORT_DIR"/2026*.md 2>/dev/null | head -6) 2>/dev/null | grep -c 'error(exit=124)')"
