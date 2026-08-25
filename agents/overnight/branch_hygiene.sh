@@ -79,10 +79,18 @@ if [ "${#REPOS[@]}" -eq 0 ]; then
   echo "no repos to process (use --repos-dir <dir>, --from-config, or pass paths)"; exit 0
 fi
 
-# --- gate: build + test the current worktree; 0=pass, 1=fail, 2=nothing-to-run ---
+# --- gate: build + test the feature worktree; 0=pass, 1=fail, 2=nothing-to-run ---
+# $1 = main clone (source of the PROVISIONED, gitignored .venv/node_modules/GUT
+#      that a fresh worktree lacks); $2 = worktree (feature code to gate).
+# FIX 2026-08-25: a fresh worktree has no .venv, so the old check
+# `command -v pytest` tested the GLOBAL interpreter (no pytest) and every python
+# repo returned "nothing to run" -> flagged forever, and Godot wasn't handled at
+# all. Now we reuse the main clone's provisioned venv against the worktree code
+# (verified live: main-clone pytest collects+runs the worktree's tests), and add
+# a GUT gate for Godot repos.
 run_gate() {
-  local dir="$1" ran=0 rc=0
-  # web build
+  local repo="$1" dir="$2" ran=0 rc=0
+  # web build+test (self-provisions via npm ci in the worktree)
   if [ -f "$dir/package.json" ]; then
     if jq -e '.scripts.build' "$dir/package.json" >/dev/null 2>&1; then
       log "  gate: npm build in $dir"
@@ -92,22 +100,38 @@ run_gate() {
     if jq -e '.scripts.test' "$dir/package.json" >/dev/null 2>&1; then
       log "  gate: npm test in $dir"
       ( cd "$dir" && CI=1 timeout "$TEST_TIMEOUT" npm test --silent -- --run 2>/dev/null ) ; rc=$?
-      # npm test with no tests can exit non-zero on some runners; only fail on real >1 codes
       [ "$rc" -gt 1 ] && return 1
       ran=1
     fi
   fi
-  # python tests
-  for sub in "" backend .; do
-    local pdir="$dir${sub:+/$sub}"
-    if [ -f "$pdir/requirements.txt" ] && { [ -d "$pdir/tests" ] || ls "$pdir"/test_*.py >/dev/null 2>&1; }; then
-      if command -v pytest >/dev/null 2>&1 || ( cd "$pdir" && python -c 'import pytest' 2>/dev/null ); then
-        log "  gate: pytest in $pdir"
-        ( cd "$pdir" && timeout "$TEST_TIMEOUT" python -m pytest -q 2>/dev/null ) || return 1
-        ran=1
-      fi
+  # python: reuse the main clone's PROVISIONED venv against the worktree code.
+  local venv_pytest pkg_rel wt_pkg
+  venv_pytest="$(find "$repo" -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  if [ -n "$venv_pytest" ]; then
+    pkg_rel="${venv_pytest%/.venv/bin/pytest}"; pkg_rel="${pkg_rel#"$repo"}"; pkg_rel="${pkg_rel#/}"
+    wt_pkg="$dir${pkg_rel:+/$pkg_rel}"
+    if [ -d "$wt_pkg" ]; then
+      log "  gate: pytest (reusing provisioned venv) in $wt_pkg"
+      ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q --no-cov 2>/dev/null ) || return 1
+      ran=1
     fi
-  done
+  fi
+  # godot / GUT (e.g. xlite): reuse installed headless Godot + the repo's own
+  # vendored addons/gut. Exit code is untrustworthy - gate on the JUnit XML
+  # failures count + no-asserts + a parse-error scan of --import output (same
+  # rules as the queue's run_repo_verification Godot branch).
+  if [ -f "$dir/project.godot" ] && [ -x "$HOME/godot/godot4" ]; then
+    local gout xml; gout="$(mktemp)"
+    ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >"$gout" 2>&1
+    if grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout"; then rm -f "$gout"; return 1; fi
+    if [ -f "$dir/addons/gut/gut_cmdln.gd" ]; then
+      xml="$(mktemp)"
+      ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit "-gjunit_xml_file=$xml" ) >>"$gout" 2>&1
+      if [ ! -s "$xml" ] || ! grep -qE 'failures="0"' "$xml" || grep -qE 'status="no asserts"' "$xml"; then rm -f "$xml" "$gout"; return 1; fi
+      rm -f "$xml"
+    fi
+    rm -f "$gout"; ran=1
+  fi
   [ "$ran" -eq 1 ] && return 0 || return 2
 }
 
@@ -167,6 +191,7 @@ for repo in "${REPOS[@]}"; do
   fi
   ahead="$(git -C "$repo" rev-list --count origin/$DEF..origin/overnight/feature 2>/dev/null)"
   if [ "${ahead:-0}" -eq 0 ]; then
+    rm -f "$STATE_DIR/branch_hygiene_review_${name}"   # clear any stale flag now that it's synced
     log "  overnight/feature already in $DEF — nothing to land"
     report "| $name | in sync |"; continue
   fi
@@ -189,7 +214,7 @@ for repo in "${REPOS[@]}"; do
     report "| $name | ⚠️ +$ahead, worktree failed |"; continue
   fi
   # gate: does overnight/feature build + test?
-  run_gate "$wt"; g=$?
+  run_gate "$repo" "$wt"; g=$?
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
 
   # Auto-merge ONLY when tests actually ran and passed (g==0). A failed gate (1)

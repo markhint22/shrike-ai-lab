@@ -85,10 +85,41 @@ if [ -d "$REPOS" ]; then
   for r in "$REPOS"/*/ ; do
     [ -d "$r/.git" ] || continue
     name="$(basename "$r")"
+    # refresh refs first — the server clones' origin/main can lag a manual
+    # fast-forward done elsewhere (e.g. from the Mac), which would otherwise
+    # report phantom drift. Cheap; runs every 3h. Also refreshes refs for the
+    # commit-sanity scan (section 7) below.
+    git -C "$r" fetch origin main overnight/feature --quiet 2>/dev/null || true
     ahead="$(git -C "$r" rev-list --count origin/main..origin/overnight/feature 2>/dev/null || echo 0)"
     if [ "${ahead:-0}" -ge 40 ]; then
       findings+=("DRIFT: ${name} overnight/feature is ${ahead} commits ahead of main — consider a salvage-merge.")
     fi
+  done
+fi
+
+# --- 7. commit-sanity heuristics (FREE, deterministic — no LLM) ------------
+# Cheap git-only checks that catch the failure classes a human/Claude usually
+# spots: a "remove duplicate" commit that is actually net-additive (the fed28c7
+# class), empty/no-op commits, and oversized single commits. Scans only the
+# unlanded commits (origin/main..origin/overnight/feature), capped per repo.
+if [ -d "$REPOS" ]; then
+  for r in "$REPOS"/*/ ; do
+    [ -d "$r/.git" ] || continue
+    name="$(basename "$r")"
+    while IFS='|' read -r sha subj; do
+      [ -z "$sha" ] && continue
+      stat="$(git -C "$r" show "$sha" --shortstat --format='' 2>/dev/null | grep -E 'changed' | tail -1)"
+      ins="$(echo "$stat" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)"
+      del="$(echo "$stat" | grep -oE '[0-9]+ deletion'  | grep -oE '[0-9]+' || echo 0)"
+      ins="${ins:-0}"; del="${del:-0}"
+      if [ "$ins" -eq 0 ] && [ "$del" -eq 0 ]; then
+        findings+=("EMPTY COMMIT: ${name}@${sha} '${subj}' — 0 line changes (no-op/0-byte class).")
+      elif echo "$subj" | grep -qiE '\b(remove|delete|dedup|de-dup|drop|clean ?up)\b.*(duplicate|dead|unused|redundant)' && [ "$ins" -gt "$del" ]; then
+        findings+=("MSG/DIFF MISMATCH: ${name}@${sha} '${subj}' — message says remove but diff is +${ins}/-${del} (net ADD); verify it didn't add a duplicate.")
+      elif [ $((ins + del)) -gt 600 ]; then
+        findings+=("LARGE COMMIT: ${name}@${sha} '${subj}' — ${ins}+/${del}- lines; review scope.")
+      fi
+    done < <(git -C "$r" log origin/main..origin/overnight/feature -15 --format='%h|%s' 2>/dev/null)
   done
 fi
 
