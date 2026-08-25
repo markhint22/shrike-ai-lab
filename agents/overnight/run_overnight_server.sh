@@ -436,6 +436,20 @@ run_lint_check() {
   echo "${issues:-0}"
 }
 
+# Coverage-on-diff signal (2026-08-25 improvement #3, advisory). A cheap
+# deterministic proxy for "did this change ship with a test": if the commit ADDS
+# new definitions (def/class/func/function) but touches NO test file, flag
+# [untested-change]. Complements red-green (which checks a test that IS present).
+# Advisory only. Echoes "ok" | "untested".
+run_coverage_check() {
+  local before="$1" after="$2" changed testchanged newdefs
+  changed="$(git diff --name-only "$before" "$after" 2>/dev/null)"
+  testchanged="$(echo "$changed" | grep -cE '(^|/)(test_|tests/).*\.(py|gd)$|\.(test|spec)\.(js|ts|jsx|tsx)$' || true)"
+  [ "${testchanged:-0}" -gt 0 ] && { echo "ok"; return; }
+  newdefs="$(git diff "$before" "$after" -- '*.py' '*.ts' '*.js' '*.jsx' '*.tsx' '*.gd' 2>/dev/null | grep -cE '^\+[[:space:]]*(def |class |func |export (async )?function |function )' || true)"
+  [ "${newdefs:-0}" -ge 1 ] && echo "untested" || echo "ok"
+}
+
 run_aider_fix_task() {
   local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}" aider_timeout="${11:-600}"
 
@@ -986,6 +1000,7 @@ Task: ${full_prompt}"
         [ "$REDGREEN" = "suspect" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:SUSPECT]"
         LINT_ISSUES="$(run_lint_check "$BEFORE_SHA" "$AFTER_SHA")"
         [ "${LINT_ISSUES:-0}" -gt 0 ] && PUSH_STATUS="${PUSH_STATUS} [lint:${LINT_ISSUES}]"
+        [ "$(run_coverage_check "$BEFORE_SHA" "$AFTER_SHA")" = "untested" ] && PUSH_STATUS="${PUSH_STATUS} [untested-change]"
         echo "$PUSH_STATUS"
       else
         echo "committed-but-push-failed"

@@ -123,6 +123,39 @@ if [ -d "$REPOS" ]; then
   done
 fi
 
+# --- 8. auto-recovery (#4): re-enable a TIMEOUT-disabled task ONCE with more
+#     time. Self-heals the "just needed a bigger budget" case. Guards: only when
+#     the queue is idle (no tasks.json write race), only safety-valve disables
+#     (has a .count file, not a manual disable), only if the recent failures
+#     were timeouts (exit=124), and only ONCE per task (a recovery flag stops a
+#     loop). The flag is cleared automatically once the task is healthy again. --
+if ! fuser "$STATE/run.lock" >/dev/null 2>&1; then
+  # clear stale recovery flags for tasks that recovered and are healthy again
+  for rec in "$STATE"/autorecovered_*; do
+    [ -e "$rec" ] || continue
+    rid="$(basename "$rec" | sed 's/^autorecovered_//')"
+    en="$(jq -r --arg id "$rid" '.[]|select(.id==$id)|.enabled // true' "$TASKS" 2>/dev/null)"
+    [ "$en" = "true" ] && [ ! -f "$STATE/failures/${rid}.count" ] && rm -f "$rec"
+  done
+  for id in $(jq -r '.[] | select((.enabled // true) == false) | .id' "$TASKS" 2>/dev/null); do
+    [ -f "$STATE/failures/${id}.count" ] || continue     # skip manual disables
+    [ -f "$STATE/autorecovered_${id}" ] && continue      # already recovered once
+    tos="$(grep -h "| ${id} |" $(ls -t "$REPORT_DIR"/2026*.md 2>/dev/null | head -6) 2>/dev/null | grep -c 'error(exit=124)')"
+    [ "${tos:-0}" -lt 2 ] && continue                    # recent failures weren't timeouts
+    cur="$(jq -r --arg id "$id" '.[]|select(.id==$id)|.timeout_secs // 600' "$TASKS")"
+    new=$(( cur * 2 )); [ "$new" -gt 1800 ] && new=1800
+    jq --arg id "$id" --argjson t "$new" '(.[]|select(.id==$id)) |= (.timeout_secs=$t | .enabled=true)' "$TASKS" > "$TASKS.tmp" && mv "$TASKS.tmp" "$TASKS"
+    rm -f "$STATE/failures/${id}.count"; touch "$STATE/autorecovered_${id}"
+    findings+=("AUTO-RECOVERED ${id}: was timing out; re-enabled with timeout_secs=${new}s (one-shot — stays disabled if it fails again).")
+  done
+fi
+
+# --- 9. surface today's backlog grooming proposals (from groom.sh) ---------
+GROOM_TODAY="$(ls "$REPORT_DIR"/grooming-*-"$(date +%Y%m%d)".md 2>/dev/null | wc -l | tr -d ' ')"
+if [ "${GROOM_TODAY:-0}" -gt 0 ]; then
+  findings+=("${GROOM_TODAY} backlog grooming proposal(s) ready to review — reports/grooming-*-$(date +%Y%m%d).md")
+fi
+
 # --- optional AI review pass (runs BEFORE the digest so findings land in both
 #     the digest and the push). Claude if creds are present; else the FREE
 #     on-server local 27B when SUPERVISOR_USE_LOCAL=1. ------------------------
