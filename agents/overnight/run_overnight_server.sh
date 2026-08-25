@@ -91,7 +91,7 @@ MODEL_METADATA_FILE="$SCRIPT_DIR/model-metadata.json"
 # and applies uniformly to one-off tasks added later via `queue.sh add` too.
 STANDARDS_SUFFIX="
 
-Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Do NOT edit OVERNIGHT_PROGRESS.md at all - it is READ-ONLY; the runner maintains it for you from your commit message, so any edit you make to it will be ignored/overwritten and just wastes your budget. Instead, record outcomes by adding trailer lines at the very END of your commit message (one per line, nothing after them): 'DONE: <the exact Next Steps item text you fully completed>' when you finish an item; 'DECISION: <one line - what you decided and why>' when you make a judgment call; 'NEW: <one short item>' to add a follow-up or a newly-chosen item. The runner checks the box, records the decision, and adds new items for you. Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up. Do NOT quote, restate, or diff OVERNIGHT_PROGRESS.md's Next Steps list back in your response - you have already read it, just silently pick the single top not-yet-done item and go straight to the code change; never write to that file - your commit-message trailers are how you report progress. If a file you need isn't visible, use the repo-map/existing open files to find its real path first - don't guess a path (e.g. assuming a services/ location for something that actually lives under routers/ or schemas/) and ask for the wrong file, which wastes the whole turn when it silently isn't found. If an item is tagged NEEDS DECISION or NEEDS HUMAN DECISION, do not skip it: use your best engineering/product judgment, make a real, reasonable choice, and implement it - but you MUST clearly record what you decided and a one-line why using a 'DECISION: <what and why>' trailer line in your commit message (the runner writes it into OVERNIGHT_PROGRESS.md's Decisions Made section for you - do not edit that file yourself), so a human can review and override it later. Never silently guess without leaving that record. If EVERY remaining Next Steps item is explicitly marked off-limits to automated cycles (HARD FILE BAN, HUMAN-ONLY BLOCKED ITEM, or requires a human doing something outside this tool, e.g. an editor GUI), do not reason about, argue for, or attempt any of them, no matter how tempting a workaround seems - immediately stop reasoning about the blocked items and instead pick a different, genuinely automatable idea (a small bug fix, missing test coverage, docs improvement, or refactor), implement THAT, and note it with a 'NEW: <item>' trailer in your commit message (the runner adds it to the list - do not edit the doc yourself), exactly as you would if the list were empty. This is a standing policy: keep making real product/design progress elsewhere in the repo rather than sitting idle re-litigating whether a blocked item is really blocked - that reasoning alone burns the whole budget with nothing committed. This model generates at roughly 5 tokens/second on this box and each call is hard-killed at 600 seconds (~3000 tokens) - if you spend more than a few hundred tokens reasoning before writing the actual diff, the call WILL be killed with no commit and the cycle is wasted. Budget yourself: a couple sentences on what you're changing and why, then the diff. If you notice you're still explaining/exploring after that, stop explaining and write the diff with your current best understanding instead - a slightly imperfect real change beats a well-reasoned non-answer that gets killed mid-thought. This also applies to test-writing tasks specifically: even with zero narration, writing exhaustive tests for every method in a large file is itself too much output for one 600-second call - when adding tests to a low/zero-coverage file, write 4-6 focused test cases covering the most important behavior and stop there, then mark real, partial progress (which file, how many methods still need coverage) rather than attempting the whole file and running out of budget with nothing committed. The next cycle can pick up where you left off. When writing tests for a class or module: you MUST have that file open and have actually read its real method names/signatures before writing a single assertion - never guess a method name because it sounds conventional (e.g. get_status(), validate_x()) if you have not confirmed it exists. This has caused full test-file rewrites more than once (real classes had different method names than assumed, used sync not async, or had properties instead of module-level names to mock). If a test you already wrote doesn't match the real code, fix the TEST - never add a new, separate, parallel implementation to the module just to make your own guessed API real; that produces unused dead code and fixes nothing. When adding a new test file, verify the project's actual test-runner include pattern first (e.g. a vitest.config.ts 'include' list, or a JUnit version mismatch) - a test file with the wrong name/suffix or wrong test framework can compile fine and even show a green build while contributing ZERO executed tests, silently. Confirm your new test file shows up with a real pass count in the tool's own output (not just 'no errors') before considering the task done."
+Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Do NOT edit OVERNIGHT_PROGRESS.md at all - it is READ-ONLY; the runner maintains it for you from your commit message, so any edit you make to it will be ignored/overwritten and just wastes your budget. Instead, record outcomes by adding trailer lines at the very END of your commit message (one per line, nothing after them): 'DONE: <the exact Next Steps item text you fully completed>' when you finish an item; 'DECISION: <one line - what you decided and why>' when you make a judgment call; 'NEW: <one short item>' to add a follow-up or a newly-chosen item. The runner checks the box, records the decision, and adds new items for you. Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. To DELETE a file, do NOT open or edit it - deleting a file by editing it forces you to reproduce the whole file as removed lines, which wastes your entire budget and the call gets killed with nothing done. Instead just write a line 'DELETE: <path>' (in your commit message or your reply) and the runner will remove the file for you cheaply. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up. Do NOT quote, restate, or diff OVERNIGHT_PROGRESS.md's Next Steps list back in your response - you have already read it, just silently pick the single top not-yet-done item and go straight to the code change; never write to that file - your commit-message trailers are how you report progress. If a file you need isn't visible, use the repo-map/existing open files to find its real path first - don't guess a path (e.g. assuming a services/ location for something that actually lives under routers/ or schemas/) and ask for the wrong file, which wastes the whole turn when it silently isn't found. If an item is tagged NEEDS DECISION or NEEDS HUMAN DECISION, do not skip it: use your best engineering/product judgment, make a real, reasonable choice, and implement it - but you MUST clearly record what you decided and a one-line why using a 'DECISION: <what and why>' trailer line in your commit message (the runner writes it into OVERNIGHT_PROGRESS.md's Decisions Made section for you - do not edit that file yourself), so a human can review and override it later. Never silently guess without leaving that record. If EVERY remaining Next Steps item is explicitly marked off-limits to automated cycles (HARD FILE BAN, HUMAN-ONLY BLOCKED ITEM, or requires a human doing something outside this tool, e.g. an editor GUI), do not reason about, argue for, or attempt any of them, no matter how tempting a workaround seems - immediately stop reasoning about the blocked items and instead pick a different, genuinely automatable idea (a small bug fix, missing test coverage, docs improvement, or refactor), implement THAT, and note it with a 'NEW: <item>' trailer in your commit message (the runner adds it to the list - do not edit the doc yourself), exactly as you would if the list were empty. This is a standing policy: keep making real product/design progress elsewhere in the repo rather than sitting idle re-litigating whether a blocked item is really blocked - that reasoning alone burns the whole budget with nothing committed. This model generates at roughly 5 tokens/second on this box and each call is hard-killed at 600 seconds (~3000 tokens) - if you spend more than a few hundred tokens reasoning before writing the actual diff, the call WILL be killed with no commit and the cycle is wasted. Budget yourself: a couple sentences on what you're changing and why, then the diff. If you notice you're still explaining/exploring after that, stop explaining and write the diff with your current best understanding instead - a slightly imperfect real change beats a well-reasoned non-answer that gets killed mid-thought. This also applies to test-writing tasks specifically: even with zero narration, writing exhaustive tests for every method in a large file is itself too much output for one 600-second call - when adding tests to a low/zero-coverage file, write 4-6 focused test cases covering the most important behavior and stop there, then mark real, partial progress (which file, how many methods still need coverage) rather than attempting the whole file and running out of budget with nothing committed. The next cycle can pick up where you left off. When writing tests for a class or module: you MUST have that file open and have actually read its real method names/signatures before writing a single assertion - never guess a method name because it sounds conventional (e.g. get_status(), validate_x()) if you have not confirmed it exists. This has caused full test-file rewrites more than once (real classes had different method names than assumed, used sync not async, or had properties instead of module-level names to mock). If a test you already wrote doesn't match the real code, fix the TEST - never add a new, separate, parallel implementation to the module just to make your own guessed API real; that produces unused dead code and fixes nothing. When adding a new test file, verify the project's actual test-runner include pattern first (e.g. a vitest.config.ts 'include' list, or a JUnit version mismatch) - a test file with the wrong name/suffix or wrong test framework can compile fine and even show a green build while contributing ZERO executed tests, silently. Confirm your new test file shows up with a real pass count in the tool's own output (not just 'no errors') before considering the task done."
 TRAINING_DIR="$HOME/shrike-ai-lab-training"
 
 TASKS_FILE="$SCRIPT_DIR/tasks.json"
@@ -390,7 +390,7 @@ run_redgreen_check() {
 }
 
 run_aider_fix_task() {
-  local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}"
+  local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}" aider_timeout="${11:-600}"
 
   if [ ! -d "$repo/.git" ]; then
     log "Repo ${repo} has no .git checkout — skipping"
@@ -673,7 +673,7 @@ Task: ${full_prompt}"
     ATTEMPT=1
     while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
       echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
-      timeout 600 aider "${AIDER_BASE_ARGS[@]}" \
+      timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" \
         ${READ_ARGS[@]+"${READ_ARGS[@]}"} \
         ${PROGRESS_READ_ARGS[@]+"${PROGRESS_READ_ARGS[@]}"} \
         ${FILE_ARGS[@]+"${FILE_ARGS[@]}"} \
@@ -712,6 +712,29 @@ Task: ${full_prompt}"
     done
 
     AFTER_SHA="$(git rev-parse HEAD)"
+
+    # DELETE: trailer handling (2026-08-25). Deleting a file via aider's udiff
+    # format makes the model reproduce the ENTIRE file as removed lines — for a
+    # large file that blows the 600s budget and times out every cycle (this
+    # auto-disabled gitlark on seven "delete a dead service" items). So the
+    # model is told (STANDARDS_SUFFIX) NOT to edit a file to delete it, and to
+    # instead emit a 'DELETE: <path>' line; the runner removes it here with a
+    # cheap git rm. Grep the task log (catches it whether the model put it in a
+    # commit message or just its reply); only remove paths that actually exist.
+    DEL_PATHS="$(grep -oE '^[[:space:]]*(-[[:space:]]*)?DELETE:[[:space:]]*[A-Za-z0-9_./-]+' "$task_log" 2>/dev/null | sed -E 's/.*DELETE:[[:space:]]*//' | sort -u)"
+    if [ -n "$DEL_PATHS" ]; then
+      del_did=0
+      while IFS= read -r dp; do
+        [ -z "$dp" ] && continue
+        if [ -f "$dp" ]; then
+          git rm -q -- "$dp" 2>>"$task_log" && { echo "--- DELETE trailer: removed ${dp} ---" >> "$task_log"; del_did=1; }
+        fi
+      done <<< "$DEL_PATHS"
+      if [ "$del_did" -eq 1 ] && ! git diff --cached --quiet; then
+        git commit -q -m "chore: remove file(s) per DELETE trailer (aider can't cheaply delete via udiff)"
+        AFTER_SHA="$(git rev-parse HEAD)"
+      fi
+    fi
 
     # Working-tree residue guard (2026-08-16 hardening): if nothing got
     # committed (e.g. an attempt timed out mid-write, or staged a file it
@@ -996,7 +1019,7 @@ check_and_record_failure() {
       if [ "$count" -ge "$MAX_CONSECUTIVE_FAILURES" ]; then
         jq --arg id "$id" '(.[] | select(.id == $id)).enabled = false' "$TASKS_FILE" > "$TASKS_FILE.tmp" && mv "$TASKS_FILE.tmp" "$TASKS_FILE"
         log "SAFETY VALVE: task '${id}' has failed ${count} times in a row — auto-disabled THIS TASK ONLY (the rest of the queue keeps running). Check ${FAIL_DIR}/${id}.count and its log, fix the issue, then 'queue.sh enable ${id}'."
-        emit_alert crit "$id" "AUTO-DISABLED after ${count} consecutive failures — check: queue.sh log ${id}"
+        emit_alert crit "$id" "AUTO-DISABLED after ${count} consecutive failures (last: ${status}) — check: queue.sh log ${id}"
       fi
       ;;
     *)
@@ -1092,12 +1115,16 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
     SKIP_AGENTS_MD="$(jq -r ".[$i].skip_agents_md // false" "$TASKS_FILE")"
     MAX_FILES="$(jq -r ".[$i].max_files // 2" "$TASKS_FILE")"
     PROTECTED_FILES="$(jq -r ".[$i].protected_files // [] | join(\",\")" "$TASKS_FILE")"
+    # Per-task implement timeout (2026-08-25). Default 600s; set "timeout_secs"
+    # in a task for a legitimately larger piece of work so it isn't killed
+    # mid-generation and falsely counted toward the safety valve.
+    TIMEOUT_SECS="$(jq -r ".[$i].timeout_secs // 600" "$TASKS_FILE")"
     if [ "$PERSISTENT" = "true" ]; then
       BRANCH="overnight/feature"
     else
       BRANCH="overnight/${RUN_KEY}/${ID}"
     fi
-    STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES" "$PROTECTED_FILES")"
+    STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES" "$PROTECTED_FILES" "$TIMEOUT_SECS")"
     VERSION_OR_BRANCH="$BRANCH"
   fi
 
