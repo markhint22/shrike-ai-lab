@@ -27,6 +27,8 @@ UNITS = {
                      "with a helmet, full body, front view", 4242),
   "enemy_grunt":    ("a single small pale green alien grunt creature with big red eyes "
                      "and thin limbs, full body, front view", 1337),
+  "enemy_brute":    ("a single hulking muscular alien brute monster with thick arms, "
+                     "heavy build, full body, front view", 9001),
 }
 POSE_HINT = {"idle":"standing idle","walk":"walking mid-stride","walk2":"walking, opposite stride",
              "attack":"lunging attack, weapon thrust forward",
