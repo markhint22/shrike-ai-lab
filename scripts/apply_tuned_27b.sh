@@ -66,10 +66,15 @@ if [ "$ok" != 1 ]; then
 fi
 
 vram=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits|head -1)
-# speed probe via litellm-facing endpoint
-R=$(curl -s --max-time 60 -H 'Content-Type: application/json' \
-  -d '{"prompt":"Write a Python function to merge two sorted lists:","n_predict":150,"temperature":0}' \
-  http://localhost:8081/completion 2>/dev/null)
+# speed probe with a REALISTIC coding prompt (a too-short prompt reads pathologically
+# low under MTP spec-decode — see diag-tuned.out: short=10 tok/s, real=87 tok/s).
+# warmup call first, then measure.
+PROBE='You are a senior Python engineer. Add an async FastAPI endpoint GET /api/v2/users/{user_id}/summary returning the display name, total order count, and lifetime spend using the existing async session dependency, keeping the existing error-handling style. The router uses APIRouter, AsyncSession from sqlalchemy.ext.asyncio, and Depends(get_session). Write the complete endpoint with imports:'
+probe(){ curl -s --max-time 90 -H 'Content-Type: application/json' \
+  -d "{\"prompt\":$(printf '%s' "$PROBE" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))'),\"n_predict\":200,\"temperature\":0,\"cache_prompt\":false}" \
+  http://localhost:8081/completion 2>/dev/null; }
+probe >/dev/null 2>&1   # warmup
+R=$(probe)
 sp=$(printf '%s' "$R" | python3 -c 'import json,sys;print(round(json.load(sys.stdin)["timings"]["predicted_per_second"],1))' 2>/dev/null || echo "?")
 log "tuned container healthy: GEN ${sp} tok/s | VRAM ${vram}/24576 MiB"
 
