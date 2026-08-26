@@ -51,6 +51,12 @@ NOW_EPOCH="$(date +%s)"
 # is the only guard (nothing merges unless tests ran green). Re-add an entry here
 # as [name]=false to restore human-approved deploys for any repo.
 declare -A AUTO_MERGE_OVERRIDE=(
+  # 2026-08-25: temporarily flag-only again for the two LIVE PRODUCTION sites
+  # during the Qwen3-Coder trial. The coder is 20x faster but showed rough edges
+  # (syntax errors -> tests:FAIL) on night 1, so don't let it auto-deploy to prod
+  # until it proves reliable. Re-empty this to restore full auto-merge.
+  [billwatch]=false
+  [shrike-labs-website]=false
 )
 
 log()  { echo "[branch-hygiene $(date '+%H:%M:%S')] $*"; }
