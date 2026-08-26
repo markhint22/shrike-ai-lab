@@ -969,6 +969,26 @@ Task: ${full_prompt}"
       # just surfacing it for you to glance at in the report.
       VERIFY_RESULT="$(run_repo_verification)"
 
+      # BUILD-GATE (2026-08-26): if this commit STRUCTURALLY broke the build — a
+      # syntax/import/collection/parse error, i.e. the code no longer even loads —
+      # REVERT it to BEFORE_SHA and do not push. This is the fix for the coder
+      # trial's compounding breakage: one bad edit used to poison a repo so every
+      # later cycle failed on already-broken code. A plain test-ASSERTION failure
+      # is NOT reverted (kept + reported as tests:FAIL) — that can be a real fix
+      # in progress or a pre-existing flake. Grep the verification output (already
+      # in $task_log) for unambiguous structural-break signals across py/gd/js.
+      if [ "$VERIFY_RESULT" = "fail" ] && grep -qE "SyntaxError|IndentationError|invalid syntax|ImportError while loading|cannot import name|ERROR collecting|errors during collection|SCRIPT ERROR|Parse Error|ERROR: Failed to load|Cannot find module|error TS[0-9]|Build failed" "$task_log"; then
+        echo "--- BUILD-GATE: commit structurally broke the build — reverting to ${BEFORE_SHA} ---" >> "$task_log"
+        git reset --hard "$BEFORE_SHA" --quiet
+        git clean -fd --quiet 2>/dev/null
+        if [ -x "$HOME/godot/godot4" ] && [ -f project.godot ]; then
+          timeout 60 "$HOME/godot/godot4" --headless --path . --import >/dev/null 2>>"$task_log"
+        fi
+        emit_alert warn "$id" "build-gate reverted a commit that broke the build (syntax/import/parse error) — the model produced non-loading code"
+        echo "reverted(build-break)"
+        return
+      fi
+
       # Red-green check (2026-08-25 Tier-3): did a bugfix's new test earn its
       # pass? Runs on the code state before the bookkeeping doc commit.
       REDGREEN="$(run_redgreen_check "$BEFORE_SHA" "$AFTER_SHA")"
@@ -1086,7 +1106,7 @@ check_and_record_failure() {
       # before/after still accumulates correctly.
       log "transient error for ${id} — not counted toward the safety valve"
       ;;
-    error*|committed-but-push-failed)
+    error*|committed-but-push-failed|reverted*)
       local count=0
       [ -f "$count_file" ] && count="$(cat "$count_file")"
       count=$((count + 1))
