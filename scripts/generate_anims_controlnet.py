@@ -28,9 +28,13 @@ UNITS = {
   "enemy_grunt":    ("a single small pale green alien grunt creature with big red eyes "
                      "and thin limbs, full body, front view", 1337),
 }
-POSE_HINT = {"idle":"standing idle","walk":"walking mid-stride","attack":"lunging attack, weapon thrust forward",
+POSE_HINT = {"idle":"standing idle","walk":"walking mid-stride","walk2":"walking, opposite stride",
+             "attack":"lunging attack, weapon thrust forward",
              "hit":"recoiling, hit and flinching backward","death":"lying dead flat on the ground, defeated"}
-ORDER = ["idle","walk","attack","hit","death"]
+ORDER = ["idle","walk","walk2","attack","hit","death"]
+# IP-Adapter scale per pose: lock the character, but let the pose win harder for
+# DEATH (a standing idle reference otherwise keeps the body upright / non-prone).
+IP_SCALE = {"walk":0.6,"walk2":0.6,"attack":0.6,"hit":0.6,"death":0.25}
 
 def main():
     print("loading ControlNet-OpenPose + SDXL + LoRA + IP-Adapter ...", flush=True)
@@ -51,8 +55,8 @@ def main():
                     height=1024, width=1024, generator=g).images[0]
         idle.save(f"{OUT}/{ukey}__idle.png"); n += 1; print(f"[{n}] {ukey} idle", flush=True)
         # 2) other poses: ControlNet (pose) + IP-Adapter locked to the idle (character)
-        pipe.set_ip_adapter_scale(0.6)
-        for p in ["walk","attack","hit","death"]:
+        for p in ["walk","walk2","attack","hit","death"]:
+            pipe.set_ip_adapter_scale(IP_SCALE[p])
             g = torch.Generator("cuda").manual_seed(seed)
             img = pipe(prompt=f"{STYLE}, {desc}, {POSE_HINT[p]}, {BGC}, centered single sprite",
                        negative_prompt=NEG, image=skels[p], ip_adapter_image=idle,
