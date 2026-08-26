@@ -172,6 +172,11 @@ case "$MODEL" in
       "--chat-template-file /models/deepflash/fixed_template.jinja"
     ;;
   qwen-dflash-27B)
+    # NOTE (2026-08-26): STALE relative to production. Prod runs the TUNED
+    # Qwen3.8-27B (65K ctx, -ngl 99, q4_0 KV, MTP n8, ~87 tok/s) defined by the
+    # docker-compose.yml defaults + runtime/dflash-active.env, NOT this 3.6/256K
+    # case. This case is kept only for A/B against the 3.6 dense model; do NOT run
+    # it expecting the production config (it would clobber prod to 256K/no-ngl).
     download_if_missing \
       "$ROOT_DIR/models/deepflash/Qwen3.6-27B-Q4_K_M.gguf" \
       "https://huggingface.co/ggml-org/Qwen3.6-27B-GGUF/resolve/main/Qwen3.6-27B-Q4_K_M.gguf"

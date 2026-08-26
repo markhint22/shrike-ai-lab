@@ -62,22 +62,33 @@ services:
     container_name: shrike-llama-dflash-35b
     volumes:
       - ./models:/models
+    # GGML_CUDA_GRAPH_OPT=1 is part of the measured ~87 tok/s recipe (2026-08-26).
+    environment:
+      - GGML_CUDA_GRAPH_OPT=${DFLASH_GRAPH_OPT:-1}
     entrypoint: ["/bin/sh", "-c"]
+    # Defaults below = the TUNED production config (Qwen3.8-27B @ 65K, full GPU
+    # offload, q4_0 KV, built-in MTP spec-decode n8, batch 512/256). This drops
+    # generation from the old 8.7 tok/s (256K ctx, no -ngl) to ~87 tok/s (9.9x)
+    # at the same model/quality. DO NOT restore --ctx-size 262144 or drop -ngl:
+    # the 256K KV reservation is what strangled the Gated-DeltaNet decode path.
+    # DFLASH_SPEC_ARGS carries the whole spec block so MTP (no -md) and a separate
+    # draft model (-md X --spec-type draft-dflash) are both expressible per model.
     command:
       - >
         exec /app/llama-server
-        -m "${DFLASH_TARGET_MODEL:-/models/deepflash/Qwen3.6-35B-A3B-Q4_K_M.gguf}"
-        -md "${DFLASH_DRAFT_MODEL:-/models/deepflash/dflash-Qwen3.6-35B-A3B-Q8_0.gguf}"
-        --spec-type draft-dflash
-        --spec-draft-n-max "${DFLASH_SPEC_DRAFT_N_MAX:-4}"
-        --ctx-size "${DFLASH_CTX_SIZE:-16384}"
+        -m "${DFLASH_TARGET_MODEL:-/models/deepflash/Qwen3.8-27B-Q4_K_M.gguf}"
+        -ngl "${DFLASH_NGL:-99}"
+        --ctx-size "${DFLASH_CTX_SIZE:-65536}"
         --flash-attn "${DFLASH_FLASH_ATTN:-on}"
-        --cache-type-k "${DFLASH_CACHE_TYPE_K:-q8_0}"
-        --cache-type-v "${DFLASH_CACHE_TYPE_V:-q8_0}"
+        --cache-type-k "${DFLASH_CACHE_TYPE_K:-q4_0}"
+        --cache-type-v "${DFLASH_CACHE_TYPE_V:-q4_0}"
+        --batch-size "${DFLASH_BATCH_SIZE:-512}"
+        --ubatch-size "${DFLASH_UBATCH_SIZE:-256}"
+        ${DFLASH_SPEC_ARGS:---spec-type draft-mtp --spec-draft-n-max 8}
         --host 0.0.0.0
         --port 8080
-        --alias "${DFLASH_MODEL_ALIAS:-qwen-dflash-35B-A3B}"
-        ${DFLASH_CHAT_TEMPLATE_ARGS:-}
+        --alias "${DFLASH_MODEL_ALIAS:-qwen-dflash-27B}"
+        ${DFLASH_CHAT_TEMPLATE_ARGS:---chat-template-file /models/deepflash/fixed_template_qwen3.8.jinja}
     ports:
       - "8081:8080"
     deploy:
