@@ -14,6 +14,8 @@ CAND=shrike-llama-coder
 Q=/home/mhintermeister/overnight-queue
 OUT=$Q/reports/bench-coder.out
 WINDOW="${1:-1500}"
+exec 9>/tmp/bench_coder_gate.lock
+if ! flock -n 9; then echo "bench already running; refusing to double-launch" >&2; exit 0; fi
 : > "$OUT"
 log(){ echo "[$(date +%H:%M:%S)] $*" >> "$OUT"; }
 
