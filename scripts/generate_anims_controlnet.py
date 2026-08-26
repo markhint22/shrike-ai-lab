@@ -17,29 +17,34 @@ os.makedirs(OUT, exist_ok=True)
 CKPT = f"{C}/models/checkpoints/sd_xl_base_1.0.safetensors"
 LORA = f"{C}/models/loras/pixel-art-xl.safetensors"
 
-STYLE = "pixel art, vibrant saturated colors, high contrast, arcade, bold clean shapes"
+STYLE = ("pixel art, vibrant saturated colors, high contrast, arcade, bold clean shapes, "
+         "brightly lit, well lit, clearly visible")
 BGC   = "solid flat neutral gray background"
 NEG   = ("blurry, jpeg artifacts, gradient, soft shading, photo, 3d render, text, watermark, "
-         "multiple people, extra limbs, deformed, cropped, frame, border")
+         "multiple people, extra limbs, deformed, cropped, frame, border, dark, underexposed, murky")
 
-# This run: the 3 humanoid player variants (trooper/grunt/brute already animated
-# in the repo). ControlNet works for these; set UNITS back to the full roster only
-# if regenerating everything.
+# Full roster regen (8 units). Weapons/claws are in the description so the ATTACK
+# pose actually shows them; flyer/drone are humanoid-bodied so they pose too.
 UNITS = {
-  "player_heavy":  ("a single bulky heavy-armor sci-fi soldier with a big gun and "
-                    "thick plated armor, full body, front view", 5555),
-  "player_sniper": ("a single lean scout sniper soldier with a long rifle and light "
-                    "armor, full body, front view", 6666),
-  "player_medic":  ("a single sci-fi soldier medic with a red cross and a medpack, "
-                    "full body, front view", 7777),
+  "player_trooper":("a sci-fi soldier trooper in white and red armor holding an assault rifle, full body, front view", 4242),
+  "player_heavy":  ("a bulky heavy-armor sci-fi soldier holding a big heavy machine gun, full body, front view", 5555),
+  "player_sniper": ("a lean scout sniper soldier in light armor holding a long sniper rifle, full body, front view", 6666),
+  "player_medic":  ("a sci-fi soldier medic in white armor with a red cross, holding a pistol, full body, front view", 7777),
+  "enemy_grunt":   ("a small pale green alien grunt with big red eyes and sharp claws, full body, front view", 1337),
+  "enemy_brute":   ("a hulking muscular alien brute monster with thick clawed arms, full body, front view", 9001),
+  "enemy_flyer":   ("a winged humanoid alien warrior with membrane wings and clawed arms, full body, front view", 2468),
+  "enemy_drone":   ("a hovering humanoid robotic drone with a single glowing eye and metal arms, full body, front view", 3579),
 }
-POSE_HINT = {"idle":"standing idle","walk":"walking mid-stride","walk2":"walking, opposite stride",
-             "attack":"lunging attack, weapon thrust forward",
-             "hit":"recoiling, hit and flinching backward","death":"lying dead flat on the ground, defeated"}
+POSE_HINT = {"idle":"standing ready holding a weapon",
+             "walk":"walking forward, mid-stride, legs apart",
+             "walk2":"walking forward, opposite stride, legs apart",
+             "attack":"attacking, weapon raised and firing forward, aggressive combat action",
+             "hit":"struck and violently recoiling backward, staggering, flinching in pain, off balance",
+             "death":"dead, lying flat on the ground, collapsed corpse, defeated, motionless"}
 ORDER = ["idle","walk","walk2","attack","hit","death"]
-# IP-Adapter scale per pose: lock the character, but let the pose win harder for
-# DEATH (a standing idle reference otherwise keeps the body upright / non-prone).
-IP_SCALE = {"walk":0.6,"walk2":0.6,"attack":0.6,"hit":0.6,"death":0.25}
+# IP-Adapter scale per pose: lock the character, but let the POSE win harder for the
+# big action frames (a standing idle reference otherwise drags them back upright).
+IP_SCALE = {"walk":0.55,"walk2":0.55,"attack":0.5,"hit":0.4,"death":0.2}
 
 def main():
     print("loading ControlNet-OpenPose + SDXL + LoRA + IP-Adapter ...", flush=True)

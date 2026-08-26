@@ -9,7 +9,7 @@ color from the image corners, and auto-classifies each render:
 Emits <name>@16/@32 (+ 8x previews). CPU/PIL only.
 """
 import os, sys, glob
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else "/run/media/mhintermeister/secondary_drive1/comfy/out/style_tests"
 DST = SRC + "_sprites3"
@@ -47,7 +47,10 @@ def autocrop_square(im):
 
 def quant(im, grid, keep_alpha=True):
     small = im.resize((grid, grid), Image.LANCZOS)
-    rgb = small.convert("RGB").quantize(colors=PALETTE, method=Image.MEDIANCUT).convert("RGBA")
+    rgb = small.convert("RGB")
+    rgb = ImageEnhance.Brightness(rgb).enhance(1.14)   # lift dark sprites (heavy/sniper)
+    rgb = ImageEnhance.Color(rgb).enhance(1.08)
+    rgb = rgb.quantize(colors=PALETTE, method=Image.MEDIANCUT).convert("RGBA")
     if keep_alpha:
         rgb.putalpha(small.split()[-1] if small.mode=="RGBA" else Image.new("L",(grid,grid),255))
     return rgb
