@@ -581,8 +581,12 @@ STUB
     # a plausible-looking diff in the log, but never actually commits).
     # Confirmed by testing: forcing "udiff" (which matches the model's
     # natural output) fixes this - verified a real commit gets created.
+    # 2026-08-25: switched udiff -> diff when production moved to Qwen3-Coder-30B
+    # (MoE). The coder emits aider SEARCH/REPLACE blocks (diff format), not
+    # unified diffs — verified in the bake-off (a perfect SEARCH/REPLACE fix).
+    # --edit-format diff FORCES that format regardless of model-name recognition.
     AIDER_BASE_ARGS=(
-      --yes-always --no-check-update --edit-format udiff
+      --yes-always --no-check-update --edit-format diff
       --model "openai/${MODEL_NAME}"
       --openai-api-base "${LITELLM_BASE}/v1"
       --openai-api-key "${LITELLM_MASTER_KEY}"
