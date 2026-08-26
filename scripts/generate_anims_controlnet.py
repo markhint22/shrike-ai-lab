@@ -22,13 +22,16 @@ BGC   = "solid flat neutral gray background"
 NEG   = ("blurry, jpeg artifacts, gradient, soft shading, photo, 3d render, text, watermark, "
          "multiple people, extra limbs, deformed, cropped, frame, border")
 
+# This run: the 3 humanoid player variants (trooper/grunt/brute already animated
+# in the repo). ControlNet works for these; set UNITS back to the full roster only
+# if regenerating everything.
 UNITS = {
-  "player_trooper": ("a single sci-fi tactical soldier trooper in white and red armor "
-                     "with a helmet, full body, front view", 4242),
-  "enemy_grunt":    ("a single small pale green alien grunt creature with big red eyes "
-                     "and thin limbs, full body, front view", 1337),
-  "enemy_brute":    ("a single hulking muscular alien brute monster with thick arms, "
-                     "heavy build, full body, front view", 9001),
+  "player_heavy":  ("a single bulky heavy-armor sci-fi soldier with a big gun and "
+                    "thick plated armor, full body, front view", 5555),
+  "player_sniper": ("a single lean scout sniper soldier with a long rifle and light "
+                    "armor, full body, front view", 6666),
+  "player_medic":  ("a single sci-fi soldier medic with a red cross and a medpack, "
+                    "full body, front view", 7777),
 }
 POSE_HINT = {"idle":"standing idle","walk":"walking mid-stride","walk2":"walking, opposite stride",
              "attack":"lunging attack, weapon thrust forward",
