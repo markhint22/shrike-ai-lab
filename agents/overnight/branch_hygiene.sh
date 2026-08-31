@@ -138,6 +138,12 @@ run_gate() {
     if [ -f "$dir/addons/gut/gut_cmdln.gd" ]; then
       xml="$(mktemp)"
       ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit "-gjunit_xml_file=$xml" ) >>"$gout" 2>&1
+      # A test/dep script that fails to COMPILE is logged here but is ABSENT from
+      # the JUnit XML (so failures="0" still holds) and GUT still exits 0 — this
+      # masked a real battle.gd compile break. Scan the run output for the load/
+      # compile-failure signatures. (Do NOT scan for bare "SCRIPT ERROR": the
+      # vendored addons/gut/gut_loader.gd emits a benign Nil-to-bool one every run.)
+      if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
       if [ ! -s "$xml" ] || ! grep -qE 'failures="0"' "$xml" || grep -qE 'status="no asserts"' "$xml"; then rm -f "$xml" "$gout"; return 1; fi
       rm -f "$xml"
     fi
