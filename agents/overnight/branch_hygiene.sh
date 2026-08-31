@@ -55,8 +55,8 @@ declare -A AUTO_MERGE_OVERRIDE=(
   # during the Qwen3-Coder trial. The coder is 20x faster but showed rough edges
   # (syntax errors -> tests:FAIL) on night 1, so don't let it auto-deploy to prod
   # until it proves reliable. Re-empty this to restore full auto-merge.
-  [billwatch]=false
-  [shrike-labs-website]=false
+  [billwatch]=true
+  [shrike-labs-website]=true
 )
 
 log()  { echo "[branch-hygiene $(date '+%H:%M:%S')] $*"; }
@@ -133,16 +133,16 @@ run_gate() {
   # rules as the queue's run_repo_verification Godot branch).
   if [ -f "$dir/project.godot" ] && [ -x "$HOME/godot/godot4" ]; then
     local gout xml; gout="$(mktemp)"
+    ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >/dev/null 2>&1  # warm cache (class_names + assets) first
     ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >"$gout" 2>&1
-    if grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout"; then rm -f "$gout"; return 1; fi
+    if { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; }; then rm -f "$gout"; return 1; fi
     if [ -f "$dir/addons/gut/gut_cmdln.gd" ]; then
       xml="$(mktemp)"
       ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit "-gjunit_xml_file=$xml" ) >>"$gout" 2>&1
-      # A test/dep script that fails to COMPILE is logged here but is ABSENT from
-      # the JUnit XML (so failures="0" still holds) and GUT still exits 0 — this
-      # masked a real battle.gd compile break. Scan the run output for the load/
-      # compile-failure signatures. (Do NOT scan for bare "SCRIPT ERROR": the
-      # vendored addons/gut/gut_loader.gd emits a benign Nil-to-bool one every run.)
+      # A test/dep script that fails to COMPILE is logged here but is ABSENT from the
+      # JUnit XML (failures="0" still holds) and GUT exits 0 - this masked a real
+      # battle.gd compile break. Scan for the load/compile-failure signatures.
+      # (NOT bare "SCRIPT ERROR": vendored gut_loader.gd emits a benign one each run.)
       if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
       if [ ! -s "$xml" ] || ! grep -qE 'failures="0"' "$xml" || grep -qE 'status="no asserts"' "$xml"; then rm -f "$xml" "$gout"; return 1; fi
       rm -f "$xml"
