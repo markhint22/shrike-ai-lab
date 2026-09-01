@@ -14,7 +14,7 @@ from PIL import Image, ImageEnhance
 SRC = sys.argv[1] if len(sys.argv) > 1 else "/run/media/mhintermeister/secondary_drive1/comfy/out/style_tests"
 DST = SRC + "_sprites3"
 os.makedirs(DST, exist_ok=True)
-PALETTE = 16
+PALETTE = 20   # a touch more color depth than the old 16 (user: "raise graphics a little")
 
 def corner_stats(im):
     w, h = im.size; k = max(4, w//16)
