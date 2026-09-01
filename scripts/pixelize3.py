@@ -9,7 +9,8 @@ color from the image corners, and auto-classifies each render:
 Emits <name>@16/@32 (+ 8x previews). CPU/PIL only.
 """
 import os, sys, glob
-from PIL import Image, ImageEnhance
+import numpy as np
+from PIL import Image, ImageEnhance, ImageDraw
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else "/run/media/mhintermeister/secondary_drive1/comfy/out/style_tests"
 DST = SRC + "_sprites3"
@@ -35,6 +36,24 @@ def key_bg(im, bg, tol=60):
             if abs(r-bg[0])+abs(g-bg[1])+abs(b-bg[2]) < tol*3:
                 px[x, y] = (0, 0, 0, 0)
     return im
+
+def floodkey(im, tol=70):
+    # Flood-fill from all 4 corners with a sentinel, then make the sentinel
+    # transparent. Removes only the CONNECTED background region — never the sprite's
+    # interior pixels of a similar colour (the failure mode of a global colour key).
+    rgb = im.convert("RGB")
+    W, H = rgb.size
+    SENT = (255, 0, 255)
+    for corner in ((0, 0), (W-1, 0), (0, H-1), (W-1, H-1)):
+        try:
+            ImageDraw.floodfill(rgb, corner, SENT, thresh=tol)
+        except Exception:
+            pass
+    arr = np.array(rgb)
+    mask = (arr[:, :, 0] == 255) & (arr[:, :, 1] == 0) & (arr[:, :, 2] == 255)
+    out = np.array(im.convert("RGBA"))
+    out[mask] = (0, 0, 0, 0)
+    return Image.fromarray(out, "RGBA")
 
 def autocrop_square(im):
     bb = im.split()[-1].getbbox()
@@ -66,7 +85,7 @@ def main():
         if is_tile:
             base = im  # keep full frame, opaque
         else:
-            base = autocrop_square(key_bg(im, bg))
+            base = autocrop_square(floodkey(im))  # connected-bg removal (robust vs global key)
         for grid in (64, 48, 32):
             sp = quant(base, grid, keep_alpha=not is_tile)
             sp.save(f"{DST}/{name}@{grid}.png")

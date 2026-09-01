@@ -28,6 +28,7 @@ SCENES = [
   ("bg_battle", "ruined wasteland battlefield horizon, wrecked vehicles and collapsed rusted structures, toxic green haze and distant fires, gritty, wide, empty flat foreground"),
   ("bg_hub",    "interior of a scavenged wasteland survivor bunker base, patched walls and salvaged flickering tech screens, rusted lockers and crates, warm ambient light, empty room, wide shot"),
   ("bg_menu",   "dark rusted scavenged metal panel wall with cracked concrete and dim flickering salvaged circuitry, worn seamless backdrop, evenly lit"),
+  ("bg_hub_arcade", "interior of a rundown abandoned 1980s video-game arcade, rows of broken dusty arcade cabinets with cracked glowing screens, neon signs half-lit, worn carpet, post-apocalyptic decay, wide shot, empty"),
 ]
 
 def gen(pipe, prompt, seed):
