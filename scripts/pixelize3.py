@@ -37,12 +37,20 @@ def key_bg(im, bg, tol=60):
                 px[x, y] = (0, 0, 0, 0)
     return im
 
-def floodkey(im, tol=70):
-    # Flood-fill from all 4 corners with a sentinel, then make the sentinel
-    # transparent. Removes only the CONNECTED background region — never the sprite's
-    # interior pixels of a similar colour (the failure mode of a global colour key).
+def floodkey(im, tol=70, pocket_tol=30):
+    # Two-stage background removal:
+    #  1) flood-fill from the 4 corners -> removes the CONNECTED background (never a
+    #     sprite-interior pixel of a similar colour).
+    #  2) ENCLOSED-POCKET pass: the flat bg colour trapped BETWEEN limbs isn't reached
+    #     by the corner flood, so it stayed opaque -> the "white webbing / cardboard"
+    #     look. Key any remaining pixel within a TIGHT tolerance of the flat bg colour
+    #     (the bg is uniform; shaded sprite pixels differ by more), so the gaps between
+    #     arms/legs/body go transparent too.
     rgb = im.convert("RGB")
     W, H = rgb.size
+    orig = np.array(rgb).astype(int)
+    corners = orig[[0, 0, H-1, H-1], [0, W-1, 0, W-1]]
+    bg = corners.mean(axis=0)
     SENT = (255, 0, 255)
     for corner in ((0, 0), (W-1, 0), (0, H-1), (W-1, H-1)):
         try:
@@ -50,9 +58,10 @@ def floodkey(im, tol=70):
         except Exception:
             pass
     arr = np.array(rgb)
-    mask = (arr[:, :, 0] == 255) & (arr[:, :, 1] == 0) & (arr[:, :, 2] == 255)
+    connected = (arr[:, :, 0] == 255) & (arr[:, :, 1] == 0) & (arr[:, :, 2] == 255)
+    pockets = np.abs(orig - bg).sum(axis=2) < pocket_tol   # flat-bg pockets between limbs
     out = np.array(im.convert("RGBA"))
-    out[mask] = (0, 0, 0, 0)
+    out[connected | pockets] = (0, 0, 0, 0)
     return Image.fromarray(out, "RGBA")
 
 def autocrop_square(im):
