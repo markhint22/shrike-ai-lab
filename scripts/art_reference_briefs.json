@@ -5,38 +5,65 @@
   "framing_dead": "top-down three-quarter view looking down at the body lying flat on the ground, centered, plain solid flat gray background",
   "base_negatives": "blurry, jpeg artifacts, text, watermark, signature, multiple characters, cropped, border, purple tint, monochrome, extra limbs, deformed",
   "live_negatives": "cast shadow, drop shadow, ground shadow, shadow under feet, floor, ground, base, platform, standing surface, reflection, background scenery, wall, room",
+  "_death_canon": "DEAD and DOWNED both lie ON THEIR SIDE, crumpled where they fell — a pose the unit would never hold while alive. Limbs out / bent at odd but REALISTIC angles (not tidy, not symmetric, not laid-out-in-a-grave). Mouth open. Pool of blood (dead) under the body. NOT standing, NOT on-the-back-arms-crossed, NOT top-down neat. Tech/robots: no blood — broken apart, pieces missing, wires/cables hanging out, sparks, dead optic.",
   "corpse_by_family": {
     "mutant": {
       "key_features": [
-        "clearly DEAD mutant, lifeless and limp",
-        "sprawled on its back with limbs splayed out to the sides",
-        "flattened silhouette lying flat on the ground, NOT standing",
-        "a pool of glowing green ichor spreading under the body",
-        "slack open jaw, dim / dead eyes (no glow)",
-        "desaturated and darker than a living one"
+        "dead mutant collapsed on its side on the ground",
+        "crumpled where it fell, limbs bent at odd realistic angles",
+        "mouth open, dead unglowing eyes, head lolled back",
+        "a pool of green ichor spreading out from under the body",
+        "desaturated, limp and lifeless"
       ],
-      "negatives": "standing, upright, walking, alive, action pose, glowing eyes, tipped-over standing figure, compact ball shape, floating"
+      "negatives": "standing, upright, on its back, arms crossed, tidy symmetric pose, top-down, laid out in a coffin, alive, glowing eyes, action pose, floating"
     },
     "robot": {
       "key_features": [
-        "clearly DESTROYED robot, wrecked and inert",
-        "broken apart on the ground, one rotor snapped off",
-        "dark dead optic (no glow), sparks and scorch marks",
-        "a small pool of black oil and scattered debris under it",
-        "lying flat, NOT hovering"
+        "destroyed robot broken apart on the ground on its side",
+        "pieces snapped off, torn wires and cables hanging out",
+        "dark dead optic, sparks and scorch marks, leaking oil",
+        "wrecked and inert, NOT intact"
       ],
-      "negatives": "hovering, flying, upright, alive, glowing eye, intact, floating, action pose"
+      "negatives": "hovering, flying, upright, intact, alive, glowing eye, standing, floating, action pose"
     },
     "human": {
       "key_features": [
-        "clearly DEAD human, lifeless and limp",
-        "sprawled on the ground with arms and legs splayed",
-        "flattened silhouette lying flat, NOT standing",
-        "a dark red blood pool spreading under the body",
-        "weapon fallen on the ground beside the body",
-        "desaturated and darker than a living one"
+        "dead human collapsed on its side on the ground",
+        "crumpled where it fell, one arm flung out, legs bent awkwardly",
+        "mouth open, head lolled, limp and lifeless",
+        "a dark red blood pool spreading out from under the body",
+        "dropped weapon lying beside them"
       ],
-      "negatives": "standing, upright, walking, alive, action pose, aiming, tipped-over standing figure, floating"
+      "negatives": "standing, upright, on its back, arms crossed, tidy symmetric pose, top-down, laid out in a coffin, alive, aiming, action pose, floating"
+    }
+  },
+  "downed_by_family": {
+    "mutant": {
+      "key_features": [
+        "wounded mutant knocked down on its side, still alive but incapacitated",
+        "collapsed on the ground clutching a wound, one limb propping up weakly",
+        "grimacing, struggling, small smear of green ichor",
+        "clearly hurt and prone, NOT a tidy corpse and NOT standing"
+      ],
+      "negatives": "standing, upright, walking, dead, big blood pool, action pose, on its back, top-down, floating"
+    },
+    "robot": {
+      "key_features": [
+        "disabled robot fallen on the ground on its side, sparking",
+        "one rotor bent, a couple of loose wires, flickering optic",
+        "damaged and grounded but mostly intact, NOT blown apart",
+        "clearly downed, NOT hovering"
+      ],
+      "negatives": "hovering, flying, upright, fully destroyed, blown apart, intact and flying, standing, floating"
+    },
+    "human": {
+      "key_features": [
+        "wounded soldier knocked down on their side, still alive but incapacitated",
+        "collapsed on the ground clutching a wound, propped on one arm weakly",
+        "grimacing in pain, small blood smear, dropped weapon nearby",
+        "clearly hurt and prone, NOT a tidy corpse and NOT standing"
+      ],
+      "negatives": "standing, upright, walking, dead, big blood pool, aiming, action pose, on its back, top-down, floating"
     }
   },
   "units": {

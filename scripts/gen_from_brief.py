@@ -23,8 +23,9 @@ C = "/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI"
 CKPT = f"{C}/models/checkpoints/sd_xl_base_1.0.safetensors"
 LORA = f"{C}/models/loras/pixel-art-xl.safetensors"
 
-def out_dir(dead):
-    d = "/run/media/mhintermeister/secondary_drive1/comfy/out/" + ("units_dead" if dead else "units_brief")
+def out_dir(key):
+    sub = "units_dead" if key.endswith("__dead") else "units_downed" if key.endswith("__downed") else "units_brief"
+    d = "/run/media/mhintermeister/secondary_drive1/comfy/out/" + sub
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -51,47 +52,48 @@ _DEAD_STRONG_SUBJ = {
 }
 
 def build_prompt(key):
-    """Return (out_name, prompt, negative). key may be '<unit>' or '<unit>__dead'.
-    Prompts are front-loaded + short to survive CLIP's 77-token window."""
-    dead = key.endswith("__dead")
-    unit_key = key[:-6] if dead else key
-    u = BRIEFS["units"][unit_key]
+    """Return (out_name, prompt, negative). key may be '<unit>', '<unit>__dead' or
+    '<unit>__downed'. Prompts front-loaded + short for CLIP's 77-token window. DEATH
+    CANON: dead AND downed lie ON THEIR SIDE, crumpled (side view), NOT standing and
+    NOT a tidy top-down laid-out body."""
     style = BRIEFS["style"]
     base_neg = BRIEFS["base_negatives"]
-    subj = _strip_article(u["subject"])
-    if dead:
-        fam = BRIEFS["corpse_by_family"][u["family"]]
-        if os.environ.get("DEAD_STRONG"):
-            # Re-roll mode for subjects whose 'armored warrior' prior kept drawing
-            # them STANDING. Use an aggressive overhead-corpse framing + a stripped
-            # 2-3 word subject (drop 'hunched/clawed/warrior' words that cue upright)
-            # + hard anti-standing negatives.
-            core = _DEAD_STRONG_SUBJ.get(unit_key, subj)
-            prompt = (f"pixel art, dead {_DEAD_KIND[u['family']]} corpse sprawled flat on its back, "
-                      f"aerial top-down view seen from directly overhead, limbs splayed wide, "
-                      f"{_DEAD_POOL[u['family']]}, lifeless motionless, {core}, desaturated, flat gray background")
+    for suffix, famkey, name_suf in (("__dead", "corpse_by_family", "dead"),
+                                     ("__downed", "downed_by_family", "downed")):
+        if key.endswith(suffix):
+            unit_key = key[:-len(suffix)]
+            u = BRIEFS["units"][unit_key]
+            fam = BRIEFS[famkey][u["family"]]
+            kind = _DEAD_KIND[u["family"]]
+            core = _DEAD_STRONG_SUBJ.get(unit_key, _strip_article(u["subject"]))
+            pool = _DEAD_POOL[u["family"]]
+            if name_suf == "dead":
+                # side-lying corpse — the front-loaded critical cues first.
+                prompt = (f"pixel art, dead {kind} lying on its side on the ground, crumpled where it fell, "
+                          f"limbs bent at odd angles, mouth open, {pool}, side view, "
+                          f"{core}, desaturated, flat gray background")
+            else:
+                small = "sparks and loose wires" if u["family"] == "robot" else "small blood smear"
+                prompt = (f"pixel art, wounded {kind} knocked down on its side, alive but incapacitated, "
+                          f"collapsed clutching a wound, {small}, side view, "
+                          f"{core}, flat gray background")
             neg = (f"{base_neg}, {fam['negatives']}, standing, upright, vertical, front view, "
-                   f"facing viewer, portrait, walking, sitting, kneeling, alive, action pose")
-        else:
-            # critical corpse cues FIRST, then a trimmed subject, then minimal framing.
-            prompt = (f"pixel art, dead {_DEAD_KIND[u['family']]} corpse lying flat on the ground, "
-                      f"limbs splayed, {_DEAD_POOL[u['family']]}, top-down view, "
-                      f"a dead {subj}, desaturated, flat gray background")
-            neg = f"{base_neg}, {fam['negatives']}"
-        name = f"{unit_key}__dead.png"
-    else:
-        # subject + the 2 most identifying features + short framing (stay under 77).
-        feats = ", ".join(u.get("key_features", [])[:2])
-        prompt = f"pixel art, {subj}, {feats}, full body centered, flat gray background, no shadow"
-        neg = f"{base_neg}, {BRIEFS['live_negatives']}"
-        name = f"{unit_key}__idle.png"
-    return name, prompt, neg
+                   f"facing viewer, walking")
+            return f"{unit_key}__{name_suf}.png", prompt, neg
+    # live idle: subject + the 2 most identifying features + short framing (stay <77).
+    u = BRIEFS["units"][key]
+    feats = ", ".join(u.get("key_features", [])[:2])
+    prompt = f"pixel art, {_strip_article(u['subject'])}, {feats}, full body centered, flat gray background, no shadow"
+    neg = f"{base_neg}, {BRIEFS['live_negatives']}"
+    return f"{key}__idle.png", prompt, neg
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = [a for a in sys.argv[1:] if a.startswith("--")]
     if "--dead-all" in flags:
         keys = [f"{k}__dead" for k in BRIEFS["units"].keys()]
+    elif "--downed-all" in flags:
+        keys = [f"{k}__downed" for k in BRIEFS["units"].keys()]
     elif args:
         keys = args
     else:
@@ -101,13 +103,14 @@ def main():
     pipe = StableDiffusionXLPipeline.from_single_file(CKPT, torch_dtype=torch.float16).to("cuda")
     pipe.load_lora_weights(LORA); pipe.fuse_lora(lora_scale=1.15)
     pipe.set_progress_bar_config(disable=True)
+    # SEED_OFFSET lets the QA loop re-roll a failed key with a fresh seed each pass.
+    seed_off = int(os.environ.get("SEED_OFFSET", "0"))
     for i, key in enumerate(keys):
         name, prompt, neg = build_prompt(key)
-        dead = key.endswith("__dead")
-        g = torch.Generator("cuda").manual_seed(7000 + i)
+        g = torch.Generator("cuda").manual_seed(7000 + i + seed_off * 101)
         img = pipe(prompt=prompt, negative_prompt=neg, num_inference_steps=40,
                    guidance_scale=7.5, height=1024, width=1024, generator=g).images[0]
-        img.save(os.path.join(out_dir(dead), name))
+        img.save(os.path.join(out_dir(key), name))
         print(f"[{i+1}/{len(keys)}] {name}\n     {prompt[:120]}...", flush=True)
     print("DONE", flush=True)
 
