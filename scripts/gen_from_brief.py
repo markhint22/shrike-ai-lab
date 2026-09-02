@@ -121,12 +121,24 @@ def main():
     from diffusers import StableDiffusionXLPipeline
     print(f"loading SDXL + LoRA for {len(keys)} target(s)...", flush=True)
     pipe = StableDiffusionXLPipeline.from_single_file(CKPT, torch_dtype=torch.float16).to("cuda")
-    pipe.load_lora_weights(LORA); pipe.fuse_lora(lora_scale=1.15)
+    # pixel-art-xl + (if trained) the style LoRA, so idles share the SAME learned look
+    # as the poses. Enable with STYLE_LORA=1; prepends the 'xlwaste' trigger.
+    style_dir = "/run/media/mhintermeister/secondary_drive1/comfy/out/lora"
+    use_style = os.environ.get("STYLE_LORA") and os.path.exists(f"{style_dir}/pytorch_lora_weights.safetensors")
+    if use_style:
+        pipe.load_lora_weights(LORA, adapter_name="pixel")
+        pipe.load_lora_weights(style_dir, adapter_name="xlwaste")
+        pipe.set_adapters(["pixel", "xlwaste"], adapter_weights=[0.7, 1.0])
+        print("  style LoRA loaded (xlwaste)", flush=True)
+    else:
+        pipe.load_lora_weights(LORA); pipe.fuse_lora(lora_scale=1.15)
     pipe.set_progress_bar_config(disable=True)
     # SEED_OFFSET lets the QA loop re-roll a failed key with a fresh seed each pass.
     seed_off = int(os.environ.get("SEED_OFFSET", "0"))
     for i, key in enumerate(keys):
         name, prompt, neg = build_prompt(key)
+        if use_style:
+            prompt = "xlwaste, " + prompt
         g = torch.Generator("cuda").manual_seed(7000 + i + seed_off * 101)
         img = pipe(prompt=prompt, negative_prompt=neg, num_inference_steps=40,
                    guidance_scale=7.5, height=1024, width=1024, generator=g).images[0]
