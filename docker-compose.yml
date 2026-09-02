@@ -76,7 +76,7 @@ services:
     command:
       - >
         exec /app/llama-server
-        -m "${DFLASH_TARGET_MODEL:-/models/deepflash/Qwen3.8-27B-Q4_K_M.gguf}"
+        -m "${DFLASH_TARGET_MODEL:-/models/deepflash/Qwen3.8-27B-UD-Q4_K_XL.gguf}"
         -ngl "${DFLASH_NGL:-99}"
         --ctx-size "${DFLASH_CTX_SIZE:-65536}"
         --flash-attn "${DFLASH_FLASH_ATTN:-on}"
@@ -84,6 +84,11 @@ services:
         --cache-type-v "${DFLASH_CACHE_TYPE_V:-q4_0}"
         --batch-size "${DFLASH_BATCH_SIZE:-512}"
         --ubatch-size "${DFLASH_UBATCH_SIZE:-256}"
+        --temp 0.4
+        --top-p 0.9
+        --top-k 20
+        --min-p 0.0
+        --presence-penalty 1.0
         ${DFLASH_SPEC_ARGS:---spec-type draft-mtp --spec-draft-n-max 8}
         --host 0.0.0.0
         --port 8080
