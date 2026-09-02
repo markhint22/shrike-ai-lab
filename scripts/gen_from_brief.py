@@ -40,6 +40,15 @@ def _strip_article(s):
 # family gives a TIGHT front-loaded corpse phrase (pool = the strongest 'dead' cue).
 _DEAD_POOL = {"mutant": "green ichor pool", "robot": "oil pool and debris", "human": "dark blood pool"}
 _DEAD_KIND = {"mutant": "mutant", "robot": "wrecked robot", "human": "body"}
+# Stripped 2-3 word subjects for DEAD_STRONG re-rolls — the full briefs' "hunched",
+# "clawed", "warrior", "hulking" words cue an upright standing figure.
+_DEAD_STRONG_SUBJ = {
+    "enemy_grunt": "green mutant alien",
+    "enemy_boss": "big armored mutant",
+    "enemy_brute": "huge green mutant",
+    "player_heavy": "armored soldier",
+    "enemy_shotgunner": "armored raider",
+}
 
 def build_prompt(key):
     """Return (out_name, prompt, negative). key may be '<unit>' or '<unit>__dead'.
@@ -52,11 +61,23 @@ def build_prompt(key):
     subj = _strip_article(u["subject"])
     if dead:
         fam = BRIEFS["corpse_by_family"][u["family"]]
-        # critical corpse cues FIRST, then a trimmed subject, then minimal framing.
-        prompt = (f"pixel art, dead {_DEAD_KIND[u['family']]} corpse lying flat on the ground, "
-                  f"limbs splayed, {_DEAD_POOL[u['family']]}, top-down view, "
-                  f"a dead {subj}, desaturated, flat gray background")
-        neg = f"{base_neg}, {fam['negatives']}"
+        if os.environ.get("DEAD_STRONG"):
+            # Re-roll mode for subjects whose 'armored warrior' prior kept drawing
+            # them STANDING. Use an aggressive overhead-corpse framing + a stripped
+            # 2-3 word subject (drop 'hunched/clawed/warrior' words that cue upright)
+            # + hard anti-standing negatives.
+            core = _DEAD_STRONG_SUBJ.get(unit_key, subj)
+            prompt = (f"pixel art, dead {_DEAD_KIND[u['family']]} corpse sprawled flat on its back, "
+                      f"aerial top-down view seen from directly overhead, limbs splayed wide, "
+                      f"{_DEAD_POOL[u['family']]}, lifeless motionless, {core}, desaturated, flat gray background")
+            neg = (f"{base_neg}, {fam['negatives']}, standing, upright, vertical, front view, "
+                   f"facing viewer, portrait, walking, sitting, kneeling, alive, action pose")
+        else:
+            # critical corpse cues FIRST, then a trimmed subject, then minimal framing.
+            prompt = (f"pixel art, dead {_DEAD_KIND[u['family']]} corpse lying flat on the ground, "
+                      f"limbs splayed, {_DEAD_POOL[u['family']]}, top-down view, "
+                      f"a dead {subj}, desaturated, flat gray background")
+            neg = f"{base_neg}, {fam['negatives']}"
         name = f"{unit_key}__dead.png"
     else:
         # subject + the 2 most identifying features + short framing (stay under 77).
