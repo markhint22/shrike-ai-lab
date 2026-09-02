@@ -1,0 +1,58 @@
+{
+  "_doc": "Reference briefs — Step 0 of the art pipeline (see docs/art/REFERENCE_RESEARCH_STEP.md). Built from web reference research, NOT off the top of the head. gen_from_brief.py builds every prompt from these; never hand-write a prompt that bypasses this file. Keys match the game's unit art keys (assets/sprites/units/...). A '<key>__dead' target composes the base unit's subject+family with corpse_by_family.",
+  "style": "pixel art, high contrast, bold clean readable silhouette, full color, single character",
+  "framing_live": "full body, centered, standing, plain solid flat gray background, no ground, no shadow",
+  "framing_dead": "top-down three-quarter view looking down at the body lying flat on the ground, centered, plain solid flat gray background",
+  "base_negatives": "blurry, jpeg artifacts, text, watermark, signature, multiple characters, cropped, border, purple tint, monochrome, extra limbs, deformed",
+  "live_negatives": "cast shadow, drop shadow, ground shadow, shadow under feet, floor, ground, base, platform, standing surface, reflection, background scenery, wall, room",
+  "corpse_by_family": {
+    "mutant": {
+      "key_features": [
+        "clearly DEAD mutant, lifeless and limp",
+        "sprawled on its back with limbs splayed out to the sides",
+        "flattened silhouette lying flat on the ground, NOT standing",
+        "a pool of glowing green ichor spreading under the body",
+        "slack open jaw, dim / dead eyes (no glow)",
+        "desaturated and darker than a living one"
+      ],
+      "negatives": "standing, upright, walking, alive, action pose, glowing eyes, tipped-over standing figure, compact ball shape, floating"
+    },
+    "robot": {
+      "key_features": [
+        "clearly DESTROYED robot, wrecked and inert",
+        "broken apart on the ground, one rotor snapped off",
+        "dark dead optic (no glow), sparks and scorch marks",
+        "a small pool of black oil and scattered debris under it",
+        "lying flat, NOT hovering"
+      ],
+      "negatives": "hovering, flying, upright, alive, glowing eye, intact, floating, action pose"
+    },
+    "human": {
+      "key_features": [
+        "clearly DEAD human, lifeless and limp",
+        "sprawled on the ground with arms and legs splayed",
+        "flattened silhouette lying flat, NOT standing",
+        "a dark red blood pool spreading under the body",
+        "weapon fallen on the ground beside the body",
+        "desaturated and darker than a living one"
+      ],
+      "negatives": "standing, upright, walking, alive, action pose, aiming, tipped-over standing figure, floating"
+    }
+  },
+  "units": {
+    "player_trooper": {"family": "human", "subject": "a wasteland soldier in patched scrap armor holding a battle rifle", "key_features": ["patched improvised armor", "cloth wraps", "a clear rifle held across the body"]},
+    "player_heavy":   {"family": "human", "subject": "a heavy wasteland soldier in bulky riveted armor with a big machine gun", "key_features": ["bulky riveted plate armor", "broad heavy silhouette", "a large belt-fed machine gun"]},
+    "player_sniper":  {"family": "human", "subject": "a wasteland sniper in a hooded cloak holding a long-barreled rifle", "key_features": ["hood and long cloak", "lean silhouette", "a very long rifle barrel with a scope"]},
+    "player_medic":   {"family": "human", "subject": "a wasteland medic in armor with a bold red cross, holding a pistol", "key_features": ["a bold red cross on the chest / shoulder", "a small medkit pouch", "a pistol"]},
+    "enemy_grunt":    {"family": "mutant", "subject": "a hunched green mutant alien with clawed hands and red eyes", "key_features": ["sickly green skin", "hunched forward posture", "clawed hands", "red eyes"]},
+    "enemy_brute":    {"family": "mutant", "subject": "a huge hulking mutant brute with massive clawed arms", "key_features": ["enormous bulk", "oversized clawed arms", "small head, huge shoulders"]},
+    "enemy_flyer":    {"family": "mutant", "subject": "a winged mutant flying creature with claws and a long tail", "key_features": ["large membranous wings spread wide", "clawed limbs", "a whipping tail"]},
+    "enemy_drone":    {"family": "robot", "subject": "a rusty flying quad-rotor robot drone with a single glowing red optic", "key_features": ["rusty metal body", "four small rotors", "one glowing red optic lens"]},
+    "enemy_elite":    {"family": "mutant", "subject": "an elite mutant alien warrior armored in dark chitin plates", "key_features": ["overlapping dark chitin armor plates", "sharp spined ridges", "an imposing upright warrior stance"]},
+    "enemy_raider":   {"family": "human", "subject": "a human wasteland raider in spiked scrap armor holding a machete", "key_features": ["spiked scrap-metal armor", "a raider mask", "a machete"]},
+    "enemy_shotgunner":{"family": "human", "subject": "a wasteland raider in riot armor with a sawn-off shotgun", "key_features": ["riot armor and a helmet", "a short sawn-off shotgun", "a stocky stance"]},
+    "enemy_shield":   {"family": "human", "subject": "a heavy wasteland raider hefting a huge scrap riot shield", "key_features": ["a huge riveted scrap riot shield covering one side", "heavy armor", "a bulky guarded silhouette"]},
+    "enemy_minigunner":{"family": "human", "subject": "a hulking wasteland raider carrying a huge multi-barrel minigun", "key_features": ["a massive multi-barrel minigun", "an ammo belt draped across the chest", "a huge heavy frame"]},
+    "enemy_boss":     {"family": "mutant", "subject": "a towering heavily-armored mutant wasteland warlord with glowing eyes", "key_features": ["towering imposing scale", "heavy battle armor over mutant flesh", "glowing eyes", "a warlord's cloak or trophies"]}
+  }
+}
