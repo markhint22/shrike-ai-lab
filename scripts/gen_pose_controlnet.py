@@ -21,11 +21,13 @@ from gen_from_brief import build_prompt, CKPT, LORA
 
 OUTBASE = "/run/media/mhintermeister/secondary_drive1/comfy/out"
 POSES = f"{OUTBASE}/poses"
-IDLE_DIRS = [f"{OUTBASE}/units_ns", f"{OUTBASE}/units_brief"]
+IDLE_DIRS = [f"{OUTBASE}/units_norm", f"{OUTBASE}/units_ns"]  # normalized idles first
 # skeleton per (pose, family) — dead/downed lie down; attack differs melee vs ranged
 def skeleton_for(pose, family):
-    if pose in ("dead", "downed"):
-        return "death"
+    if pose == "dead":
+        return "death"          # flat, lifeless
+    if pose == "downed":
+        return "downed"         # propped/collapsed, wounded-but-alive
     return "attack_melee" if family == "mutant" else "attack"
 # IP-Adapter scale: lower where the skeleton is very unlike the idle (lying) so the
 # pose wins; higher for attack (closer to idle) to hold the character.
@@ -53,7 +55,18 @@ def main():
     print("loading ControlNet-OpenPose + SDXL + LoRA + IP-Adapter ...", flush=True)
     cn = ControlNetModel.from_pretrained("xinsir/controlnet-openpose-sdxl-1.0", torch_dtype=torch.float16)
     pipe = StableDiffusionXLControlNetPipeline.from_single_file(CKPT, controlnet=cn, torch_dtype=torch.float16).to("cuda")
-    pipe.load_lora_weights(LORA); pipe.fuse_lora(lora_scale=1.1)
+    # pixel-art-xl LoRA + (if trained) our style LoRA, so poses render in the SAME
+    # learned wasteland look as everything else (the fix for 'poses lower quality /
+    # inconsistent artwork'). Trigger token 'xlwaste' prepended to each prompt.
+    pipe.load_lora_weights(LORA, adapter_name="pixel")
+    STYLE = f"{OUTBASE}/lora"
+    use_style = os.path.exists(f"{STYLE}/pytorch_lora_weights.safetensors")
+    if use_style:
+        pipe.load_lora_weights(STYLE, adapter_name="xlwaste")
+        pipe.set_adapters(["pixel", "xlwaste"], adapter_weights=[0.7, 1.0])
+        print("  style LoRA loaded (xlwaste)", flush=True)
+    else:
+        pipe.set_adapters(["pixel"], adapter_weights=[1.0])
     pipe.load_ip_adapter("h94/IP-Adapter", subfolder="sdxl_models", weight_name="ip-adapter_sdxl.bin")
     pipe.set_progress_bar_config(disable=True)
     skels = {}
@@ -70,6 +83,8 @@ def main():
             skels[sk] = Image.open(f"{POSES}/{sk}.png").convert("RGB")
         idle = Image.open(idle_p).convert("RGB")
         _, prompt, neg = build_prompt(key)
+        if use_style:
+            prompt = "xlwaste, " + prompt
         pipe.set_ip_adapter_scale(IP_SCALE.get(pose, 0.5))
         g = torch.Generator("cuda").manual_seed(11000 + i + seed_off * 137)
         img = pipe(prompt=prompt, negative_prompt=neg, image=skels[sk], ip_adapter_image=idle,
