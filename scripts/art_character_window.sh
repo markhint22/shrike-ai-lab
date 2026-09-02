@@ -6,7 +6,7 @@ set -uo pipefail
 C=/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI
 PY="$C/.venv/bin/python"
 Q=/home/mhintermeister/overnight-queue
-LLAMA=shrike-llama-dflash-35b
+STATE=$Q/state
 OUT=$Q/reports/art-characters.out
 
 exec 9>/tmp/art_char.lock
@@ -14,18 +14,23 @@ if ! flock -n 9; then echo "already running" >&2; exit 0; fi
 : > "$OUT"
 log(){ echo "[$(date +%H:%M:%S)] $*" >> "$OUT"; }
 restore(){
-  log "restoring llama + queue"
-  docker start "$LLAMA" >/dev/null 2>&1 || true
-  for i in $(seq 1 90); do curl -sf http://localhost:8081/health >/dev/null 2>&1 && break; sleep 2; done
+  # Remove the watcher hold + resume the queue; the auto-swap watcher (cron, 1 min)
+  # restores the production 27B on its next tick now that the GPU is free again.
+  log "removing art hold + resuming (watcher restores 27B)"
+  rm -f "$STATE/art_window.hold"
   "$Q/queue.sh" resume >/dev/null 2>&1 || true
   log "=== ART CHARACTER WINDOW DONE ==="
 }
 trap restore EXIT
 
-log "pausing queue + freeing GPU"
+# Pin the auto-swap watcher OFF for the whole window (it otherwise restarts the 27B
+# in the gap between gen subprocesses -> the next gen OOMs), pause the queue, and stop
+# BOTH model containers (the watched 27B AND the coder-next A/B trial) to free VRAM.
+mkdir -p "$STATE"; touch "$STATE/art_window.hold"
+log "pausing queue + freeing GPU (both model containers)"
 "$Q/queue.sh" pause >/dev/null 2>&1 || true
 for i in $(seq 1 20); do fuser "$Q/state/run.lock" >/dev/null 2>&1 || break; sleep 8; done
-docker stop "$LLAMA" >/dev/null 2>&1 || true
+docker stop shrike-llama-dflash-35b shrike-llama-coder-next >/dev/null 2>&1 || true
 for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits|head -1)" -lt 2500 ] && break; sleep 2; done
 log "GPU free"
 
