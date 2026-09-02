@@ -26,6 +26,33 @@ from PIL import Image
 def load(path):
     return np.array(Image.open(path).convert("RGBA"))
 
+def _count_large_blobs(opaque, min_frac=0.10):
+    """4-connected components on a downsized alpha mask; count blobs whose area is
+    >= min_frac of the total opaque area. >=2 means the sprite rendered MORE THAN ONE
+    figure (the 'downed = 2 people' bug) or a big stray secondary mass (a mystery pile
+    beside the body). Pure-numpy BFS on a 32x-ish grid so it's cheap + dependency-free."""
+    from collections import deque
+    small = opaque[::2, ::2]
+    H, W = small.shape
+    total = int(small.sum())
+    if total == 0:
+        return 0
+    seen = np.zeros_like(small, dtype=bool)
+    big = 0
+    for y in range(H):
+        for x in range(W):
+            if small[y, x] and not seen[y, x]:
+                q = deque([(y, x)]); seen[y, x] = True; sz = 0
+                while q:
+                    cy, cx = q.popleft(); sz += 1
+                    for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        ny, nx = cy + dy, cx + dx
+                        if 0 <= ny < H and 0 <= nx < W and small[ny, nx] and not seen[ny, nx]:
+                            seen[ny, nx] = True; q.append((ny, nx))
+                if sz >= min_frac * total:
+                    big += 1
+    return big
+
 def inspect(arr, role):
     H, W = arr.shape[:2]
     a = arr[:, :, 3]
@@ -64,6 +91,12 @@ def inspect(arr, role):
         fringe = (ba > 20) & (ba < 210) & (sat < 30)
         if ba.size and fringe.mean() > 0.06:
             reasons.append(f"feet_halo(low-sat fringe {fringe.mean():.2f} at base)")
+
+    # single subject: character sprites must be ONE figure, not two + no stray pile
+    if role in ("idle", "downed", "dead", "attack"):
+        blobs = _count_large_blobs(opaque)
+        if blobs >= 2:
+            reasons.append(f"multiple_figures({blobs} large masses — 2 people / stray pile)")
 
     # pose_aspect: a corpse/downed must be LYING (bbox wider than tall)
     if role in ("dead", "downed"):

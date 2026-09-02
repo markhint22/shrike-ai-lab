@@ -50,11 +50,11 @@ _POSE_SUBJ = {
     "player_heavy": "armored heavy soldier",
     "player_sniper": "hooded sniper",
     "player_medic": "medic with red cross",
-    "enemy_grunt": "green mutant alien",
+    "enemy_grunt": "green wasteland mutant",
     "enemy_brute": "huge green mutant",
     "enemy_flyer": "winged mutant",
     "enemy_drone": "quadrotor drone",
-    "enemy_elite": "chitin-armored alien",
+    "enemy_elite": "armored mutant",
     "enemy_raider": "spiked scrap raider",
     "enemy_shotgunner": "riot-armor raider",
     "enemy_shield": "shield raider",
@@ -69,6 +69,13 @@ def build_prompt(key):
     NOT a tidy top-down laid-out body."""
     style = BRIEFS["style"]
     base_neg = BRIEFS["base_negatives"]
+    if key.endswith("__attack"):
+        unit_key = key[:-8]
+        core = _POSE_SUBJ.get(unit_key, _strip_article(BRIEFS["units"][unit_key]["subject"]))
+        prompt = (f"pixel art, {core} attacking, lunging forward, weapon raised mid-strike, "
+                  f"dynamic action pose, gray background")
+        neg = f"{base_neg}, {BRIEFS['live_negatives']}, idle, standing still, static, lying down"
+        return f"{unit_key}__attack.png", prompt, neg
     for suffix, famkey, name_suf in (("__dead", "corpse_by_family", "dead"),
                                      ("__downed", "downed_by_family", "downed")):
         if key.endswith(suffix):

@@ -84,6 +84,20 @@ def test_downed_standing_pose_flagged():
     assert not res["ok"] and "standing_pose" in reasons(res)
 
 
+def test_two_figures_flagged_multiple():
+    a = np.zeros((64, 64, 4), dtype=np.uint8)
+    for (cx, w) in [(16, 14), (46, 14)]:                 # two separated figures
+        a[22:50, cx - w // 2:cx + w // 2, :3] = (200, 80, 40)
+        a[22:50, cx - w // 2:cx + w // 2, 3] = 255
+    res = art_qa_gate.inspect(a, "downed")
+    assert "multiple_figures" in reasons(res)
+
+
+def test_single_figure_not_flagged_multiple():
+    res = art_qa_gate.inspect(blob(44, 20), "dead")      # one lying figure
+    assert "multiple_figures" not in reasons(res)
+
+
 # ----- prompt construction: gen_from_brief.build_prompt ------------------------
 def test_dead_prompt_is_side_lying_and_named():
     name, prompt, neg = gen_from_brief.build_prompt("enemy_grunt__dead")
