@@ -26,12 +26,9 @@ for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,no
 log "GPU free"
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-log "=== (0) draw OpenPose skeletons (incl. new downed) ==="
+log "=== (0) draw OpenPose skeletons (kneeling downed) ==="
 "$PY" /tmp/pose_skeletons.py >>"$OUT" 2>&1 && log "skeletons ok" || log "skeletons FAILED"
-log "=== (1) LoRA idles (xlwaste): trooper + grunt ==="
-STYLE_LORA=1 timeout 600 "$PY" /tmp/gen_from_brief.py player_trooper enemy_grunt >>"$OUT" 2>&1 && log "idle ok" || log "idle FAILED"
-timeout 200 "$PY" /tmp/pixelize3.py "$O/units_brief" >>"$OUT" 2>&1
-log "=== (2) LoRA + ControlNet poses: trooper + grunt, all 3 ==="
+log "=== poses: trooper + grunt, all 3 (kneeling downed, blood, low LoRA) ==="
 timeout 1200 "$PY" /tmp/gen_pose_controlnet.py \
   player_trooper__attack player_trooper__downed player_trooper__dead \
   enemy_grunt__attack enemy_grunt__downed enemy_grunt__dead >>"$OUT" 2>&1 && log "gen ok" || log "gen FAILED"

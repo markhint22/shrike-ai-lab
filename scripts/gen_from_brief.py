@@ -72,8 +72,8 @@ def build_prompt(key):
     if key.endswith("__attack"):
         unit_key = key[:-8]
         core = _POSE_SUBJ.get(unit_key, _strip_article(BRIEFS["units"][unit_key]["subject"]))
-        prompt = (f"pixel art, {core} attacking, lunging forward, weapon raised mid-strike, "
-                  f"dynamic action pose, gray background")
+        prompt = (f"pixel art, {core} attacking, lunging forward, both hands gripping the weapon, "
+                  f"weapon raised mid-strike, dynamic action pose, gray background")
         neg = f"{base_neg}, {BRIEFS['live_negatives']}, idle, standing still, static, lying down"
         return f"{unit_key}__attack.png", prompt, neg
     for suffix, famkey, name_suf in (("__dead", "corpse_by_family", "dead"),
@@ -88,15 +88,15 @@ def build_prompt(key):
             # Kept SHORT + front-loaded: CLIP truncates at 77 tokens, so the critical
             # corpse cues lead and the whole prompt stays well under the limit.
             if name_suf == "dead":
-                prompt = (f"pixel art, dead {kind} lying on its side, crumpled, "
-                          f"limbs at odd angles, mouth open, {pool}, {core}, gray background")
-                neg = (f"{base_neg}, {fam['negatives']}, standing, upright, front view, walking")
+                prompt = (f"pixel art, dead {kind} lying dead on the ground, full body, "
+                          f"limbs sprawled, mouth open, bloody wounds, {pool}, {core}, gray background")
+                neg = (f"{base_neg}, {fam['negatives']}, standing, upright, front view, walking, alive")
             else:
-                small = "sparks and loose wires" if u["family"] == "robot" else "small blood smear"
-                prompt = (f"pixel art, wounded {kind} down on its side, collapsed clutching a wound, "
-                          f"face grimacing in pain, {small}, {core}, gray background")
-                neg = (f"{base_neg}, {fam['negatives']}, standing, upright, front view, walking, "
-                       f"smiling, happy, cheerful")
+                gore = "sparks and torn wires" if u["family"] == "robot" else "bloody wounds and injuries"
+                prompt = (f"pixel art, wounded {kind} kneeling on one knee, collapsed and hurt, "
+                          f"head bowed clutching a wound, {gore}, {core}, gray background")
+                neg = (f"{base_neg}, {fam['negatives']}, standing straight, upright, walking, "
+                       f"smiling, happy, cheerful, lying flat")
             return f"{unit_key}__{name_suf}.png", prompt, neg
     # live idle: subject + the 2 most identifying features + short framing (stay <77).
     u = BRIEFS["units"][key]

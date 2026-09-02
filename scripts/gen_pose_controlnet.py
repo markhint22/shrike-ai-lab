@@ -31,7 +31,9 @@ def skeleton_for(pose, family):
     return "attack_melee" if family == "mutant" else "attack"
 # IP-Adapter scale: lower where the skeleton is very unlike the idle (lying) so the
 # pose wins; higher for attack (closer to idle) to hold the character.
-IP_SCALE = {"dead": 0.45, "downed": 0.45, "attack": 0.6}
+# higher IP scale holds distinctive features (e.g. the grunt's red mane) across poses;
+# kneeling downed + attack are closer to the idle so they can take a high lock.
+IP_SCALE = {"dead": 0.5, "downed": 0.6, "attack": 0.65}
 
 def out_dir(pose):
     d = f"{OUTBASE}/units_{pose}"; os.makedirs(d, exist_ok=True); return d
@@ -63,7 +65,10 @@ def main():
     use_style = os.path.exists(f"{STYLE}/pytorch_lora_weights.safetensors")
     if use_style:
         pipe.load_lora_weights(STYLE, adapter_name="xlwaste")
-        pipe.set_adapters(["pixel", "xlwaste"], adapter_weights=[0.7, 1.0])
+        # style LoRA kept LOW for poses: it was trained on STANDING idles, so a high
+        # weight biases every pose upright + lowers quality. Low weight = skeleton wins
+        # the pose, LoRA only nudges palette.
+        pipe.set_adapters(["pixel", "xlwaste"], adapter_weights=[1.0, 0.4])
         print("  style LoRA loaded (xlwaste)", flush=True)
     else:
         pipe.set_adapters(["pixel"], adapter_weights=[1.0])
