@@ -90,11 +90,13 @@ def build_prompt(key):
             if name_suf == "dead":
                 prompt = (f"pixel art, dead {kind} lying on its side, crumpled, "
                           f"limbs at odd angles, mouth open, {pool}, {core}, gray background")
+                neg = (f"{base_neg}, {fam['negatives']}, standing, upright, front view, walking")
             else:
                 small = "sparks and loose wires" if u["family"] == "robot" else "small blood smear"
                 prompt = (f"pixel art, wounded {kind} down on its side, collapsed clutching a wound, "
-                          f"{small}, {core}, gray background")
-            neg = (f"{base_neg}, {fam['negatives']}, standing, upright, front view, walking")
+                          f"face grimacing in pain, {small}, {core}, gray background")
+                neg = (f"{base_neg}, {fam['negatives']}, standing, upright, front view, walking, "
+                       f"smiling, happy, cheerful")
             return f"{unit_key}__{name_suf}.png", prompt, neg
     # live idle: subject + the 2 most identifying features + short framing (stay <77).
     u = BRIEFS["units"][key]

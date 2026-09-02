@@ -26,8 +26,10 @@ for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,no
 log "GPU free"
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-log "=== img2img pose-from-idle: trooper + grunt, all 3 poses ==="
-timeout 900 "$PY" /tmp/gen_pose_from_idle.py \
+log "=== (0) draw OpenPose skeletons ==="
+"$PY" /tmp/pose_skeletons.py >>"$OUT" 2>&1 && log "skeletons ok" || log "skeletons FAILED"
+log "=== ControlNet+IP-Adapter pose-forced: trooper + grunt, all 3 poses ==="
+timeout 1200 "$PY" /tmp/gen_pose_controlnet.py \
   player_trooper__attack player_trooper__downed player_trooper__dead \
   enemy_grunt__attack enemy_grunt__downed enemy_grunt__dead >>"$OUT" 2>&1 && log "gen ok" || log "gen FAILED"
 for pose in attack downed dead; do
