@@ -99,18 +99,18 @@ def test_single_figure_not_flagged_multiple():
 
 
 # ----- prompt construction: gen_from_brief.build_prompt ------------------------
-def test_dead_prompt_is_side_lying_and_named():
+def test_dead_prompt_is_lying_and_named():
     name, prompt, neg = gen_from_brief.build_prompt("enemy_grunt__dead")
     assert name == "enemy_grunt__dead.png"
-    assert "on its side" in prompt and "green ichor" in prompt
+    assert "lying dead" in prompt and "green ichor" in prompt and "blood" in prompt
     assert "standing" in neg
 
 
-def test_downed_prompt_is_wounded_side_lying():
+def test_downed_prompt_is_kneeling_wounded():
     name, prompt, neg = gen_from_brief.build_prompt("player_trooper__downed")
     assert name == "player_trooper__downed.png"
-    assert "on its side" in prompt and "clutching" in prompt
-    assert "standing" in neg
+    assert "kneeling" in prompt and "clutching" in prompt and "blood" in prompt
+    assert "lying flat" in neg
 
 
 def test_robot_dead_prompt_uses_wreck_language():
