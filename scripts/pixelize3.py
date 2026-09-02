@@ -62,6 +62,19 @@ def floodkey(im, tol=70, pocket_tol=30):
     pockets = np.abs(orig - bg).sum(axis=2) < pocket_tol   # flat-bg pockets between limbs
     out = np.array(im.convert("RGBA"))
     out[connected | pockets] = (0, 0, 0, 0)
+    # Residual CAST SHADOW at the feet: SDXL paints a low-saturation gray blob under the
+    # character even with anti-shadow negatives. Strip low-saturation medium-gray pixels
+    # in the BOTTOM band of the content (the shadow), leaving the coloured boots/body.
+    ys, xs = np.where(out[:, :, 3] > 8)
+    if len(ys):
+        top, bot = int(ys.min()), int(ys.max())
+        band_y = top + int((bot - top) * 0.85)             # bottom ~15% of the content
+        rgb2 = out[:, :, :3].astype(int)
+        sat = rgb2.max(axis=2) - rgb2.min(axis=2)           # 0 = pure gray
+        val = rgb2.max(axis=2)
+        yy = np.arange(out.shape[0])[:, None]
+        shadow = (sat < 26) & (val > 45) & (val < 200) & (yy >= band_y) & (out[:, :, 3] > 8)
+        out[shadow] = (0, 0, 0, 0)
     return Image.fromarray(out, "RGBA")
 
 def autocrop_square(im):
