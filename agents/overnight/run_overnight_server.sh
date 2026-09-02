@@ -2,13 +2,23 @@
 # ===========================================
 # Shrike AI Lab - Overnight Task Runner (SERVER-RESIDENT VERSION)
 # ===========================================
-# Runs entirely ON the GPU server, scheduled via cron (every 2 hours as of
-# 2026-08-04 - not once-nightly anymore, see below), not launchd. This exists
-# because the original Mac-resident version (run_overnight.sh) requires the
-# Mac to be awake, plugged in, and reachable on the home LAN every night -
-# which breaks the moment the Mac travels and isn't reliably connected. This
-# box stays home, stays on, and doesn't sleep, so it's the right place for
-# unattended automation to actually live.
+# Runs entirely ON the GPU server, scheduled by the overnight-queue.service
+# systemd unit (CHANGED 2026-08-15 - was cron, every 2 hours; see below),
+# not launchd. This exists because the original Mac-resident version
+# (run_overnight.sh) requires the Mac to be awake, plugged in, and reachable
+# on the home LAN every night - which breaks the moment the Mac travels and
+# isn't reliably connected. This box stays home, stays on, and doesn't
+# sleep, so it's the right place for unattended automation to actually live.
+#
+# CHANGED 2026-08-15: replaced the "every 2 hours" cron entry with a
+# continuous systemd loop (Restart=always, RestartSec=20 - see
+# /etc/systemd/system/overnight-queue.service). Measured live: the 2-hour
+# cadence left the GPU idle ~88% of the time (real work was only ~126 of
+# 1080 minutes across 9 cycles in one day), because a cycle finishing in
+# 2-20 minutes still had to wait out the rest of the 2-hour window before
+# the next one started. The lock file below still exists as a genuine
+# safety net (e.g. a manual `queue.sh run-now` overlapping a scheduled
+# invocation), not as the primary cadence control anymore.
 #
 # Two task types:
 #   - aider_fix: runs aider against a repo cloned locally under repos/,
@@ -25,16 +35,17 @@
 #
 # CHANGED 2026-08-04: removed the old "already ran tonight" marker/skip
 # logic entirely. That was designed for a once-per-night cron trigger; now
-# that cron fires every 2 hours and tasks are meant to run every single
-# time they're enabled, a per-calendar-day dedup marker would just skip
-# every run after the first each day. Cadence is controlled purely by cron
-# now - this script always runs its full task loop when invoked. Logs and
-# reports are named by a full run timestamp (not just date) so multiple
-# same-day runs don't overwrite each other's history.
+# that this fires continuously (systemd loop, ~20s between cycles) and
+# tasks are meant to run every single time they're enabled, a per-calendar-
+# day dedup marker would just skip every run after the first each day.
+# Cadence is controlled by the systemd unit now - this script always runs
+# its full task loop when invoked. Logs and reports are named by a full run
+# timestamp (not just date) so multiple same-day runs don't overwrite each
+# other's history.
 #
 # Safety valve: if the SAME task fails 3 runs in a row, THAT TASK is
 # auto-disabled (enabled:false in tasks.json) rather than silently burning
-# GPU time on a broken task every 2 hours for weeks. CHANGED 2026-08-08: this
+# GPU time on a broken task indefinitely. CHANGED 2026-08-08: this
 # used to pause the whole queue - live testing showed one structurally-stuck
 # task (gitlark repeatedly overflowing context on the same item) took down
 # 6 other healthy repos for 4 days with nobody noticing. Now only the
@@ -52,8 +63,8 @@
 # Usage:
 #   ./run_overnight_server.sh   # always runs the full task loop once
 #
-# Scheduled via cron (see README.md) - nothing here depends on the Mac
-# being present, awake, or reachable.
+# Scheduled continuously by overnight-queue.service (systemd) - nothing
+# here depends on the Mac being present, awake, or reachable.
 # ===========================================
 
 set -uo pipefail
@@ -80,21 +91,60 @@ MODEL_METADATA_FILE="$SCRIPT_DIR/model-metadata.json"
 # and applies uniformly to one-off tasks added later via `queue.sh add` too.
 STANDARDS_SUFFIX="
 
-Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Edit OVERNIGHT_PROGRESS.md's existing 'Next Steps' section in place (never add a second one; never re-add a done/existing item). Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up. Do NOT quote, restate, or diff OVERNIGHT_PROGRESS.md's Next Steps list back in your response - you have already read it, just silently pick an item and go straight to the code change; only touch that file again at the very end to mark your one item done. If a file you need isn't visible, use the repo-map/existing open files to find its real path first - don't guess a path (e.g. assuming a services/ location for something that actually lives under routers/ or schemas/) and ask for the wrong file, which wastes the whole turn when it silently isn't found. If an item is tagged NEEDS DECISION or NEEDS HUMAN DECISION, do not skip it: use your best engineering/product judgment, make a real, reasonable choice, and implement it - but you MUST clearly record what you decided and a one-line why in both the commit message and a '## Decisions Made' section in OVERNIGHT_PROGRESS.md (create that section if it doesn't exist), so a human can review and override it later. Never silently guess without leaving that record. This model generates at roughly 5 tokens/second on this box and each call is hard-killed at 600 seconds (~3000 tokens) - if you spend more than a few hundred tokens reasoning before writing the actual diff, the call WILL be killed with no commit and the cycle is wasted. Budget yourself: a couple sentences on what you're changing and why, then the diff. If you notice you're still explaining/exploring after that, stop explaining and write the diff with your current best understanding instead - a slightly imperfect real change beats a well-reasoned non-answer that gets killed mid-thought. This also applies to test-writing tasks specifically: even with zero narration, writing exhaustive tests for every method in a large file is itself too much output for one 600-second call - when adding tests to a low/zero-coverage file, write 4-6 focused test cases covering the most important behavior and stop there, then mark real, partial progress (which file, how many methods still need coverage) rather than attempting the whole file and running out of budget with nothing committed. The next cycle can pick up where you left off."
+Quality bar: match existing code style, keep the diff minimal and focused on the one item, use the project's existing test framework/layout, don't add new dependencies unless needed. Do NOT edit OVERNIGHT_PROGRESS.md at all - it is READ-ONLY; the runner maintains it for you from your commit message, so any edit you make to it will be ignored/overwritten and just wastes your budget. Instead, record outcomes by adding trailer lines at the very END of your commit message (one per line, nothing after them): 'DONE: <the exact Next Steps item text you fully completed>' when you finish an item; 'DECISION: <one line - what you decided and why>' when you make a judgment call; 'NEW: <one short item>' to add a follow-up or a newly-chosen item. The runner checks the box, records the decision, and adds new items for you. Before adding a new function, grep for its name first - edit the existing one rather than adding a duplicate definition. To DELETE a file, do NOT open or edit it - deleting a file by editing it forces you to reproduce the whole file as removed lines, which wastes your entire budget and the call gets killed with nothing done. Instead just write a line 'DELETE: <path>' (in your commit message or your reply) and the runner will remove the file for you cheaply. Be decisive: pick the files you need in ONE pass and stop - do not narrate a long chain of 'let me also check this file... and this one... and this one' before ever writing code. CRITICAL: you have NO shell and CANNOT run anything - never try to run the tests, pytest, npm, the app, or any command, and never write 'let me run the tests', 'let me check if it's importable', 'cd X && cat ...', or attempt to set up/inspect the environment. Doing so burns the entire call and commits NOTHING (the #1 cause of wasted no-op cycles). For most tasks aider will AUTOMATICALLY run the project's test suite for you after your edits and paste any failures back to you - when it does, READ the failure and FIX your code (or your test) so the suite goes green before you finish; that is how your work actually lands. You still cannot type shell commands yourself - aider runs the tests, you just react to the results. Open the specific file named in the item, make the change, and iterate to green. If you are not sure a file is needed, do not ask for it - work with what you have and adjust later if a real problem shows up. Do NOT quote, restate, or diff OVERNIGHT_PROGRESS.md's Next Steps list back in your response - you have already read it, just silently pick the single top not-yet-done item and go straight to the code change; never write to that file - your commit-message trailers are how you report progress. If a file you need isn't visible, use the repo-map/existing open files to find its real path first - don't guess a path (e.g. assuming a services/ location for something that actually lives under routers/ or schemas/) and ask for the wrong file, which wastes the whole turn when it silently isn't found. If an item is tagged NEEDS DECISION or NEEDS HUMAN DECISION, do not skip it: use your best engineering/product judgment, make a real, reasonable choice, and implement it - but you MUST clearly record what you decided and a one-line why using a 'DECISION: <what and why>' trailer line in your commit message (the runner writes it into OVERNIGHT_PROGRESS.md's Decisions Made section for you - do not edit that file yourself), so a human can review and override it later. Never silently guess without leaving that record. If EVERY remaining Next Steps item is explicitly marked off-limits to automated cycles (HARD FILE BAN, HUMAN-ONLY BLOCKED ITEM, or requires a human doing something outside this tool, e.g. an editor GUI), do not reason about, argue for, or attempt any of them, no matter how tempting a workaround seems - immediately stop reasoning about the blocked items and instead pick a different, genuinely automatable idea (a small bug fix, missing test coverage, docs improvement, or refactor), implement THAT, and note it with a 'NEW: <item>' trailer in your commit message (the runner adds it to the list - do not edit the doc yourself), exactly as you would if the list were empty. This is a standing policy: keep making real product/design progress elsewhere in the repo rather than sitting idle re-litigating whether a blocked item is really blocked - that reasoning alone burns the whole budget with nothing committed. This model now runs at roughly 85 tokens/second on this box and each call is hard-killed at 600 seconds, so you have a budget of about 40000 tokens - plenty of room to read the files you actually need and write a COMPLETE, correct change. Do not rush out a half-finished or syntactically broken diff to save budget; a working change that fully implements the item is the goal. Still do not waste budget narrating - a couple sentences of plan, then write the full change and make sure it parses/compiles. If you notice you're still explaining/exploring after that, stop explaining and write the diff with your current best understanding instead - a slightly imperfect real change beats a well-reasoned non-answer that gets killed mid-thought. This also applies to test-writing tasks specifically: even with zero narration, writing exhaustive tests for every method in a large file is itself too much output for one 600-second call - when adding tests to a low/zero-coverage file, write a solid batch of focused, correct test cases (you now have budget for roughly 10-15) covering the most important behavior; for a very large file, cover the top behaviors this cycle and note what still needs coverage rather than attempting every method at once. The next cycle can pick up where you left off. When writing tests for a class or module: you MUST have that file open and have actually read its real method names/signatures before writing a single assertion - never guess a method name because it sounds conventional (e.g. get_status(), validate_x()) if you have not confirmed it exists. This has caused full test-file rewrites more than once (real classes had different method names than assumed, used sync not async, or had properties instead of module-level names to mock). If a test you already wrote doesn't match the real code, fix the TEST - never add a new, separate, parallel implementation to the module just to make your own guessed API real; that produces unused dead code and fixes nothing. When adding a new test file, verify the project's actual test-runner include pattern first (e.g. a vitest.config.ts 'include' list, or a JUnit version mismatch) - a test file with the wrong name/suffix or wrong test framework can compile fine and even show a green build while contributing ZERO executed tests, silently. Confirm your new test file shows up with a real pass count in the tool's own output (not just 'no errors') before considering the task done."
 TRAINING_DIR="$HOME/shrike-ai-lab-training"
 
 TASKS_FILE="$SCRIPT_DIR/tasks.json"
 STATE_DIR="$SCRIPT_DIR/state"
 FAIL_DIR="$STATE_DIR/failures"
+NOOP_DIR="$STATE_DIR/noops"
 LOG_DIR="$SCRIPT_DIR/logs"
 REPORT_DIR="$SCRIPT_DIR/reports"
-mkdir -p "$STATE_DIR" "$FAIL_DIR" "$LOG_DIR" "$REPORT_DIR"
+mkdir -p "$STATE_DIR" "$FAIL_DIR" "$NOOP_DIR" "$LOG_DIR" "$REPORT_DIR"
 
 PAUSE_FLAG="$STATE_DIR/PAUSED"
+ALERTS_FILE="$STATE_DIR/alerts.log"
 MAX_CONSECUTIVE_FAILURES=3
+# Human-hold auto-expiry (2026-08-25 Tier-2 hardening): a `queue.sh hold <repo>`
+# lets a human safely edit a repo's working tree without racing the ~20s loop
+# (the runner skips a held repo instead of resetting its tree). Auto-expire a
+# forgotten hold so it can't silently freeze a repo for days — the exact
+# silent-outage class this batch is closing.
+HOLD_MAX_HOURS=6
+# No-op streak alert (2026-08-25 Tier-2 hardening): a no-op never trips the
+# failure valve (by design — "nothing to do" isn't a failure), so a task that
+# silently stops making progress reads as healthy. Alert once when a task
+# no-ops this many cycles in a row so "silence == healthy" can't hide a stuck
+# backlog. Not a disable — a genuinely-exhausted backlog also no-ops.
+NOOP_STREAK_ALERT=30
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# Structured alert sink (2026-08-25 Tier-2 hardening). The runner can't push to
+# the phone itself (that's Claude-side), so it appends here; `queue.sh status`
+# surfaces recent alerts, and the scheduled Claude supervisor escalates real
+# ones to a push. Keep messages one-line.
+emit_alert() {
+  local sev="$1" id="$2" msg="$3"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${sev} | ${id} | ${msg}" >> "$ALERTS_FILE"
+  log "ALERT(${sev}) ${id}: ${msg}"
+}
+
+# Error classifier (2026-08-25). Distinguishes a TRANSIENT failure (a
+# LiteLLM/network blip, rate limit, upstream 5xx — retries fine next cycle) from
+# a real one, so a run of transient blips can't falsely trip the 3-strike safety
+# valve on an otherwise-healthy task. A ContextWindowExceededError is NOT
+# transient (the item is genuinely too big) so it always classifies as real.
+# $1 = task log, $2 = the real-error status to fall back to.
+error_status() {
+  if ! grep -q "ContextWindowExceededError" "$1" 2>/dev/null \
+     && grep -qE "RateLimitError|APIConnectionError|APITimeoutError|ServiceUnavailable|Connection (reset|aborted|refused|error)|reset by peer|Max retries exceeded|Read timed out|Temporary failure|50[234] (Bad Gateway|Service|Gateway)" "$1" 2>/dev/null; then
+    echo "error-transient(API/network - see log)"
+  else
+    echo "$2"
+  fi
 }
 
 # Concurrency lock. Found by live testing (2026-08-08): a slow manual
@@ -184,8 +234,15 @@ run_repo_verification() {
 
   while IFS= read -r -d '' venv_pytest; do
     dir="${venv_pytest%/.venv/bin/pytest}"
-    echo "--- verify: pytest in ${dir} (120s cap) ---" >> "$task_log"
-    ( cd "$dir" && timeout 120 ./.venv/bin/pytest -q --no-cov ) >> "$task_log" 2>&1
+    # 240s (2026-08-15, was 120s): confirmed live, repeatedly, that
+    # iptv_apps's full backend suite (657+ tests and growing) genuinely
+    # takes 200+ seconds to run in full. At 120s the cap fired on EVERY
+    # cycle regardless of whether tests actually passed, timeout's exit
+    # code got treated as a real failure, and every report said
+    # "tests:FAIL" even when the suite was 100% green - a misleading
+    # signal that would only get worse as more tests get added.
+    echo "--- verify: pytest in ${dir} (240s cap) ---" >> "$task_log"
+    ( cd "$dir" && timeout 240 ./.venv/bin/pytest -q --no-cov ) >> "$task_log" 2>&1
     [ $? -ne 0 ] && any_failed=1
     any_ran=1
   done < <(find . -maxdepth 4 -type f -path "*/.venv/bin/pytest" -print0 2>/dev/null)
@@ -225,6 +282,68 @@ run_repo_verification() {
     fi
   done < <(find . -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
 
+  # Godot (GDScript) - added 2026-08-16 for the xlite onboarding. Godot's own
+  # process exit code cannot be trusted AT ALL for pass/fail here: confirmed
+  # live that a raw `--quit-after` scene run exits 0 even with a real
+  # "Could not find type X" parse error, AND that GUT's own -gexit /
+  # -gexit_on_success flags ALSO always exit 0 regardless of test outcome
+  # (tested with a deliberately-broken assertion). --import must run first
+  # and separately: a fresh clone has no .godot/ cache (gitignored), so any
+  # class_name-declared script (this project's convention for every
+  # gameplay class) fails to resolve until the cache is built. Requires
+  # $HOME/godot/godot4 (Godot 4.3 headless Linux build, installed once, not
+  # project-specific). IMPORTANT: GUT 9.4.0 is the version that actually
+  # supports Godot 4.3.x - the newer 9.7.x line requires Godot 4.7.x and
+  # fails to even parse ("Could not resolve class GutErrorTracker") on 4.3 -
+  # check plugin.cfg's version before ever upgrading addons/gut here.
+  while IFS= read -r -d '' godot_proj; do
+    dir="$(dirname "$godot_proj")"
+    if [ -x "$HOME/godot/godot4" ]; then
+      GODOT_OUT="$(mktemp)"
+      if [ -f "${dir}/addons/gut/gut_cmdln.gd" ]; then
+        # GUT installed: real per-test pass/fail via JUnit XML, not exit code.
+        echo "--- verify: GUT tests in ${dir} (90s cap) ---" >> "$task_log"
+        XML_OUT="$(mktemp)"
+        (
+          cd "$dir" &&
+          timeout 60 "$HOME/godot/godot4" --headless --path . --import &&
+          timeout 30 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd \
+            -gdir=res://tests -gexit "-gjunit_xml_file=${XML_OUT}"
+        ) > "$GODOT_OUT" 2>&1
+        cat "$GODOT_OUT" >> "$task_log"
+        [ -f "$XML_OUT" ] && cat "$XML_OUT" >> "$task_log"
+        # failures="0" alone is NOT enough: confirmed live that a test calling a
+        # nonexistent function throws a runtime script error, silently never
+        # reaches its assertion, and GUT reports it as status="no asserts"
+        # (Risky) rather than a failure - the JUnit failures count stays 0 even
+        # though the test proved nothing. Treat any no-asserts testcase as a
+        # real failure too.
+        if [ ! -s "$XML_OUT" ] || ! grep -qE 'failures="0"' "$XML_OUT" || grep -qE 'status="no asserts"' "$XML_OUT"; then
+          any_failed=1
+        fi
+        # GUT only tests res://tests - a genuine compile error elsewhere in the
+        # project (confirmed live: a new script with a bad type annotation broke
+        # battle.gd's loadability entirely) can coexist with a clean GUT run,
+        # since GUT never touches that file. $GODOT_OUT already has the --import
+        # step's own output (runs before GUT) - check it too.
+        grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" && any_failed=1
+        rm -f "$XML_OUT"
+      else
+        # No test framework yet: just confirm the project still parses/runs.
+        echo "--- verify: godot4 --headless in ${dir} (90s cap, no GUT yet) ---" >> "$task_log"
+        (
+          cd "$dir" &&
+          timeout 60 "$HOME/godot/godot4" --headless --path . --import &&
+          timeout 30 "$HOME/godot/godot4" --headless --path . --quit-after 60
+        ) > "$GODOT_OUT" 2>&1
+        cat "$GODOT_OUT" >> "$task_log"
+        grep -qE "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" && any_failed=1
+      fi
+      rm -f "$GODOT_OUT"
+      any_ran=1
+    fi
+  done < <(find . -maxdepth 3 -type f -name "project.godot" -print0 2>/dev/null)
+
   if [ "$any_ran" -eq 0 ]; then
     echo "none"
   elif [ "$any_failed" -eq 1 ]; then
@@ -234,8 +353,105 @@ run_repo_verification() {
   fi
 }
 
+# Red-green verification (2026-08-25 Tier-3 hardening). Makes "tests pass" mean
+# "the test earned its pass." For a BUGFIX commit (changes BOTH non-test source
+# AND test files), a genuine regression test must FAIL against the pre-fix
+# source. If the new test(s) still PASS with the source reverted, the test is
+# vacuous or mirrors the bug's own wrong assumption - a failure mode seen
+# repeatedly here (e.g. a settings int-vs-string test that passed because it
+# made the exact same mistake as the code it was "testing"). ADVISORY ONLY:
+# reports + alerts, never auto-disables (green is already covered by
+# run_repo_verification; the runner can't tell a true regression from a flake).
+# Skips pure coverage-adds (no source change) and non-pytest repos. Must run
+# with cwd at the repo root (as inside run_aider_fix_task's subshell).
+# Echoes: "ok" | "suspect" | "n/a".
+run_redgreen_check() {
+  local before="$1" after="$2"
+  local changed tests src test_re='(^|/)(test_[^/]*|[^/]*_test)\.py$|/tests?/.*\.py$'
+  changed="$(git diff --name-only "$before" "$after")"
+  tests="$(echo "$changed" | grep -E "$test_re" || true)"
+  src="$(echo "$changed" | grep -E '\.py$' | grep -vE "$test_re" || true)"
+  [ -z "$tests" ] && { echo "n/a"; return; }
+  [ -z "$src" ] && { echo "n/a"; return; }   # coverage-only add, not a bugfix
+
+  local venv_pytest dir dir_rel
+  venv_pytest="$(find . -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  [ -z "$venv_pytest" ] && { echo "n/a"; return; }
+  dir="${venv_pytest%/.venv/bin/pytest}"
+  dir_rel="${dir#./}"
+
+  # Make the changed test paths relative to the venv's dir (repos commonly keep
+  # .venv + tests under backend/), and only run tests that live under it.
+  local dtests="" t
+  for t in $tests; do
+    if [ "$dir_rel" = "." ]; then
+      dtests="$dtests $t"
+    else
+      case "$t" in "$dir_rel"/*) dtests="$dtests ${t#"$dir_rel"/}" ;; esac
+    fi
+  done
+  [ -z "$dtests" ] && { echo "n/a"; return; }
+
+  # Revert ONLY the source to pre-fix (keep the new tests), run just the new
+  # tests, then restore. Cleanup restores source even if pytest is killed.
+  echo "--- red-green: running new test(s) against pre-fix source ---" >> "$task_log"
+  git checkout "$before" -- $src 2>>"$task_log"
+  local rc=0
+  ( cd "$dir" && timeout 120 ./.venv/bin/pytest -q --no-cov $dtests ) >> "$task_log" 2>&1 || rc=$?
+  git checkout "$after" -- $src 2>>"$task_log"
+
+  # rc==0 means the new tests PASSED without the fix -> they don't exercise it.
+  if [ "$rc" -eq 0 ]; then echo "suspect"; else echo "ok"; fi
+}
+
+# Lint/format check (2026-08-25 improvement #5, advisory). Runs the repo's own
+# linter on ONLY the files THIS commit changed - not the whole repo, which is
+# all pre-existing noise - so it surfaces a style/type regression the change
+# introduced. Advisory: reported as [lint:N] on the push status, never fails
+# verification or trips the valve. Uses ruff (python) / eslint (js/ts) when
+# already provisioned; silent no-op otherwise. Must run with cwd at repo root.
+# Echoes an integer issue count.
+run_lint_check() {
+  local before="$1" after="$2" issues=0 changed n
+  changed="$(git diff --name-only "$before" "$after" 2>/dev/null)"
+  local pyfiles ruff
+  pyfiles="$(echo "$changed" | grep -E '\.py$' | grep -vE '/(migrations|\.venv)/' || true)"
+  if [ -n "$pyfiles" ]; then
+    ruff="$(find . -maxdepth 4 -path '*/.venv/bin/ruff' 2>/dev/null | head -1)"
+    [ -z "$ruff" ] && command -v ruff >/dev/null 2>&1 && ruff="ruff"
+    if [ -n "$ruff" ]; then
+      n="$("$ruff" check --quiet $pyfiles 2>/dev/null | grep -cE '^[^[:space:]]' || true)"
+      issues=$((issues + ${n:-0}))
+    fi
+  fi
+  local jsfiles eslint
+  jsfiles="$(echo "$changed" | grep -E '\.(js|ts|jsx|tsx|vue)$' | grep -v '/node_modules/' || true)"
+  if [ -n "$jsfiles" ]; then
+    eslint="$(find . -maxdepth 3 -path '*/node_modules/.bin/eslint' 2>/dev/null | head -1)"
+    if [ -n "$eslint" ]; then
+      n="$("$eslint" --format unix $jsfiles 2>/dev/null | grep -cE ':[0-9]+:[0-9]+:' || true)"
+      issues=$((issues + ${n:-0}))
+    fi
+  fi
+  echo "${issues:-0}"
+}
+
+# Coverage-on-diff signal (2026-08-25 improvement #3, advisory). A cheap
+# deterministic proxy for "did this change ship with a test": if the commit ADDS
+# new definitions (def/class/func/function) but touches NO test file, flag
+# [untested-change]. Complements red-green (which checks a test that IS present).
+# Advisory only. Echoes "ok" | "untested".
+run_coverage_check() {
+  local before="$1" after="$2" changed testchanged newdefs
+  changed="$(git diff --name-only "$before" "$after" 2>/dev/null)"
+  testchanged="$(echo "$changed" | grep -cE '(^|/)(test_|tests/).*\.(py|gd)$|\.(test|spec)\.(js|ts|jsx|tsx)$' || true)"
+  [ "${testchanged:-0}" -gt 0 ] && { echo "ok"; return; }
+  newdefs="$(git diff "$before" "$after" -- '*.py' '*.ts' '*.js' '*.jsx' '*.tsx' '*.gd' 2>/dev/null | grep -cE '^\+[[:space:]]*(def |class |func |export (async )?function |function )' || true)"
+  [ "${newdefs:-0}" -ge 1 ] && echo "untested" || echo "ok"
+}
+
 run_aider_fix_task() {
-  local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}"
+  local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}" aider_timeout="${11:-600}"
 
   if [ ! -d "$repo/.git" ]; then
     log "Repo ${repo} has no .git checkout — skipping"
@@ -260,6 +476,40 @@ run_aider_fix_task() {
       git checkout -B "$branch" "origin/${branch}" --quiet
     elif ! git checkout -B "$branch" "origin/${DEFAULT_BRANCH}" --quiet 2>/dev/null; then
       git checkout -B "$branch" "$DEFAULT_BRANCH" --quiet
+    fi
+
+    # Pre-cycle local-clone sync (2026-08-25 Tier-2 hardening). Root cause of
+    # the 2026-08-24 "silently disabled for 10 days" incident: a human salvage
+    # fast-forwarded origin/overnight/feature past a bug the local clone had
+    # failed on, but the runner only ever checked out the LOCAL branch as-is
+    # (above) and never reconciled it with origin — so the clone kept
+    # re-attempting an item that origin had already fixed. Fix, data-loss-safe:
+    #   - local strictly BEHIND origin (local is an ancestor of origin): the
+    #     human advanced origin — fast-forward the clone to match. No local-only
+    #     commits exist to lose.
+    #   - local strictly ahead (normal steady state — it pushes each cycle): do
+    #     nothing, the push at the end reconciles.
+    #   - genuinely DIVERGED (e.g. a human force-RESET origin back, discarding
+    #     commits the clone still has): do NOT auto-resolve — a reset here could
+    #     drop unpushed work. Flag once (deduped) for a human to reconcile.
+    if [ "$persistent" = "true" ] && git rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
+      LOCAL_HEAD="$(git rev-parse HEAD)"
+      ORIGIN_HEAD="$(git rev-parse "origin/${branch}")"
+      DIVERGE_FLAG="$STATE_DIR/diverged_${id}"
+      if [ "$LOCAL_HEAD" != "$ORIGIN_HEAD" ]; then
+        if git merge-base --is-ancestor "$LOCAL_HEAD" "$ORIGIN_HEAD"; then
+          echo "--- local ${branch} was behind origin; fast-forwarding clone to origin/${branch} ---" >> "$task_log"
+          git reset --hard "origin/${branch}" --quiet
+          rm -f "$DIVERGE_FLAG"
+        elif git merge-base --is-ancestor "$ORIGIN_HEAD" "$LOCAL_HEAD"; then
+          rm -f "$DIVERGE_FLAG"
+        elif [ ! -f "$DIVERGE_FLAG" ]; then
+          touch "$DIVERGE_FLAG"
+          emit_alert warn "$id" "local ${branch} has DIVERGED from origin (both have unique commits) — manual reconcile needed; runner left the clone untouched."
+        fi
+      else
+        rm -f "$DIVERGE_FLAG"
+      fi
     fi
 
     # Discovered by live testing: this model's udiff output is reliable for
@@ -303,11 +553,16 @@ STUB
     # instruction not to. Giving edit access only where it's actually needed
     # removes the affordance instead of just asking nicely not to use it -
     # the same lesson as the scout --no-auto-commits fix.
+    # 2026-08-25 Tier-1 (deterministic bookkeeping): the doc is now READ-ONLY to
+    # the model in BOTH passes. The runner owns every edit (update_progress.py,
+    # applied from DONE:/DECISION:/NEW: trailers in the commit message after a
+    # verified push) — so the model can no longer duplicate headers, re-add done
+    # items, renumber wrong, or burn its budget on doc surgery. PROGRESS_FILE_ARGS
+    # is kept (empty) so any remaining reference expands to nothing safely.
     PROGRESS_READ_ARGS=()
     PROGRESS_FILE_ARGS=()
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
       PROGRESS_READ_ARGS=(--read "OVERNIGHT_PROGRESS.md")
-      PROGRESS_FILE_ARGS=(--file "OVERNIGHT_PROGRESS.md")
     fi
 
     READ_ARGS=()
@@ -326,8 +581,12 @@ STUB
     # a plausible-looking diff in the log, but never actually commits).
     # Confirmed by testing: forcing "udiff" (which matches the model's
     # natural output) fixes this - verified a real commit gets created.
+    # 2026-08-25: switched udiff -> diff when production moved to Qwen3-Coder-30B
+    # (MoE). The coder emits aider SEARCH/REPLACE blocks (diff format), not
+    # unified diffs — verified in the bake-off (a perfect SEARCH/REPLACE fix).
+    # --edit-format diff FORCES that format regardless of model-name recognition.
     AIDER_BASE_ARGS=(
-      --yes-always --no-check-update --edit-format udiff
+      --yes-always --no-check-update --edit-format diff
       --model "openai/${MODEL_NAME}"
       --openai-api-base "${LITELLM_BASE}/v1"
       --openai-api-key "${LITELLM_MASTER_KEY}"
@@ -375,6 +634,16 @@ STUB
     MAX_IMPLEMENT_ATTEMPTS=2
     FILE_ARGS=()
     ADDED_FILES="|"
+
+    # Shared pattern for detecting a "junk" file: one whose path IS a shell
+    # command or file-request text rather than a real source file. The model
+    # has repeatedly tried to "ask for more files" or "run a command" by
+    # emitting a diff that creates a real file named after that command/
+    # request instead of just asking in plain English (which works fine
+    # elsewhere in these same logs) - e.g. `ask_for_files`, a
+    # `git grep --files-with-matches ...` invocation as a filename. Used both
+    # to retry mid-loop (below) and to sweep any straggler after the loop.
+    JUNK_FILE_PATTERN='(^| )(git|cat|ls|find|grep|echo) |[|"\\]|^ask_for_file|^please_add|^files_needed|^request_files'
 
     # Protected-file guard (2026-08-15 hardening): found live that a file
     # path merely QUOTED as prose inside OVERNIGHT_PROGRESS.md's own diff
@@ -466,12 +735,22 @@ Task: ${full_prompt}"
       return
     fi
 
+    # Auto-test feedback (2026-08-26): if a provisioned pytest venv exists, let aider
+    # run the suite after each edit and feed failures back, so the model fixes its own
+    # code to GREEN before committing (it was writing blind and its own tests failed).
+    TEST_ARGS=()
+    _pytest_dir="$(find . -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | head -1 | sed 's#/.venv/bin/pytest##')"
+    if [ -n "$_pytest_dir" ]; then
+      TEST_ARGS=(--auto-test --test-cmd "cd \"$_pytest_dir\" && ./.venv/bin/pytest -q --no-cov -x")
+      echo "--- auto-test enabled: cd $_pytest_dir && pytest -q --no-cov -x ---" >> "$task_log"
+    fi
     ATTEMPT=1
     while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
       echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
-      timeout 600 aider "${AIDER_BASE_ARGS[@]}" \
+      timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" \
+        ${TEST_ARGS[@]+"${TEST_ARGS[@]}"} \
         ${READ_ARGS[@]+"${READ_ARGS[@]}"} \
-        ${PROGRESS_FILE_ARGS[@]+"${PROGRESS_FILE_ARGS[@]}"} \
+        ${PROGRESS_READ_ARGS[@]+"${PROGRESS_READ_ARGS[@]}"} \
         ${FILE_ARGS[@]+"${FILE_ARGS[@]}"} \
         --message "${full_prompt}" \
         >> "$task_log" 2>&1
@@ -479,6 +758,26 @@ Task: ${full_prompt}"
 
       NOW_SHA="$(git rev-parse HEAD)"
       if [ "$NOW_SHA" != "$BEFORE_SHA" ]; then
+        # Junk-only-commit guard (2026-08-16 hardening): aider auto-commits
+        # whatever it wrote, including a junk file - naively breaking here
+        # on "a commit happened" wastes the whole cycle, since the next
+        # attempt (which would load the very files the model just asked
+        # for, via scan_for_new_files below) never runs. If every file this
+        # attempt touched is junk, discard it and keep iterating instead of
+        # treating "a commit happened" as "real progress happened."
+        CHANGED_FILES="$(git diff --name-only "$BEFORE_SHA" "$NOW_SHA" -- .)"
+        JUNK_FILES="$(echo "$CHANGED_FILES" | grep -E "$JUNK_FILE_PATTERN" || true)"
+        NONJUNK_FILES="$(echo "$CHANGED_FILES" | grep -vE "$JUNK_FILE_PATTERN" | grep -v '^$' || true)"
+        if [ -n "$JUNK_FILES" ] && [ -z "$NONJUNK_FILES" ]; then
+          echo "--- attempt ${ATTEMPT} only committed junk file(s), discarding and retrying: ---" >> "$task_log"
+          echo "$JUNK_FILES" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          if [ "$ATTEMPT" -eq "$MAX_IMPLEMENT_ATTEMPTS" ] || ! scan_for_new_files; then
+            break
+          fi
+          ATTEMPT=$((ATTEMPT + 1))
+          continue
+        fi
         break
       fi
       if [ "$ATTEMPT" -eq "$MAX_IMPLEMENT_ATTEMPTS" ] || ! scan_for_new_files; then
@@ -489,8 +788,184 @@ Task: ${full_prompt}"
 
     AFTER_SHA="$(git rev-parse HEAD)"
 
+    # DELETE: trailer handling (2026-08-25). Deleting a file via aider's udiff
+    # format makes the model reproduce the ENTIRE file as removed lines — for a
+    # large file that blows the 600s budget and times out every cycle (this
+    # auto-disabled gitlark on seven "delete a dead service" items). So the
+    # model is told (STANDARDS_SUFFIX) NOT to edit a file to delete it, and to
+    # instead emit a 'DELETE: <path>' line; the runner removes it here with a
+    # cheap git rm. Grep the task log (catches it whether the model put it in a
+    # commit message or just its reply); only remove paths that actually exist.
+    DEL_PATHS="$(grep -oE '^[[:space:]]*(-[[:space:]]*)?DELETE:[[:space:]]*[A-Za-z0-9_./-]+' "$task_log" 2>/dev/null | sed -E 's/.*DELETE:[[:space:]]*//' | sort -u)"
+    if [ -n "$DEL_PATHS" ]; then
+      del_did=0
+      while IFS= read -r dp; do
+        [ -z "$dp" ] && continue
+        if [ -f "$dp" ]; then
+          git rm -q -- "$dp" 2>>"$task_log" && { echo "--- DELETE trailer: removed ${dp} ---" >> "$task_log"; del_did=1; }
+        fi
+      done <<< "$DEL_PATHS"
+      if [ "$del_did" -eq 1 ] && ! git diff --cached --quiet; then
+        git commit -q -m "chore: remove file(s) per DELETE trailer (aider can't cheaply delete via udiff)"
+        AFTER_SHA="$(git rev-parse HEAD)"
+      fi
+    fi
+
+    # Working-tree residue guard (2026-08-16 hardening): if nothing got
+    # committed (e.g. an attempt timed out mid-write, or staged a file it
+    # never committed), leftover staged/untracked/modified state would
+    # otherwise persist into the NEXT cycle's git status, since this
+    # directory is reused across cycles rather than freshly cloned each
+    # time. Caught live: a `git grep -l "defineStore" ...` junk file left
+    # staged-then-modified after a no-op cycle. Since nothing here was ever
+    # committed, none of it is "real" progress by this script's own
+    # definition - safe to discard unconditionally.
+    if [ "$AFTER_SHA" = "$BEFORE_SHA" ] && [ -n "$(git status --porcelain)" ]; then
+      echo "--- discarding uncommitted working-tree residue from an incomplete attempt ---" >> "$task_log"
+      git status --porcelain >> "$task_log"
+      git reset --hard "$BEFORE_SHA" --quiet
+      git clean -fd --quiet
+    fi
+
+    # Hard-file-ban enforcement (2026-08-24 hardening): some repos declare
+    # specific files permanently off-limits to automated edits in their own
+    # OVERNIGHT_PROGRESS.md (e.g. xlite's battle.gd/mission_select.gd, both
+    # of which broke parsing repeatedly from automated attempts before being
+    # banned). The doc language alone has now failed for real at least once
+    # (xlite's mission_select.gd, caught live by a human monitoring session,
+    # not by this script) - a model can read "NEEDS HUMAN DECISION, this
+    # file is hard-banned" and still edit the file anyway. This makes the
+    # ban mechanical: a repo opts in by adding a `.queue-hard-banned-files`
+    # file at its root (one path or glob per line, '#' comments allowed);
+    # if this cycle's commit(s) touch any of those paths, the ENTIRE
+    # cycle's local, not-yet-pushed work is discarded (git reset --hard back
+    # to BEFORE_SHA) rather than trying to selectively revert just the
+    # offending file - simpler and safer than a partial revert (which
+    # itself can leave a stale .godot/ class-cache mismatch requiring a
+    # follow-up --import, as seen live undoing the mission_select.gd
+    # violation by hand). A discarded cycle is then correctly a plain
+    # no-op for every check below (AFTER_SHA back to equaling BEFORE_SHA).
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ] && [ -f ".queue-hard-banned-files" ]; then
+      BANNED_PATTERN="$(grep -v '^\s*#' .queue-hard-banned-files | grep -v '^\s*$' | paste -sd'|' - || true)"
+      if [ -n "$BANNED_PATTERN" ]; then
+        BANNED_HIT="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" | grep -E "$BANNED_PATTERN" || true)"
+        if [ -n "$BANNED_HIT" ]; then
+          echo "--- HARD-BAN VIOLATION: this cycle touched a permanently-banned file, discarding the whole cycle: ---" >> "$task_log"
+          echo "$BANNED_HIT" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          git clean -fd --quiet
+          if [ -x "$HOME/godot/godot4" ]; then
+            timeout 60 "$HOME/godot/godot4" --headless --path . --import > /dev/null 2>>"$task_log"
+          fi
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
+    # Auto-remove junk files (2026-08-16 hardening): belt-and-suspenders
+    # sweep for any junk file (see JUNK_FILE_PATTERN above) that survived
+    # the in-loop guard - e.g. a mixed commit with some real progress
+    # alongside a junk file, which the in-loop guard deliberately leaves
+    # alone since it only discards attempts that are ENTIRELY junk.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
+      JUNK_FILES="$(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- . \
+        | grep -E "$JUNK_FILE_PATTERN" \
+        || true)"
+      if [ -n "$JUNK_FILES" ]; then
+        echo "--- auto-removing junk file(s) accidentally committed: ---" >> "$task_log"
+        echo "$JUNK_FILES" >> "$task_log"
+        echo "$JUNK_FILES" | while IFS= read -r f; do
+          [ -n "$f" ] && git rm -f -- "$f" >/dev/null 2>>"$task_log"
+        done
+        if ! git diff --cached --quiet; then
+          git commit -m "chore: auto-remove junk file(s) accidentally committed by aider" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
+    # Duplicate-section-header auto-merge (2026-08-24 hardening): the model
+    # sometimes appends a brand-new "## Decisions Made" (or other "## "
+    # section) header instead of scrolling up to find the existing one,
+    # especially right after editing near the bottom of the file (e.g.
+    # right after "## Completed"). An in-doc instruction telling it not to
+    # do this was tried first and failed twice within two cycles on xlite -
+    # this merges duplicate same-titled top-level sections back into one
+    # automatically (first-seen order, content concatenated in encounter
+    # order), rather than relying on the model's compliance. No-ops (exits
+    # "unchanged", no commit) when there's nothing to merge.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
+      DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_progress_headers.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
+      if [ "$DEDUPE_OUT" != "unchanged" ]; then
+        echo "--- OVERNIGHT_PROGRESS.md: ${DEDUPE_OUT} ---" >> "$task_log"
+        git add OVERNIGHT_PROGRESS.md
+        if ! git diff --cached --quiet; then
+          git commit -m "docs: auto-merge duplicate section header(s) in OVERNIGHT_PROGRESS.md" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
+    # Duplicate-GDScript-function auto-merge (2026-08-24 hardening, same day
+    # as the header dedup above): xlite's TurnManager.get_phase_display_name()
+    # was independently re-duplicated by 4 SEPARATE cycles (a fix for one
+    # occurrence never stopped the next cycle from reintroducing it) - each
+    # time a byte-identical copy of the same function, which GDScript can't
+    # parse (duplicate function name), breaking every other script that
+    # references the class (TurnManager is a class_name global). Runs on
+    # every .gd file the commit actually touched; only removes a LATER
+    # occurrence when its body is byte-identical to an earlier same-named
+    # one - a genuine same-name-different-body conflict is left alone and
+    # reported, never auto-resolved.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
+      CHANGED_GD_FILES="$(git diff --name-only --diff-filter=AM "$BEFORE_SHA" "$AFTER_SHA" -- '*.gd' || true)"
+      if [ -n "$CHANGED_GD_FILES" ]; then
+        echo "$CHANGED_GD_FILES" | while IFS= read -r gd_file; do
+          [ -f "$gd_file" ] || continue
+          GD_DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_gd_duplicate_functions.py" "$gd_file" 2>>"$task_log")"
+          if [ "$GD_DEDUPE_OUT" != "unchanged" ]; then
+            echo "--- ${gd_file}: ${GD_DEDUPE_OUT} ---" >> "$task_log"
+            git add "$gd_file"
+          fi
+        done
+        if ! git diff --cached --quiet; then
+          git commit -m "fix: auto-remove duplicate GDScript function definition(s)" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
+    # Duplicate-Python-definition auto-merge (2026-08-25 hardening, same
+    # shape as the GDScript one above): test-automation-agent's
+    # TestOrchestratorExecutePhaseIntegration test class was independently
+    # re-added, byte-identical, by 2 SEPARATE cycles two apart - Python
+    # silently lets a later same-named top-level class/def shadow an
+    # earlier one at module scope (not a parse error like GDScript, just
+    # dead, invisible-to-pytest code). Runs on every .py file the commit
+    # actually touched; only removes a LATER top-level class/def when its
+    # body is byte-identical to an earlier same-name one - a genuine
+    # same-name-different-body conflict is left alone and reported, never
+    # auto-resolved.
+    if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
+      CHANGED_PY_FILES="$(git diff --name-only --diff-filter=AM "$BEFORE_SHA" "$AFTER_SHA" -- '*.py' || true)"
+      if [ -n "$CHANGED_PY_FILES" ]; then
+        echo "$CHANGED_PY_FILES" | while IFS= read -r py_file; do
+          [ -f "$py_file" ] || continue
+          PY_DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_python_duplicate_defs.py" "$py_file" 2>>"$task_log")"
+          if [ "$PY_DEDUPE_OUT" != "unchanged" ]; then
+            echo "--- ${py_file}: ${PY_DEDUPE_OUT} ---" >> "$task_log"
+            git add "$py_file"
+          fi
+        done
+        if ! git diff --cached --quiet; then
+          git commit -m "fix: auto-remove duplicate Python class/function definition(s)" --quiet
+          AFTER_SHA="$(git rev-parse HEAD)"
+        fi
+      fi
+    fi
+
     if [ "$AIDER_EXIT" -ne 0 ]; then
-      echo "error(exit=${AIDER_EXIT})"
+      error_status "$task_log" "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
       # Post-commit verification (2026-08-08 hardening). Provisioned once,
       # server-side, for all 7 repos (real .venv/node_modules, not
@@ -503,24 +978,76 @@ Task: ${full_prompt}"
       # here, and auto-disabling a task over the latter would be worse than
       # just surfacing it for you to glance at in the report.
       VERIFY_RESULT="$(run_repo_verification)"
+
+      # BUILD-GATE (2026-08-26): if this commit STRUCTURALLY broke the build — a
+      # syntax/import/collection/parse error, i.e. the code no longer even loads —
+      # REVERT it to BEFORE_SHA and do not push. This is the fix for the coder
+      # trial's compounding breakage: one bad edit used to poison a repo so every
+      # later cycle failed on already-broken code. A plain test-ASSERTION failure
+      # is NOT reverted (kept + reported as tests:FAIL) — that can be a real fix
+      # in progress or a pre-existing flake. Grep the verification output (already
+      # in $task_log) for unambiguous structural-break signals across py/gd/js.
+      if [ "$VERIFY_RESULT" = "fail" ] && grep -qE "SyntaxError|IndentationError|invalid syntax|ImportError while loading|cannot import name|ERROR collecting|errors during collection|SCRIPT ERROR|Parse Error|ERROR: Failed to load|Cannot find module|error TS[0-9]|Build failed" "$task_log"; then
+        echo "--- BUILD-GATE: commit structurally broke the build — reverting to ${BEFORE_SHA} ---" >> "$task_log"
+        git reset --hard "$BEFORE_SHA" --quiet
+        git clean -fd --quiet 2>/dev/null
+        if [ -x "$HOME/godot/godot4" ] && [ -f project.godot ]; then
+          timeout 60 "$HOME/godot/godot4" --headless --path . --import >/dev/null 2>>"$task_log"
+        fi
+        emit_alert warn "$id" "build-gate reverted a commit that broke the build (syntax/import/parse error) — the model produced non-loading code"
+        echo "reverted(build-break)"
+        return
+      fi
+
+      # Red-green check (2026-08-25 Tier-3): did a bugfix's new test earn its
+      # pass? Runs on the code state before the bookkeeping doc commit.
+      REDGREEN="$(run_redgreen_check "$BEFORE_SHA" "$AFTER_SHA")"
+      if [ "$REDGREEN" = "suspect" ]; then
+        echo "--- RED-GREEN SUSPECT: new test(s) passed WITHOUT the fix (vacuous or mirrors the bug) ---" >> "$task_log"
+        emit_alert warn "$id" "red-green: a new test passed without the fix (possible vacuous/mirror test) — review the diff on ${branch}"
+      fi
+
+      # Runner-owned progress bookkeeping (2026-08-25 Tier-1). The model declared
+      # what it did via DONE:/DECISION:/NEW: trailers in its commit message(s);
+      # apply them to OVERNIGHT_PROGRESS.md deterministically here. Gated on
+      # verification NOT failing — a broken build must never mark an item done.
+      # The tiny doc commit rides the same push below (no extra push).
+      if [ "$VERIFY_RESULT" != "fail" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
+        PROG_MSGS="$(git log --format=%B "${BEFORE_SHA}..${AFTER_SHA}")"
+        PROG_OUT="$(printf '%s' "$PROG_MSGS" | python3 "$SCRIPT_DIR/update_progress.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
+        if [ "$PROG_OUT" != "unchanged" ]; then
+          echo "--- progress bookkeeping: ${PROG_OUT} ---" >> "$task_log"
+          git add OVERNIGHT_PROGRESS.md
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: runner-owned progress bookkeeping" --quiet
+            AFTER_SHA="$(git rev-parse HEAD)"
+          fi
+        fi
+      fi
+
       if git push origin "$branch" --quiet 2>>"$task_log"; then
         case "$VERIFY_RESULT" in
-          fail) echo "pushed(tests:FAIL - see log)" ;;
-          pass) echo "pushed(tests:pass)" ;;
-          *) echo "pushed" ;;
+          fail) PUSH_STATUS="pushed(tests:FAIL - see log)" ;;
+          pass) PUSH_STATUS="pushed(tests:pass)" ;;
+          *) PUSH_STATUS="pushed" ;;
         esac
+        [ "$REDGREEN" = "suspect" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:SUSPECT]"
+        LINT_ISSUES="$(run_lint_check "$BEFORE_SHA" "$AFTER_SHA")"
+        [ "${LINT_ISSUES:-0}" -gt 0 ] && PUSH_STATUS="${PUSH_STATUS} [lint:${LINT_ISSUES}]"
+        [ "$(run_coverage_check "$BEFORE_SHA" "$AFTER_SHA")" = "untested" ] && PUSH_STATUS="${PUSH_STATUS} [untested-change]"
+        echo "$PUSH_STATUS"
       else
         echo "committed-but-push-failed"
       fi
     elif grep -qE "ContextWindowExceededError|BadRequestError|APIError|RateLimitError|Traceback \(most recent call last\)" "$task_log"; then
       # Aider often exits 0 even after an internal API exception (e.g. the
-      # model asking for more files than fit in its 16384-token context) -
-      # it just prints the error and stops, which looks identical to a
-      # genuine "nothing needed changing" no-op unless we check the log
-      # content too. Without this, a systematically-broken task (like a
-      # context overflow) would report "no-op" forever and never trip the
-      # consecutive-failure safety valve below.
-      echo "error(model/API error - see log)"
+      # model asking for more files than fit in context) - it just prints the
+      # error and stops, which looks identical to a genuine "nothing needed
+      # changing" no-op unless we check the log content too. Without this, a
+      # systematically-broken task would report "no-op" forever and never trip
+      # the safety valve. error_status downgrades a transient blip so it doesn't
+      # count toward the valve.
+      error_status "$task_log" "error(model/API error - see log)"
     else
       echo "no-op"
     fi
@@ -582,7 +1109,14 @@ check_and_record_failure() {
   local id="$1" status="$2"
   local count_file="$FAIL_DIR/${id}.count"
   case "$status" in
-    error*|committed-but-push-failed)
+    error-transient*)
+      # A LiteLLM/network blip — do NOT count toward the valve (and don't reset
+      # a real streak either): just leave the counter untouched so a run of
+      # transient failures can't disable a healthy task, and a real failure
+      # before/after still accumulates correctly.
+      log "transient error for ${id} — not counted toward the safety valve"
+      ;;
+    error*|committed-but-push-failed|reverted*)
       local count=0
       [ -f "$count_file" ] && count="$(cat "$count_file")"
       count=$((count + 1))
@@ -590,10 +1124,39 @@ check_and_record_failure() {
       if [ "$count" -ge "$MAX_CONSECUTIVE_FAILURES" ]; then
         jq --arg id "$id" '(.[] | select(.id == $id)).enabled = false' "$TASKS_FILE" > "$TASKS_FILE.tmp" && mv "$TASKS_FILE.tmp" "$TASKS_FILE"
         log "SAFETY VALVE: task '${id}' has failed ${count} times in a row — auto-disabled THIS TASK ONLY (the rest of the queue keeps running). Check ${FAIL_DIR}/${id}.count and its log, fix the issue, then 'queue.sh enable ${id}'."
+        emit_alert crit "$id" "AUTO-DISABLED after ${count} consecutive failures (last: ${status}) — check: queue.sh log ${id}"
       fi
       ;;
     *)
       rm -f "$count_file"
+      ;;
+  esac
+}
+
+# No-op streak tracking (2026-08-25 Tier-2 hardening). Separate from the failure
+# valve: a no-op is not a failure, so it never disables a task — but a long
+# no-op streak means a task has silently stopped making progress (stuck item, or
+# an exhausted backlog it isn't refilling). Alert exactly once at the threshold
+# (== not >=) so it surfaces without spamming every subsequent cycle. Any real
+# pushed progress resets the streak.
+track_progress_signal() {
+  local id="$1" status="$2"
+  local noop_file="$NOOP_DIR/${id}.count"
+  case "$status" in
+    no-op)
+      local c=0
+      [ -f "$noop_file" ] && c="$(cat "$noop_file")"
+      c=$((c + 1))
+      echo "$c" > "$noop_file"
+      if [ "$c" -eq "$NOOP_STREAK_ALERT" ]; then
+        emit_alert warn "$id" "no-op'd ${c} cycles in a row — likely a stuck item or an unrefilled backlog; check its Next Steps."
+      fi
+      ;;
+    pushed*)
+      rm -f "$noop_file"
+      ;;
+    *)
+      : # errors are the failure valve's job; leave the no-op streak as-is
       ;;
   esac
 }
@@ -633,28 +1196,63 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
     VERSION_OR_BRANCH="$VERSION"
   else
     REPO="$(jq -r ".[$i].repo" "$TASKS_FILE")"
+
+    # Human-hold check (2026-08-25 Tier-2 hardening): skip a repo a human is
+    # actively editing, so live manual fixes don't race the working-tree reset.
+    # Safer than `disable` — doesn't touch the failure counter. Auto-expires.
+    REPO_BASENAME="$(basename "$REPO")"
+    HOLD_FILE="$STATE_DIR/HOLD_${REPO_BASENAME}"
+    if [ -f "$HOLD_FILE" ]; then
+      if [ -n "$(find "$HOLD_FILE" -mmin +$((HOLD_MAX_HOURS * 60)) 2>/dev/null)" ]; then
+        log "Hold on ${REPO_BASENAME} is older than ${HOLD_MAX_HOURS}h — auto-expiring and proceeding."
+        rm -f "$HOLD_FILE"
+        emit_alert warn "$ID" "auto-expired a stale ${HOLD_MAX_HOURS}h+ hold on ${REPO_BASENAME}"
+      else
+        log "Task ${ID} skipped — repo ${REPO_BASENAME} is on hold (queue.sh release ${REPO_BASENAME} to clear)."
+        echo "| ${ID} | ${TYPE} | held(${REPO_BASENAME}) | - | - |" >> "$REPORT_FILE"
+        continue
+      fi
+    fi
+
     PROMPT="$(jq -r ".[$i].prompt" "$TASKS_FILE")"
     PERSISTENT="$(jq -r ".[$i].persistent_branch // false" "$TASKS_FILE")"
     MAP_TOKENS="$(jq -r ".[$i].map_tokens // \"\"" "$TASKS_FILE")"
     SKIP_AGENTS_MD="$(jq -r ".[$i].skip_agents_md // false" "$TASKS_FILE")"
     MAX_FILES="$(jq -r ".[$i].max_files // 2" "$TASKS_FILE")"
     PROTECTED_FILES="$(jq -r ".[$i].protected_files // [] | join(\",\")" "$TASKS_FILE")"
+    # Per-task implement timeout (2026-08-25). Default 600s; set "timeout_secs"
+    # in a task for a legitimately larger piece of work so it isn't killed
+    # mid-generation and falsely counted toward the safety valve.
+    TIMEOUT_SECS="$(jq -r ".[$i].timeout_secs // 600" "$TASKS_FILE")"
     if [ "$PERSISTENT" = "true" ]; then
       BRANCH="overnight/feature"
     else
       BRANCH="overnight/${RUN_KEY}/${ID}"
     fi
-    STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES" "$PROTECTED_FILES")"
+    STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES" "$PROTECTED_FILES" "$TIMEOUT_SECS")"
     VERSION_OR_BRANCH="$BRANCH"
   fi
 
   log "Task ${ID}: ${STATUS}"
   echo "| ${ID} | ${TYPE} | ${STATUS} | ${VERSION_OR_BRANCH} | ${TASK_LOG} |" >> "$REPORT_FILE"
   check_and_record_failure "$ID" "$STATUS"
+  track_progress_signal "$ID" "$STATUS"
 done
 
 if [ "$REMAINING_SKIPPED" -eq 1 ]; then
   log "Run ${RUN_KEY} stopped early due to pause. Report: ${REPORT_FILE}"
 else
   log "Run ${RUN_KEY} complete. Report: ${REPORT_FILE}"
+fi
+
+[ -x "$SCRIPT_DIR/cycle_notify.sh" ] && "$SCRIPT_DIR/cycle_notify.sh" "$REPORT_FILE" 2>/dev/null || true
+
+# --- daily branch hygiene: reconcile overnight/feature -> main, prune dead branches ---
+# Runs after each full pass so agent work never silently orphans on overnight/feature.
+# Skip when paused mid-run, or disable via RUN_BRANCH_HYGIENE=0.
+HYGIENE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$REMAINING_SKIPPED" -ne 1 ] && [ "${RUN_BRANCH_HYGIENE:-1}" = "1" ] && [ -x "$HYGIENE_DIR/branch_hygiene.sh" ]; then
+  log "Running daily branch hygiene..."
+  { echo ""; echo "### Branch hygiene"; echo "| repo | outcome |"; echo "|---|---|"; } >> "$REPORT_FILE"
+  REPORT_FILE="$REPORT_FILE" "$HYGIENE_DIR/branch_hygiene.sh" --from-config 2>&1 | while IFS= read -r l; do log "$l"; done
 fi
