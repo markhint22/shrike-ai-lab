@@ -28,22 +28,40 @@ def out_dir(dead):
     os.makedirs(d, exist_ok=True)
     return d
 
+def _strip_article(s):
+    for a in ("a ", "an ", "the "):
+        if s.lower().startswith(a):
+            return s[len(a):]
+    return s
+
+# CLIP only reads the first 77 tokens, so the SEMANTICALLY CRITICAL words must come
+# FIRST and the whole prompt must stay short — otherwise the corpse cues get
+# truncated and the model just draws a live unit (the exact bug we're fixing). Each
+# family gives a TIGHT front-loaded corpse phrase (pool = the strongest 'dead' cue).
+_DEAD_POOL = {"mutant": "green ichor pool", "robot": "oil pool and debris", "human": "dark blood pool"}
+_DEAD_KIND = {"mutant": "mutant", "robot": "wrecked robot", "human": "body"}
+
 def build_prompt(key):
-    """Return (out_name, prompt, negative). key may be '<unit>' or '<unit>__dead'."""
+    """Return (out_name, prompt, negative). key may be '<unit>' or '<unit>__dead'.
+    Prompts are front-loaded + short to survive CLIP's 77-token window."""
     dead = key.endswith("__dead")
     unit_key = key[:-6] if dead else key
     u = BRIEFS["units"][unit_key]
     style = BRIEFS["style"]
     base_neg = BRIEFS["base_negatives"]
+    subj = _strip_article(u["subject"])
     if dead:
         fam = BRIEFS["corpse_by_family"][u["family"]]
-        feats = ", ".join(fam["key_features"])
-        prompt = f"{style}, a dead {u['subject']}, {feats}, {BRIEFS['framing_dead']}"
+        # critical corpse cues FIRST, then a trimmed subject, then minimal framing.
+        prompt = (f"pixel art, dead {_DEAD_KIND[u['family']]} corpse lying flat on the ground, "
+                  f"limbs splayed, {_DEAD_POOL[u['family']]}, top-down view, "
+                  f"a dead {subj}, desaturated, flat gray background")
         neg = f"{base_neg}, {fam['negatives']}"
         name = f"{unit_key}__dead.png"
     else:
-        feats = ", ".join(u.get("key_features", []))
-        prompt = f"{style}, {u['subject']}, {feats}, {BRIEFS['framing_live']}"
+        # subject + the 2 most identifying features + short framing (stay under 77).
+        feats = ", ".join(u.get("key_features", [])[:2])
+        prompt = f"pixel art, {subj}, {feats}, full body centered, flat gray background, no shadow"
         neg = f"{base_neg}, {BRIEFS['live_negatives']}"
         name = f"{unit_key}__idle.png"
     return name, prompt, neg
