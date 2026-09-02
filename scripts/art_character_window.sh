@@ -34,10 +34,13 @@ docker stop shrike-llama-dflash-35b shrike-llama-coder-next >/dev/null 2>&1 || t
 for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits|head -1)" -lt 2500 ] && break; sleep 2; done
 log "GPU free"
 
-log "=== DEAD (side-lying, QA-gated) ==="
-timeout 2400 "$PY" /tmp/art_pipeline_run.py --role dead --passes 3 >>"$OUT" 2>&1 && log "dead ok" || log "dead FAILED"
-log "=== DOWNED (new, QA-gated) ==="
-timeout 2400 "$PY" /tmp/art_pipeline_run.py --role downed --passes 3 >>"$OUT" 2>&1 && log "downed ok" || log "downed FAILED"
-log "dead frames: $(ls /run/media/mhintermeister/secondary_drive1/comfy/out/units_dead_sprites3/*__dead@64.png 2>/dev/null | wc -l)"
-log "downed frames: $(ls /run/media/mhintermeister/secondary_drive1/comfy/out/units_downed_sprites3/*__downed@64.png 2>/dev/null | wc -l)"
+# Roles come from args (default both). expandable_segments avoids the CUDA memory
+# fragmentation that OOM'd a second role chained after the first in one window.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+ROLES=("$@"); [ ${#ROLES[@]} -eq 0 ] && ROLES=(dead downed)
+for role in "${ROLES[@]}"; do
+  log "=== ${role^^} (side-lying, QA-gated) ==="
+  timeout 2400 "$PY" /tmp/art_pipeline_run.py --role "$role" --passes 3 >>"$OUT" 2>&1 && log "$role ok" || log "$role FAILED"
+  log "$role frames: $(ls /run/media/mhintermeister/secondary_drive1/comfy/out/units_${role}_sprites3/*__${role}@64.png 2>/dev/null | wc -l)"
+done
 log "=== RESULTS READY ==="
