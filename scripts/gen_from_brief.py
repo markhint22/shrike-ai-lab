@@ -14,8 +14,9 @@ A '<key>__dead' target composes the base unit's subject + family corpse brief
 into a distinct, flattened, ichor-pooled corpse — the fix for "the dead alien
 looks like a live green blob tipped over".
 """
-import os, sys, json, torch
-from diffusers import StableDiffusionXLPipeline
+import os, sys, json
+# NOTE: torch/diffusers are imported lazily inside main() so build_prompt() and the
+# briefs are importable (and unit-testable) without a GPU / the heavy ML stack.
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIEFS = json.load(open(os.path.join(HERE, "art_reference_briefs.json")))
@@ -41,14 +42,24 @@ def _strip_article(s):
 # family gives a TIGHT front-loaded corpse phrase (pool = the strongest 'dead' cue).
 _DEAD_POOL = {"mutant": "green ichor pool", "robot": "oil pool and debris", "human": "dark blood pool"}
 _DEAD_KIND = {"mutant": "mutant", "robot": "wrecked robot", "human": "body"}
-# Stripped 2-3 word subjects for DEAD_STRONG re-rolls — the full briefs' "hunched",
-# "clawed", "warrior", "hulking" words cue an upright standing figure.
-_DEAD_STRONG_SUBJ = {
+# Tight 2-4 word identity per unit for POSE prompts (dead/downed). Using the full
+# brief subject blows past CLIP's 77-token window (test_pose_prompts_stay_short_for_clip)
+# AND its "hunched/clawed/warrior/hulking" words cue an upright standing figure.
+_POSE_SUBJ = {
+    "player_trooper": "wasteland soldier",
+    "player_heavy": "armored heavy soldier",
+    "player_sniper": "hooded sniper",
+    "player_medic": "medic with red cross",
     "enemy_grunt": "green mutant alien",
-    "enemy_boss": "big armored mutant",
     "enemy_brute": "huge green mutant",
-    "player_heavy": "armored soldier",
-    "enemy_shotgunner": "armored raider",
+    "enemy_flyer": "winged mutant",
+    "enemy_drone": "quadrotor drone",
+    "enemy_elite": "chitin-armored alien",
+    "enemy_raider": "spiked scrap raider",
+    "enemy_shotgunner": "riot-armor raider",
+    "enemy_shield": "shield raider",
+    "enemy_minigunner": "minigun raider",
+    "enemy_boss": "armored mutant warlord",
 }
 
 def build_prompt(key):
@@ -65,20 +76,18 @@ def build_prompt(key):
             u = BRIEFS["units"][unit_key]
             fam = BRIEFS[famkey][u["family"]]
             kind = _DEAD_KIND[u["family"]]
-            core = _DEAD_STRONG_SUBJ.get(unit_key, _strip_article(u["subject"]))
+            core = _POSE_SUBJ.get(unit_key, _strip_article(u["subject"]))
             pool = _DEAD_POOL[u["family"]]
+            # Kept SHORT + front-loaded: CLIP truncates at 77 tokens, so the critical
+            # corpse cues lead and the whole prompt stays well under the limit.
             if name_suf == "dead":
-                # side-lying corpse — the front-loaded critical cues first.
-                prompt = (f"pixel art, dead {kind} lying on its side on the ground, crumpled where it fell, "
-                          f"limbs bent at odd angles, mouth open, {pool}, side view, "
-                          f"{core}, desaturated, flat gray background")
+                prompt = (f"pixel art, dead {kind} lying on its side, crumpled, "
+                          f"limbs at odd angles, mouth open, {pool}, {core}, gray background")
             else:
                 small = "sparks and loose wires" if u["family"] == "robot" else "small blood smear"
-                prompt = (f"pixel art, wounded {kind} knocked down on its side, alive but incapacitated, "
-                          f"collapsed clutching a wound, {small}, side view, "
-                          f"{core}, flat gray background")
-            neg = (f"{base_neg}, {fam['negatives']}, standing, upright, vertical, front view, "
-                   f"facing viewer, walking")
+                prompt = (f"pixel art, wounded {kind} down on its side, collapsed clutching a wound, "
+                          f"{small}, {core}, gray background")
+            neg = (f"{base_neg}, {fam['negatives']}, standing, upright, front view, walking")
             return f"{unit_key}__{name_suf}.png", prompt, neg
     # live idle: subject + the 2 most identifying features + short framing (stay <77).
     u = BRIEFS["units"][key]
@@ -99,6 +108,8 @@ def main():
     else:
         keys = list(BRIEFS["units"].keys())  # all live idles
 
+    import torch  # lazy — keeps build_prompt() importable without the ML stack
+    from diffusers import StableDiffusionXLPipeline
     print(f"loading SDXL + LoRA for {len(keys)} target(s)...", flush=True)
     pipe = StableDiffusionXLPipeline.from_single_file(CKPT, torch_dtype=torch.float16).to("cuda")
     pipe.load_lora_weights(LORA); pipe.fuse_lora(lora_scale=1.15)
