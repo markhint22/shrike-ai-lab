@@ -80,6 +80,16 @@ model_list:
       model: openai/qwen-dflash-27B
       api_base: http://llama-dflash-35b:8080/v1
       api_key: "sk-local"
+      # 2026-09-02: hardened coding-fleet sampling. LiteLLM injects these on
+      # every request and OVERRIDES client/aider values (verified: a client
+      # temperature=2.0 stayed deterministic), so this is the enforced control
+      # point for temp/top_p/presence_penalty. top_k=20 and min_p=0.0 are set
+      # on llama-server (docker-compose) since they are non-OpenAI params.
+      # Non-thinking coder: low-temp determinism nudged off Qwen's repetition
+      # zone + presence_penalty as the low-temp repetition guard.
+      temperature: 0.4
+      top_p: 0.9
+      presence_penalty: 1.0
       chat_template_kwargs:
         enable_thinking: false
     model_info:
@@ -87,7 +97,7 @@ model_list:
       # 2026-08-13: real ctx-size raised to 262144 (the model's own native
       # training ceiling, n_ctx_train) via --flash-attn on + q8_0 KV cache
       # quantization - ~1.2GB VRAM free at this size, comfortable margin.
-      max_input_tokens: 262144
+      max_input_tokens: 55000
       max_tokens: 8192
 
   # 2026-08-13: added - previously missing entirely, which is why the first
@@ -103,7 +113,23 @@ model_list:
         enable_thinking: false
     model_info:
       description: "Qwen3.5 DFlash 9B via llama.cpp speculative decoding - much smaller model, much bigger safe context margin (~9.1GB VRAM free at 262144)"
-      max_input_tokens: 262144
+      max_input_tokens: 55000
+      max_tokens: 8192
+
+  # 2026-09-02: A/B TRIAL alias for Qwen3-Coder-Next (80B MoE, 3B active).
+  # Backend container `shrike-llama-coder-next` (port 8082 on host) is STOPPED
+  # by default and is launched only via scripts/trial-coder-next.sh, which
+  # stops the 27B fleet first (they can't share the 24GB GPU). This alias is
+  # dormant until that container is up. See scripts/trial-coder-next.sh.
+  - model_name: qwen-coder-next
+    litellm_params:
+      model: openai/qwen-coder-next
+      api_base: http://shrike-llama-coder-next:8080/v1
+      api_key: "sk-local"
+      temperature: 1.0
+    model_info:
+      description: "Qwen3-Coder-Next 80B-A3B MoE (CPU expert offload) - A/B trial vs qwen-dflash-27B; backend normally stopped"
+      max_input_tokens: 32000
       max_tokens: 8192
 
   # Larger model (uses CPU offloading with 64GB RAM)
