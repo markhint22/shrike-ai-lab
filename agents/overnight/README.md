@@ -1,5 +1,24 @@
 # Overnight Local-LLM Task Queue
 
+> **⚠️ This directory is a point-in-time snapshot, last refreshed 2026-09-10.**
+> The actual pipeline runs from `/home/mhintermeister/overnight-queue` on the GPU
+> server, which is now its own git history on the **`overnight-live`** branch of
+> this repo — auto-committed and pushed by a cron on the server every 6h
+> (`ovn_git_sync.sh`). That branch is the live source of truth; this directory
+> will drift again unless refreshed from it.
+>
+> To pull the current server state into this directory:
+>
+> ```bash
+> git subtree pull --prefix=agents/overnight origin overnight-live --squash
+> ```
+>
+> (2026-09-10 context: the previous sync process was a manual "copy files down
+> and commit" habit that quietly stopped after 2026-08-25 — scripts kept
+> evolving on the server for ~6 weeks with no git history at all until the
+> `overnight-live` branch was established. See that branch's history for
+> everything that changed in the meantime.)
+
 Runs a merged queue of two kinds of work against the local GPU server while
 you're asleep:
 - **`aider_fix`** (default): an agentic coding task — `aider` fixes something
