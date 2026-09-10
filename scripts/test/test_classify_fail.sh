@@ -49,6 +49,31 @@ EOF
 ok "a landed status still classifies as landed regardless of log content" \
    "[ \"\$(bash "$C" "$tmp/empty.log" 'landed')\" = landed ]"
 
+# --- FIXED BUG regression guard (2026-09-10): three status strings that already name their own
+# cause were falling through to the log-content scan (which usually didn't match) and landing
+# in fail_reason=unknown. skip(exhausted) alone was 219 of 295 (74%) of all "unknown" records
+# fleet-wide - a benign "nothing to do right now" state, not a failure. ---
+cat > "$tmp/exhausted.log" <<'EOF'
+--- skip: 0 doable items (exhausted; resumes when refilled) ---
+EOF
+ok "skip(exhausted) classifies as queue-exhausted, not unknown" \
+   "[ \"\$(bash "$C" "$tmp/exhausted.log" 'skip(exhausted)')\" = queue-exhausted ]"
+
+cat > "$tmp/buildbreak.log" <<'EOF'
+some unrelated log content with no build-red-matching text
+EOF
+ok "reverted(build-break) status classifies as build-red even with unmatching log content" \
+   "[ \"\$(bash "$C" "$tmp/buildbreak.log" 'reverted(build-break)')\" = build-red ]"
+
+cat > "$tmp/revertedred.log" <<'EOF'
+some unrelated log content with no test-red-matching text
+EOF
+ok "no-op(reverted-red) status classifies as test-red even with unmatching log content" \
+   "[ \"\$(bash "$C" "$tmp/revertedred.log" 'no-op(reverted-red)')\" = test-red ]"
+
+ok "error-transient(API/network) status classifies as model-api-error" \
+   "[ \"\$(bash "$C" "$tmp/empty.log" 'error-transient(API/network - see log)')\" = model-api-error ]"
+
 rm -rf "$tmp"
 echo "Classify-fail model-api-error: $P passed, $F failed"
 [ "$F" -eq 0 ]

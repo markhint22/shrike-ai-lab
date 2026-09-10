@@ -69,9 +69,26 @@ def scan(root):
         if lines is None:
             continue
         for i, ln in enumerate(lines):
-            if 'target="_blank"' in ln and 'rel=' not in ln:
+            if 'target="_blank"' not in ln:
+                continue
+            # 2026-09-10 fix: Vue/HTML tags are routinely formatted one-attribute-per-line
+            # (Prettier's default style), so `rel="noopener noreferrer"` often sits on a
+            # DIFFERENT line than `target="_blank"` within the same tag - checking only
+            # `ln` produced false positives that regenerated the same non-issue every time
+            # the low-water-mark fired (confirmed live: one file had this "fixed" 10
+            # separate times, each one a no-op against code that was already correct).
+            # Scan out to the tag's actual boundaries (nearest enclosing `<` .. `>`)
+            # instead of just the one line.
+            start = i
+            while start > 0 and '<' not in lines[start]:
+                start -= 1
+            end = i
+            while end < len(lines) - 1 and '>' not in lines[end]:
+                end += 1
+            tag_text = '\n'.join(lines[start:end + 1])
+            if 'rel=' not in tag_text:
                 add(rp, 'HIGH', "`%s` (line %d): the `target=\"_blank\"` link has no `rel`, a reverse-tabnabbing risk. Add `rel=\"noopener\"` to that tag. Change only that line. One file." % (rp, i + 1))
-                break
+            break
 
     # 3) def __repr__(self): without -> str (LOW)
     for p in py:
@@ -123,7 +140,11 @@ def main():
         print("GENERATED=0"); return
     block = "\n### Auto-generated (deterministic scanner) — safe mechanical fixes\n"
     for rp, pri, txt in new:
-        block += "- [ ] [%s] %s\n" % (pri, txt)
+        # 2026-09-10 fix: every pattern here is single-line/single-file/zero-judgment by
+        # construction (see module docstring) — unambiguously the simplest tier. Untagged
+        # items were showing up as tier="?" in outcome stats/ntfy digests, masking real
+        # tier-capability signal (this was ~66% of all outcomes fleet-wide).
+        block += "- [ ] [T1] [%s] %s\n" % (pri, txt)
     if "## Needs human" in existing:
         out = existing.replace("\n## Needs human", "\n" + block + "\n## Needs human", 1)
     else:

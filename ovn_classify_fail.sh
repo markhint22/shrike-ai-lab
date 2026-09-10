@@ -5,7 +5,7 @@
 # Usage: ovn_classify_fail.sh <task_log> <status>   -> prints one of:
 #   context-exceeded | diff-not-applied | no-edit | api-mismatch | syntax-error |
 #   test-red | build-red | plan-only | timeout | oversized | needs-decision | model-api-error |
-#   landed | unknown
+#   queue-exhausted | landed | unknown
 #
 # Ordered most-specific-first; the FIRST signature that hits wins. Signatures are drawn from real
 # aider/gate output. Keep this cheap (greps only) — it runs once per item in record_outcome.
@@ -25,7 +25,20 @@ case "$status" in
   # error dump frequently contains incidental text (the word "assert", "failing", etc.) that the
   # test-red regex matches, mislabeling a genuine infra/API hiccup as a code-quality problem.
   # Confirmed 2026-09-10: 8 of billwatch's 9 overnight "test-red" entries were actually this.
-  *"error(model/api"*|*"error(exit="*) echo "model-api-error"; exit 0;;
+  *"error(model/api"*|*"error(exit="*|*"error-transient("*) echo "model-api-error"; exit 0;;
+  # 2026-09-10: skip(exhausted) means "repo has zero doable items right now" (run_overnight.sh's
+  # own exhausted-repo skip) - a benign, expected state, not a failure at all. It was the single
+  # largest contributor to fail_reason=unknown (219 of 295, 74%) because the task_log it writes
+  # ("--- skip: 0 doable items ... ---") never matches any of the log-content patterns below,
+  # so it fell all the way through to the generic fallback - masking how many outcomes were
+  # ACTUALLY unclassified underneath this one dominant, well-understood, non-failure case.
+  *"skip(exhausted)"*)                echo "queue-exhausted"; exit 0;;
+  # 2026-09-10: the STATUS ITSELF already names the cause precisely (build-break / reverted-red)
+  # — these used to fall through to the log-content scan below, which frequently missed them
+  # (34 + 22 = 56 records landed in fail_reason=unknown despite the status saying exactly what
+  # happened). Trust the status text the same way model-api-error already does above.
+  *"reverted(build-break)"*)          echo "build-red"; exit 0;;
+  *"reverted-red"*)                   echo "test-red"; exit 0;;
 esac
 
 # scan the tail of the log (the last attempt's output is what matters)
