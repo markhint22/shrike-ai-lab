@@ -1,0 +1,92 @@
+[09:18:06] pausing queue + freeing GPU
+[09:20:48] GPU free
+[09:20:48] === 1/2 generate dead sprites (from reference briefs) ===
+loading SDXL + LoRA for 14 target(s)...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 2066.28it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:00,  6.72it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00,  7.71it/s]Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00,  5.66it/s]Loading pipeline components...:  71%|███████▏  | 5/7 [00:00<00:00,  9.28it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  7.84it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  7.68it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py:748: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1/14] player_trooper__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead wasteland so...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2/14] player_heavy__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead heavy wastel...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3/14] player_sniper__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead wasteland sn...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4/14] player_medic__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead wasteland me...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5/14] enemy_grunt__dead.png
+     pixel art, dead mutant corpse lying flat on the ground, limbs splayed, green ichor pool, top-down view, a dead hunched g...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[6/14] enemy_brute__dead.png
+     pixel art, dead mutant corpse lying flat on the ground, limbs splayed, green ichor pool, top-down view, a dead huge hulk...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[7/14] enemy_flyer__dead.png
+     pixel art, dead mutant corpse lying flat on the ground, limbs splayed, green ichor pool, top-down view, a dead winged mu...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[8/14] enemy_drone__dead.png
+     pixel art, dead wrecked robot corpse lying flat on the ground, limbs splayed, oil pool and debris, top-down view, a dead...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[9/14] enemy_elite__dead.png
+     pixel art, dead mutant corpse lying flat on the ground, limbs splayed, green ichor pool, top-down view, a dead elite mut...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[10/14] enemy_raider__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead human wastel...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[11/14] enemy_shotgunner__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead wasteland ra...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[12/14] enemy_shield__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead heavy wastel...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[13/14] enemy_minigunner__dead.png
+     pixel art, dead body corpse lying flat on the ground, limbs splayed, dark blood pool, top-down view, a dead hulking wast...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[14/14] enemy_boss__dead.png
+     pixel art, dead mutant corpse lying flat on the ground, limbs splayed, green ichor pool, top-down view, a dead towering ...
+DONE
+[09:23:30] gen ok
+[09:23:30] === 2/2 pixelize (alpha key) ===
+14 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/units_dead_sprites3
+  enemy_boss__dead  bg=(142, 141, 141) spread=1 sprite
+  enemy_brute__dead  bg=(146, 146, 145) spread=1 sprite
+  enemy_drone__dead  bg=(130, 130, 130) spread=1 sprite
+  enemy_elite__dead  bg=(144, 143, 142) spread=1 sprite
+  enemy_flyer__dead  bg=(142, 142, 141) spread=1 sprite
+  enemy_grunt__dead  bg=(141, 141, 140) spread=1 sprite
+  enemy_minigunner__dead  bg=(132, 132, 132) spread=0 sprite
+  enemy_raider__dead  bg=(124, 120, 116) spread=1 sprite
+  enemy_shield__dead  bg=(139, 138, 137) spread=1 sprite
+  enemy_shotgunner__dead  bg=(133, 128, 125) spread=1 sprite
+  player_heavy__dead  bg=(131, 130, 130) spread=0 sprite
+  player_medic__dead  bg=(129, 129, 123) spread=0 sprite
+  player_sniper__dead  bg=(137, 133, 128) spread=1 sprite
+  player_trooper__dead  bg=(136, 133, 129) spread=1 sprite
+DONE
+[09:23:48] pixelize ok
+[09:23:48] dead frames: 14
+[09:23:48] === RESULTS READY (/run/media/mhintermeister/secondary_drive1/comfy/out/units_dead_sprites3) ===
+[09:23:48] restoring llama + queue
+[09:23:54] === DEAD SPRITE WINDOW DONE ===

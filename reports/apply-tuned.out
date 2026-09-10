@@ -1,0 +1,6 @@
+[10:49:13] pausing queue
+[10:50:49] stopping + preserving current 256K container as shrike-llama-27b-256k-rollback
+[10:50:50] starting tuned container (65K, ngl99, q4_0 KV, MTP n8)
+[10:51:04] tuned container healthy: GEN 68.9 tok/s | VRAM 23861/24576 MiB
+[10:51:04] queue resumed on TUNED 27B. rollback container kept as shrike-llama-27b-256k-rollback.
+[10:51:04] === APPLY OK (68.9 tok/s) ===

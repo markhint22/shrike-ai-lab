@@ -1,0 +1,698 @@
+[13:41:36] pausing queue + freeing GPU
+[13:41:37] GPU free: 89 MiB used
+[13:41:37] === 1/5 pose skeletons ===
+wrote idle
+wrote walk
+wrote walk2
+wrote attack
+wrote attack_melee
+wrote hit
+wrote death
+DONE /run/media/mhintermeister/secondary_drive1/comfy/out/poses
+[13:41:38] skeletons ok
+[13:41:38] === 2/5 animated pose sets (ControlNet + IP-Adapter) ===
+loading ControlNet-OpenPose + SDXL + LoRA + IP-Adapter ...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/huggingface_hub/utils/_validators.py:205: UserWarning: The `local_dir_use_symlinks` argument is deprecated and ignored in `hf_hub_download`. Downloading to a local directory does not use symlinks anymore.
+  warnings.warn(
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 2097.21it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 15.97it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  8.96it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  7.78it/s]There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  9.40it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+Loading weights:   0%|          | 0/776 [00:00<?, ?it/s]Loading weights:  77%|███████▋  | 596/776 [00:00<00:00, 5959.51it/s]Loading weights: 100%|██████████| 776/776 [00:00<00:00, 5618.21it/s]
+There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (84 > 77). Running this sequence through the model will result in indexing errors
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer CLIPTokenizer. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['solid flat neutral gray background , centered single sprite']
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (84 > 77). Running this sequence through the model will result in indexing errors
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['solid flat neutral gray background , centered single sprite']
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py:928: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1] player_trooper idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', legs wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', legs wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2] player_trooper walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['legs wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['legs wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3] player_trooper walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['forward , aggressive combat action , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['forward , aggressive combat action , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4] player_trooper attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5] player_trooper hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['ground , collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['ground , collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[6] player_trooper death (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['weapon , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['weapon , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[7] player_heavy idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['- stride , legs wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['- stride , legs wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[8] player_heavy walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['stride , legs wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['stride , legs wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[9] player_heavy walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['and firing forward , aggressive combat action , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['and firing forward , aggressive combat action , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[10] player_heavy attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['iling backward , staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['iling backward , staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[11] player_heavy hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['on the ground , collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['on the ground , collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[12] player_heavy death (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[13] player_sniper idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['legs wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['legs wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[14] player_sniper walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[15] player_sniper walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', aggressive combat action , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', aggressive combat action , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[16] player_sniper attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[17] player_sniper hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[18] player_sniper death (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[19] player_medic idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['stride , legs wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['stride , legs wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[20] player_medic walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', legs wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', legs wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[21] player_medic walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['firing forward , aggressive combat action , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['firing forward , aggressive combat action , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[22] player_medic attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['backward , staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['backward , staggering , flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[23] player_medic hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['the ground , collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['the ground , collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[24] player_medic death (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[25] enemy_grunt idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[26] enemy_grunt walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[27] enemy_grunt walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['aggressive combat action , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['aggressive combat action , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[28] enemy_grunt attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[29] enemy_grunt hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[30] enemy_grunt death (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[31] enemy_brute idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[32] enemy_brute walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[33] enemy_brute walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['combat action , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['combat action , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[34] enemy_brute attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[35] enemy_brute hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[36] enemy_brute death (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[37] enemy_flyer idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[38] enemy_flyer walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[39] enemy_flyer walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[40] enemy_flyer attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[41] enemy_flyer hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[42] enemy_flyer death (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[43] enemy_drone idle
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['wide apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['wide apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[44] enemy_drone walk (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['apart , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['apart , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[45] enemy_drone walk2 (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['aggressive combat action , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['aggressive combat action , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[46] enemy_drone attack (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: [', flinching in pain , off balance , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[47] enemy_drone hit (ip-locked)
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['collapsed injured corpse , defeated , motionless , solid flat neutral gray background , centered single sprite']
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[48] enemy_drone death (ip-locked)
+DONE 48 frames -> /run/media/mhintermeister/secondary_drive1/comfy/out/anims
+[13:53:09] anims ok
+[13:53:09] anim frames: 48
+[13:53:09] === 3/5 option renders (units/terrain/icons) ===
+loading SDXL + LoRA (options)...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 1937.27it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00, 10.43it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  9.74it/s]There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 10.92it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py:748: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1] player_trooper opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2] player_trooper opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3] player_heavy opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4] player_heavy opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5] player_sniper opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[6] player_sniper opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[7] player_medic opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[8] player_medic opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[9] player_engineer opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[10] player_engineer opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[11] player_pyro opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[12] player_pyro opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[13] player_ranger opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[14] player_ranger opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[15] enemy_grunt opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[16] enemy_grunt opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[17] enemy_brute opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[18] enemy_brute opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[19] enemy_flyer opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[20] enemy_flyer opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[21] enemy_drone opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[22] enemy_drone opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[23] enemy_elite opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[24] enemy_elite opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[25] enemy_raider opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[26] enemy_raider opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[27] enemy_shotgunner opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[28] enemy_shotgunner opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[29] enemy_shield opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[30] enemy_shield opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[31] enemy_minigunner opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[32] enemy_minigunner opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[33] enemy_boss opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[34] enemy_boss opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[35] cover_sandbags opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[36] cover_sandbags opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[37] cover_barrels opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[38] cover_barrels opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[39] cover_crate opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[40] cover_crate opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[41] cover_lowwall opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[42] cover_lowwall opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[43] cover_wall opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[44] cover_wall opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[45] cover_container opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[46] cover_container opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[47] cover_wreck opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[48] cover_wreck opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[49] icon_move opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[50] icon_move opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[51] icon_shoot opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[52] icon_shoot opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[53] icon_grenade opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[54] icon_grenade opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[55] icon_net opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[56] icon_net opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[57] icon_overwatch opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[58] icon_overwatch opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[59] icon_medkit opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[60] icon_medkit opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[61] icon_hazard opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[62] icon_hazard opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[63] icon_research opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[64] icon_research opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[65] icon_armor opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[66] icon_armor opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[67] tile_floor_concrete opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[68] tile_floor_concrete opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[69] tile_floor_metal opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[70] tile_floor_metal opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[71] tile_floor_asphalt opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[72] tile_floor_asphalt opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[73] tile_hazard_toxic opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[74] tile_hazard_toxic opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[75] tile_rubble opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[76] tile_rubble opt2
+DONE 76 option renders -> /run/media/mhintermeister/secondary_drive1/comfy/out/options
+[14:06:51] options ok
+[14:06:51] option renders: 76
+[14:06:51] === 4/5 wasteland background options ===
+loading SDXL + LoRA (scenes)...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 2129.34it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 17.73it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00, 10.30it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  8.71it/s]There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 10.51it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py:748: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1] bg_title opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2] bg_title opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3] bg_title opt3
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4] bg_battle opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5] bg_battle opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[6] bg_battle opt3
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[7] bg_hub opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[8] bg_hub opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[9] bg_hub opt3
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[10] bg_menu opt1
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[11] bg_menu opt2
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[12] bg_menu opt3
+DONE 12 scene renders -> /run/media/mhintermeister/secondary_drive1/comfy/out/scenes
+[14:09:00] scenes ok
+[14:09:00] scene options: 12
+[14:09:00] === 5/5 pixelize (anims + options -> 64/48/32) ===
+48 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/anims_sprites3
+  enemy_brute__attack  bg=(116, 64, 150) spread=1 sprite
+  enemy_brute__death  bg=(147, 67, 187) spread=2 sprite
+  enemy_brute__hit  bg=(121, 79, 154) spread=1 sprite
+  enemy_brute__idle  bg=(138, 104, 173) spread=1 sprite
+  enemy_brute__walk  bg=(111, 78, 143) spread=1 sprite
+  enemy_brute__walk2  bg=(111, 80, 149) spread=1 sprite
+  enemy_drone__attack  bg=(32, 34, 33) spread=6 sprite
+  enemy_drone__death  bg=(60, 66, 66) spread=4 sprite
+  enemy_drone__hit  bg=(27, 30, 28) spread=3 sprite
+  enemy_drone__idle  bg=(23, 22, 22) spread=1 sprite
+  enemy_drone__walk  bg=(39, 37, 33) spread=4 sprite
+  enemy_drone__walk2  bg=(35, 36, 34) spread=1 sprite
+  enemy_flyer__attack  bg=(125, 126, 125) spread=1 sprite
+  enemy_flyer__death  bg=(112, 112, 111) spread=1 sprite
+  enemy_flyer__hit  bg=(131, 132, 132) spread=1 sprite
+  enemy_flyer__idle  bg=(149, 148, 146) spread=1 sprite
+  enemy_flyer__walk  bg=(123, 124, 124) spread=1 sprite
+  enemy_flyer__walk2  bg=(117, 118, 118) spread=1 sprite
+  enemy_grunt__attack  bg=(175, 180, 162) spread=1 sprite
+  enemy_grunt__death  bg=(213, 193, 167) spread=0 sprite
+  enemy_grunt__hit  bg=(164, 167, 160) spread=2 sprite
+  enemy_grunt__idle  bg=(150, 148, 134) spread=1 sprite
+  enemy_grunt__walk  bg=(154, 158, 152) spread=2 sprite
+  enemy_grunt__walk2  bg=(145, 148, 142) spread=2 sprite
+  player_heavy__attack  bg=(148, 73, 25) spread=98 TILE
+  player_heavy__death  bg=(155, 78, 23) spread=59 TILE
+  player_heavy__hit  bg=(118, 69, 30) spread=176 TILE
+  player_heavy__idle  bg=(145, 95, 62) spread=52 TILE
+  player_heavy__walk  bg=(148, 88, 39) spread=101 TILE
+  player_heavy__walk2  bg=(172, 105, 40) spread=108 TILE
+  player_medic__attack  bg=(139, 138, 139) spread=9 sprite
+  player_medic__death  bg=(193, 160, 133) spread=16 sprite
+  player_medic__hit  bg=(148, 149, 149) spread=3 sprite
+  player_medic__idle  bg=(148, 136, 132) spread=33 sprite
+  player_medic__walk  bg=(141, 141, 141) spread=6 sprite
+  player_medic__walk2  bg=(144, 144, 144) spread=6 sprite
+  player_sniper__attack  bg=(116, 87, 156) spread=1 sprite
+  player_sniper__death  bg=(111, 112, 141) spread=0 sprite
+  player_sniper__hit  bg=(123, 100, 160) spread=1 sprite
+  player_sniper__idle  bg=(122, 103, 155) spread=1 sprite
+  player_sniper__walk  bg=(137, 102, 158) spread=0 sprite
+  player_sniper__walk2  bg=(126, 99, 153) spread=1 sprite
+  player_trooper__attack  bg=(175, 106, 49) spread=15 sprite
+  player_trooper__death  bg=(173, 84, 52) spread=64 TILE
+  player_trooper__hit  bg=(183, 115, 55) spread=31 sprite
+  player_trooper__idle  bg=(162, 108, 88) spread=91 TILE
+  player_trooper__walk  bg=(183, 100, 54) spread=8 sprite
+  player_trooper__walk2  bg=(181, 95, 52) spread=8 sprite
+DONE
+[14:09:14] pixelize anims ok
+76 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/options_sprites3
+  cover_barrels__opt1  bg=(117, 118, 115) spread=37 sprite
+  cover_barrels__opt2  bg=(153, 152, 153) spread=0 sprite
+  cover_container__opt1  bg=(144, 144, 146) spread=1 sprite
+  cover_container__opt2  bg=(141, 141, 142) spread=1 sprite
+  cover_crate__opt1  bg=(152, 142, 137) spread=57 TILE
+  cover_crate__opt2  bg=(155, 153, 155) spread=1 sprite
+  cover_lowwall__opt1  bg=(107, 75, 63) spread=61 TILE
+  cover_lowwall__opt2  bg=(150, 149, 149) spread=0 sprite
+  cover_sandbags__opt1  bg=(89, 71, 60) spread=26 sprite
+  cover_sandbags__opt2  bg=(153, 151, 153) spread=1 sprite
+  cover_wall__opt1  bg=(157, 156, 157) spread=37 sprite
+  cover_wall__opt2  bg=(88, 83, 83) spread=66 TILE
+  cover_wreck__opt1  bg=(157, 153, 155) spread=1 sprite
+  cover_wreck__opt2  bg=(153, 149, 151) spread=0 sprite
+  enemy_boss__opt1  bg=(169, 167, 169) spread=1 sprite
+  enemy_boss__opt2  bg=(160, 158, 159) spread=1 sprite
+  enemy_brute__opt1  bg=(160, 159, 161) spread=1 sprite
+  enemy_brute__opt2  bg=(157, 156, 158) spread=1 sprite
+  enemy_drone__opt1  bg=(156, 154, 156) spread=1 sprite
+  enemy_drone__opt2  bg=(150, 149, 151) spread=1 sprite
+  enemy_elite__opt1  bg=(153, 152, 154) spread=1 sprite
+  enemy_elite__opt2  bg=(161, 160, 161) spread=1 sprite
+  enemy_flyer__opt1  bg=(135, 134, 136) spread=0 sprite
+  enemy_flyer__opt2  bg=(144, 144, 145) spread=1 sprite
+  enemy_grunt__opt1  bg=(157, 155, 156) spread=1 sprite
+  enemy_grunt__opt2  bg=(163, 162, 164) spread=1 sprite
+  enemy_minigunner__opt1  bg=(160, 160, 163) spread=0 sprite
+  enemy_minigunner__opt2  bg=(162, 161, 163) spread=1 sprite
+  enemy_raider__opt1  bg=(148, 146, 149) spread=1 sprite
+  enemy_raider__opt2  bg=(153, 151, 153) spread=0 sprite
+  enemy_shield__opt1  bg=(158, 157, 159) spread=1 sprite
+  enemy_shield__opt2  bg=(168, 167, 168) spread=1 sprite
+  enemy_shotgunner__opt1  bg=(160, 159, 162) spread=1 sprite
+  enemy_shotgunner__opt2  bg=(154, 153, 155) spread=1 sprite
+  icon_armor__opt1  bg=(175, 174, 175) spread=1 sprite
+  icon_armor__opt2  bg=(167, 164, 167) spread=1 sprite
+  icon_grenade__opt1  bg=(156, 156, 158) spread=1 sprite
+  icon_grenade__opt2  bg=(157, 157, 158) spread=1 sprite
+  icon_hazard__opt1  bg=(139, 121, 107) spread=60 TILE
+  icon_hazard__opt2  bg=(144, 142, 145) spread=1 sprite
+  icon_medkit__opt1  bg=(136, 116, 112) spread=45 sprite
+  icon_medkit__opt2  bg=(122, 121, 122) spread=49 TILE
+  icon_move__opt1  bg=(165, 165, 169) spread=1 sprite
+  icon_move__opt2  bg=(161, 160, 164) spread=1 sprite
+  icon_net__opt1  bg=(161, 161, 162) spread=1 sprite
+  icon_net__opt2  bg=(120, 91, 79) spread=98 TILE
+  icon_overwatch__opt1  bg=(163, 161, 164) spread=1 sprite
+  icon_overwatch__opt2  bg=(160, 159, 161) spread=1 sprite
+  icon_research__opt1  bg=(161, 159, 161) spread=1 sprite
+  icon_research__opt2  bg=(157, 155, 157) spread=1 sprite
+  icon_shoot__opt1  bg=(166, 165, 165) spread=1 sprite
+  icon_shoot__opt2  bg=(165, 164, 164) spread=2 sprite
+  player_engineer__opt1  bg=(154, 152, 154) spread=1 sprite
+  player_engineer__opt2  bg=(152, 151, 152) spread=1 sprite
+  player_heavy__opt1  bg=(151, 150, 153) spread=1 sprite
+  player_heavy__opt2  bg=(150, 148, 150) spread=1 sprite
+  player_medic__opt1  bg=(155, 155, 157) spread=1 sprite
+  player_medic__opt2  bg=(162, 161, 162) spread=0 sprite
+  player_pyro__opt1  bg=(161, 160, 162) spread=1 sprite
+  player_pyro__opt2  bg=(163, 163, 165) spread=1 sprite
+  player_ranger__opt1  bg=(161, 159, 161) spread=1 sprite
+  player_ranger__opt2  bg=(149, 148, 150) spread=0 sprite
+  player_sniper__opt1  bg=(163, 160, 163) spread=1 sprite
+  player_sniper__opt2  bg=(156, 155, 156) spread=0 sprite
+  player_trooper__opt1  bg=(138, 137, 140) spread=1 sprite
+  player_trooper__opt2  bg=(85, 74, 60) spread=15 sprite
+  tile_floor_asphalt__opt1  bg=(136, 137, 138) spread=7 TILE
+  tile_floor_asphalt__opt2  bg=(114, 101, 98) spread=82 TILE
+  tile_floor_concrete__opt1  bg=(126, 115, 114) spread=62 TILE
+  tile_floor_concrete__opt2  bg=(107, 102, 102) spread=36 TILE
+  tile_floor_metal__opt1  bg=(118, 116, 114) spread=11 TILE
+  tile_floor_metal__opt2  bg=(106, 103, 100) spread=11 TILE
+  tile_hazard_toxic__opt1  bg=(69, 113, 54) spread=56 TILE
+  tile_hazard_toxic__opt2  bg=(115, 182, 56) spread=15 TILE
+  tile_rubble__opt1  bg=(130, 109, 93) spread=87 TILE
+  tile_rubble__opt2  bg=(134, 132, 134) spread=20 TILE
+DONE
+[14:09:35] pixelize options ok
+[14:09:35] === RESULTS READY (anims_sprites3 + options_sprites3 + scenes) ===
+[14:09:35] restoring prod llama + queue
+[14:09:42] prod restored: Up 6 seconds (health: starting)
+[14:09:42] === DEEP-DIVE ART WINDOW DONE ===

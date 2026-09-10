@@ -1,0 +1,90 @@
+[11:29:12] installing diffusers deps (gpu-free)
+[11:29:14] diffusers deps ok
+[11:29:14] pausing queue + freeing GPU
+[11:31:23] GPU free: 89 MiB used
+[11:31:23] === generating style tests ===
+loading SDXL + Pixel Art XL LoRA ...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 17 files:   6%|▌         | 1/17 [00:00<00:11,  1.43it/s]Fetching 17 files:  24%|██▎       | 4/17 [00:01<00:02,  4.58it/s]Fetching 17 files:  35%|███▌      | 6/17 [00:01<00:01,  6.58it/s]Fetching 17 files:  82%|████████▏ | 14/17 [00:01<00:00, 18.24it/s]Fetching 17 files: 100%|██████████| 17/17 [00:01<00:00, 13.04it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00, 10.11it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  9.47it/s]There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 10.62it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py:748: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_soldier__A_clean16.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_soldier__B_gritty.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_soldier__C_vibrant.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_soldier__D_minimal.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_alien__A_clean16.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[6] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_alien__B_gritty.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[7] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_alien__C_vibrant.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[8] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/unit_alien__D_minimal.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[9] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/tile_floor__A_clean16.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[10] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/tile_floor__B_gritty.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[11] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/tile_floor__C_vibrant.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[12] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/tile_floor__D_minimal.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[13] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/icon_tech__A_clean16.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[14] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/icon_tech__B_gritty.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[15] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/icon_tech__C_vibrant.png
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[16] /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests/icon_tech__D_minimal.png
+DONE 16 style tests -> /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests
+[11:33:38] generation ok
+[11:33:38] === pixelizing ===
+16 raw renders -> /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests_sprites
+  icon_tech__A_clean16
+  icon_tech__B_gritty
+  icon_tech__C_vibrant
+  icon_tech__D_minimal
+  tile_floor__A_clean16
+  tile_floor__B_gritty
+  tile_floor__C_vibrant
+  tile_floor__D_minimal
+  unit_alien__A_clean16
+  unit_alien__B_gritty
+  unit_alien__C_vibrant
+  unit_alien__D_minimal
+  unit_soldier__A_clean16
+  unit_soldier__B_gritty
+  unit_soldier__C_vibrant
+  unit_soldier__D_minimal
+DONE
+[11:33:41] pixelize ok
+[11:33:41] outputs: 64 files in /run/media/mhintermeister/secondary_drive1/comfy/out/style_tests_sprites
+[11:33:41] === RESULTS READY (restoring GPU next) ===
+[11:33:41] restoring GPU to the llama queue
+[11:33:49] llama restored: Up 8 seconds (health: starting)
+[11:33:49] === ART WINDOW DONE ===

@@ -1,0 +1,119 @@
+[13:39:42] freeing GPU (both model containers)
+[13:42:07] GPU free
+[13:42:07] === (0) draw OpenPose skeletons (kneeling downed) ===
+wrote idle
+wrote walk
+wrote walk2
+wrote attack
+wrote attack_melee
+wrote hit
+wrote death
+wrote downed
+DONE /run/media/mhintermeister/secondary_drive1/comfy/out/poses
+[13:42:07] skeletons ok
+[13:42:07] === poses: trooper + grunt, all 3 (kneeling downed, blood, low LoRA) ===
+loading ControlNet-OpenPose + SDXL + LoRA + IP-Adapter ...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/huggingface_hub/utils/_validators.py:205: UserWarning: The `local_dir_use_symlinks` argument is deprecated and ignored in `hf_hub_download`. Downloading to a local directory does not use symlinks anymore.
+  warnings.warn(
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 1759.10it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 16.08it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  9.08it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  7.59it/s]There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  9.24it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/peft/tuners/tuners_utils.py:305: UserWarning: Already found a `peft_config` attribute in the model. This will lead to having multiple adapters in the model. Make sure to know what you are doing!
+  warnings.warn(
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+  style LoRA loaded (xlwaste)
+Loading weights:   0%|          | 0/776 [00:00<?, ?it/s]Loading weights:  68%|██████▊   | 527/776 [00:00<00:00, 5248.62it/s]Loading weights: 100%|██████████| 776/776 [00:00<00:00, 5053.17it/s]
+There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py:928: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1/6] player_trooper__attack  (skeleton=attack, ip=0.65)
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2/6] player_trooper__downed  (skeleton=downed, ip=0.6)
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3/6] player_trooper__dead  (skeleton=death, ip=0.5)
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4/6] enemy_grunt__attack  (skeleton=attack_melee, ip=0.65)
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5/6] enemy_grunt__downed  (skeleton=downed, ip=0.6)
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[6/6] enemy_grunt__dead  (skeleton=death, ip=0.5)
+DONE
+[13:44:15] gen ok
+2 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/units_attack_sprites3
+  enemy_grunt__attack  bg=(131, 132, 132) spread=2 sprite
+  player_trooper__attack  bg=(144, 150, 153) spread=1 sprite
+DONE
+[13:44:18] QA attack:
+[qa attack] 6/6 pass
+14 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/units_downed_sprites3
+  enemy_boss__downed  bg=(155, 154, 155) spread=0 sprite
+  enemy_brute__downed  bg=(153, 157, 151) spread=0 sprite
+  enemy_drone__downed  bg=(157, 157, 157) spread=1 sprite
+  enemy_elite__downed  bg=(157, 156, 157) spread=1 sprite
+  enemy_flyer__downed  bg=(150, 150, 151) spread=1 sprite
+  enemy_grunt__downed  bg=(115, 119, 119) spread=1 sprite
+  enemy_minigunner__downed  bg=(159, 157, 156) spread=1 sprite
+  enemy_raider__downed  bg=(152, 150, 149) spread=1 sprite
+  enemy_shield__downed  bg=(152, 151, 152) spread=1 sprite
+  enemy_shotgunner__downed  bg=(158, 158, 159) spread=0 sprite
+  player_heavy__downed  bg=(141, 141, 139) spread=1 sprite
+  player_medic__downed  bg=(153, 153, 149) spread=1 sprite
+  player_sniper__downed  bg=(155, 151, 148) spread=1 sprite
+  player_trooper__downed  bg=(105, 110, 111) spread=1 sprite
+DONE
+[13:44:38] QA downed:
+[qa downed] 29/42 pass
+  FAIL enemy_boss__downed@32.png: standing_pose(bbox 20x30, taller than wide — must lie down)
+  FAIL enemy_boss__downed@48.png: standing_pose(bbox 30x46, taller than wide — must lie down)
+  FAIL enemy_boss__downed@64.png: standing_pose(bbox 39x62, taller than wide — must lie down)
+  FAIL enemy_grunt__downed@32.png: standing_pose(bbox 12x32, taller than wide — must lie down)
+  FAIL enemy_grunt__downed@48.png: standing_pose(bbox 18x46, taller than wide — must lie down)
+  FAIL enemy_grunt__downed@64.png: standing_pose(bbox 25x62, taller than wide — must lie down)
+  FAIL player_medic__downed@32.png: standing_pose(bbox 18x30, taller than wide — must lie down)
+  FAIL player_medic__downed@48.png: standing_pose(bbox 26x45, taller than wide — must lie down)
+  FAIL player_medic__downed@64.png: standing_pose(bbox 35x60, taller than wide — must lie down)
+  FAIL player_sniper__downed@32.png: multiple_figures(2 large masses — 2 people / stray pile)
+  FAIL player_trooper__downed@32.png: standing_pose(bbox 20x30, taller than wide — must lie down)
+  FAIL player_trooper__downed@48.png: multiple_figures(2 large masses — 2 people / stray pile); standing_pose(bbox 32x46, taller than wide — must lie down)
+  FAIL player_trooper__downed@64.png: multiple_figures(2 large masses — 2 people / stray pile); standing_pose(bbox 42x61, taller than wide — must lie down)
+14 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/units_dead_sprites3
+  enemy_boss__dead  bg=(169, 168, 168) spread=0 sprite
+  enemy_brute__dead  bg=(162, 166, 160) spread=1 sprite
+  enemy_drone__dead  bg=(159, 158, 158) spread=1 sprite
+  enemy_elite__dead  bg=(173, 172, 172) spread=1 sprite
+  enemy_flyer__dead  bg=(164, 163, 163) spread=0 sprite
+  enemy_grunt__dead  bg=(145, 146, 146) spread=1 sprite
+  enemy_minigunner__dead  bg=(158, 157, 158) spread=1 sprite
+  enemy_raider__dead  bg=(142, 141, 141) spread=0 sprite
+  enemy_shield__dead  bg=(140, 140, 140) spread=1 sprite
+  enemy_shotgunner__dead  bg=(153, 153, 153) spread=0 sprite
+  player_heavy__dead  bg=(132, 132, 133) spread=0 sprite
+  player_medic__dead  bg=(133, 133, 133) spread=0 sprite
+  player_sniper__dead  bg=(144, 143, 143) spread=0 sprite
+  player_trooper__dead  bg=(118, 118, 118) spread=1 sprite
+DONE
+[13:44:57] QA dead:
+[qa dead] 33/42 pass
+  FAIL enemy_grunt__dead@32.png: standing_pose(bbox 24x30, taller than wide — must lie down)
+  FAIL enemy_grunt__dead@48.png: standing_pose(bbox 36x46, taller than wide — must lie down)
+  FAIL enemy_grunt__dead@64.png: standing_pose(bbox 48x60, taller than wide — must lie down)
+  FAIL player_sniper__dead@32.png: multiple_figures(2 large masses — 2 people / stray pile)
+  FAIL player_sniper__dead@48.png: multiple_figures(2 large masses — 2 people / stray pile)
+  FAIL player_sniper__dead@64.png: multiple_figures(2 large masses — 2 people / stray pile)
+  FAIL player_trooper__dead@32.png: standing_pose(bbox 24x30, taller than wide — must lie down)
+  FAIL player_trooper__dead@48.png: standing_pose(bbox 34x46, taller than wide — must lie down)
+  FAIL player_trooper__dead@64.png: standing_pose(bbox 46x60, taller than wide — must lie down)
+[13:44:57] === RESULTS READY ===
+[13:44:57] === VALIDATE WINDOW DONE ===

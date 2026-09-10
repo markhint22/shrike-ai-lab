@@ -1,0 +1,9 @@
+[21:20:11] queue paused
+[21:21:49] stopped shrike-llama-dflash-35b
+[21:21:49] renamed 27B -> shrike-llama-27b-rollback (rollback preserved)
+[21:21:50] started coder container (shrike-llama-coder)
+[21:22:18] coder healthy: VRAM 21423 MiB, 24576 MiB
+[21:22:23] litellm -> coder OK
+[21:22:23] runner edit-format: udiff -> diff (2 site)
+[21:22:23] queue resumed on coder
+[21:22:23] === CUTOVER COMPLETE — Qwen3-Coder is now production ===

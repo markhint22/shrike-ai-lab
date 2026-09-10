@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Pixelize v2 — robust. SDXL rendered a solid (often gray/blue) background, not the
+chroma green we asked for, so v1's green key failed. v2 AUTO-DETECTS the background
+color from the image corners, and auto-classifies each render:
+  * SPRITE (uniform-ish background, e.g. soldier/alien/icon): key out the bg color by
+    distance -> alpha, autocrop tight, pad square, nearest-downscale, quantize palette.
+  * TILE (busy/non-uniform corners, e.g. floor): no keying, no crop -> downscale the
+    full frame so it stays seamless.
+Emits <name>@16/@32 (+ 8x previews). CPU/PIL only.
+"""
+import os, sys, glob
+import numpy as np
+from PIL import Image, ImageEnhance, ImageDraw
+
+SRC = sys.argv[1] if len(sys.argv) > 1 else "/run/media/mhintermeister/secondary_drive1/comfy/out/style_tests"
+DST = SRC + "_sprites3"
+os.makedirs(DST, exist_ok=True)
+PALETTE = 20   # a touch more color depth than the old 16 (user: "raise graphics a little")
+
+def corner_stats(im):
+    w, h = im.size; k = max(4, w//16)
+    pts = []
+    for cx, cy in ((0,0),(w-k,0),(0,h-k),(w-k,h-k)):
+        c = im.crop((cx, cy, cx+k, cy+k)).resize((1,1)).getpixel((0,0))
+        pts.append(c[:3])
+    # bg = average corner; spread = max channel range across corners
+    bg = tuple(sum(p[i] for p in pts)//4 for i in range(3))
+    spread = max(max(p[i] for p in pts) - min(p[i] for p in pts) for i in range(3))
+    return bg, spread
+
+def key_bg(im, bg, tol=60):
+    im = im.convert("RGBA"); px = im.load(); w, h = im.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if abs(r-bg[0])+abs(g-bg[1])+abs(b-bg[2]) < tol*3:
+                px[x, y] = (0, 0, 0, 0)
+    return im
+
+def floodkey(im, tol=70, pocket_tol=30):
+    # Two-stage background removal:
+    #  1) flood-fill from the 4 corners -> removes the CONNECTED background (never a
+    #     sprite-interior pixel of a similar colour).
+    #  2) ENCLOSED-POCKET pass: the flat bg colour trapped BETWEEN limbs isn't reached
+    #     by the corner flood, so it stayed opaque -> the "white webbing / cardboard"
+    #     look. Key any remaining pixel within a TIGHT tolerance of the flat bg colour
+    #     (the bg is uniform; shaded sprite pixels differ by more), so the gaps between
+    #     arms/legs/body go transparent too.
+    rgb = im.convert("RGB")
+    W, H = rgb.size
+    orig = np.array(rgb).astype(int)
+    corners = orig[[0, 0, H-1, H-1], [0, W-1, 0, W-1]]
+    bg = corners.mean(axis=0)
+    SENT = (255, 0, 255)
+    for corner in ((0, 0), (W-1, 0), (0, H-1), (W-1, H-1)):
+        try:
+            ImageDraw.floodfill(rgb, corner, SENT, thresh=tol)
+        except Exception:
+            pass
+    arr = np.array(rgb)
+    connected = (arr[:, :, 0] == 255) & (arr[:, :, 1] == 0) & (arr[:, :, 2] == 255)
+    pockets = np.abs(orig - bg).sum(axis=2) < pocket_tol   # flat-bg pockets between limbs
+    out = np.array(im.convert("RGBA"))
+    out[connected | pockets] = (0, 0, 0, 0)
+    # Residual CAST SHADOW at the feet: SDXL paints a low-saturation gray blob under the
+    # character even with anti-shadow negatives. Strip low-saturation medium-gray pixels
+    # in the BOTTOM band of the content (the shadow), leaving the coloured boots/body.
+    ys, xs = np.where(out[:, :, 3] > 8)
+    if len(ys):
+        top, bot = int(ys.min()), int(ys.max())
+        band_y = top + int((bot - top) * 0.85)             # bottom ~15% of the content
+        rgb2 = out[:, :, :3].astype(int)
+        sat = rgb2.max(axis=2) - rgb2.min(axis=2)           # 0 = pure gray
+        val = rgb2.max(axis=2)
+        yy = np.arange(out.shape[0])[:, None]
+        shadow = (sat < 26) & (val > 45) & (val < 200) & (yy >= band_y) & (out[:, :, 3] > 8)
+        out[shadow] = (0, 0, 0, 0)
+    return Image.fromarray(out, "RGBA")
+
+def autocrop_square(im):
+    bb = im.split()[-1].getbbox()
+    if bb:
+        # pad the crop a hair so limbs aren't flush to the edge
+        x0,y0,x1,y1 = bb; pad = max(4,(x1-x0)//20)
+        im = im.crop((max(0,x0-pad),max(0,y0-pad),min(im.size[0],x1+pad),min(im.size[1],y1+pad)))
+    w,h = im.size; s=max(w,h)
+    c = Image.new("RGBA",(s,s),(0,0,0,0)); c.paste(im,((s-w)//2,(s-h)//2)); return c
+
+def quant(im, grid, keep_alpha=True):
+    small = im.resize((grid, grid), Image.LANCZOS)
+    rgb = small.convert("RGB")
+    rgb = ImageEnhance.Brightness(rgb).enhance(1.14)   # lift dark sprites (heavy/sniper)
+    rgb = ImageEnhance.Color(rgb).enhance(1.08)
+    rgb = rgb.quantize(colors=PALETTE, method=Image.MEDIANCUT).convert("RGBA")
+    if keep_alpha:
+        rgb.putalpha(small.split()[-1] if small.mode=="RGBA" else Image.new("L",(grid,grid),255))
+    return rgb
+
+def main():
+    files = sorted(glob.glob(f"{SRC}/*.png"))
+    print(f"{len(files)} raw -> {DST}", flush=True)
+    for f in files:
+        name = os.path.splitext(os.path.basename(f))[0]
+        im = Image.open(f).convert("RGBA")
+        bg, spread = corner_stats(im)
+        is_tile = ("tile" in name) or (spread > 45)   # busy corners => texture/tile
+        if is_tile:
+            base = im  # keep full frame, opaque
+        else:
+            base = autocrop_square(floodkey(im))  # connected-bg removal (robust vs global key)
+        for grid in (64, 48, 32):
+            sp = quant(base, grid, keep_alpha=not is_tile)
+            sp.save(f"{DST}/{name}@{grid}.png")
+            sp.resize((grid*4, grid*4), Image.NEAREST).save(f"{DST}/{name}@{grid}_preview.png")
+        print(f"  {name}  bg={bg} spread={spread} {'TILE' if is_tile else 'sprite'}", flush=True)
+    print("DONE", flush=True)
+
+if __name__ == "__main__":
+    main()

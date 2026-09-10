@@ -1,0 +1,17 @@
+[10:20:06] pausing queue
+[10:22:46] stopping production 27B
+[10:22:58] === SPEED SWEEP START (RTX 3090 24GB) ===
+[10:23:38] 27B_baseline_256k_mtp: GEN 8.7 tok/s | PREFILL 116.5 tok/s (219 prompt tok) | VRAM 19975/24576 MiB | gen_n=200
+[10:23:58] 27B_65k_mtp: GEN 23.6 tok/s | PREFILL 253.0 tok/s (219 prompt tok) | VRAM 20143/24576 MiB | gen_n=200
+[10:24:16] 27B_32k_mtp: GEN 35.7 tok/s | PREFILL 343.2 tok/s (219 prompt tok) | VRAM 20067/24576 MiB | gen_n=200
+[10:24:40] 27B_32k_mtp_n6: GEN 16.9 tok/s | PREFILL 205.0 tok/s (219 prompt tok) | VRAM 18885/24576 MiB | gen_n=200
+[10:24:52] 27B_32k_nospec: GEN 40.7 tok/s | PREFILL 703.1 tok/s (219 prompt tok) | VRAM 18589/24576 MiB | gen_n=200
+[10:25:03] 27B_32k_mtp_ngl99: GEN 74.4 tok/s | PREFILL 555.9 tok/s (219 prompt tok) | VRAM 21251/24576 MiB | gen_n=200
+[10:25:20] Devstral24B_32k_ngl99: GEN 50.9 tok/s | PREFILL 1574.5 tok/s (215 prompt tok) | VRAM 16673/24576 MiB | gen_n=200
+[10:25:51] GLM47Flash_32k_ngl99: GEN 134.2 tok/s | PREFILL 853.3 tok/s (209 prompt tok) | VRAM 17989/24576 MiB | gen_n=200
+[10:26:04] Coder30BA3B_32k_ngl99: GEN 177.0 tok/s | PREFILL 1243.8 tok/s (210 prompt tok) | VRAM 19677/24576 MiB | gen_n=200
+[10:26:16] Qwen36_27B_32k_ngl99: GEN 38.5 tok/s | PREFILL 923.5 tok/s (219 prompt tok) | VRAM 19851/24576 MiB | gen_n=200
+[10:26:16] === SWEEP RESULTS ABOVE ===
+[10:26:16] restoring production 27B
+[10:26:31] prod restored: Up 14 seconds (health: starting)
+[10:26:31] === SWEEP DONE ===

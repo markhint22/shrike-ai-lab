@@ -1,0 +1,15 @@
+[08:27:43] pausing queue
+[08:30:23] rolling model back: coder -> 27B
+[08:30:47] 27B health: Up 22 seconds (health: starting)
+[08:30:47] edit-format -> udiff
+[08:30:49] billwatch: reset overnight/feature back 4 commit(s) to pre-cutover 3775681e78a81a818f293f7316142a58c5ee76f8 (backup: coder-trial-backup)
+[08:30:52] gitlark: reset overnight/feature back 44 commit(s) to pre-cutover 3366a480fd4ac07338a50bd80820b20289747112 (backup: coder-trial-backup)
+[08:30:54] iptv_apps: reset overnight/feature back 40 commit(s) to pre-cutover 1223b0535a3a53f60e2ef730aadb06a727be229a (backup: coder-trial-backup)
+[08:30:55] test-automation-agent: nothing to reset (already at/ before cutover)
+[08:30:57] xlite: reset overnight/feature back 9 commit(s) to pre-cutover 88287e1dd6e34f76f25338fef61ae4f663d4c9fc (backup: coder-trial-backup)
+[08:31:00] shrike-labs-website: reset overnight/feature back 50 commit(s) to pre-cutover d278d24c3b2914d90981d6c47217a28fa4cd3a88 (backup: coder-trial-backup)
+[08:31:01] social-media-manager: nothing to reset (already at/ before cutover)
+[08:31:01] re-enabled ongoing-test-automation-agent (+counter reset)
+[08:31:01] re-enabled ongoing-xlite (+counter reset)
+[08:31:01] queue resumed on 27B
+[08:31:01] === RESTORE COMPLETE ===

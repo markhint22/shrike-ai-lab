@@ -1,0 +1,58 @@
+[09:28:04] pausing queue + freeing GPU
+[09:28:29] GPU free
+[09:28:29] === 1/2 re-roll (DEAD_STRONG): enemy_grunt__dead enemy_boss__dead enemy_brute__dead player_heavy__dead enemy_shotgunner__dead ===
+loading SDXL + LoRA for 5 target(s)...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 2055.85it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00, 10.08it/s]Loading pipeline components...:  71%|███████▏  | 5/7 [00:00<00:00, 12.63it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  9.66it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 10.13it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (82 > 77). Running this sequence through the model will result in indexing errors
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (82 > 77). Running this sequence through the model will result in indexing errors
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py:748: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1/5] enemy_grunt__dead.png
+     pixel art, dead mutant corpse sprawled flat on its back, aerial top-down view seen from directly overhead, limbs splayed...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2/5] enemy_boss__dead.png
+     pixel art, dead mutant corpse sprawled flat on its back, aerial top-down view seen from directly overhead, limbs splayed...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3/5] enemy_brute__dead.png
+     pixel art, dead mutant corpse sprawled flat on its back, aerial top-down view seen from directly overhead, limbs splayed...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4/5] player_heavy__dead.png
+     pixel art, dead body corpse sprawled flat on its back, aerial top-down view seen from directly overhead, limbs splayed w...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5/5] enemy_shotgunner__dead.png
+     pixel art, dead body corpse sprawled flat on its back, aerial top-down view seen from directly overhead, limbs splayed w...
+DONE
+[09:29:36] gen ok
+[09:29:36] === 2/2 pixelize all 14 ===
+14 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/units_dead_sprites3
+  enemy_boss__dead  bg=(139, 138, 139) spread=1 sprite
+  enemy_brute__dead  bg=(142, 141, 141) spread=0 sprite
+  enemy_drone__dead  bg=(130, 130, 130) spread=1 sprite
+  enemy_elite__dead  bg=(144, 143, 142) spread=1 sprite
+  enemy_flyer__dead  bg=(142, 142, 141) spread=1 sprite
+  enemy_grunt__dead  bg=(136, 135, 133) spread=0 sprite
+  enemy_minigunner__dead  bg=(132, 132, 132) spread=0 sprite
+  enemy_raider__dead  bg=(124, 120, 116) spread=1 sprite
+  enemy_shield__dead  bg=(139, 138, 137) spread=1 sprite
+  enemy_shotgunner__dead  bg=(79, 76, 74) spread=3 sprite
+  player_heavy__dead  bg=(115, 114, 115) spread=1 sprite
+  player_medic__dead  bg=(129, 129, 123) spread=0 sprite
+  player_sniper__dead  bg=(137, 133, 128) spread=1 sprite
+  player_trooper__dead  bg=(136, 133, 129) spread=1 sprite
+DONE
+[09:29:53] pixelize ok
+[09:29:53] dead frames: 14
+[09:29:53] === RESULTS READY (/run/media/mhintermeister/secondary_drive1/comfy/out/units_dead_sprites3) ===
+[09:29:53] restoring llama + queue
+[09:29:53] === DEAD RE-ROLL WINDOW DONE ===

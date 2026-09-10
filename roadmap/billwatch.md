@@ -1,0 +1,14 @@
+# Roadmap — BillWatch
+**Maturity:** HIGH (live, web+iOS+Android). **Wedge:** simpler/cheaper *federal-only* consumer tracker vs FastDemocracy. **Stopping point:** federal tracking + digests + alerts + AI summaries, mobile at parity → maintain; don't chase 50-state coverage.
+
+## P1 — the consumer wedge (next ~2 quarters)
+- [ ] [P1] [decomposed] Weekly digest (grouped by stage/topic) + endpoint + view {cat: backend+web; size: M; multifile: yes; research: repo}
+- [ ] [P1] [decomposed] Real-time alerts on tracked topics/bills (rules + match) {cat: backend+web; size: M; multifile: yes; research: repo}
+- [ ] [P1] [decomposed] Plain-English "what changed" status summaries {cat: backend; size: S; multifile: no; research: repo}
+## P2 — mobile parity + polish (~q3-4)
+- [ ] [P2] [decomposed] iOS/Android feature parity with web (tracking, digests, alerts) — researched 2026-09-09: both apps are NATIVE (Swift/SwiftUI iOS, Kotlin Android — not Flutter/cross-platform as earlier notes assumed). They've already DIVERGED from EACH OTHER, not just from web: iOS has AICoachingView/AdvancedAnalyticsView/CareerHistoryTimelineView/LegislatorFinanceView/RecommendationsView that Android lacks; Android has BillTrackingScreen/AdvancedFilterScreen/PaywallScreen/TopicsScreen that iOS lacks. This is a 3-way gap (mobile-vs-mobile as much as mobile-vs-web), not a simple "port web to mobile." First real task: audit each of the ~30 backend routers + ~19 web views against what each native app actually consumes, then close mobile-vs-mobile gaps first (cheaper, both apps already have the muscle memory) before mobile-vs-web. {cat: mobile; size: L; research: web}
+- [ ] [P2] [decomposed] Legislator profiles + scorecards surface polish {cat: web; size: M; multifile: yes; research: repo}
+## P3 — depth (~year 2)
+- [ ] [P3] [decomposed] Campaign-finance / vote-record insights as a light premium tier — CORRECTED 2026-09-09: this was tagged needs-research but the core work is ALREADY BUILT — `app/services/fec_api.py` is a real OpenFEC client (api.open.fec.gov), with `campaign_finance_sync_service.py`, `models/campaign_finance.py`, and a router already exposing `/legislator/{id}/finance` + `/disclosures` (tested: tests/test_fec_api.py). The ONLY missing piece is the "premium tier" gate itself — no premium/subscription/tier check currently exists on these endpoints. Decomposes into: (1) add a premium-tier check to the finance/disclosures endpoints (reuse whatever gate billing.py/PremiumView already uses elsewhere), (2) a light paywall/blur treatment on LegislatorFinanceView (iOS) for non-premium users. Small, NOT a research item. {cat: backend+web; size: S (was M); research: none — verified against current code 2026-09-09}
+## Stopping point
+Federal tracking + digests + alerts + AI summaries live on all 3 platforms = COMPLETE. Maintain data sync + upkeep. State-level = out of scope (that's FastDemocracy's game).

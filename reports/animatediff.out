@@ -1,0 +1,21 @@
+[16:34:46] pausing queue + freeing GPU
+[16:36:23] GPU free
+[16:36:23] === animatediff spike (may download the motion adapter first) ===
+downloading/loading SD1.5 + motion adapter...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/huggingface_hub/utils/_validators.py:205: UserWarning: The `local_dir_use_symlinks` argument is deprecated and ignored in `hf_hub_download`. Downloading to a local directory does not use symlinks anymore.
+  warnings.warn(
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+The config attributes {'motion_activation_fn': 'geglu', 'motion_attention_bias': False, 'motion_cross_attention_dim': None} were passed to MotionAdapter, but are not expected and will be ignored. Please verify your config.json configuration file.
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/6 [00:00<?, ?it/s]Loading pipeline components...:  17%|█▋        | 1/6 [00:00<00:01,  4.90it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 5979.75it/s]
+Loading pipeline components...:  33%|███▎      | 2/6 [00:00<00:00,  6.65it/s]Loading pipeline components...:  50%|█████     | 3/6 [00:00<00:00,  5.00it/s]Loading pipeline components...: 100%|██████████| 6/6 [00:00<00:00,  9.44it/s]
+There are modules in UNetMotionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+walk: 16 frames + gif
+DONE
+[16:37:00] animatediff ok
+[16:37:00] frames: 16  gif: 1
+[16:37:00] === RESULTS READY (/run/media/mhintermeister/secondary_drive1/comfy/out/animatediff) ===
+[16:37:00] restoring llama + queue
+[16:37:07] === ANIMATEDIFF WINDOW DONE ===

@@ -1,0 +1,10 @@
+[10:44:52] pausing queue
+[10:47:34] starting tuned config (identical to apply script)
+[10:47:41] healthy VRAM 23861/24576
+[10:47:44] warmup: GEN 86.3 tok/s (gen_n=200)
+[10:47:47] measure-1: GEN 87.3 tok/s (gen_n=200)
+[10:47:49] measure-2: GEN 87.2 tok/s (gen_n=200)
+[10:47:52] measure-3: GEN 87.1 tok/s (gen_n=200)
+[10:47:52] === DIAG RESULTS ABOVE ===
+[10:48:07] prod restored: Up 14 seconds (health: starting)
+[10:48:07] === DIAG DONE ===

@@ -1,0 +1,7 @@
+[08:55:14] paused
+[08:57:54] swapping 27B -> Devstral
+[08:58:18] Devstral healthy: VRAM 19497 MiB, 24576 MiB
+[08:58:34] Devstral speed: 7.4 tok/s (idle)
+[08:58:34] queue resumed on Devstral — running 1500s
+[09:02:35] restoring 27B
+[09:02:50] 27B restored: Up 14 seconds (health: starting)

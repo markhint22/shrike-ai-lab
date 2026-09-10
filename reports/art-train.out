@@ -1,0 +1,44 @@
+[13:01:27] freeing GPU (both model containers)
+[13:02:48] GPU free
+[13:02:48] === training style LoRA on normalized idles ===
+loading SDXL components from single-file...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 1906.35it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00,  8.97it/s]Loading pipeline components...:  71%|███████▏  | 5/7 [00:00<00:00, 12.16it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  9.70it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  9.94it/s]
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+  cached enemy_boss
+  cached enemy_brute
+  cached enemy_drone
+  cached enemy_elite
+  cached enemy_flyer
+  cached enemy_grunt
+  cached enemy_minigunner
+  cached enemy_raider
+  cached enemy_shield
+  cached enemy_shotgunner
+  cached player_heavy
+  cached player_medic
+  cached player_sniper
+  cached player_trooper
+training 23224320 LoRA params, 1400 steps...
+  step 0/1400 loss 0.0082
+  step 100/1400 loss 0.0964
+  step 200/1400 loss 0.0025
+  step 300/1400 loss 0.0497
+  step 400/1400 loss 0.0981
+  step 500/1400 loss 0.1238
+  step 600/1400 loss 0.0086
+  step 700/1400 loss 0.1474
+  step 800/1400 loss 0.0139
+  step 900/1400 loss 0.0859
+  step 1000/1400 loss 0.0099
+  step 1100/1400 loss 0.0363
+  step 1200/1400 loss 0.1141
+  step 1300/1400 loss 0.0241
+  step 1399/1400 loss 0.0924
+DONE — saved LoRA to /run/media/mhintermeister/secondary_drive1/comfy/out/lora
+[13:20:08] train ok
+[13:20:08] lora files: pytorch_lora_weights.safetensors 
+[13:20:08] === RESULTS READY ===
+[13:20:08] === TRAIN WINDOW DONE ===

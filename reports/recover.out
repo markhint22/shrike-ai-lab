@@ -1,0 +1,11 @@
+[09:18:07] killing all bench processes
+[09:18:09] remaining bench procs: 0
+[09:18:09] pausing queue + waiting for lock
+[09:19:10] removing coder candidate container
+[09:19:10] starting 27B
+[09:19:10] 27B health: ok=1 status=Up 16 minutes (healthy)
+[09:19:10] edit-format -> udiff
+[09:19:10] resuming queue
+[09:19:10] containers: shrike-llama-dflash-35b:Up 16 minutes (healthy) 
+[09:19:10] gpu: 20077 MiB, 24576 MiB
+[09:19:10] === RECOVER DONE ===

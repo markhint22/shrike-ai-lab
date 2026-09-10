@@ -1,0 +1,23 @@
+# The 7 managed repo clones - each is its own separate git repo already tracked
+# on GitHub; never nest them inside this one.
+repos/
+
+# High-churn runtime output, not meaningful history.
+logs/
+provision-logs/
+state/
+prework/
+www/
+
+# Python / venv
+.venv/
+__pycache__/
+*.pyc
+
+# Pre-git manual backup files (2026-08 through 2026-09-10) - now obsolete, git
+# history replaces the "copy the file before editing it" pattern. Archived to
+# _archive_pre_git_bak/ rather than deleted; excluded from tracking either way.
+*.bak
+*.bak-*
+*.bak_*
+_archive_pre_git_bak/

@@ -1,0 +1,23 @@
+=== BASELINE (prod: 262144 ctx, MTP n-max 4) via litellm ===
+  8.7 tok/s
+=== stopping prod + waiting for GPU to free ===
+  gpu used=89MiB
+=== TUNED-A: 64k ctx + MTP n-max 16 p-min 0.8 + ngram-cache ===
+  FAILED to start — logs:
+0.00.224.863 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.224.863 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.224.863 W srv  llama_server: -----------------
+0.00.226.184 I srv    load_model: loading model '/models/deepflash/Qwen3.8-27B-Q4_K_M.gguf'
+0.01.368.642 W common_fit_params: failed to fit params to free device memory: n_gpu_layers already set by user to 99, abort
+0.02.338.077 W warning: failed to mlock 1769123840-byte buffer (after previously locking 0 bytes): Cannot allocate memory
+Try increasing RLIMIT_MEMLOCK ('ulimit -l' as root).
+0.04.841.606 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 10174.50 MiB on device 0: cudaMalloc failed: out of memory
+0.04.841.612 E alloc_tensor_range: failed to allocate CUDA0 buffer of size 10668736512
+0.04.845.082 E llama_init_from_model: failed to initialize the context: failed to allocate buffer for rs cache
+0.04.845.091 E cmn  common_init_: failed to create context with model '/models/deepflash/Qwen3.8-27B-Q4_K_M.gguf'
+0.04.845.095 E cmn  common_init_: failed to create context with model '/models/deepflash/Qwen3.8-27B-Q4_K_M.gguf'
+0.04.845.099 E srv    load_model: failed to create_context with model '/models/deepflash/Qwen3.8-27B-Q4_K_M.gguf'
+0.04.845.100 I srv    operator(): operator(): cleaning up before exit...
+0.04.845.682 E srv  llama_server: exiting due to model loading error
+=== TUNED-B: 64k ctx + DFlash2 external drafter (n-max 16 p-min 0.8) ===
+[restore] production: Up 14 seconds (health: starting)

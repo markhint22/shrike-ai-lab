@@ -1,0 +1,11 @@
+[09:19:43] paused
+[09:22:24] swapping 27B -> Coder
+[09:22:39] Coder healthy: VRAM 21423 MiB, 24576 MiB
+[09:22:39] queue resumed on Coder+gate — running 1500s
+[09:49:39] === CODER+GATE BENCH RESULTS (window: 1500s) ===
+      3 pushed(tests:FAIL - see log) 
+      1 no-op
+[09:50:04] net GOOD commits landed (tests:pass): 13
+[09:50:04] === DONE ===
+[09:50:04] restoring 27B
+[09:50:19] 27B restored: Up 14 seconds (health: starting)

@@ -1,0 +1,21 @@
+[Unit]
+Description=Shrike fleet dashboard (private, Tailscale-only static server)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mhintermeister
+WorkingDirectory=/home/mhintermeister/overnight-queue/www
+# Bound to the Tailscale interface IP only (never 0.0.0.0) - unreachable from
+# the LAN or the public internet, only from Tailscale-authed devices. This is
+# the private-hosting half of CLAUDE_QUEUE.md §19's still-open "decide
+# dashboard hosting" item - if that decision later goes the OTHER way (public,
+# via shrike-labs-website), this service can just be disabled; it doesn't
+# preclude that path.
+ExecStart=/usr/bin/python3 -m http.server --bind 100.79.64.64 8090 --directory /home/mhintermeister/overnight-queue/www
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

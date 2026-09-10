@@ -1,0 +1,11 @@
+# Roadmap — shrike-monitor (uptime + heartbeat brick)
+**Maturity:** MEDIUM (monitors/results/incidents exist). **Stopping point:** a COMPLETE, dogfooded v1 that replaces the ad-hoc deploy_watch scripts. INFRASTRUCTURE — reach v1 and freeze.
+
+## P1 — complete v1 (next quarter, then STOP)
+- [ ] [P1] [decomposed] Heartbeat dead-man logic, uptime ratio, http status classifier, incident transitions (pure + wired) {cat: backend; size: M; multifile: yes; research: repo}
+- [ ] [P1] [decomposed] Monitor create validation + ping-token-shown-once security {cat: backend; size: S; multifile: no; research: repo}
+- [ ] [P1] [blocked-ops] Dogfood: replace the fleet's deploy_watch/deploy_health scripts with real monitors {cat: infra; size: M; research: web} -- RESEARCHED 2026-09-09 (Claude): the CODE side is already done (MonitorScheduler actively polls http monitors on interval, checker.py + heartbeat dead-man logic + notifier.py already publishes status transitions to a shrike-notify topic). Nothing left to decompose into a fleet backlog item -- nothing in shrike-monitor's OWN repo needs writing. What remains is pure ops/integration, out of the fleet's per-repo-code-edit model: (1) shrike-monitor isn't deployed anywhere live yet -- deploy it (Railway backend, same pattern as the other 7 apps); (2) register the real production health-check URLs from deploy_watch.sh's SURFACES list as monitors via POST /monitors; (3) decide whether to retire deploy_watch.sh's ad-hoc `hc()` polling in favor of reading GET /monitors/status, or keep deploy_watch.sh for what shrike-monitor CANNOT do (Railway/Vercel deploy-status + auto-enqueue-a-fix, which needs the Railway/Vercel CLIs, not just an HTTP health check). Tagged blocked-ops (not needs-research/ready) so the planner stops re-surfacing this as a fleet gap -- it is a deployment decision for a human/Claude session, not code the 27B can write.
+## P2 — light surface (only if needed)
+- [ ] [P2] [decomposed] Minimal status page/API for the fleet dashboard to read {cat: backend; size: S; multifile: no; research: repo}
+## Stopping point (HARD)
+Once monitors + heartbeats + incidents work and the fleet dogfoods it: **v1 COMPLETE — freeze.** No PagerDuty-scale features. It's a dead-man's-switch + uptime brick.

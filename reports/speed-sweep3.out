@@ -1,0 +1,10 @@
+[10:33:38] pausing queue
+[10:36:20] === MICRO-SWEEP: largest safe ctx @ best KV precision ===
+[10:36:27] 64k_q8kv: FAILED — 0.04.874.211 E srv  llama_server: exiting due to model loading error 
+[10:36:33] 48k_q8kv: FAILED — 0.05.012.188 E srv  llama_server: exiting due to model loading error 
+[10:36:40] 64k_hybrid_k8v4: FAILED — 0.05.068.487 E srv  llama_server: exiting due to model loading error 
+[10:36:47] 96k_q4kv: FAILED — 0.04.881.506 E srv  llama_server: exiting due to model loading error 
+[10:36:47] === SWEEP3 RESULTS ABOVE ===
+[10:36:47] restoring production 27B
+[10:37:02] prod restored: Up 14 seconds (health: starting)
+[10:37:02] === SWEEP3 DONE ===

@@ -1,0 +1,13 @@
+[10:27:44] pausing queue
+[10:28:49] === SPEED SWEEP #2 (research-optimized) — image: ghcr.io/ggml-org/llama.cpp:server-cuda ===
+[10:29:19] 27B_recipe_32k_autofit: GEN 12.8 tok/s | PREFILL 162.1 tok/s (219 tok) | VRAM 17737 MiB | gen_n=200
+[10:29:30] 27B_recipe_32k_ngl99: GEN 86.4 tok/s | PREFILL 576.1 tok/s (219 tok) | VRAM 23011 MiB | gen_n=200
+[10:29:40] 27B_recipe_65k_ngl99: GEN 86.2 tok/s | PREFILL 575.4 tok/s (219 tok) | VRAM 23861 MiB | gen_n=200
+[10:29:50] 27B_recipe_32k_q8kv_ngl99: GEN 80.1 tok/s | PREFILL 576.5 tok/s (219 tok) | VRAM 23523 MiB | gen_n=200
+[10:29:57] Qwen36_27B_mtp8_32k_ngl99: FAILED — 0.04.591.930 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 5386.50 MiB on device 0: cudaMalloc failed: out of memory 0.04.595.895 E srv  llama_server: exiting due to model loading error 
+[10:30:09] Qwen36_27B_draft_32k_ngl99: GEN 38.4 tok/s | PREFILL 935.2 tok/s (219 tok) | VRAM 19795 MiB | gen_n=200
+[10:30:18] GLM47Flash_32k_ngl99: GEN 134.6 tok/s | PREFILL 924.0 tok/s (209 tok) | VRAM 17927 MiB | gen_n=200
+[10:30:18] === SWEEP2 RESULTS ABOVE ===
+[10:30:18] restoring production 27B
+[10:30:32] prod restored: Up 14 seconds (health: starting)
+[10:30:32] === SWEEP2 DONE ===
