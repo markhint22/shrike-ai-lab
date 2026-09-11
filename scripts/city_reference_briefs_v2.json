@@ -1,0 +1,42 @@
+{
+  "_doc": "v2 brief - see docs/art/CITY_TILESET_SYSTEM.md for the full rationale. Walls are now SEAMLESS-TILED (materials[].wall_prompt, generated with circular-padding conv layers, sliced into N segments) instead of independently-generated 'single object' chunks, which the first pass proved don't connect. Corners/end-caps/windows stay bounded single objects (that part of the first pass worked) but reuse each material's own color/texture words so they visually match their wall.",
+  "style": "pixel art",
+  "materials": [
+    {"key": "concrete", "wall_prompt": "gray cracked concrete wall texture, exposed rebar, wasteland ruin",
+      "chunk_material": "gray cracked concrete with exposed rebar"},
+    {"key": "brick", "wall_prompt": "red-brown crumbling old brick wall texture, wasteland ruin",
+      "chunk_material": "crumbling red-brown old brick"},
+    {"key": "rusted_metal", "wall_prompt": "rusted brown corrugated metal sheeting texture, wasteland ruin",
+      "chunk_material": "rusted brown corrugated metal sheeting"},
+    {"key": "scrap_metal", "wall_prompt": "scavenged gray scrap metal patchwork wall texture, wasteland ruin",
+      "chunk_material": "scavenged gray scrap-metal patchwork"},
+    {"key": "sandbag", "wall_prompt": "stacked tan sandbag wall texture, wasteland fortification",
+      "chunk_material": "tan stacked sandbags"}
+  ],
+  "chunk_shapes": [
+    {"key": "corner", "subject": "a single broken rubble chunk, L-shaped corner piece, standing upright"},
+    {"key": "end_cap", "subject": "a single broken rubble chunk, short stub with a rough broken edge, standing upright"},
+    {"key": "window", "subject": "a single broken rubble slab chunk with a square window hole cut through it, standing upright"}
+  ],
+  "chunk_common": {
+    "prefix": "pixel art, gray background, single isolated object",
+    "suffix": "iso angle",
+    "negatives": "blurry, jpeg artifacts, gradient, soft shading, photo, 3d render, text, watermark, multiple objects, cropped, frame, border, clean, shiny, pristine, sci-fi, alien, scenery, landscape, sky, ground plane, floor, multiple buildings, full scene, seamless texture, tiled pattern, repeating pattern, wallpaper, filling the frame, edge to edge"
+  },
+  "floor_tiles": [
+    {"key": "tile_road", "seamless_prompt": "dark asphalt road texture, black-gray cracked pavement, wasteland ruin",
+      "variants": ["plain dark cracked asphalt", "faded yellow-white lane-line markings on dark asphalt"]},
+    {"key": "tile_sidewalk", "seamless_prompt": "light tan cracked concrete sidewalk texture, wasteland ruin",
+      "variants": ["plain light tan cracked concrete", "light tan concrete with weeds growing through cracks"]}
+  ],
+  "fixed_props": [
+    {"key": "oil_drum", "render_style": "upright",
+      "subject": "pixel art, gray background, a single rusty oil drum, cover object",
+      "variants": ["plain rusted drum", "dented battered drum", "leaking toxic sludge drum"],
+      "extra_negatives": "multiple drums, several drums, group of drums, collection, many, duplicate, cloned, repeated, pattern"},
+    {"key": "chainlink_fence", "render_style": "upright",
+      "subject": "pixel art, gray background, single isolated object, a small rectangular metal fence frame holding a torn wire mesh net, standing upright, iso angle",
+      "variants": ["plain rusted metal frame with torn wire mesh", "metal frame with torn wire mesh and a warning sign attached"],
+      "extra_negatives": "rod, torch, stick, pole, staff, weapon"}
+  ]
+}
