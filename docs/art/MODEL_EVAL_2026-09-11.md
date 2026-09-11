@@ -97,10 +97,62 @@ wall/road textures as sprites instead of leaving them opaque as tiles — a
 fixable classifier/filename issue, not a model-quality problem, but one more
 integration cost Z-Image doesn't impose.
 
-**Verdict unchanged: Z-Image-Turbo stays the production model.** Not because
-FLUX is worse in absolute terms — it's a stronger raw image model — but
-because the game ships sprites at 64px and that's the resolution that
-actually matters.
+**Verdict unchanged at 64px: Z-Image-Turbo stays the production model** —
+Not because FLUX is worse in absolute terms — it's a stronger raw image
+model — but because the game ships sprites at 64px and that's the
+resolution that actually matters.
+
+## Follow-up (same day): the resolution itself changed, and so did the winner
+
+The user asked directly: if xlite's sprite/tile resolution were doubled to
+make room for FLUX's extra detail, would FLUX become the right call? Rather
+than guess, ran the actual FLUX output through the real `pixelize3.py`
+pipeline at 64/96/128px side by side with Z-Image. Z-Image still wins at
+64px, but **at 128px FLUX clearly wins** — the extra detail finally has room
+to resolve instead of turning to mush.
+
+That's a bigger decision than swapping models: xlite's `IsoGrid.TILE_WIDTH/
+HEIGHT` (64x32) is load-bearing everywhere (camera zoom bounds, cover-object
+anchoring, health-bar/damage-text offsets, hazard/door decals, ~15 unit test
+assertions). User signed off on the full undertaking - doubled the tile
+footprint to 128x64, rescaled every dependent constant, regenerated all 19
+live game assets with FLUX.1-schnell at the new resolution, verified via the
+full GUT suite (2177 tests, green) plus an in-engine screenshot. Shipped to
+`xlite` (`claude/feature`, commit `0194431`).
+
+Two real integration wrinkles found and handled, not glossed over:
+
+- **FLUX's transformer backbone (FluxTransformer2DModel) has zero Conv2d
+  layers** - the standard "patch every Conv2d to circular padding" seamless-
+  tiling trick (works because SDXL/Z-Image's UNet backbones ARE built from
+  Conv2d) has no unet to patch. Patching only the VAE's 62 Conv2d layers
+  (decode-only, single pass) turned out to be enough anyway - confirmed via
+  a 3x3 self-tile test, only a barely-visible hairline at the seam, not a
+  real one. Worth knowing this isn't guaranteed to generalize to every
+  transformer-based image model, but it worked here.
+- `pixelize3.py`'s tile-vs-sprite classifier (`spread > 45`, corner-color
+  variance) mis-fires on FLUX's cleaner/more-uniform texture corners for
+  standalone terrain tests - not hit in the final production run since
+  xlite's 4 iso tiles go through a dedicated rotate+squash pipeline
+  (`gen_flux_final.py`), not `pixelize3.py`'s sprite/tile auto-classification,
+  but worth flagging if `pixelize3.py` is pointed at FLUX terrain again.
+
+See `docs/art/CITY_TILESET_SYSTEM.md` and the (separate, not-yet-shipped)
+"Modular Ruined-City Terrain" plan for the walls/chunks/corners system this
+did NOT touch - that's a different, larger piece generated a different way,
+out of scope for this pass.
+
+## Files (this follow-up)
+
+- `scripts/eval_flux_schnell.py`, `scripts/flux_eval_window.sh` - the initial
+  A/B/C/D candidate eval (64px verdict).
+- `scripts/gen_flux_final.py` - **the new production generator** for xlite's
+  live asset set at 128px (14 unit sprites + cover crate via floodkey/
+  autocrop/quant, matching `pixelize3.py`'s sprite branch; 4 iso floor/hazard/
+  rubble tiles via quantize + rotate-45 + squash to 128x64, matching
+  `iso_tiles.py`'s technique). Run via a trap-safe GPU window, same
+  pause-queue/free-GPU/restore-on-EXIT pattern as every other art window
+  this session.
 
 ## Files
 
