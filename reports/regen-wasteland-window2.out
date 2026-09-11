@@ -1,0 +1,18 @@
+[16:36:14] pausing queue + freeing GPU
+[16:39:05] GPU free
+loading FLUX.1-schnell (CPU-offloaded)...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 9709.73it/s]
+Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 14.04it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  7.79it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 5906.52it/s]
+Loading pipeline components...:  71%|███████▏  | 5/7 [00:00<00:00,  8.21it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 44.38it/s]
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  7.21it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  7.75it/s]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:28,  9.40s/it] 50%|█████     | 2/4 [00:10<00:09,  4.53s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.97s/it]100%|██████████| 4/4 [00:12<00:00,  2.25s/it]100%|██████████| 4/4 [00:12<00:00,  3.19s/it]
+ALL_DONE wall_wasteland_window
+[16:39:42] gen ok
+[16:39:42] removing hold + resuming
+[16:40:33] verified healthy
+[16:40:33] === REGEN WASTELAND WINDOW2 DONE ===

@@ -21,12 +21,17 @@ for r in $REPOS; do
   [ "$did" -ge "$MAX_PER_RUN" ] && break
   f="repos/$r/OVERNIGHT_PROGRESS.md"; [ -f "$f" ] || continue
   rd="repos/$r"
-  # first AUTO-SKIP parked item that hasn't already been through recovery
-  parked_line="$(grep -nE '^- \[ \] \[AUTO-SKIP' "$f" 2>/dev/null | grep -v 'recovery:' | head -1)"
+  # first parked item that hasn't already been through recovery. Matches BOTH the current
+  # [AUTO-SKIP...] tag AND the retired [HUMAN-ONLY BLOCKED ITEM...] wording an older
+  # ovn_item_guard.sh used to emit - items still carrying that old tag (never migrated) were
+  # otherwise invisible here, so a repo whose parked items happened to predate the wording
+  # change got ZERO automated recovery forever while its budget silently went to other repos
+  # every single run (confirmed live: test-automation-agent, 2026-09-11).
+  parked_line="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | grep -v 'recovery:' | head -1)"
   [ -z "$parked_line" ] && continue
   lnno="${parked_line%%:*}"
-  # the real task text = strip the leading [AUTO-SKIP ...] tag
-  task="$(printf '%s' "${parked_line#*:}" | sed -E 's/^- \[ \] \[AUTO-SKIP[^]]*\][[:space:]]*//')"
+  # the real task text = strip the leading [AUTO-SKIP ...] / [HUMAN-ONLY BLOCKED ITEM ...] tag
+  task="$(printf '%s' "${parked_line#*:}" | sed -E 's/^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*\][[:space:]]*//')"
   [ "${#task}" -lt 15 ] && continue
 
   # compact layout for grounding (reuse real paths)
@@ -69,7 +74,7 @@ PROMPT_END
     # tag the parked line so the NEXT run picks a different parked item (avoids looping on one hard item)
     ./queue.sh hold "$r" >/dev/null 2>&1
     ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
-    sed -i "${lnno}s/\[AUTO-SKIP/[AUTO-SKIP recovery:none/" "$f" 2>/dev/null
+    sed -i -E "${lnno}s/\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)/[\1 recovery:none/" "$f" 2>/dev/null
     ( cd "$rd" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): mark $r parked item recovery-attempted (no decomposition)" && git push -q origin overnight/feature 2>/dev/null || true )
     ./queue.sh release "$r" >/dev/null 2>&1
     continue
@@ -78,7 +83,7 @@ PROMPT_END
   ./queue.sh hold "$r" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   # re-find the line (it may have shifted after the reset)
-  lnno2="$(grep -nE '^- \[ \] \[AUTO-SKIP' "$f" | grep -v 'recovery:' | head -1)"; lnno2="${lnno2%%:*}"
+  lnno2="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" | grep -v 'recovery:' | head -1)"; lnno2="${lnno2%%:*}"
   if [ -n "$lnno2" ]; then
     # pass items + header via FILES (never interpolate multi-line data into python source)
     items_file="$(mktemp)"; printf '%s\n' "$items" > "$items_file"

@@ -1,0 +1,38 @@
+[14:05:52] pausing queue + freeing GPU
+[14:06:41] GPU free
+[14:06:41] === terrain coherence fix (10 items, img2img) ===
+loading FLUX.1-schnell img2img (CPU-offloaded)...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:02,  2.99it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 9523.23it/s]
+Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00,  5.07it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 54.74it/s]
+Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00,  6.38it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 8466.23it/s]
+Loading pipeline components...:  71%|███████▏  | 5/7 [00:00<00:00,  9.34it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  7.88it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  7.10it/s]
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:12<00:12, 12.53s/it]100%|██████████| 2/2 [00:13<00:00,  5.81s/it]100%|██████████| 2/2 [00:13<00:00,  6.82s/it]
+[1/10] floor_wasteland_floor_metal_v2
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.41s/it]100%|██████████| 2/2 [00:10<00:00,  4.53s/it]100%|██████████| 2/2 [00:10<00:00,  5.26s/it]
+[2/10] floor_wasteland_floor_metal_v3
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.18s/it]100%|██████████| 2/2 [00:10<00:00,  4.44s/it]100%|██████████| 2/2 [00:10<00:00,  5.15s/it]
+[3/10] floor_city_sidewalk_v2
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.11s/it]100%|██████████| 2/2 [00:10<00:00,  4.41s/it]100%|██████████| 2/2 [00:10<00:00,  5.11s/it]
+[4/10] floor_city_sidewalk_v3
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.14s/it]100%|██████████| 2/2 [00:10<00:00,  4.42s/it]100%|██████████| 2/2 [00:10<00:00,  5.13s/it]
+[5/10] floor_city_road_v2
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.11s/it]100%|██████████| 2/2 [00:10<00:00,  4.41s/it]100%|██████████| 2/2 [00:10<00:00,  5.11s/it]
+[6/10] floor_city_road_v3
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.15s/it]100%|██████████| 2/2 [00:10<00:00,  4.42s/it]100%|██████████| 2/2 [00:10<00:00,  5.13s/it]
+[7/10] wall_wasteland_pool_v2
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.09s/it]100%|██████████| 2/2 [00:10<00:00,  4.40s/it]100%|██████████| 2/2 [00:10<00:00,  5.10s/it]
+[8/10] wall_wasteland_pool_v3
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.12s/it]100%|██████████| 2/2 [00:10<00:00,  4.41s/it]100%|██████████| 2/2 [00:10<00:00,  5.11s/it]
+[9/10] wall_city_pool_v2
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:09<00:09,  9.11s/it]100%|██████████| 2/2 [00:10<00:00,  4.41s/it]100%|██████████| 2/2 [00:10<00:00,  5.11s/it]
+[10/10] wall_city_pool_v3
+DONE
+[14:10:55] gen ok
+[14:10:55] removing hold + resuming
+[14:11:35] verified healthy
+[14:11:35] === COHERENCE FIX WINDOW DONE ===

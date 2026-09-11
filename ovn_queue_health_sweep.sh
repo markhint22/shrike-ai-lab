@@ -37,7 +37,11 @@ for r in $REPOS; do
   f="repos/$r/OVERNIGHT_PROGRESS.md"; [ -f "$f" ] || continue
   doable="$(grep -E '^- \[ \]' "$f" 2>/dev/null | grep -viE 'AUTO-SKIP|HUMAN-ONLY' | wc -l | tr -d ' ')"
   if [ "${doable:-0}" -eq 0 ]; then
-    parked="$(grep -cE '^- \[ \] \[AUTO-SKIP' "$f" 2>/dev/null | tr -d ' ')"
+    # matches BOTH the current [AUTO-SKIP...] tag and the retired [HUMAN-ONLY BLOCKED ITEM...]
+    # wording an older ovn_item_guard.sh emitted - undercounting here made a repo whose parked
+    # items still carried the old tag look "genuinely out of work" instead of triggering extra
+    # recovery passes (confirmed live: test-automation-agent, 2026-09-11).
+    parked="$(grep -cE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | tr -d ' ')"
     if [ "${parked:-0}" -gt 0 ]; then
       say "$r: doable=0 with ${parked} parked item(s) — pushing $RECOVER_PASSES extra recovery passes"
       for _ in $(seq 1 "$RECOVER_PASSES"); do ./ovn_recover_parked.sh "$r" >/dev/null 2>&1; done

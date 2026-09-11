@@ -1,0 +1,44 @@
+[14:53:33] pausing queue + freeing GPU
+[14:56:25] GPU free
+loading FLUX.1-schnell (CPU-offloaded)...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 1992.42it/s]
+Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:01,  5.35it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:01,  3.69it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][A
+Loading checkpoint shards:  33%|███▎      | 1/3 [00:00<00:00,  6.84it/s][A
+Loading checkpoint shards:  67%|██████▋   | 2/3 [00:00<00:00,  6.68it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  8.12it/s]
+Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:01,  2.95it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:01<00:00,  3.99it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][A
+Loading weights:  59%|█████▉    | 129/219 [00:00<00:00, 1271.22it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 1232.19it/s]
+Loading pipeline components...:  71%|███████▏  | 5/7 [00:01<00:00,  3.12it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:01<00:00,  4.46it/s]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:11<00:33, 11.12s/it] 50%|█████     | 2/4 [00:12<00:10,  5.24s/it] 75%|███████▌  | 3/4 [00:13<00:03,  3.36s/it]100%|██████████| 4/4 [00:14<00:00,  2.48s/it]100%|██████████| 4/4 [00:14<00:00,  3.62s/it]
+DONE base wall_wasteland_straight_ns
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.14s/it] 50%|█████     | 2/4 [00:10<00:08,  4.42s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.92s/it]100%|██████████| 4/4 [00:12<00:00,  2.21s/it]100%|██████████| 4/4 [00:12<00:00,  3.13s/it]
+DONE base wall_city_straight_ns
+loading FLUX.1-schnell img2img (CPU-offloaded)...
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 11035.27it/s]
+
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 53.90it/s]
+Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00, 18.05it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 8704.27it/s]
+Loading pipeline components...:  71%|███████▏  | 5/7 [00:00<00:00, 14.25it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 18.30it/s]
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:12<00:12, 12.71s/it]100%|██████████| 2/2 [00:13<00:00,  5.89s/it]100%|██████████| 2/2 [00:13<00:00,  6.91s/it]
+DONE variant wall_wasteland_pool_v2
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:08<00:08,  8.88s/it]100%|██████████| 2/2 [00:09<00:00,  4.31s/it]100%|██████████| 2/2 [00:09<00:00,  5.00s/it]
+DONE variant wall_wasteland_pool_v3
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.78s/it] 50%|█████     | 2/4 [00:09<00:08,  4.27s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.83s/it]100%|██████████| 4/4 [00:12<00:00,  2.15s/it]100%|██████████| 4/4 [00:12<00:00,  3.03s/it]
+DONE window wall_wasteland_window
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:08<00:08,  8.86s/it]100%|██████████| 2/2 [00:09<00:00,  4.31s/it]100%|██████████| 2/2 [00:09<00:00,  4.99s/it]
+DONE variant wall_city_pool_v2
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:08<00:08,  8.86s/it]100%|██████████| 2/2 [00:09<00:00,  4.31s/it]100%|██████████| 2/2 [00:09<00:00,  4.99s/it]
+DONE variant wall_city_pool_v3
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.84s/it] 50%|█████     | 2/4 [00:09<00:08,  4.30s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.84s/it]100%|██████████| 4/4 [00:12<00:00,  2.16s/it]100%|██████████| 4/4 [00:12<00:00,  3.05s/it]
+DONE window wall_city_window
+ALL_DONE
+[15:00:16] gen ok
+[15:00:16] removing hold + resuming
+[15:01:32] verified healthy
+[15:01:32] === WALL FULLWIDTH WINDOW DONE ===
