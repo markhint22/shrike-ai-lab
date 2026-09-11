@@ -1,0 +1,36 @@
+{
+  "_doc": "Per-mission terrain THEME system (2026-09-11 follow-up to the FLUX 128px art bump). User complaint: the default floor checkers two unrelated-looking materials (floor_metal/floor_tech) every other tile - visually noisy. Fix: one coherent floor material per theme, several wear-variants of THAT material picked per-cell so it doesn't look identically repeated, plus a proper city theme (buildings/walls, burn barrels/cars/buses, streets/sidewalks) as a second setting missions can use. wall_tiling.gd's shape classification (STRAIGHT_NS/EW, CORNER, END_CAP, ISOLATED, WINDOW) is already fully wired into battle.gd/CoverObject - this batch is the 'real art' that plan explicitly deferred.",
+  "themes": {
+    "wasteland": {
+      "floor_variants": [
+        {"key": "floor_metal_v2", "prompt": "seamless top-down rusted riveted metal grate floor, heavy corrosion, wasteland ruin"},
+        {"key": "floor_metal_v3", "prompt": "seamless top-down rusted riveted metal grate floor, deep scratches and grime, wasteland ruin"}
+      ],
+      "wall_material": "scavenged gray scrap metal patchwork wall, riveted plates, wasteland ruin"
+    },
+    "city": {
+      "floor_variants": [
+        {"key": "sidewalk_v1", "prompt": "seamless top-down light tan cracked concrete sidewalk texture, wasteland ruin"},
+        {"key": "sidewalk_v2", "prompt": "seamless top-down light tan cracked concrete sidewalk texture, weeds growing through cracks, wasteland ruin"},
+        {"key": "sidewalk_v3", "prompt": "seamless top-down light tan cracked concrete sidewalk texture, dark stains and debris, wasteland ruin"},
+        {"key": "road_v1", "prompt": "seamless top-down dark asphalt road texture, black-gray cracked pavement, wasteland ruin"},
+        {"key": "road_v2", "prompt": "seamless top-down dark asphalt road texture, faded yellow-white lane-line markings, wasteland ruin"},
+        {"key": "road_v3", "prompt": "seamless top-down dark asphalt road texture, potholes and scattered rubble, wasteland ruin"}
+      ],
+      "wall_material": "crumbling red-brown brick building wall, wasteland ruin",
+      "cover_props": [
+        {"key": "burn_barrel", "prompt": "a single rusty oil drum burn barrel with orange fire glowing inside, cover object"},
+        {"key": "car_wreck", "prompt": "a single wrecked burned-out sedan car, cover object"},
+        {"key": "bus_wreck", "prompt": "a single wrecked abandoned city bus, tall cover object"}
+      ]
+    }
+  },
+  "wall_shapes": [
+    {"key": "straight_ns", "subject": "a single straight building wall segment, north-south orientation, standing upright"},
+    {"key": "straight_ew", "subject": "a single straight building wall segment, east-west orientation, standing upright"},
+    {"key": "corner", "subject": "a single L-shaped building wall corner piece, standing upright"},
+    {"key": "end_cap", "subject": "a single building wall segment with a broken exposed end, standing upright"},
+    {"key": "isolated", "subject": "a single standalone building wall barricade chunk, standing upright"},
+    {"key": "window", "subject": "a single building wall segment with a square window hole cut through it, standing upright"}
+  ]
+}
