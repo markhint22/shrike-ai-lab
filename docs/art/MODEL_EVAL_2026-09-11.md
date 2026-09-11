@@ -10,12 +10,10 @@ production pipeline (SDXL 1.0 + pixel-art-xl LoRA) on the SAME prompts.
 - **Z-Image-Turbo** (Tongyi-MAI/Alibaba, 6B, Apache 2.0, ungated) — 9 steps.
 - **LLaDA-Image-Turbo** (inclusionAI, 6B DiT + full VLM text encoder, Apache
   2.0) — the model specifically asked about. 4 steps.
-- **FLUX.1-schnell** — considered, dropped: the official diffusers-format
-  repo is gated (requires an HF account + click-through license we don't
-  have credentials for); the only ungated mirrors are single merged
-  checkpoints without the separate text-encoder/VAE components a full
-  diffusers pipeline needs. Not worth assembling from scattered sources
-  given Z-Image was already available ungated with comparable standing.
+- **FLUX.1-schnell** (Black Forest Labs, 12B, Apache 2.0) — initially
+  dropped for the reason below, then re-tested after the user supplied a
+  personal HF token and clicked through the model's license gate. See
+  "FLUX.1-schnell: re-tested" below for the full result.
 
 ## Result: Z-Image-Turbo wins, now the production model
 
@@ -60,6 +58,49 @@ custom pipeline code (released 2026-09-04, one week before this eval) not
 yet hardened against CPU offloading, not a quick fix. Worth revisiting once
 the repo matures, or on hardware with enough VRAM (~32-40GB+, unconfirmed)
 to skip offloading entirely.
+
+## FLUX.1-schnell: re-tested, doesn't change the verdict
+
+Originally skipped because the official diffusers-format repo is gated
+(requires an HF account + license click-through) and the only ungated
+mirrors are single merged checkpoints missing the separate text-encoder/VAE
+components a full diffusers pipeline needs. The user supplied a personal HF
+token and, after a 403 `GatedRepoError` (valid token, but the account hadn't
+yet clicked "Agree and access repository" on the model page — a real human
+step, not something fixable from the server side), accepted the license and
+the download proceeded.
+
+Ran the identical 5-prompt set at FLUX's own recommended settings (4 steps,
+guidance 0.0, CPU-offloaded — the 12B transformer + T5-XXL text encoder
+together exceed the 24GB card in bf16, `enable_model_cpu_offload()` plus a
+CPU-device generator, both required together or you get a device-mismatch
+error).
+
+**Result: best raw 1024px quality of any candidate tested, but that doesn't
+matter here.** FLUX's sprites and terrain were visibly richer/more detailed
+than Z-Image's on identical prompts. But downscaled through the same
+`pixelize3.py` pipeline to the game's actual 64x64 sprite resolution, that
+extra detail turns into mush — fine features that read cleanly at 1024px
+collapse into noise once resized down. Z-Image's simpler, bolder shapes stay
+legible at 64px. This was only caught by checking the `@64_preview.png`
+output specifically, not the raw generation — judging by the final target
+resolution, not the generator's native resolution, is the right way to
+evaluate any of these models for pixel-art sprite work.
+
+Two smaller gaps: the wrecked-car prompt (verbatim identical to the one
+Z-Image rendered in the needed isometric 3/4 box angle) came out in a flat
+side profile instead — likely fixable with more angle-prompting, but Z-Image
+didn't need any. And FLUX's cleaner/more uniform texture corners have lower
+corner-color variance than Z-Image's, which tripped `pixelize3.py`'s
+tile-vs-sprite classifier (`spread > 45` heuristic) into floodkey-treating
+wall/road textures as sprites instead of leaving them opaque as tiles — a
+fixable classifier/filename issue, not a model-quality problem, but one more
+integration cost Z-Image doesn't impose.
+
+**Verdict unchanged: Z-Image-Turbo stays the production model.** Not because
+FLUX is worse in absolute terms — it's a stronger raw image model — but
+because the game ships sprites at 64px and that's the resolution that
+actually matters.
 
 ## Files
 
