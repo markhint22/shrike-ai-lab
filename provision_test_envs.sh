@@ -62,7 +62,23 @@ for t in "${TARGETS[@]}"; do
       STATUS=1
     fi
   else
-    npm install --no-audit --no-fund > "$LOG" 2>&1
+    # 2026-09-11 fix: billwatch-web's and iptv-web's REAL node_modules each turned into a
+    # symlink pointing AT ITSELF overnight (mechanism never conclusively pinned down - nothing
+    # in this pipeline is known to write a node_modules symlink directly into a main clone,
+    # only into isolated stage-runner worktrees), which crashed aider's file-scan on every
+    # single overnight cycle for hours (OSError: too many levels of symlinks -> uncaught
+    # RuntimeError, misclassified as "model-api-error" since the crash looks like a failed
+    # model turn). This runs every 2h across every repo regardless of cause, so self-healing
+    # HERE bounds the damage to at most ~2h instead of persisting for a whole night: if
+    # node_modules is a symlink that doesn't resolve to a real, distinct directory, remove it
+    # first so npm install starts clean instead of tripping over it.
+    if [ -L "node_modules" ] && [ "$(find -L "node_modules" -maxdepth 0 2>/dev/null | wc -l)" -eq 0 ]; then
+      echo "  node_modules is an unresolvable symlink (self-referencing or broken) - removing before install" > "$LOG"
+      rm -f "node_modules"
+    else
+      : > "$LOG"   # fresh log each run (matches the python branch's venv-creation reset below)
+    fi
+    npm install --no-audit --no-fund >> "$LOG" 2>&1
     STATUS=$?
   fi
 

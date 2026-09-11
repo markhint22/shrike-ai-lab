@@ -124,6 +124,32 @@ reset_home  # empty repos/ -> every target is missing-dir, none are real failure
 RUN >/dev/null 2>&1 || rc2=$?
 ok "an all-missing-dir run (no real install attempted) still exits 0" "[ '$rc2' -eq 0 ]"
 
+# --- H: FIXED BUG regression guard (2026-09-11) — billwatch-web's and iptv-web's REAL
+# node_modules each turned into a symlink pointing AT ITSELF overnight, crashing aider's
+# file-scan on every single cycle for hours (misclassified as "model-api-error"). This runs
+# every 2h against every repo, so self-healing here bounds the exposure to ~2h instead of a
+# whole night: a self-referencing (or otherwise unresolvable) node_modules symlink must be
+# removed BEFORE npm install runs, not left in place to keep crashing every future cycle. ---
+reset_home
+TDIR="$tmp/home/overnight-queue/repos/billwatch/billwatch-web"
+mkdir -p "$TDIR"
+ln -s "$TDIR/node_modules" "$TDIR/node_modules"   # the exact self-referencing shape found live
+ok "sanity: the pre-seeded symlink is genuinely unresolvable" "! realpath '$TDIR/node_modules' >/dev/null 2>&1"
+RUN >/dev/null 2>&1
+ok "the broken self-referencing symlink is gone after the run" "[ ! -e '$TDIR/node_modules' ] || [ ! -L '$TDIR/node_modules' ]"
+ok "the target still reports ok (npm ran cleanly once the bad link was cleared)" \
+   "grep -q '^billwatch,billwatch-web,node,ok$' '$CSV'"
+ok "the log explains the self-heal" "grep -q 'unresolvable symlink' \"$tmp/home/overnight-queue/provision-logs/billwatch__billwatch-web.log\""
+
+# --- I: a HEALTHY, real (non-self-referencing) node_modules must be left completely alone ---
+reset_home
+TDIR2="$tmp/home/overnight-queue/repos/billwatch/billwatch-web"
+mkdir -p "$TDIR2/node_modules/some-real-package"
+RUN >/dev/null 2>&1
+ok "a real, resolvable node_modules directory is untouched" "[ -d '$TDIR2/node_modules/some-real-package' ]"
+ok "no false-positive self-heal log line for a healthy directory" \
+   "! grep -q 'unresolvable symlink' \"$tmp/home/overnight-queue/provision-logs/billwatch__billwatch-web.log\""
+
 rm -rf "$tmp"
 echo "provision_test_envs: $P passed, $F failed"
 [ "$F" -eq 0 ]

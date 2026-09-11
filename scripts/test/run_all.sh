@@ -54,5 +54,6 @@ echo; echo "===== Dedupe progress headers (merge order, non-adjacent collapse) =
 echo; echo "===== update_progress.py (DONE/NEW/DECISION trailer application) ====="; python3 test_update_progress.py || rc=1
 echo; echo "===== Git sync (auto-commit+push overnight-queue itself to shrike-ai-lab) ====="; bash test_git_sync.sh || rc=1
 echo; echo "===== Generate-items self-generation (T1 tagging) ====="; python3 test_generate_items.py || rc=1
+echo; echo "===== Queue health sweep (auto-recover starved repos, report dupes/already-done) ====="; bash test_queue_health_sweep.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
