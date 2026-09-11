@@ -1,0 +1,102 @@
+[21:29:22] pausing queue + freeing GPU
+[21:29:55] GPU free
+[21:29:55] === GENERATING (targets: props) ===
+loading SDXL + LoRA...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 2170.04it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 15.65it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  9.89it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  8.46it/s]There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 10.14it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (103 > 77). Running this sequence through the model will result in indexing errors
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (103 > 77). Running this sequence through the model will result in indexing errors
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py:748: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+prop done: oil_drum
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+prop done: chainlink_fence
+DONE
+[21:32:15] generation ok
+[21:32:15] === ISOLATING CHUNKS (pixelize3.py) ===
+45 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/city_tileset_v2/chunks_sprites3
+  chainlink_fence__v0__s0  bg=(177, 176, 177) spread=1 sprite
+  chainlink_fence__v0__s1  bg=(155, 153, 154) spread=1 sprite
+  chainlink_fence__v0__s2  bg=(170, 169, 171) spread=1 sprite
+  chainlink_fence__v1__s0  bg=(168, 167, 168) spread=1 sprite
+  chainlink_fence__v1__s1  bg=(166, 165, 166) spread=0 sprite
+  chainlink_fence__v1__s2  bg=(162, 160, 162) spread=1 sprite
+  corner_brick__s0  bg=(168, 168, 170) spread=1 sprite
+  corner_brick__s1  bg=(164, 165, 167) spread=1 sprite
+  corner_concrete__s0  bg=(173, 171, 173) spread=1 sprite
+  corner_concrete__s1  bg=(176, 175, 176) spread=1 sprite
+  corner_rusted_metal__s0  bg=(162, 161, 163) spread=1 sprite
+  corner_rusted_metal__s1  bg=(152, 151, 153) spread=1 sprite
+  corner_sandbag__s0  bg=(163, 162, 159) spread=1 sprite
+  corner_sandbag__s1  bg=(177, 177, 178) spread=0 sprite
+  corner_scrap_metal__s0  bg=(154, 153, 154) spread=1 sprite
+  corner_scrap_metal__s1  bg=(176, 176, 176) spread=1 sprite
+  end_cap_brick__s0  bg=(167, 166, 167) spread=0 sprite
+  end_cap_brick__s1  bg=(136, 117, 111) spread=100 TILE
+  end_cap_concrete__s0  bg=(174, 173, 174) spread=1 sprite
+  end_cap_concrete__s1  bg=(169, 168, 169) spread=1 sprite
+  end_cap_rusted_metal__s0  bg=(166, 166, 167) spread=0 sprite
+  end_cap_rusted_metal__s1  bg=(167, 166, 167) spread=0 sprite
+  end_cap_sandbag__s0  bg=(168, 164, 160) spread=0 sprite
+  end_cap_sandbag__s1  bg=(162, 162, 163) spread=0 sprite
+  end_cap_scrap_metal__s0  bg=(175, 174, 174) spread=1 sprite
+  end_cap_scrap_metal__s1  bg=(165, 164, 166) spread=1 sprite
+  oil_drum__v0__s0  bg=(137, 137, 138) spread=1 sprite
+  oil_drum__v0__s1  bg=(164, 164, 164) spread=1 sprite
+  oil_drum__v0__s2  bg=(153, 153, 154) spread=0 sprite
+  oil_drum__v1__s0  bg=(150, 150, 151) spread=1 sprite
+  oil_drum__v1__s1  bg=(159, 159, 160) spread=0 sprite
+  oil_drum__v1__s2  bg=(154, 154, 154) spread=1 sprite
+  oil_drum__v2__s0  bg=(162, 162, 165) spread=0 sprite
+  oil_drum__v2__s1  bg=(152, 152, 153) spread=1 sprite
+  oil_drum__v2__s2  bg=(157, 156, 157) spread=0 sprite
+  window_brick__s0  bg=(168, 168, 170) spread=1 sprite
+  window_brick__s1  bg=(166, 166, 168) spread=0 sprite
+  window_concrete__s0  bg=(157, 156, 157) spread=1 sprite
+  window_concrete__s1  bg=(158, 157, 158) spread=1 sprite
+  window_rusted_metal__s0  bg=(168, 167, 168) spread=0 sprite
+  window_rusted_metal__s1  bg=(165, 165, 166) spread=1 sprite
+  window_sandbag__s0  bg=(163, 163, 164) spread=0 sprite
+  window_sandbag__s1  bg=(166, 166, 166) spread=1 sprite
+  window_scrap_metal__s0  bg=(158, 157, 159) spread=1 sprite
+  window_scrap_metal__s1  bg=(158, 158, 159) spread=1 sprite
+DONE
+[21:33:11] isolation ok
+[21:33:11] isolated chunks: 45
+[21:33:11] === RESULTS READY ===
+[21:33:11] removing hold + resuming (watcher restores 27B within ~1min)
+[21:34:32] verified: shrike-llama-dflash-35b is healthy
+[21:34:32] === ART CITY TILESET WINDOW DONE ===

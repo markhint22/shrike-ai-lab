@@ -120,8 +120,15 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   local tier cat cls sev st attempt tl src dur
   attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"
   # tier + category from the ITEM the model actually saw (task_log has the item text +
-  # the file paths it touched), falling back to the task prompt.
-  src="$( { head -c 6000 "$tl" 2>/dev/null; printf ' %s' "${4:-}"; } | tr 'A-Z' 'a-z' )"
+  # the file paths it touched), falling back to the task prompt. 2026-09-10: was head -c 6000 -
+  # a long AUTO-SKIP-after-N-cycles prefix (often 80-100+ chars) plus normal aider preamble
+  # (repo-map, tool-loading, the scout PLAN/VERDICT text) routinely pushed the real [T#] tag
+  # past that cutoff before it was ever seen (confirmed live: a real [T1] tag sitting at byte
+  # 10116 of a 20604-byte log, past the 6000-byte window). This was the largest remaining
+  # source of tier=? in outcome stats after the self-generation-tagging fix - not a missing-tag
+  # problem but a truncated-read one. 40000 comfortably covers this class of log with headroom
+  # while still bounding a pathological giant pytest-failure dump.
+  src="$( { head -c 40000 "$tl" 2>/dev/null; printf ' %s' "${4:-}"; } | tr 'A-Z' 'a-z' )"
   tier="$(printf '%s' "$src" | grep -oE '\[t[1-5]\]|·t[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"   # explicit tier TAG only (was: any loose t<digit> -> wrong tiers)
   case "$src" in
     *.gd*|*godot*|*gut*)                         cat=godot;;

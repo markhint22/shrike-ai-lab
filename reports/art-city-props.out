@@ -1,4 +1,648 @@
-[17:59:15] pausing queue + freeing GPU (both model containers)
-[17:59:39] removing art hold + resuming (watcher restores 27B)
-[17:59:45] verified: shrike-llama-dflash-35b is back up
-[17:59:45] === ART CITY WINDOW DONE ===
+[18:13:40] pausing queue + freeing GPU (both model containers)
+[18:16:20] GPU free
+[18:16:20] === GENERATING (SEEDS_PER_VARIANT=3, modules: wall_run_a wall_run_b wall_corner wall_end_cap wall_window sandbag_wall chainlink_fence oil_drum road_barricade debris_pile concrete_barrier) ===
+108 renders planned -> /run/media/mhintermeister/secondary_drive1/comfy/out/city_props
+loading SDXL + pixel-art LoRA...
+Fetching 17 files:   0%|          | 0/17 [00:00<?, ?it/s]Fetching 17 files: 100%|██████████| 17/17 [00:00<00:00, 1904.92it/s]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 15.55it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  9.76it/s]There are modules in UNet2DConditionModel that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  8.46it/s]There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 10.13it/s]
+No LoRA keys associated to CLIPTextModel found with the prefix='text_encoder'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModel related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+No LoRA keys associated to CLIPTextModelWithProjection found with the prefix='text_encoder_2'. This is safe to ignore if LoRA state dict didn't originally have any CLIPTextModelWithProjection related params. You can also try specifying `prefix=None` to resolve the warning. Otherwise, open an issue if you think it's unexpected: https://github.com/huggingface/diffusers/issues/new
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (79 > 77). Running this sequence through the model will result in indexing errors
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (79 > 77). Running this sequence through the model will result in indexing errors
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py:748: FutureWarning: `upcast_vae` is deprecated and will be removed in version 1.0.0. `upcast_vae` is deprecated. Please use `pipe.vae.to(torch.float32)`. For more details, please refer to: https://github.com/huggingface/diffusers/pull/12619#issue-3606633695.
+  deprecate(
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[1/108] wall_run_a__v0__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, gr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[2/108] wall_run_a__v0__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, gr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[3/108] wall_run_a__v0__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, gr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[4/108] wall_run_a__v1__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, ru...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[5/108] wall_run_a__v1__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, ru...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[6/108] wall_run_a__v1__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, ru...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[7/108] wall_run_a__v2__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, cr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[8/108] wall_run_a__v2__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, cr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[9/108] wall_run_a__v2__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, cr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[10/108] wall_run_a__v3__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, sc...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[11/108] wall_run_a__v3__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, sc...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[12/108] wall_run_a__v3__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, sc...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[13/108] wall_run_a__v4__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, ta...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[14/108] wall_run_a__v4__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, ta...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[15/108] wall_run_a__v4__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, ta...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[16/108] wall_run_b__v0__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[17/108] wall_run_b__v0__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[18/108] wall_run_b__v0__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[19/108] wall_run_b__v1__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[20/108] wall_run_b__v1__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[21/108] wall_run_b__v1__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[22/108] wall_run_b__v2__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[23/108] wall_run_b__v2__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[24/108] wall_run_b__v2__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[25/108] wall_run_b__v3__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[26/108] wall_run_b__v3__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[27/108] wall_run_b__v3__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[28/108] wall_run_b__v4__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[29/108] wall_run_b__v4__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[30/108] wall_run_b__v4__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab, rectangular chunk, standing upright, di...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[31/108] wall_corner__v0__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[32/108] wall_corner__v0__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[33/108] wall_corner__v0__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[34/108] wall_corner__v1__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[35/108] wall_corner__v1__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[36/108] wall_corner__v1__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[37/108] wall_corner__v2__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[38/108] wall_corner__v2__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[39/108] wall_corner__v2__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[40/108] wall_corner__v3__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[41/108] wall_corner__v3__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[42/108] wall_corner__v3__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[43/108] wall_corner__v4__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[44/108] wall_corner__v4__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[45/108] wall_corner__v4__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, L-shaped corner piece, standing uprigh...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[46/108] wall_end_cap__v0__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[47/108] wall_end_cap__v0__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[48/108] wall_end_cap__v0__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[49/108] wall_end_cap__v1__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[50/108] wall_end_cap__v1__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[51/108] wall_end_cap__v1__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[52/108] wall_end_cap__v2__s0
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[53/108] wall_end_cap__v2__s1
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[54/108] wall_end_cap__v2__s2
+     pixel art, gray background, single isolated object, a single broken rubble chunk, short stub with a rough broken edge, s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[55/108] wall_window__v0__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[56/108] wall_window__v0__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[57/108] wall_window__v0__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[58/108] wall_window__v1__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[59/108] wall_window__v1__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[60/108] wall_window__v1__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[61/108] wall_window__v2__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[62/108] wall_window__v2__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[63/108] wall_window__v2__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[64/108] wall_window__v3__s0
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[65/108] wall_window__v3__s1
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[66/108] wall_window__v3__s2
+     pixel art, gray background, single isolated object, a single broken rubble slab chunk with a square window hole cut thro...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[67/108] oil_drum__v0__s0
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, plain rusted dr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[68/108] oil_drum__v0__s1
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, plain rusted dr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[69/108] oil_drum__v0__s2
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, plain rusted dr...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[70/108] oil_drum__v1__s0
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, dented battered...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[71/108] oil_drum__v1__s1
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, dented battered...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[72/108] oil_drum__v1__s2
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, dented battered...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[73/108] oil_drum__v2__s0
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, leaking toxic s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[74/108] oil_drum__v2__s1
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, leaking toxic s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[75/108] oil_drum__v2__s2
+     pixel art, gray background, single isolated object, a single rusty oil drum, one object only, low cover, leaking toxic s...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[76/108] sandbag_wall__v0__s0
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, plai...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[77/108] sandbag_wall__v0__s1
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, plai...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[78/108] sandbag_wall__v0__s2
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, plai...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[79/108] sandbag_wall__v1__s0
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, torn...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[80/108] sandbag_wall__v1__s1
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, torn...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[81/108] sandbag_wall__v1__s2
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, torn...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[82/108] sandbag_wall__v2__s0
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, tan ...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[83/108] sandbag_wall__v2__s1
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, tan ...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[84/108] sandbag_wall__v2__s2
+     pixel art, gray background, single isolated object, a single small mound of stacked tan sandbags, low cover object, tan ...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[85/108] concrete_barrier__v0__s0
+     pixel art, gray background, single isolated object, a single gray concrete rubble block, chunky low cover object, plain ...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[86/108] concrete_barrier__v0__s1
+     pixel art, gray background, single isolated object, a single gray concrete rubble block, chunky low cover object, plain ...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[87/108] concrete_barrier__v0__s2
+     pixel art, gray background, single isolated object, a single gray concrete rubble block, chunky low cover object, plain ...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[88/108] concrete_barrier__v1__s0
+     pixel art, gray background, single isolated object, a single gray concrete rubble block, chunky low cover object, gray c...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[89/108] concrete_barrier__v1__s1
+     pixel art, gray background, single isolated object, a single gray concrete rubble block, chunky low cover object, gray c...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[90/108] concrete_barrier__v1__s2
+     pixel art, gray background, single isolated object, a single gray concrete rubble block, chunky low cover object, gray c...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[91/108] chainlink_fence__v0__s0
+     pixel art, gray background, single isolated object, a single torn wire-mesh scrap chunk, propped upright, low cover obje...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[92/108] chainlink_fence__v0__s1
+     pixel art, gray background, single isolated object, a single torn wire-mesh scrap chunk, propped upright, low cover obje...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[93/108] chainlink_fence__v0__s2
+     pixel art, gray background, single isolated object, a single torn wire-mesh scrap chunk, propped upright, low cover obje...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[94/108] chainlink_fence__v1__s0
+     pixel art, gray background, single isolated object, a single torn wire-mesh scrap chunk, propped upright, low cover obje...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[95/108] chainlink_fence__v1__s1
+     pixel art, gray background, single isolated object, a single torn wire-mesh scrap chunk, propped upright, low cover obje...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[96/108] chainlink_fence__v1__s2
+     pixel art, gray background, single isolated object, a single torn wire-mesh scrap chunk, propped upright, low cover obje...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[97/108] road_barricade__v0__s0
+     pixel art, gray background, single isolated object, a single makeshift wasteland barricade block of scrap and barrels, o...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[98/108] road_barricade__v0__s1
+     pixel art, gray background, single isolated object, a single makeshift wasteland barricade block of scrap and barrels, o...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[99/108] road_barricade__v0__s2
+     pixel art, gray background, single isolated object, a single makeshift wasteland barricade block of scrap and barrels, o...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[100/108] road_barricade__v1__s0
+     pixel art, gray background, single isolated object, a single makeshift wasteland barricade block of scrap and barrels, o...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[101/108] road_barricade__v1__s1
+     pixel art, gray background, single isolated object, a single makeshift wasteland barricade block of scrap and barrels, o...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[102/108] road_barricade__v1__s2
+     pixel art, gray background, single isolated object, a single makeshift wasteland barricade block of scrap and barrels, o...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[103/108] debris_pile__v0__s0
+     pixel art, gray background, single isolated object, a single pile of gray rubble and scrap debris, cover object, gray co...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[104/108] debris_pile__v0__s1
+     pixel art, gray background, single isolated object, a single pile of gray rubble and scrap debris, cover object, gray co...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[105/108] debris_pile__v0__s2
+     pixel art, gray background, single isolated object, a single pile of gray rubble and scrap debris, cover object, gray co...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[106/108] debris_pile__v1__s0
+     pixel art, gray background, single isolated object, a single pile of gray rubble and scrap debris, cover object, gray tw...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[107/108] debris_pile__v1__s1
+     pixel art, gray background, single isolated object, a single pile of gray rubble and scrap debris, cover object, gray tw...
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[108/108] debris_pile__v1__s2
+     pixel art, gray background, single isolated object, a single pile of gray rubble and scrap debris, cover object, gray tw...
+DONE
+[18:32:04] generation ok
+[18:32:04] raw renders: 189
+[18:32:04] === ISOLATING (pixelize3.py) ===
+189 raw -> /run/media/mhintermeister/secondary_drive1/comfy/out/city_props_sprites3
+  car_wreck__v0__s0  bg=(173, 99, 159) spread=1 sprite
+  car_wreck__v0__s1  bg=(166, 103, 156) spread=1 sprite
+  car_wreck__v0__s2  bg=(189, 127, 180) spread=1 sprite
+  car_wreck__v1__s0  bg=(180, 168, 177) spread=0 sprite
+  car_wreck__v1__s1  bg=(158, 59, 140) spread=1 sprite
+  car_wreck__v1__s2  bg=(186, 114, 169) spread=2 sprite
+  car_wreck__v2__s0  bg=(186, 96, 160) spread=1 sprite
+  car_wreck__v2__s1  bg=(166, 73, 137) spread=1 sprite
+  car_wreck__v2__s2  bg=(207, 130, 182) spread=2 sprite
+  car_wreck__v3__s0  bg=(181, 142, 180) spread=1 sprite
+  car_wreck__v3__s1  bg=(162, 79, 144) spread=0 sprite
+  car_wreck__v3__s2  bg=(174, 110, 160) spread=57 TILE
+  chainlink_fence__v0__s0  bg=(181, 181, 182) spread=1 sprite
+  chainlink_fence__v0__s1  bg=(168, 167, 168) spread=1 sprite
+  chainlink_fence__v0__s2  bg=(175, 174, 175) spread=0 sprite
+  chainlink_fence__v1__s0  bg=(170, 169, 170) spread=0 sprite
+  chainlink_fence__v1__s1  bg=(174, 173, 174) spread=0 sprite
+  chainlink_fence__v1__s2  bg=(166, 166, 167) spread=1 sprite
+  concrete_barrier__v0__s0  bg=(159, 158, 159) spread=1 sprite
+  concrete_barrier__v0__s1  bg=(153, 153, 154) spread=1 sprite
+  concrete_barrier__v0__s2  bg=(164, 164, 165) spread=0 sprite
+  concrete_barrier__v1__s0  bg=(168, 168, 169) spread=1 sprite
+  concrete_barrier__v1__s1  bg=(155, 154, 157) spread=1 sprite
+  concrete_barrier__v1__s2  bg=(170, 169, 171) spread=1 sprite
+  debris_pile__v0__s0  bg=(188, 187, 188) spread=0 sprite
+  debris_pile__v0__s1  bg=(174, 173, 174) spread=0 sprite
+  debris_pile__v0__s2  bg=(168, 167, 169) spread=0 sprite
+  debris_pile__v1__s0  bg=(167, 166, 167) spread=0 sprite
+  debris_pile__v1__s1  bg=(170, 169, 171) spread=1 sprite
+  debris_pile__v1__s2  bg=(96, 92, 90) spread=13 sprite
+  dumpster__v0__s0  bg=(194, 131, 189) spread=1 sprite
+  dumpster__v0__s1  bg=(198, 193, 195) spread=1 sprite
+  dumpster__v0__s2  bg=(201, 132, 172) spread=1 sprite
+  dumpster__v1__s0  bg=(200, 129, 177) spread=1 sprite
+  dumpster__v1__s1  bg=(201, 123, 170) spread=1 sprite
+  dumpster__v1__s2  bg=(210, 142, 189) spread=1 sprite
+  oil_drum__v0__s0  bg=(147, 147, 147) spread=9 sprite
+  oil_drum__v0__s1  bg=(173, 173, 174) spread=1 sprite
+  oil_drum__v0__s2  bg=(156, 156, 157) spread=1 sprite
+  oil_drum__v1__s0  bg=(162, 162, 163) spread=0 sprite
+  oil_drum__v1__s1  bg=(164, 164, 165) spread=0 sprite
+  oil_drum__v1__s2  bg=(161, 161, 162) spread=1 sprite
+  oil_drum__v2__s0  bg=(153, 152, 153) spread=1 sprite
+  oil_drum__v2__s1  bg=(150, 150, 151) spread=0 sprite
+  oil_drum__v2__s2  bg=(166, 165, 166) spread=1 sprite
+  road_barricade__v0__s0  bg=(145, 145, 146) spread=1 sprite
+  road_barricade__v0__s1  bg=(156, 156, 157) spread=0 sprite
+  road_barricade__v0__s2  bg=(152, 152, 153) spread=0 sprite
+  road_barricade__v1__s0  bg=(153, 153, 154) spread=1 sprite
+  road_barricade__v1__s1  bg=(153, 153, 154) spread=1 sprite
+  road_barricade__v1__s2  bg=(154, 153, 154) spread=1 sprite
+  sandbag_wall__v0__s0  bg=(166, 166, 168) spread=0 sprite
+  sandbag_wall__v0__s1  bg=(167, 166, 166) spread=0 sprite
+  sandbag_wall__v0__s2  bg=(173, 173, 173) spread=1 sprite
+  sandbag_wall__v1__s0  bg=(143, 138, 135) spread=1 sprite
+  sandbag_wall__v1__s1  bg=(151, 149, 149) spread=1 sprite
+  sandbag_wall__v1__s2  bg=(172, 170, 166) spread=1 sprite
+  sandbag_wall__v2__s0  bg=(177, 177, 178) spread=0 sprite
+  sandbag_wall__v2__s1  bg=(171, 170, 171) spread=0 sprite
+  sandbag_wall__v2__s2  bg=(172, 172, 173) spread=0 sprite
+  shipping_container__v0__s0  bg=(172, 160, 167) spread=1 sprite
+  shipping_container__v0__s1  bg=(244, 244, 244) spread=0 sprite
+  shipping_container__v0__s2  bg=(128, 49, 77) spread=15 sprite
+  shipping_container__v1__s0  bg=(135, 47, 94) spread=15 sprite
+  shipping_container__v1__s1  bg=(160, 68, 141) spread=2 sprite
+  shipping_container__v1__s2  bg=(167, 65, 141) spread=1 sprite
+  tile_curb__v0__s0  bg=(149, 137, 125) spread=52 TILE
+  tile_curb__v0__s1  bg=(101, 91, 82) spread=4 TILE
+  tile_curb__v0__s2  bg=(95, 82, 73) spread=11 TILE
+  tile_door__v0__s0  bg=(189, 173, 162) spread=169 TILE
+  tile_door__v0__s1  bg=(247, 246, 246) spread=0 TILE
+  tile_door__v0__s2  bg=(186, 170, 155) spread=13 TILE
+  tile_door__v1__s0  bg=(163, 132, 89) spread=72 TILE
+  tile_door__v1__s1  bg=(146, 113, 75) spread=34 TILE
+  tile_door__v1__s2  bg=(143, 119, 92) spread=54 TILE
+  tile_door__v2__s0  bg=(128, 109, 87) spread=88 TILE
+  tile_door__v2__s1  bg=(139, 118, 95) spread=29 TILE
+  tile_door__v2__s2  bg=(139, 110, 79) spread=44 TILE
+  tile_door__v3__s0  bg=(147, 115, 78) spread=17 TILE
+  tile_door__v3__s1  bg=(153, 127, 96) spread=50 TILE
+  tile_door__v3__s2  bg=(144, 123, 100) spread=31 TILE
+  tile_road__v0__s0  bg=(90, 89, 87) spread=2 TILE
+  tile_road__v0__s1  bg=(86, 84, 82) spread=10 TILE
+  tile_road__v0__s2  bg=(74, 73, 72) spread=6 TILE
+  tile_road__v1__s0  bg=(93, 87, 82) spread=7 TILE
+  tile_road__v1__s1  bg=(97, 91, 85) spread=15 TILE
+  tile_road__v1__s2  bg=(94, 88, 82) spread=9 TILE
+  tile_road__v2__s0  bg=(74, 72, 71) spread=9 TILE
+  tile_road__v2__s1  bg=(90, 87, 82) spread=20 TILE
+  tile_road__v2__s2  bg=(88, 87, 85) spread=6 TILE
+  tile_road__v3__s0  bg=(89, 85, 82) spread=9 TILE
+  tile_road__v3__s1  bg=(94, 89, 85) spread=13 TILE
+  tile_road__v3__s2  bg=(92, 88, 83) spread=7 TILE
+  tile_road_corner__v0__s0  bg=(96, 92, 88) spread=10 TILE
+  tile_road_corner__v0__s1  bg=(98, 96, 92) spread=7 TILE
+  tile_road_corner__v0__s2  bg=(96, 93, 89) spread=7 TILE
+  tile_road_corner__v1__s0  bg=(95, 89, 82) spread=17 TILE
+  tile_road_corner__v1__s1  bg=(82, 78, 74) spread=25 TILE
+  tile_road_corner__v1__s2  bg=(135, 130, 123) spread=16 TILE
+  tile_rubble2__v0__s0  bg=(96, 89, 82) spread=15 TILE
+  tile_rubble2__v0__s1  bg=(91, 83, 75) spread=11 TILE
+  tile_rubble2__v0__s2  bg=(104, 95, 88) spread=9 TILE
+  tile_rubble2__v1__s0  bg=(100, 89, 80) spread=12 TILE
+  tile_rubble2__v1__s1  bg=(100, 91, 82) spread=12 TILE
+  tile_rubble2__v1__s2  bg=(90, 79, 70) spread=8 TILE
+  tile_sidewalk__v0__s0  bg=(108, 102, 96) spread=5 TILE
+  tile_sidewalk__v0__s1  bg=(109, 105, 100) spread=21 TILE
+  tile_sidewalk__v0__s2  bg=(105, 99, 92) spread=10 TILE
+  tile_sidewalk__v1__s0  bg=(99, 94, 84) spread=36 TILE
+  tile_sidewalk__v1__s1  bg=(76, 81, 39) spread=41 TILE
+  tile_sidewalk__v1__s2  bg=(119, 114, 101) spread=19 TILE
+  tile_sidewalk__v2__s0  bg=(88, 78, 70) spread=5 TILE
+  tile_sidewalk__v2__s1  bg=(91, 81, 72) spread=9 TILE
+  tile_sidewalk__v2__s2  bg=(95, 83, 73) spread=30 TILE
+  tile_sidewalk__v3__s0  bg=(100, 93, 88) spread=6 TILE
+  tile_sidewalk__v3__s1  bg=(98, 90, 85) spread=10 TILE
+  tile_sidewalk__v3__s2  bg=(108, 101, 95) spread=7 TILE
+  van_wreck__v0__s0  bg=(217, 216, 217) spread=1 sprite
+  van_wreck__v0__s1  bg=(245, 244, 244) spread=0 sprite
+  van_wreck__v0__s2  bg=(154, 77, 134) spread=1 sprite
+  van_wreck__v1__s0  bg=(127, 54, 99) spread=69 TILE
+  van_wreck__v1__s1  bg=(242, 240, 240) spread=9 sprite
+  van_wreck__v1__s2  bg=(184, 108, 166) spread=1 sprite
+  wall_corner__v0__s0  bg=(158, 157, 160) spread=0 sprite
+  wall_corner__v0__s1  bg=(172, 171, 172) spread=1 sprite
+  wall_corner__v0__s2  bg=(168, 167, 169) spread=0 sprite
+  wall_corner__v1__s0  bg=(156, 155, 157) spread=0 sprite
+  wall_corner__v1__s1  bg=(164, 164, 165) spread=1 sprite
+  wall_corner__v1__s2  bg=(150, 150, 151) spread=0 sprite
+  wall_corner__v2__s0  bg=(163, 163, 166) spread=1 sprite
+  wall_corner__v2__s1  bg=(160, 160, 162) spread=1 sprite
+  wall_corner__v2__s2  bg=(165, 165, 167) spread=0 sprite
+  wall_corner__v3__s0  bg=(165, 165, 167) spread=1 sprite
+  wall_corner__v3__s1  bg=(181, 181, 182) spread=1 sprite
+  wall_corner__v3__s2  bg=(160, 160, 162) spread=1 sprite
+  wall_corner__v4__s0  bg=(165, 162, 159) spread=1 sprite
+  wall_corner__v4__s1  bg=(167, 166, 166) spread=0 sprite
+  wall_corner__v4__s2  bg=(156, 155, 155) spread=1 sprite
+  wall_end_cap__v0__s0  bg=(169, 168, 169) spread=0 sprite
+  wall_end_cap__v0__s1  bg=(157, 153, 154) spread=1 sprite
+  wall_end_cap__v0__s2  bg=(182, 181, 181) spread=0 sprite
+  wall_end_cap__v1__s0  bg=(161, 161, 162) spread=0 sprite
+  wall_end_cap__v1__s1  bg=(165, 165, 166) spread=0 sprite
+  wall_end_cap__v1__s2  bg=(164, 164, 165) spread=1 sprite
+  wall_end_cap__v2__s0  bg=(166, 165, 167) spread=0 sprite
+  wall_end_cap__v2__s1  bg=(165, 165, 167) spread=1 sprite
+  wall_end_cap__v2__s2  bg=(163, 163, 163) spread=1 sprite
+  wall_run_a__v0__s0  bg=(156, 155, 157) spread=1 sprite
+  wall_run_a__v0__s1  bg=(163, 163, 165) spread=1 sprite
+  wall_run_a__v0__s2  bg=(172, 171, 172) spread=0 sprite
+  wall_run_a__v1__s0  bg=(166, 167, 168) spread=1 sprite
+  wall_run_a__v1__s1  bg=(170, 170, 171) spread=0 sprite
+  wall_run_a__v1__s2  bg=(153, 153, 154) spread=0 sprite
+  wall_run_a__v2__s0  bg=(154, 154, 156) spread=1 sprite
+  wall_run_a__v2__s1  bg=(157, 158, 160) spread=0 sprite
+  wall_run_a__v2__s2  bg=(150, 150, 152) spread=1 sprite
+  wall_run_a__v3__s0  bg=(167, 166, 167) spread=1 sprite
+  wall_run_a__v3__s1  bg=(177, 176, 177) spread=1 sprite
+  wall_run_a__v3__s2  bg=(151, 151, 153) spread=0 sprite
+  wall_run_a__v4__s0  bg=(160, 160, 161) spread=0 sprite
+  wall_run_a__v4__s1  bg=(179, 175, 173) spread=1 sprite
+  wall_run_a__v4__s2  bg=(167, 163, 160) spread=0 sprite
+  wall_run_b__v0__s0  bg=(160, 159, 161) spread=0 sprite
+  wall_run_b__v0__s1  bg=(170, 168, 169) spread=1 sprite
+  wall_run_b__v0__s2  bg=(167, 165, 167) spread=1 sprite
+  wall_run_b__v1__s0  bg=(132, 116, 108) spread=115 TILE
+  wall_run_b__v1__s1  bg=(162, 162, 164) spread=1 sprite
+  wall_run_b__v1__s2  bg=(134, 134, 136) spread=1 sprite
+  wall_run_b__v2__s0  bg=(158, 159, 161) spread=1 sprite
+  wall_run_b__v2__s1  bg=(140, 139, 143) spread=28 sprite
+  wall_run_b__v2__s2  bg=(174, 175, 177) spread=1 sprite
+  wall_run_b__v3__s0  bg=(147, 145, 149) spread=0 sprite
+  wall_run_b__v3__s1  bg=(167, 166, 168) spread=1 sprite
+  wall_run_b__v3__s2  bg=(158, 158, 160) spread=1 sprite
+  wall_run_b__v4__s0  bg=(161, 156, 152) spread=1 sprite
+  wall_run_b__v4__s1  bg=(148, 147, 147) spread=1 sprite
+  wall_run_b__v4__s2  bg=(158, 156, 156) spread=1 sprite
+  wall_window__v0__s0  bg=(157, 157, 159) spread=1 sprite
+  wall_window__v0__s1  bg=(167, 166, 169) spread=1 sprite
+  wall_window__v0__s2  bg=(160, 160, 161) spread=1 sprite
+  wall_window__v1__s0  bg=(140, 138, 137) spread=3 sprite
+  wall_window__v1__s1  bg=(149, 147, 148) spread=23 sprite
+  wall_window__v1__s2  bg=(153, 153, 155) spread=0 sprite
+  wall_window__v2__s0  bg=(168, 167, 168) spread=0 sprite
+  wall_window__v2__s1  bg=(164, 163, 164) spread=1 sprite
+  wall_window__v2__s2  bg=(183, 183, 183) spread=1 sprite
+  wall_window__v3__s0  bg=(165, 164, 167) spread=1 sprite
+  wall_window__v3__s1  bg=(168, 168, 169) spread=1 sprite
+  wall_window__v3__s2  bg=(155, 154, 156) spread=1 sprite
+DONE
+[18:35:07] isolation ok
+[18:35:07] isolated pieces: 189
+[18:35:07] === RESULTS READY: /run/media/mhintermeister/secondary_drive1/comfy/out/city_props_sprites3 ===
+[18:35:07] removing art hold + resuming (watcher restores 27B)
+[18:35:12] WARNING: shrike-llama-dflash-35b not detected running after resume - check manually
+[18:35:12] === ART CITY WINDOW DONE ===

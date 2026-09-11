@@ -104,6 +104,29 @@ record_outcome "t17" repo "no-op" "" aider_fix 1 /dev/null
 ok "duration: omitting \$8 (older call site) defaults to 0, doesn't crash" \
    "grep -q '\"duration_s\":0' '$STATE_DIR/outcomes.jsonl'"
 
+# ---- 10. tier extraction (2026-09-10): a real [T#] tag must be found even when it sits deep
+#      in the task_log - a long "[AUTO-SKIP after N no-op cycles...]" prefix (routinely 80-100+
+#      chars) plus normal aider preamble (repo-map, tool-loading, the scout PLAN/VERDICT text)
+#      can push the tag well past a too-small read window. Confirmed live: a real [T1] tag at
+#      byte 10116 of a 20604-byte log was invisible to a 6000-byte head, showing up as tier="?"
+#      in outcome stats even though the source item WAS properly tagged.
+tier_of(){ # $1=task_log
+  : > "$STATE_DIR/outcomes.jsonl"
+  record_outcome "t-tier" repo "pushed(tests:pass)" "" aider_fix 1 "$1"
+  grep -o '"tier":"[^"]*"' "$STATE_DIR/outcomes.jsonl" | head -1 | sed -E 's/.*"([^"]*)"$/\1/'
+}
+tl3="$(mktemp)"
+{ python3 -c "print('x' * 9500)"; printf '[AUTO-SKIP after 5 no-op cycles — already-done, mis-targeted, or beyond the 27B; review] [T1] backend/app/services/foo.py — do the thing.\n'; } > "$tl3"
+ok "tier: a real [T1] tag ~10KB into the log is still found, not tier=?" \
+   "[ \"\$(tier_of "$tl3")\" = 1 ]"
+rm -f "$tl3"
+
+tl4="$(mktemp)"
+{ python3 -c "print('x' * 45000)"; printf '[T2] some/file.py — do a thing.\n'; } > "$tl4"
+ok "tier: a tag beyond even the widened window correctly reports as unknown (?), not a false tier" \
+   "[ \"\$(tier_of "$tl4")\" = '?' ]"
+rm -f "$tl4"
+
 rm -rf "$STATE_DIR"
 echo "Outcome classification: $P passed, $F failed"
 [ "$F" -eq 0 ]
