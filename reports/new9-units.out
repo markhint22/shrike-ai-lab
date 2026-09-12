@@ -1,0 +1,66 @@
+[10:34:36] setting art_window.hold + pausing queue + freeing GPU
+[10:36:05] GPU free: 90 MiB used
+[10:36:05] === generating 9 idle + 9 dead (18 total) ===
+18 items planned -> /run/media/mhintermeister/secondary_drive1/comfy/out/flux_final/raw
+loading FLUX.1-schnell (CPU-offloaded)...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:00,  6.58it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:01,  3.79it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][A
+Loading weights:  91%|█████████ | 178/196 [00:00<00:00, 1758.73it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 1782.51it/s]
+Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00,  4.16it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][A
+Loading weights:  59%|█████▉    | 129/219 [00:00<00:00, 1267.47it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 1270.46it/s]
+Loading pipeline components...:  57%|█████▋    | 4/7 [00:01<00:00,  3.64it/s]Loading pipeline components...:  71%|███████▏  | 5/7 [00:01<00:00,  4.37it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][A
+Loading checkpoint shards:  33%|███▎      | 1/3 [00:00<00:00,  8.04it/s][A
+Loading checkpoint shards:  67%|██████▋   | 2/3 [00:00<00:00,  8.09it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  9.70it/s]
+Loading pipeline components...: 100%|██████████| 7/7 [00:01<00:00,  3.67it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:01<00:00,  3.87it/s]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:19<00:58, 19.42s/it] 50%|█████     | 2/4 [00:20<00:17,  8.65s/it] 75%|███████▌  | 3/4 [00:21<00:05,  5.21s/it]100%|██████████| 4/4 [00:22<00:00,  3.60s/it]100%|██████████| 4/4 [00:22<00:00,  5.69s/it]
+[1/18] sprite_enemy_boss
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.01s/it] 50%|█████     | 2/4 [00:10<00:08,  4.37s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.19s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[2/18] sprite_enemy_elite
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.98s/it] 50%|█████     | 2/4 [00:10<00:08,  4.35s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[3/18] sprite_enemy_minigunner
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.91s/it] 50%|█████     | 2/4 [00:10<00:08,  4.33s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[4/18] sprite_enemy_raider
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.94s/it] 50%|█████     | 2/4 [00:10<00:08,  4.34s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[5/18] sprite_enemy_shield
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.95s/it] 50%|█████     | 2/4 [00:10<00:08,  4.34s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[6/18] sprite_enemy_shotgunner
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.92s/it] 50%|█████     | 2/4 [00:10<00:08,  4.33s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[7/18] sprite_player_pyro
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.90s/it] 50%|█████     | 2/4 [00:10<00:08,  4.32s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[8/18] sprite_player_engineer
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.92s/it] 50%|█████     | 2/4 [00:10<00:08,  4.33s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[9/18] sprite_player_ranger
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.88s/it] 50%|█████     | 2/4 [00:09<00:08,  4.31s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.85s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[10/18] sprite_enemy_boss__dead
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.91s/it] 50%|█████     | 2/4 [00:10<00:08,  4.32s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[11/18] sprite_enemy_elite__dead
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.89s/it] 50%|█████     | 2/4 [00:10<00:08,  4.32s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[12/18] sprite_enemy_minigunner__dead
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.87s/it] 50%|█████     | 2/4 [00:09<00:08,  4.31s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.85s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[13/18] sprite_enemy_raider__dead
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.90s/it] 50%|█████     | 2/4 [00:10<00:08,  4.32s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[14/18] sprite_enemy_shield__dead
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.89s/it] 50%|█████     | 2/4 [00:10<00:08,  4.31s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.85s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[15/18] sprite_enemy_shotgunner__dead
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (87 > 77). Running this sequence through the model will result in indexing errors
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer CLIPTokenizer. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['three - quarter view lying on the ground , flat gray background']
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.88s/it] 50%|█████     | 2/4 [00:09<00:08,  4.31s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.85s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[16/18] sprite_player_pyro__dead
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['lying on the ground , flat gray background']
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.93s/it] 50%|█████     | 2/4 [00:10<00:08,  4.33s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[17/18] sprite_player_engineer__dead
+The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['three - quarter view lying on the ground , flat gray background']
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.94s/it] 50%|█████     | 2/4 [00:10<00:08,  4.34s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[18/18] sprite_player_ranger__dead
+DONE
+[10:44:24] gen ok
+[10:44:24] sprites produced: 31
+[10:44:24] === RESULTS READY (out/flux_final/game_ready) ===
+[10:44:24] restoring prod llama + queue
+[10:44:30] prod restored: Up 6 seconds (health: starting)
+[10:44:30] === NEW9 UNITS WINDOW DONE ===

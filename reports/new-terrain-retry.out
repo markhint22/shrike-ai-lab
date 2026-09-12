@@ -1,0 +1,74 @@
+[11:14:28] pausing queue + waiting for any in-progress cycle to clear
+[11:17:08] stopping inference container to free VRAM
+[11:17:19] GPU free (used=89MiB)
+[11:17:19] === RETRY 1/2: 2 leftover phase-A props (fresh process) ===
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:01,  5.71it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 8707.98it/s]
+Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00,  7.13it/s]Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00,  7.98it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][A
+Loading checkpoint shards:  33%|███▎      | 1/3 [00:00<00:00,  5.01it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 12.94it/s]
+Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  5.38it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 9282.37it/s]
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  8.52it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  8.84it/s]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:25,  8.48s/it] 50%|█████     | 2/4 [00:09<00:08,  4.15s/it] 75%|███████▌  | 3/4 [00:10<00:02,  2.77s/it]100%|██████████| 4/4 [00:11<00:00,  2.12s/it]100%|██████████| 4/4 [00:11<00:00,  2.96s/it]
+OK toxic_checkpoint_barrier
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.02s/it] 50%|█████     | 2/4 [00:10<00:08,  4.37s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.89s/it]100%|██████████| 4/4 [00:12<00:00,  2.19s/it]100%|██████████| 4/4 [00:12<00:00,  3.10s/it]
+OK toxic_biohazard_crate
+DONE. 2/2 succeeded.
+ALL_DONE
+[11:18:22] props retry ok
+[11:18:22] === RETRY 2/2: 12 phase-B coherence siblings (fresh process) ===
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 8485.00it/s]
+Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:00,  8.26it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 55.78it/s]
+Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00,  5.05it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 19397.46it/s]
+Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  9.22it/s]Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00,  7.60it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  8.76it/s]
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:18:38.210908231 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:08<00:08,  8.56s/it]100%|██████████| 2/2 [00:09<00:00,  4.18s/it]100%|██████████| 2/2 [00:09<00:00,  4.84s/it]
+OK industrial_floor_metal_grate
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:19:03.968679164 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.08s/it]100%|██████████| 2/2 [00:10<00:00,  4.39s/it]100%|██████████| 2/2 [00:10<00:00,  5.10s/it]
+OK industrial_floor_chem_puddle
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:19:27.437905894 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.08s/it]100%|██████████| 2/2 [00:10<00:00,  4.39s/it]100%|██████████| 2/2 [00:10<00:00,  5.10s/it]
+OK bunker_floor_bunker_concrete
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:19:50.352261517 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.04s/it]100%|██████████| 2/2 [00:10<00:00,  4.38s/it]100%|██████████| 2/2 [00:10<00:00,  5.07s/it]
+OK bunker_floor_flooded_tunnel
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:20:13.907788606 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.06s/it]100%|██████████| 2/2 [00:10<00:00,  4.38s/it]100%|██████████| 2/2 [00:10<00:00,  5.09s/it]
+OK toxic_floor_sludge_pool
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:20:35.463655703 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.07s/it]100%|██████████| 2/2 [00:10<00:00,  4.39s/it]100%|██████████| 2/2 [00:10<00:00,  5.09s/it]
+OK toxic_floor_mutant_moss
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:20:58.996389939 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.05s/it]100%|██████████| 2/2 [00:10<00:00,  4.38s/it]100%|██████████| 2/2 [00:10<00:00,  5.08s/it]
+OK industrial_wall_v2
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:21:21.836709890 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.04s/it]100%|██████████| 2/2 [00:10<00:00,  4.38s/it]100%|██████████| 2/2 [00:10<00:00,  5.08s/it]
+OK industrial_wall_v3
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:21:43.614160939 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.05s/it]100%|██████████| 2/2 [00:10<00:00,  4.38s/it]100%|██████████| 2/2 [00:10<00:00,  5.08s/it]
+OK bunker_wall_v2
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:22:06.589478722 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.06s/it]100%|██████████| 2/2 [00:10<00:00,  4.38s/it]100%|██████████| 2/2 [00:10<00:00,  5.09s/it]
+OK bunker_wall_v3
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:22:29.714109199 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.11s/it]100%|██████████| 2/2 [00:10<00:00,  4.40s/it]100%|██████████| 2/2 [00:10<00:00,  5.11s/it]
+OK toxic_wall_v2
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:22:53.111125971 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.08s/it]100%|██████████| 2/2 [00:10<00:00,  4.39s/it]100%|██████████| 2/2 [00:10<00:00,  5.09s/it]
+OK toxic_wall_v3
+DONE. 12/12 succeeded.
+ALL_DONE
+[11:23:08] siblings retry ok
+[11:23:08] === RESULTS READY ===
+[11:23:08] restoring: resuming queue + restarting inference container
+[11:23:39] inference container status: running health=healthy
+[11:23:39] === RETRY WINDOW DONE ===

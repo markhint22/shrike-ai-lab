@@ -1,0 +1,138 @@
+[10:58:37] pausing queue + waiting for any in-progress cycle to clear
+[10:58:37] stopping inference container to free VRAM
+[10:58:38] GPU free (used=89MiB)
+[10:58:38] === GENERATING new terrain batch (45 items) ===
+45 items planned -> /run/media/mhintermeister/secondary_drive1/comfy/out/new_terrain_batch/raw
+=== PHASE A: txt2img (independent items + coherence bases) ===
+loading FLUX.1-schnell (CPU-offloaded)...
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 9519.96it/s]
+Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:00,  9.02it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00,  7.45it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 10855.45it/s]
+Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00, 11.88it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 54.57it/s]
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00, 13.61it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  8.91it/s]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:25,  8.47s/it] 50%|█████     | 2/4 [00:09<00:08,  4.14s/it] 75%|███████▌  | 3/4 [00:10<00:02,  2.76s/it]100%|██████████| 4/4 [00:11<00:00,  2.11s/it]100%|██████████| 4/4 [00:11<00:00,  2.95s/it]
+[A prop 1/12] wasteland_car_husk
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.02s/it] 50%|█████     | 2/4 [00:10<00:08,  4.37s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[A prop 2/12] wasteland_sandbag_bunker
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.96s/it] 50%|█████     | 2/4 [00:10<00:08,  4.35s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[A prop 3/12] wasteland_concrete_barrier
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.21s/it] 50%|█████     | 2/4 [00:10<00:08,  4.45s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.93s/it]100%|██████████| 4/4 [00:12<00:00,  2.21s/it]100%|██████████| 4/4 [00:12<00:00,  3.14s/it]
+[A prop 4/12] wasteland_scrap_mound
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.02s/it] 50%|█████     | 2/4 [00:10<00:08,  4.37s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.19s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[A prop 5/12] wasteland_debris_stack
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.98s/it] 50%|█████     | 2/4 [00:10<00:08,  4.35s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[A prop 6/12] wasteland_drum_cluster
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.98s/it] 50%|█████     | 2/4 [00:10<00:08,  4.35s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[A prop 7/12] city_dumpster
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  9.00s/it] 50%|█████     | 2/4 [00:10<00:08,  4.36s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[A prop 8/12] city_mailbox
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:10<00:30, 10.03s/it] 50%|█████     | 2/4 [00:11<00:09,  4.79s/it] 75%|███████▌  | 3/4 [00:12<00:03,  3.11s/it]100%|██████████| 4/4 [00:13<00:00,  2.32s/it]100%|██████████| 4/4 [00:13<00:00,  3.34s/it]
+[A prop 9/12] city_newsstand
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.01s/it] 50%|█████     | 2/4 [00:10<00:08,  4.37s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[A prop 10/12] city_market_stall
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.06s/it] 50%|█████     | 2/4 [00:10<00:08,  4.38s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.89s/it]100%|██████████| 4/4 [00:12<00:00,  2.19s/it]100%|██████████| 4/4 [00:12<00:00,  3.10s/it]
+[A prop 11/12] city_jersey_barrier
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.01s/it] 50%|█████     | 2/4 [00:10<00:08,  4.36s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[A prop 12/12] city_fire_hydrant
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.99s/it] 50%|█████     | 2/4 [00:10<00:08,  4.36s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[A floor-base 1/3] industrial_floor_oil_concrete
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.02s/it] 50%|█████     | 2/4 [00:10<00:08,  4.37s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.19s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[A floor-base 2/3] bunker_floor_deck_plate
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.01s/it] 50%|█████     | 2/4 [00:10<00:08,  4.36s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[A floor-base 3/3] toxic_floor_toxic_mud
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.97s/it] 50%|█████     | 2/4 [00:10<00:08,  4.35s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[A wall-base 1/3] industrial_wall_v1
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.93s/it] 50%|█████     | 2/4 [00:10<00:08,  4.33s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[A wall-base 2/3] bunker_wall_v1
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.94s/it] 50%|█████     | 2/4 [00:10<00:08,  4.33s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[A wall-base 3/3] toxic_wall_v1
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  9.00s/it] 50%|█████     | 2/4 [00:10<00:08,  4.36s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.88s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.09s/it]
+[A theme-prop 1/15] industrial_shipping_container
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.97s/it] 50%|█████     | 2/4 [00:10<00:08,  4.35s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.08s/it]
+[A theme-prop 2/15] industrial_chemical_drum
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.95s/it] 50%|█████     | 2/4 [00:10<00:08,  4.34s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[A theme-prop 3/15] industrial_conveyor_belt
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.95s/it] 50%|█████     | 2/4 [00:10<00:08,  4.34s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[A theme-prop 4/15] industrial_machine_press
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.91s/it] 50%|█████     | 2/4 [00:10<00:08,  4.32s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[A theme-prop 5/15] industrial_pipe_bundle
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.11s/it] 50%|█████     | 2/4 [00:10<00:08,  4.41s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.91s/it]100%|██████████| 4/4 [00:12<00:00,  2.20s/it]100%|██████████| 4/4 [00:12<00:00,  3.12s/it]
+[A theme-prop 6/15] bunker_blast_door
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.94s/it] 50%|█████     | 2/4 [00:10<00:08,  4.34s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.87s/it]100%|██████████| 4/4 [00:12<00:00,  2.18s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[A theme-prop 7/15] bunker_server_rack
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.84s/it] 50%|█████     | 2/4 [00:09<00:08,  4.30s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.84s/it]100%|██████████| 4/4 [00:12<00:00,  2.16s/it]100%|██████████| 4/4 [00:12<00:00,  3.05s/it]
+[A theme-prop 8/15] bunker_storage_locker
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.89s/it] 50%|█████     | 2/4 [00:10<00:08,  4.32s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.85s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[A theme-prop 9/15] bunker_gurney_cart
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.93s/it] 50%|█████     | 2/4 [00:10<00:08,  4.33s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+[A theme-prop 10/15] bunker_rebar_barricade
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.83s/it] 50%|█████     | 2/4 [00:09<00:08,  4.29s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.84s/it]100%|██████████| 4/4 [00:12<00:00,  2.16s/it]100%|██████████| 4/4 [00:12<00:00,  3.04s/it]
+[A theme-prop 11/15] toxic_radioactive_barrel
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.90s/it] 50%|█████     | 2/4 [00:10<00:08,  4.32s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.86s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.06s/it]
+[A theme-prop 12/15] toxic_mutant_growth
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:26,  8.86s/it] 50%|█████     | 2/4 [00:09<00:08,  4.30s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.85s/it]100%|██████████| 4/4 [00:12<00:00,  2.17s/it]100%|██████████| 4/4 [00:12<00:00,  3.05s/it]
+[A theme-prop 13/15] toxic_radiation_fence
+[W912 11:12:04.092788577 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 33554432 bytes (free: 30408704, total: 25292898304).
+[W912 11:12:04.092892362 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 33554432 bytes (free: 30408704, total: 25292898304).
+FAILED toxic_checkpoint_barrier: CUDA out of memory. Tried to allocate 32.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 29.00 MiB is free. Including non-PyTorch memory, this process has 7.50 GiB memory in use. Process 130457 has 15.93 GiB memory in use. Of the allocated memory 7.18 GiB is allocated by PyTorch, and 13.57 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:04.124038107 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 30408704, total: 25292898304).
+[W912 11:12:04.124124755 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 30408704, total: 25292898304).
+FAILED toxic_biohazard_crate: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 29.00 MiB is free. Including non-PyTorch memory, this process has 7.50 GiB memory in use. Process 130457 has 15.93 GiB memory in use. Of the allocated memory 7.18 GiB is allocated by PyTorch, and 13.57 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+=== PHASE B: img2img coherence siblings ===
+loading FLUX.1-schnell img2img (CPU-offloaded)...
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 9484.77it/s]
+
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 9732.37it/s]
+Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00, 25.34it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 50.90it/s]
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00, 19.37it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 16.75it/s]
+  0%|          | 0/2 [00:00<?, ?it/s][W912 11:12:14.255310074 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 113246208 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.255404725 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 113246208 bytes (free: 13631488, total: 25292898304).
+  0%|          | 0/2 [00:05<?, ?it/s]
+FAILED industrial_floor_metal_grate: CUDA out of memory. Tried to allocate 108.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 3.47 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.295368135 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.295462999 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED industrial_floor_chem_puddle: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.336191830 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.336291693 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED bunker_floor_bunker_concrete: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.377768425 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.377866175 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED bunker_floor_flooded_tunnel: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.420955345 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.421061751 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED toxic_floor_sludge_pool: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.464168020 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.464264752 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED toxic_floor_mutant_moss: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.497347419 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.497442171 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED industrial_wall_v2: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.530206018 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.530304634 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED industrial_wall_v3: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.559982622 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.560091130 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED bunker_wall_v2: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.589613096 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.589712209 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED bunker_wall_v3: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.622572522 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.622667799 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED toxic_wall_v2: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[W912 11:12:14.655856053 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+[W912 11:12:14.655954610 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 77594624 bytes (free: 13631488, total: 25292898304).
+FAILED toxic_wall_v3: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 13.00 MiB is free. Including non-PyTorch memory, this process has 7.52 GiB memory in use. Process 131402 has 15.93 GiB memory in use. Of the allocated memory 7.20 GiB is allocated by PyTorch, and 6.87 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+DONE. 31/45 succeeded.
+FAILURES: toxic_checkpoint_barrier, toxic_biohazard_crate, industrial_floor_metal_grate, industrial_floor_chem_puddle, bunker_floor_bunker_concrete, bunker_floor_flooded_tunnel, toxic_floor_sludge_pool, toxic_floor_mutant_moss, industrial_wall_v2, industrial_wall_v3, bunker_wall_v2, bunker_wall_v3, toxic_wall_v2, toxic_wall_v3
+ALL_DONE
+[11:12:16] batch script exited 0
+[11:12:16] === RESULTS READY ===
+[11:12:16] restoring: resuming queue + restarting inference container
+[11:12:47] inference container status: running health=healthy
+[11:12:47] === NEW TERRAIN WINDOW DONE ===
