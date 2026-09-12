@@ -1,0 +1,46 @@
+[15:38:17] pausing queue + waiting for any in-progress cycle to clear
+[15:40:57] stopping inference container to free VRAM
+[15:41:08] GPU free (used=89MiB)
+[15:41:08] === running FIXED fix_desert_wall.py ===
+=== PHASE A: txt2img desert_wall_v1 base (with defect re-check) ===
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 12.67it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 9531.03it/s]
+Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  9.06it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 55.44it/s]
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00, 11.33it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 6998.36it/s]
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  8.77it/s]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:25,  8.52s/it] 50%|█████     | 2/4 [00:09<00:08,  4.17s/it] 75%|███████▌  | 3/4 [00:10<00:02,  2.78s/it]100%|██████████| 4/4 [00:11<00:00,  2.13s/it]100%|██████████| 4/4 [00:11<00:00,  2.97s/it]
+[attempt 1] seed_name=desert_wall_v1_fix black_void_frac=0.205 bad=True
+RETRYING desert_wall_v1 (attempt 1 had a black void covering 20.5%)
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.08s/it] 50%|█████     | 2/4 [00:10<00:08,  4.40s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.90s/it]100%|██████████| 4/4 [00:12<00:00,  2.20s/it]100%|██████████| 4/4 [00:12<00:00,  3.11s/it]
+[attempt 2] seed_name=desert_wall_v1_fix_retry2 black_void_frac=0.174 bad=True
+RETRYING desert_wall_v1 (attempt 2 had a black void covering 17.4%)
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:09<00:27,  9.05s/it] 50%|█████     | 2/4 [00:10<00:08,  4.38s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.89s/it]100%|██████████| 4/4 [00:12<00:00,  2.19s/it]100%|██████████| 4/4 [00:12<00:00,  3.10s/it]
+[attempt 3] seed_name=desert_wall_v1_fix_retry3 black_void_frac=0.052 bad=False
+=== PHASE B: img2img siblings (v2, v3) + window ===
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 12.56it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 10017.91it/s]
+
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 55.12it/s]
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00, 18.22it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 11059.02it/s]
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 17.96it/s]
+  0%|          | 0/2 [00:00<?, ?it/s][W912 15:42:45.269559946 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:08<00:08,  8.05s/it]100%|██████████| 2/2 [00:09<00:00,  3.97s/it]100%|██████████| 2/2 [00:09<00:00,  4.58s/it]
+[desert_wall_v2 attempt 1] black_void_frac=0.041 bad=False
+  0%|          | 0/2 [00:00<?, ?it/s][W912 15:43:08.325410410 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:08<00:08,  8.63s/it]100%|██████████| 2/2 [00:09<00:00,  4.21s/it]100%|██████████| 2/2 [00:09<00:00,  4.87s/it]
+[desert_wall_v3 attempt 1] black_void_frac=0.038 bad=False
+  0%|          | 0/4 [00:00<?, ?it/s][W912 15:43:31.339702389 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 25%|██▌       | 1/4 [00:08<00:25,  8.65s/it] 50%|█████     | 2/4 [00:09<00:08,  4.22s/it] 75%|███████▌  | 3/4 [00:10<00:02,  2.80s/it]100%|██████████| 4/4 [00:12<00:00,  2.14s/it]100%|██████████| 4/4 [00:12<00:00,  3.00s/it]
+[desert_window attempt 1] black_void_frac=0.031 bad=False
+DONE. failures: []
+ALL_DONE
+[15:43:49] fix_desert_wall.py exited 0
+[15:43:49] === RESULTS READY ===
+[15:43:49] removing art hold + resuming queue
+[15:44:19] verified: shrike-llama-dflash-35b is healthy
+[15:44:19] === DESERT WALL RETRY WINDOW DONE ===

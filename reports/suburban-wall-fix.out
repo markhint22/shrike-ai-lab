@@ -1,0 +1,41 @@
+[12:08:54] pausing queue + waiting for any in-progress cycle to clear
+[12:11:34] stopping inference container to free VRAM
+[12:11:35] GPU free (used=89MiB)
+[12:11:35] === GENERATING suburban wall fix (4 items) ===
+material: weathered pastel-blue clapboard siding wall panel, peeling paint, wood grain texture, wasteland ruin
+window: weathered pastel-blue clapboard siding wall panel with a broken residential window and torn curtain hanging through it, wasteland ruin
+=== PHASE A: wall_v1 base (txt2img) ===
+/run/media/mhintermeister/secondary_drive1/comfy/ComfyUI/.venv/lib/python3.12/site-packages/diffusers/utils/deprecation_utils.py:23: FutureWarning: `torch_dtype` is deprecated and will be removed in version 1.0.0. Please use `dtype` instead.
+  deprecate("torch_dtype", "1.0.0", _TORCH_DTYPE_DEPRECATION_MESSAGE)
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:00,  9.20it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 8565.79it/s]
+Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00,  8.97it/s]Loading pipeline components...:  43%|████▎     | 3/7 [00:00<00:00,  7.22it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 52.50it/s]
+Loading pipeline components...:  71%|███████▏  | 5/7 [00:00<00:00,  9.70it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 6866.83it/s]
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  8.81it/s]Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00,  8.77it/s]
+  0%|          | 0/4 [00:00<?, ?it/s] 25%|██▌       | 1/4 [00:08<00:25,  8.50s/it] 50%|█████     | 2/4 [00:09<00:08,  4.16s/it] 75%|███████▌  | 3/4 [00:10<00:02,  2.78s/it]100%|██████████| 4/4 [00:11<00:00,  2.13s/it]100%|██████████| 4/4 [00:11<00:00,  2.97s/it]
+[A] suburban_wall_v1 done
+=== PHASE B: wall_v2/v3 siblings + window (img2img) ===
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:00,  9.39it/s]
+Loading weights:   0%|          | 0/219 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 219/219 [00:00<00:00, 9184.61it/s]
+Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00, 17.31it/s]
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s][ALoading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 47.95it/s]
+Loading pipeline components...:  86%|████████▌ | 6/7 [00:00<00:00, 17.93it/s]
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s][ALoading weights: 100%|██████████| 196/196 [00:00<00:00, 10495.93it/s]
+Loading pipeline components...: 100%|██████████| 7/7 [00:00<00:00, 17.39it/s]
+  0%|          | 0/2 [00:00<?, ?it/s][W912 12:12:19.697500231 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:08<00:08,  8.50s/it]100%|██████████| 2/2 [00:09<00:00,  4.16s/it]100%|██████████| 2/2 [00:09<00:00,  4.81s/it]
+[B] suburban_wall_v2 done
+  0%|          | 0/2 [00:00<?, ?it/s][W912 12:12:45.072024021 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 50%|█████     | 1/2 [00:09<00:09,  9.08s/it]100%|██████████| 2/2 [00:10<00:00,  4.39s/it]100%|██████████| 2/2 [00:10<00:00,  5.10s/it]
+[B] suburban_wall_v3 done
+  0%|          | 0/4 [00:00<?, ?it/s][W912 12:13:09.844337497 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 106954752 bytes (free: 71630848, total: 25292898304).
+ 25%|██▌       | 1/4 [00:09<00:27,  9.05s/it] 50%|█████     | 2/4 [00:10<00:08,  4.38s/it] 75%|███████▌  | 3/4 [00:11<00:02,  2.89s/it]100%|██████████| 4/4 [00:12<00:00,  2.19s/it]100%|██████████| 4/4 [00:12<00:00,  3.10s/it]
+[B] suburban_window done
+ALL_DONE
+[12:13:26] script exited 0
+[12:13:26] === RESULTS READY ===
+[12:13:26] restoring: resuming queue + restarting inference container
+[12:13:57] inference container status: running health=healthy
+[12:13:57] === SUBURBAN WALL FIX WINDOW DONE ===
