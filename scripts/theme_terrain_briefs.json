@@ -346,6 +346,538 @@
           "prompt": "a single crumbling moss-covered statue pedestal, cover object, overgrown wasteland ruin"
         }
       ]
+    },
+    "frozen": {
+      "wall_material": "snow-caked cracked concrete ruin wall, icicles hanging from broken edges, frozen wasteland ruin",
+      "window": "snow-caked cracked concrete ruin wall with a frost-shattered window opening, icicles framing the broken glass, frozen wasteland ruin",
+      "floor_variants": [
+        {
+          "key": "packed_snow",
+          "prompt": "seamless top-down packed windswept snow ground texture, footprint trails, frozen wasteland ruin"
+        },
+        {
+          "key": "ice_sheet",
+          "prompt": "seamless top-down cracked frozen ice sheet texture over pavement, frozen wasteland ruin"
+        },
+        {
+          "key": "snowdrift",
+          "prompt": "seamless top-down deep snowdrift texture with wind-carved ripples, frozen wasteland ruin"
+        },
+        {
+          "key": "frozen_slush",
+          "prompt": "seamless top-down grey frozen slush and grit texture, tire-churned, frozen wasteland ruin"
+        },
+        {
+          "key": "thin_snow_rubble",
+          "prompt": "seamless top-down thin snow dusting over cracked rubble-strewn ground, frozen wasteland ruin"
+        }
+      ],
+      "cover_props": [
+        {
+          "key": "frozen_car_husk",
+          "prompt": "a single snow-drifted abandoned car husk with icicles hanging from the frame, cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "snowplow_wreck",
+          "prompt": "a single overturned rusted snowplow truck wreck, tall cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "ice_barricade",
+          "prompt": "a single stacked ice-block and sandbag barricade, cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "frozen_tanker",
+          "prompt": "a single frozen-over fuel tanker trailer wreck, tall cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "snow_berm",
+          "prompt": "a single plowed snow berm ridge, low cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "frozen_generator",
+          "prompt": "a single frost-covered emergency generator unit, cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "waystation_cabin_ruin",
+          "prompt": "a single collapsed wooden waystation cabin with a snow-buried caved-in roof, tall cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "waystation_cabin_rubble",
+          "prompt": "a smaller pile of charred cabin timber and snapped roof beams, low cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "frozen_supply_crate",
+          "prompt": "a single frost-rimed supply crate half-buried in snow, small cover object, frozen wasteland ruin"
+        },
+        {
+          "key": "icicle_debris_scatter",
+          "prompt": "a small scatter of fallen icicle shards and broken ice chunks on the ground, decorative clutter, frozen wasteland ruin"
+        },
+        {
+          "key": "frozen_bird_carcass_pile",
+          "prompt": "a small huddle of frozen dead bird carcasses in a wind-blown snow drift, decorative clutter, frozen wasteland ruin"
+        },
+        {
+          "key": "frozen_road_sign",
+          "prompt": "a single bent frost-covered highway road sign leaning in snow, small cover object, frozen wasteland ruin"
+        }
+      ]
+    },
+    "desert": {
+      "wall_material": "sun-bleached sandblasted adobe-and-rebar wall, cracked and half-buried in drifted sand, desert wasteland ruin",
+      "window": "sun-bleached sandblasted adobe-and-rebar wall with a sand-scoured glassless window opening, drifted sand piled on the sill, desert wasteland ruin",
+      "floor_variants": [
+        {
+          "key": "rippled_dune_sand",
+          "prompt": "seamless top-down wind-rippled dune sand texture, desert wasteland ruin"
+        },
+        {
+          "key": "cracked_hardpan",
+          "prompt": "seamless top-down sun-cracked desert hardpan clay texture, desert wasteland ruin"
+        },
+        {
+          "key": "rocky_scrubland",
+          "prompt": "seamless top-down rocky scrubland ground texture with scattered dry brush, desert wasteland ruin"
+        },
+        {
+          "key": "sandblown_asphalt",
+          "prompt": "seamless top-down cracked asphalt half-buried in drifted sand, desert wasteland ruin"
+        },
+        {
+          "key": "dry_wash_gravel",
+          "prompt": "seamless top-down dry riverbed gravel wash texture, desert wasteland ruin"
+        }
+      ],
+      "cover_props": [
+        {
+          "key": "dune_buggy_wreck",
+          "prompt": "a single sand-scoured dune buggy wreck, cover object, desert wasteland ruin"
+        },
+        {
+          "key": "dead_cactus_cluster",
+          "prompt": "a single cluster of dried-out desiccated saguaro cacti, cover object, desert wasteland ruin"
+        },
+        {
+          "key": "sun_bleached_rock_outcrop",
+          "prompt": "a single sun-bleached sandstone rock outcrop, cover object, desert wasteland ruin"
+        },
+        {
+          "key": "buried_billboard",
+          "prompt": "a single collapsed roadside billboard frame half-buried in sand, tall cover object, desert wasteland ruin"
+        },
+        {
+          "key": "dust_storm_barrier",
+          "prompt": "a single corrugated sheet-metal dust-storm windbreak fence, cover object, desert wasteland ruin"
+        },
+        {
+          "key": "tanker_truck_wreck_desert",
+          "prompt": "a single rolled-over sand-scoured fuel tanker truck wreck, tall cover object, desert wasteland ruin"
+        },
+        {
+          "key": "gas_station_ruin",
+          "prompt": "a single collapsed roadside gas station with a caved-in awning, tall cover object, desert wasteland ruin"
+        },
+        {
+          "key": "gas_station_rubble",
+          "prompt": "a smaller pile of shattered gas-station awning support and broken pump housing, low cover object, desert wasteland ruin"
+        },
+        {
+          "key": "supply_crate_sand",
+          "prompt": "a single sand-drifted supply crate half-buried at an angle, small cover object, desert wasteland ruin"
+        },
+        {
+          "key": "bone_scatter",
+          "prompt": "a small scatter of sun-bleached animal bones across the sand, decorative clutter, desert wasteland ruin"
+        },
+        {
+          "key": "tumbleweed_cluster",
+          "prompt": "a small cluster of dry tumbleweeds caught against debris, decorative clutter, desert wasteland ruin"
+        },
+        {
+          "key": "abandoned_water_tank",
+          "prompt": "a single rusted abandoned water storage tank tipped on its side, tall cover object, desert wasteland ruin"
+        }
+      ]
+    },
+    "farmland": {
+      "wall_material": "weathered red barn-wood plank wall, peeling paint over cracked timber, rural wasteland ruin",
+      "window": "weathered red barn-wood plank wall with a shattered farmhouse window frame and torn curtain, rural wasteland ruin",
+      "floor_variants": [
+        {
+          "key": "dead_crop_field",
+          "prompt": "seamless top-down dead flattened crop-row field texture, rural wasteland ruin"
+        },
+        {
+          "key": "dirt_farmyard",
+          "prompt": "seamless top-down packed dirt farmyard texture with scattered straw and tire ruts, rural wasteland ruin"
+        },
+        {
+          "key": "overgrown_pasture",
+          "prompt": "seamless top-down overgrown dry pasture grass texture with dirt patches, rural wasteland ruin"
+        },
+        {
+          "key": "cracked_barn_floor",
+          "prompt": "seamless top-down cracked wooden barn plank floor texture, straw and grime, rural wasteland ruin"
+        },
+        {
+          "key": "muddy_livestock_pen",
+          "prompt": "seamless top-down dried cracked mud livestock-pen texture, rural wasteland ruin"
+        }
+      ],
+      "cover_props": [
+        {
+          "key": "rusted_tractor_wreck",
+          "prompt": "a single rusted-out abandoned farm tractor wreck, tall cover object, rural wasteland ruin"
+        },
+        {
+          "key": "hay_bale_stack",
+          "prompt": "a single stack of moldering round hay bales, cover object, rural wasteland ruin"
+        },
+        {
+          "key": "grain_silo_husk",
+          "prompt": "a single rusted dented grain silo husk, tall cover object, rural wasteland ruin"
+        },
+        {
+          "key": "scarecrow_post",
+          "prompt": "a single leaning tattered scarecrow on a wooden post, small cover object, rural wasteland ruin"
+        },
+        {
+          "key": "livestock_trough",
+          "prompt": "a single overturned rusted metal livestock feed trough, low cover object, rural wasteland ruin"
+        },
+        {
+          "key": "broken_windmill_base",
+          "prompt": "a single collapsed farm windmill pump base with twisted blades, tall cover object, rural wasteland ruin"
+        },
+        {
+          "key": "farmhouse_ruin",
+          "prompt": "a single collapsed farmhouse corner with a caved-in porch roof, tall cover object, rural wasteland ruin"
+        },
+        {
+          "key": "farmhouse_rubble",
+          "prompt": "a smaller pile of splintered farmhouse siding and broken porch-post debris, low cover object, rural wasteland ruin"
+        },
+        {
+          "key": "seed_crate_stack",
+          "prompt": "a single stack of weathered wooden seed-grain crates, small cover object, rural wasteland ruin"
+        },
+        {
+          "key": "broken_fence_posts",
+          "prompt": "a small scatter of snapped wooden fence posts and tangled barbed wire, decorative clutter, rural wasteland ruin"
+        },
+        {
+          "key": "rotting_pumpkin_patch",
+          "prompt": "a small patch of rotted withered pumpkins and dead vines, decorative clutter, rural wasteland ruin"
+        },
+        {
+          "key": "abandoned_pickup_truck",
+          "prompt": "a single rusted abandoned farm pickup truck, cover object, rural wasteland ruin"
+        }
+      ]
+    },
+    "subway": {
+      "wall_material": "cracked ceramic subway-tile tunnel wall, soot-blackened above the rail line, abandoned transit tunnel, wasteland ruin",
+      "window": "cracked ceramic subway-tile tunnel wall with a shattered token-booth ticket window cut through it, wire mesh glass hanging loose, abandoned transit tunnel, wasteland ruin",
+      "floor_variants": [
+        {
+          "key": "rail_ballast",
+          "prompt": "seamless top-down gravel rail-ballast trackbed texture with rusted rail ties, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "platform_tile",
+          "prompt": "seamless top-down cracked ceramic subway platform tile floor texture, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "flooded_trackbed",
+          "prompt": "seamless top-down flooded stagnant trackbed water texture, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "soot_stained_concrete",
+          "prompt": "seamless top-down soot-blackened concrete tunnel floor texture, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "debris_strewn_platform",
+          "prompt": "seamless top-down cracked platform tile floor littered with paper debris, abandoned transit tunnel, wasteland ruin"
+        }
+      ],
+      "cover_props": [
+        {
+          "key": "subway_car_husk",
+          "prompt": "a single derailed rusted subway car husk, tall cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "turnstile_row",
+          "prompt": "a single row of jammed rusted subway turnstiles, cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "fare_vending_wreck",
+          "prompt": "a single smashed subway fare-vending machine, cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "maintenance_cart",
+          "prompt": "a single overturned tunnel maintenance handcart, low cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "signal_relay_box",
+          "prompt": "a single sparking trackside signal relay cabinet, cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "collapsed_escalator",
+          "prompt": "a single collapsed frozen subway escalator segment, tall cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "station_kiosk_ruin",
+          "prompt": "a single collapsed station newsstand kiosk booth with a caved-in roof, cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "station_kiosk_rubble",
+          "prompt": "a smaller pile of shattered kiosk paneling and snapped shelf-frame debris, low cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "lost_luggage_crate",
+          "prompt": "a single abandoned steel luggage storage crate, small cover object, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "scattered_newspaper_pile",
+          "prompt": "a small scatter of yellowed newspapers and torn subway maps on the platform, decorative clutter, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "rat_nest_debris",
+          "prompt": "a small nest of rags and gnawed debris tucked against the tunnel wall, decorative clutter, abandoned transit tunnel, wasteland ruin"
+        },
+        {
+          "key": "ticket_booth_wreck",
+          "prompt": "a single smashed station ticket booth, cover object, abandoned transit tunnel, wasteland ruin"
+        }
+      ]
+    },
+    "hospital": {
+      "wall_material": "cracked pale-green ceramic hospital tile wall, dried bloodstains and peeling biohazard signage, quarantine wasteland ruin",
+      "window": "cracked pale-green ceramic hospital tile wall with a shattered observation-window opening, wire-mesh glass hanging in the frame, quarantine wasteland ruin",
+      "floor_variants": [
+        {
+          "key": "hospital_tile_floor",
+          "prompt": "seamless top-down cracked pale hospital linoleum tile floor texture, quarantine wasteland ruin"
+        },
+        {
+          "key": "bloodstained_ward_floor",
+          "prompt": "seamless top-down hospital tile floor with dried dark bloodstain streaks, quarantine wasteland ruin"
+        },
+        {
+          "key": "surgical_scrub_floor",
+          "prompt": "seamless top-down scuffed white surgical-ward tile floor texture, quarantine wasteland ruin"
+        },
+        {
+          "key": "flooded_basement_morgue",
+          "prompt": "seamless top-down flooded stagnant hospital basement floor texture, quarantine wasteland ruin"
+        },
+        {
+          "key": "shattered_glass_labfloor",
+          "prompt": "seamless top-down hospital tile floor littered with shattered specimen-jar glass, quarantine wasteland ruin"
+        }
+      ],
+      "cover_props": [
+        {
+          "key": "overturned_gurney",
+          "prompt": "a single overturned steel hospital gurney, low cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "lab_rack_wreck",
+          "prompt": "a single toppled steel laboratory specimen-rack shelf, cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "mri_machine_husk",
+          "prompt": "a single hulking dead MRI scanner housing, tall cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "nurses_station_desk",
+          "prompt": "a single overturned cracked nurses station reception desk, cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "quarantine_tent_frame",
+          "prompt": "a single collapsed plastic-sheeted quarantine tent frame, cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "biohazard_incinerator",
+          "prompt": "a single rusted hospital biohazard waste incinerator unit, tall cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "operating_theater_ruin",
+          "prompt": "a single collapsed operating theater wall section with a caved-in observation window, tall cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "operating_theater_rubble",
+          "prompt": "a smaller pile of shattered ceiling-tile and snapped surgical-light-arm debris, low cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "medical_supply_crate",
+          "prompt": "a single biohazard-stenciled medical supply crate, small cover object, quarantine wasteland ruin"
+        },
+        {
+          "key": "scattered_pill_bottles",
+          "prompt": "a small scatter of spilled pill bottles and torn medical charts, decorative clutter, quarantine wasteland ruin"
+        },
+        {
+          "key": "specimen_jar_shards",
+          "prompt": "a small cluster of broken specimen jars with dried mutant tissue residue, decorative clutter, quarantine wasteland ruin"
+        },
+        {
+          "key": "wheelchair_wreck",
+          "prompt": "a single tipped rusted hospital wheelchair, low cover object, quarantine wasteland ruin"
+        }
+      ]
+    },
+    "dock": {
+      "wall_material": "salt-corroded corrugated warehouse wall, barnacle crusting near the waterline, harbor wasteland ruin",
+      "window": "salt-corroded corrugated warehouse wall with a salt-fogged shattered dockhouse window opening, harbor wasteland ruin",
+      "floor_variants": [
+        {
+          "key": "wooden_pier_planks",
+          "prompt": "seamless top-down weathered wooden pier plank floor texture, water-stained, harbor wasteland ruin"
+        },
+        {
+          "key": "concrete_wharf",
+          "prompt": "seamless top-down cracked barnacle-stained concrete wharf texture, harbor wasteland ruin"
+        },
+        {
+          "key": "oil_slick_dock",
+          "prompt": "seamless top-down dockside concrete floor with an iridescent oil-slick puddle, harbor wasteland ruin"
+        },
+        {
+          "key": "rusted_grate_dock",
+          "prompt": "seamless top-down rusted steel dock grate texture over dark water, harbor wasteland ruin"
+        },
+        {
+          "key": "shipwreck_beach_sand",
+          "prompt": "seamless top-down wet harbor-beach sand texture strewn with driftwood, harbor wasteland ruin"
+        }
+      ],
+      "cover_props": [
+        {
+          "key": "shipping_container_stack_dock",
+          "prompt": "a single stacked pair of rusted dockside shipping containers, tall cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "dockside_crane_base",
+          "prompt": "a single toppled harbor loading-crane base, tall cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "fishing_boat_wreck",
+          "prompt": "a single beached rusted fishing boat wreck, cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "mooring_bollard_cluster",
+          "prompt": "a single cluster of corroded mooring bollards and tangled rope, cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "fuel_tank_cylinder",
+          "prompt": "a single leaning corroded dockside fuel storage tank, tall cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "fishing_net_pile",
+          "prompt": "a single tangled pile of rotting fishing nets over crates, cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "cargo_warehouse_ruin",
+          "prompt": "a single collapsed dockside cargo warehouse corner with a caved-in tin roof, tall cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "cargo_warehouse_rubble",
+          "prompt": "a smaller pile of corrugated warehouse-roof debris and snapped support beams, low cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "dockside_cargo_crate",
+          "prompt": "a single weathered stenciled dockside cargo crate, small cover object, harbor wasteland ruin"
+        },
+        {
+          "key": "scattered_fish_bones",
+          "prompt": "a small scatter of dried fish bones and broken shell debris on the dock, decorative clutter, harbor wasteland ruin"
+        },
+        {
+          "key": "tangled_buoy_rope",
+          "prompt": "a small tangle of faded buoys and salt-crusted rope, decorative clutter, harbor wasteland ruin"
+        },
+        {
+          "key": "harbor_lighthouse_base",
+          "prompt": "a single crumbling harbor lighthouse base stump, tall cover object, harbor wasteland ruin"
+        }
+      ]
+    },
+    "prison": {
+      "wall_material": "cracked reinforced-concrete cellblock wall, rust-streaked bar anchors bolted through, prison wasteland ruin",
+      "window": "cracked reinforced-concrete cellblock wall with a barred slit window cut through it, one bar bent outward, prison wasteland ruin",
+      "floor_variants": [
+        {
+          "key": "cellblock_concrete",
+          "prompt": "seamless top-down scuffed gray cellblock concrete floor texture, prison wasteland ruin"
+        },
+        {
+          "key": "exercise_yard_asphalt",
+          "prompt": "seamless top-down cracked prison exercise-yard asphalt texture, faded court lines, prison wasteland ruin"
+        },
+        {
+          "key": "cafeteria_tile",
+          "prompt": "seamless top-down grimy prison cafeteria tile floor texture, prison wasteland ruin"
+        },
+        {
+          "key": "flooded_cellblock_floor",
+          "prompt": "seamless top-down flooded stagnant cellblock floor texture, prison wasteland ruin"
+        },
+        {
+          "key": "gravel_perimeter_yard",
+          "prompt": "seamless top-down packed gravel prison perimeter-yard texture, prison wasteland ruin"
+        }
+      ],
+      "cover_props": [
+        {
+          "key": "cell_bar_gate_wreck",
+          "prompt": "a single bent torn-open cellblock bar gate, cover object, prison wasteland ruin"
+        },
+        {
+          "key": "guard_tower_base_prison",
+          "prompt": "a single collapsed prison guard-tower base with a searchlight husk, tall cover object, prison wasteland ruin"
+        },
+        {
+          "key": "prison_bus_wreck",
+          "prompt": "a single burned-out prison transport bus wreck, tall cover object, prison wasteland ruin"
+        },
+        {
+          "key": "razor_wire_fence_section_prison",
+          "prompt": "a single collapsed razor-wire perimeter fence section, cover object, prison wasteland ruin"
+        },
+        {
+          "key": "cafeteria_table_bench",
+          "prompt": "a single overturned steel cafeteria table-and-bench unit, cover object, prison wasteland ruin"
+        },
+        {
+          "key": "laundry_cart_wreck",
+          "prompt": "a single tipped rusted prison laundry cart, low cover object, prison wasteland ruin"
+        },
+        {
+          "key": "cellblock_wing_ruin",
+          "prompt": "a single collapsed cellblock wing corner with a caved-in upper-tier catwalk, tall cover object, prison wasteland ruin"
+        },
+        {
+          "key": "cellblock_wing_rubble",
+          "prompt": "a smaller pile of shattered concrete and bent cell-bar debris, low cover object, prison wasteland ruin"
+        },
+        {
+          "key": "contraband_supply_crate",
+          "prompt": "a single scavenged stenciled prison supply crate, small cover object, prison wasteland ruin"
+        },
+        {
+          "key": "scattered_prison_uniforms",
+          "prompt": "a small scatter of torn prison-issue uniforms and shredded blankets, decorative clutter, prison wasteland ruin"
+        },
+        {
+          "key": "spent_shell_casing_pile",
+          "prompt": "a small pile of spent shell casings and broken riot-shield fragments, decorative clutter, prison wasteland ruin"
+        },
+        {
+          "key": "watchtower_searchlight_wreck",
+          "prompt": "a single fallen prison watchtower searchlight fixture, cover object, prison wasteland ruin"
+        }
+      ]
     }
   },
   "wall_shapes": [
