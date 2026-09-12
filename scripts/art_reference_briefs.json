@@ -80,6 +80,21 @@
     "enemy_shotgunner":{"family": "human", "subject": "a wasteland raider in riot armor with a sawn-off shotgun", "key_features": ["riot armor and a helmet", "a short sawn-off shotgun", "a stocky stance"]},
     "enemy_shield":   {"family": "human", "subject": "a heavy wasteland raider hefting a huge scrap riot shield", "key_features": ["a huge riveted scrap riot shield covering one side", "heavy armor", "a bulky guarded silhouette"]},
     "enemy_minigunner":{"family": "human", "subject": "a hulking wasteland raider carrying a huge multi-barrel minigun", "key_features": ["a massive multi-barrel minigun", "an ammo belt draped across the chest", "a huge heavy frame"]},
-    "enemy_boss":     {"family": "mutant", "subject": "a towering heavily-armored mutant wasteland warlord with glowing eyes", "key_features": ["towering imposing scale", "heavy battle armor over mutant flesh", "glowing eyes", "a warlord's cloak or trophies"]}
+    "enemy_boss":     {"family": "mutant", "subject": "a towering heavily-armored mutant wasteland warlord with glowing eyes", "key_features": ["towering imposing scale", "heavy battle armor over mutant flesh", "glowing eyes", "a warlord's cloak or trophies"]},
+    "player_pyro": {
+      "family": "human",
+      "subject": "a wasteland pyro in a scorched patched suit with a fuel tank on their back, wielding a hose-fed flamethrower nozzle",
+      "key_features": ["a strapped-on fuel tank/canister visible on the back", "a gas mask or breather covering the face", "a short stubby hose-fed flamethrower nozzle (not a rifle silhouette)"]
+    },
+    "player_engineer": {
+      "family": "human",
+      "subject": "a wasteland engineer in a patched work apron with tool-belt pouches, carrying a scrap-built turret device",
+      "key_features": ["a stubby scrap-built turret/gun-drone carried or slung on the back", "a tool belt with a large wrench or multi-tool", "welding goggles pushed up on the forehead"]
+    },
+    "player_ranger": {
+      "family": "human",
+      "subject": "a wasteland ranger scout in a weathered duster coat and wide-brim hat, holding a shotgun with a machete strapped to the hip",
+      "key_features": ["a long weathered duster/trench coat (no hood, unlike the Sniper)", "a wide-brim hat or goggled bandana instead of a hood", "a shotgun paired with a hip-slung machete/knife"]
+    }
   }
 }
