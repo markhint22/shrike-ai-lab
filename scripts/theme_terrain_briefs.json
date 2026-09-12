@@ -6,7 +6,15 @@
         {"key": "floor_metal_v2", "prompt": "seamless top-down rusted riveted metal grate floor, heavy corrosion, wasteland ruin"},
         {"key": "floor_metal_v3", "prompt": "seamless top-down rusted riveted metal grate floor, deep scratches and grime, wasteland ruin"}
       ],
-      "wall_material": "scavenged gray scrap metal patchwork wall, riveted plates, wasteland ruin"
+      "wall_material": "scavenged gray scrap metal patchwork wall, riveted plates, wasteland ruin",
+      "cover_props": [
+        {"key": "car_husk", "prompt": "a single rusted burnt-out car husk wreck, cover object, wasteland ruin"},
+        {"key": "sandbag_bunker", "prompt": "a single stacked sandbag bunker barricade, cover object, wasteland ruin"},
+        {"key": "concrete_barrier", "prompt": "a single broken concrete highway barrier chunk, cover object, wasteland ruin"},
+        {"key": "scrap_mound", "prompt": "a single dead tree and scrap metal debris mound, cover object, wasteland ruin"},
+        {"key": "debris_stack", "prompt": "a single fallen corrugated metal wall panel debris stack, cover object, wasteland ruin"},
+        {"key": "drum_cluster", "prompt": "a cluster of rusted oil drums stacked together, cover object, wasteland ruin"}
+      ]
     },
     "city": {
       "floor_variants": [
@@ -21,7 +29,58 @@
       "cover_props": [
         {"key": "burn_barrel", "prompt": "a single rusty oil drum burn barrel with orange fire glowing inside, cover object"},
         {"key": "car_wreck", "prompt": "a single wrecked burned-out sedan car, cover object"},
-        {"key": "bus_wreck", "prompt": "a single wrecked abandoned city bus, tall cover object"}
+        {"key": "bus_wreck", "prompt": "a single wrecked abandoned city bus, tall cover object"},
+        {"key": "dumpster", "prompt": "a single overturned rusty dumpster, cover object, wasteland ruin"},
+        {"key": "mailbox", "prompt": "a single bent toppled street mailbox, small cover object, wasteland ruin"},
+        {"key": "newsstand", "prompt": "a single broken newspaper vending stand, cover object, wasteland ruin"},
+        {"key": "market_stall", "prompt": "a single overturned wooden market stall with torn awning, cover object, wasteland ruin"},
+        {"key": "jersey_barrier", "prompt": "a single concrete jersey traffic barrier, cover object, wasteland ruin"},
+        {"key": "fire_hydrant", "prompt": "a single rusted street fire hydrant, small cover object, wasteland ruin"}
+      ]
+    },
+    "industrial": {
+      "floor_variants": [
+        {"key": "oil_concrete", "prompt": "seamless top-down oil-stained gray concrete floor texture, wasteland ruin"},
+        {"key": "metal_grate", "prompt": "seamless top-down industrial metal grate catwalk deck texture, wasteland ruin"},
+        {"key": "chem_puddle", "prompt": "seamless top-down concrete floor with spilled chemical puddle stains, wasteland ruin"}
+      ],
+      "wall_material": "riveted rusted industrial factory sheet-metal wall, wasteland ruin",
+      "cover_props": [
+        {"key": "shipping_container", "prompt": "a single rusted shipping container, tall cover object, wasteland ruin"},
+        {"key": "chemical_drum", "prompt": "a single upright leaking chemical drum with glowing seam, cover object, wasteland ruin"},
+        {"key": "conveyor_belt", "prompt": "a single broken industrial conveyor belt segment, cover object, wasteland ruin"},
+        {"key": "machine_press", "prompt": "a single hulking industrial machine press housing, cover object, wasteland ruin"},
+        {"key": "pipe_bundle", "prompt": "a single stacked steel pipe and pallet bundle, cover object, wasteland ruin"}
+      ]
+    },
+    "bunker": {
+      "floor_variants": [
+        {"key": "deck_plate", "prompt": "seamless top-down scuffed steel deck plate floor texture, wasteland ruin"},
+        {"key": "bunker_concrete", "prompt": "seamless top-down cracked poured concrete bunker floor texture, wasteland ruin"},
+        {"key": "flooded_tunnel", "prompt": "seamless top-down flooded wet tunnel floor texture, wasteland ruin"}
+      ],
+      "wall_material": "riveted bolted-plate vault steel wall, cold interior, wasteland ruin",
+      "cover_props": [
+        {"key": "blast_door", "prompt": "a single sealed ajar blast vault door segment, cover object, wasteland ruin"},
+        {"key": "server_rack", "prompt": "a single steel server rack computer bank, cover object, wasteland ruin"},
+        {"key": "storage_locker", "prompt": "a single row of steel storage lockers, cover object, wasteland ruin"},
+        {"key": "gurney_cart", "prompt": "a single overturned medical gurney cart, cover object, wasteland ruin"},
+        {"key": "rebar_barricade", "prompt": "a single rebar and sandbag emergency barricade, cover object, wasteland ruin"}
+      ]
+    },
+    "toxic": {
+      "floor_variants": [
+        {"key": "toxic_mud", "prompt": "seamless top-down cracked toxic mud ground texture, wasteland ruin"},
+        {"key": "sludge_pool", "prompt": "seamless top-down shallow glowing green sludge pool texture, wasteland ruin"},
+        {"key": "mutant_moss", "prompt": "seamless top-down ground overgrown with mutant moss patches, wasteland ruin"}
+      ],
+      "wall_material": "corroded quarantine wall with fungal growth breaking through, toxic wasteland ruin",
+      "cover_props": [
+        {"key": "radioactive_barrel", "prompt": "a single leaking radioactive barrel with glowing green seam, cover object, wasteland ruin"},
+        {"key": "mutant_growth", "prompt": "a single overgrown mutant root and fungal growth cluster, cover object, wasteland ruin"},
+        {"key": "radiation_fence", "prompt": "a single collapsed chain-link radiation warning fence section, cover object, wasteland ruin"},
+        {"key": "checkpoint_barrier", "prompt": "a single rusted quarantine checkpoint barrier, cover object, wasteland ruin"},
+        {"key": "biohazard_crate", "prompt": "a single bio-hazard storage crate with warning markings, cover object, wasteland ruin"}
       ]
     }
   },
