@@ -27,7 +27,18 @@ for r in $REPOS; do
   # otherwise invisible here, so a repo whose parked items happened to predate the wording
   # change got ZERO automated recovery forever while its budget silently went to other repos
   # every single run (confirmed live: test-automation-agent, 2026-09-11).
-  parked_line="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | grep -v 'recovery:' | head -1)"
+  #
+  # 2026-09-12 FIX: the "already recovered" exclusion must be ANCHORED to the AUTO-SKIP
+  # bracket itself (where THIS script writes recovery:none/decomposed markers), not a bare
+  # `grep -v 'recovery:'` substring match - every recovered sub-item is tagged by this
+  # script's OWN prompt template with a trailing "(cat:...; recovery:decomposed)" (see the
+  # decompose-format instructions below), which is unrelated provenance metadata, not an
+  # in-progress marker. The old unanchored grep matched that trailing tag too, so ANY
+  # decomposed sub-item that later failed 4 more cycles and got re-parked became invisible
+  # to recovery FOREVER - confirmed live: billwatch had 31 parked items,100% of them already
+  # `recovery:decomposed`, and every health-sweep "pushing 3 extra recovery passes" silently
+  # recovered 0 because the filter excluded literally everything in the file.
+  parked_line="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | head -1)"
   [ -z "$parked_line" ] && continue
   lnno="${parked_line%%:*}"
   # the real task text = strip the leading [AUTO-SKIP ...] / [HUMAN-ONLY BLOCKED ITEM ...] tag
@@ -83,7 +94,7 @@ PROMPT_END
   ./queue.sh hold "$r" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   # re-find the line (it may have shifted after the reset)
-  lnno2="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" | grep -v 'recovery:' | head -1)"; lnno2="${lnno2%%:*}"
+  lnno2="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | head -1)"; lnno2="${lnno2%%:*}"
   if [ -n "$lnno2" ]; then
     # pass items + header via FILES (never interpolate multi-line data into python source)
     items_file="$(mktemp)"; printf '%s\n' "$items" > "$items_file"
