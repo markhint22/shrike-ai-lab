@@ -54,3 +54,25 @@
 # --- 27B-decomposed from roadmap [2026-09-13]: Add unit tests for LegislatorStatisticsService — app/services/legislator_statistics_servic (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-13]: Add unit tests for NotificationService — app/services/notification_service.py (183 lines,  (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Fix crash in data_export.py's current_user["id"] access — app/routers/data_export.py's req (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Re-enable address capture at registration — app/routers/auth.py's register() (line ~141) h (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Add PATCH /api/auth/me/address and wire ProfileView.vue's saveAddress() to it — billwatch- (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Fix feedback router's dead background-task wiring — app/routers/feedback.py's submit_feedb (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Add router tests for priority_api.py — app/routers/priority_api.py (6 endpoints: set_bill_ (review + tweak) ---
+- [ ] [T1] tests/test_priority_api_router.py — Create file with `TestClient` fixture and a helper to mock `get_db` dependency injection for the priority router. VERIFY: python -m pytest tests/test_priority_api_router.py::test_client_fixture -v (cat:test; multifile:no)
+- [ ] [T2] tests/test_priority_api_router.py — Add test `test_set_bill_priority_unauthenticated` asserting 401 status when no auth token is provided. VERIFY: python -m pytest tests/test_priority_api_router.py::test_set_bill_priority_unauthenticated -v (cat:test; multifile:no)
+- [ ] [T3] tests/test_priority_api_router.py — Add test `test_get_priority_dashboard_unauthenticated` asserting 401 status when no auth token is provided. VERIFY: python -m pytest tests/test_priority_api_router.py::test_get_priority_dashboard_unauthenticated -v (cat:test; multifile:no)
+- [ ] [T4] tests/test_priority_api_router.py — Add test `test_get_bills_requiring_action_unauthenticated` asserting 401 status when no auth token is provided. VERIFY: python -m pytest tests/test_priority_api_router.py::test_get_bills_requiring_action_unauthenticated -v (cat:test; multifile:no)
+- [ ] [T5] tests/test_priority_api_router.py — Add test `test_create_priority_alert_unauthenticated` asserting 401 status when no auth token is provided. VERIFY: python -m pytest tests/test_priority_api_router.py::test_create_priority_alert_unauthenticated -v (cat:test; multifile:no)
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Add router tests for bill_chat.py — app/routers/bill_chat.py's two endpoints (`post_bill_m (review + tweak) ---
+- [ ] [T1] tests/test_bill_chat_router.py — Create test file with `TestClient` fixture and mock `LLMService.moderate_comment`/`filter_comment_tone` to return approved status. VERIFY: `pytest tests/test_bill_chat_router.py -v --collect-only` shows 0 errors. (cat:test; multifile:no)
+- [ ] [T2] tests/test_bill_chat_router.py — Add test `test_post_bill_message_success` mocking DB session to return a valid Bill and LLM service to approve content, asserting 201 status and response schema. VERIFY: `pytest tests/test_bill_chat_router.py::test_post_bill_message_success -v` passes. (cat:test; multifile:no)
+- [ ] [T3] tests/test_bill_chat_router.py — Add test `test_post_bill_message_not_found` mocking DB session to return None for Bill, asserting 404 status and error message. VERIFY: `pytest tests/test_bill_chat_router.py::test_post_bill_message_not_found -v` passes. (cat:test; multifile:no)
+- [ ] [T4] tests/test_bill_chat_router.py — Add test `test_get_bill_chat_filtered_true` mocking DB session to return messages and LLM service to flag one as inappropriate, asserting only safe messages are returned when `filtered=true`. VERIFY: `pytest tests/test_bill_chat_router.py::test_get_bill_chat_filtered_true -v` passes. (cat:test; multifile:no)
+- [ ] [T5] tests/test_bill_chat_router.py — Add test `test_get_bill_chat_filtered_false` mocking DB session to return messages, asserting all messages are returned when `filtered=false`. VERIFY: `pytest tests/test_bill_chat_router.py::test_get_bill_chat_filtered_false -v` passes. (cat:test; multifile:no)

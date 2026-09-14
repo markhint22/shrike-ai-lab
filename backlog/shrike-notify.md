@@ -26,3 +26,19 @@
 # --- 27B-decomposed from roadmap [2026-09-13]: Delete domain-irrelevant orphaned utility modules with zero call sites — `backend/app/util (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-13]: Remove the dead duplicate TTL-expiry implementation before freeze — `backend/app/utils/ttl (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Fix phantom `get_token_store` import crashing persisted-auth wiring — `backend/app/depende (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Fix `is_expired()` signature/type mismatch vs. its only caller — `backend/app/services/ttl (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Close token-revocation authorization gap on POST /tokens/revoke — `backend/app/routers/mes (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Delete the duplicate QuietHoursConfig/should_defer_delivery landmine in `backend/app/utils (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Evict expired/revoked entries from the in-memory `_issued_tokens` registry — `backend/app/ (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Delete 8 garbage tracked files whose names are leftover LLM/aider chat text, not real sour (review + tweak) ---
+- [ ] [T2] backend/tests/test_cleanup_garbage.py — Add a test that asserts the 8 garbage files are not present in the working directory after cleanup. VERIFY: `pytest backend/tests/test_cleanup_garbage.py -v` passes. (cat:test; multifile:no)
+- [ ] [T3] .gitignore — Add patterns to prevent future LLM chat fragments from being tracked (e.g., `*.chat`, `aider.*`). VERIFY: `grep -q "aider" .gitignore` returns 0. (cat:refactor; multifile:no)
+- [ ] [T4] backend/scripts/pre_commit_check.py — Create a pre-commit hook script that rejects commits containing files with spaces or LLM-like names in the root. VERIFY: `python backend/scripts/pre_commit_check.py "Is there a bug in \`delivery.py\`?"` exits with non-zero status. (cat:python; multifile:no)
+- [ ] [T5] .pre-commit-config.yaml — Configure pre-commit to run the garbage file check on all staged files. VERIFY: `pre-commit run --all-files` passes without errors. (cat:refactor; multifile:yes)

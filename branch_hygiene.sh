@@ -201,7 +201,20 @@ for repo in "${REPOS[@]}"; do
 
   DEF="$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
   DEF="${DEF:-main}"
-  mt="${HYGIENE_MERGE_TARGET:-$DEF}"   # feature -> mt (develop=staging); prune stays vs $DEF (main)
+  # SAFETY (2026-09-14): default merge target must be 'develop' (staging), NOT $DEF
+  # (the repo's actual default branch, almost always 'main'/production). A bare
+  # manual invocation of this script with HYGIENE_MERGE_TARGET unset used to fall
+  # through to $DEF and silently merge+push overnight/feature straight to main,
+  # bypassing the gated promote_to_prod.sh entirely - confirmed live: gitlark got
+  # 167 commits pushed to production main this way. The cron always sets
+  # HYGIENE_MERGE_TARGET=develop explicitly; this default now matches that intent
+  # so an unset env var can never target production by accident. Falls back to
+  # $DEF only if the repo genuinely has no 'develop' ref, with a loud warning.
+  mt="${HYGIENE_MERGE_TARGET:-develop}"
+  if ! git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$mt"; then
+    log "  WARNING: merge target '$mt' has no origin ref for $name — falling back to $DEF (repo default branch). Set HYGIENE_MERGE_TARGET explicitly to silence this."
+    mt="$DEF"
+  fi
 
   # 2. delete branches merged into main (local + remote), preserving protected refs
   protected="^(${DEF}|${mt}|develop|overnight/feature|claude/feature)$"
