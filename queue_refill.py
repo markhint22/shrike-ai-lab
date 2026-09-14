@@ -83,17 +83,20 @@ def main():
         except FileNotFoundError:
             pass
     eligible = [l for l in bl if is_item.match(l) and not parked.search(l) and _norm(l) not in existing]
-    # DEFAULT-PASS on godot: the 27B is measured ~0% on Godot (.gd), so never pull it as 27B work.
-    # Instead pull ALL eligible godot items and write them PRE-TAGGED for Claude — they leave the
-    # backlog and land in the progress file already AUTO-SKIP'd, so the claude_queue_bridge harvests
-    # them to CLAUDE_QUEUE.md and the 27B's item picker skips them. This is the durable reroute:
-    # godot can never re-clog the 27B queue via refill.
-    godot_re = re.compile(r"\.gd\b", re.I)
-    godot = [l for l in eligible if godot_re.search(l)]
-    eligible = [l for l in eligible if not godot_re.search(l)]
+    # 2026-09-14 REMOVED the old "DEFAULT-PASS on godot" reroute (pulled every .gd backlog item and
+    # pre-tagged it AUTO-SKIP/route-to-Claude before it ever reached the active queue) — that was the
+    # SAME stale "measured 0%" assumption fixed today in ovn_stage_runner.sh/run_overnight.sh (see
+    # project_godot-staging-reenabled-2026-09-14.md), just one layer further upstream. It meant fixing
+    # the picker/trigger did nothing for NEW backlog items: they got auto-parked here before either
+    # fixed code path ever saw them. Godot items now flow through the normal pull path below like any
+    # other item, routing to whichever flow (basic scout+implement or the staged pipeline) their tier
+    # naturally selects.
 
     # Pre-check: scan eligible items in order, crediting any that already pass their own
     # VERIFY, until either the pull quota (n) is filled or SCAN_CAP items have been examined.
+    # NOTE: already_satisfied's own docstring restricts pre-checking to python-import/grep VERIFY
+    # shapes (cheap, side-effect-free) — a godot item's VERIFY runs the engine, so it's heavier than
+    # that restriction allows and will simply never match, falling through to `pull` normally.
     pull, credited, scanned = [], [], 0
     for l in eligible:
         if len(pull) >= n or scanned >= SCAN_CAP:
@@ -104,13 +107,13 @@ def main():
         else:
             pull.append(l)
 
-    if not pull and not godot and not credited:
+    if not pull and not credited:
         remaining = len(eligible)
         print(f"REFILL=0  BACKLOG_REMAINING={remaining}  CREDITED=0")
         return
 
-    # remove pulled + credited + all-godot lines from the backlog (first occurrence each)
-    to_remove = list(pull) + list(credited) + list(godot)
+    # remove pulled + credited lines from the backlog (first occurrence each)
+    to_remove = list(pull) + list(credited)
     rest = []
     for l in bl:
         if to_remove and l in to_remove:
@@ -121,19 +124,12 @@ def main():
 
     stamp = datetime.date.today().isoformat()
 
-    def _claude_tag(l):  # turn "- [ ] [T3] foo.gd — ..." into an AUTO-SKIP route-to-Claude line
-        return l.replace("- [ ] ", "- [ ] [AUTO-SKIP godot(.gd) — 27B measured 0%, route to CLAUDE] ", 1)
-
     # append pulled items to the live queue under a dated marker (runner scans `- [ ] [Tn]`)
     with open(progress, "a", encoding="utf-8") as f:
         if pull:
             f.write(f"\n<!-- auto-refill {stamp}: {len(pull)} items pulled from backlog -->\n")
             for l in pull:
                 f.write(l + "\n")
-        if godot:
-            f.write(f"\n<!-- auto-refill {stamp}: {len(godot)} godot items routed to CLAUDE (27B can't do Godot) -->\n")
-            for l in godot:
-                f.write(_claude_tag(l) + "\n")
 
     # credited items never enter the active queue at all — straight to the done archive, so
     # queue_refill.py's own dedup (and everyone else's) sees them as already handled.
@@ -144,8 +140,8 @@ def main():
                 checked = re.sub(r"^- \[ \] ", "- [x] (pre-verified: VERIFY already passed against current code) ", l, count=1)
                 f.write(checked + "\n")
 
-    remaining = len([l for l in rest if is_item.match(l) and not parked.search(l) and not godot_re.search(l) and _norm(l) not in existing])
-    print(f"REFILL={len(pull)}  GODOT_TO_CLAUDE={len(godot)}  CREDITED={len(credited)}  BACKLOG_REMAINING={remaining}")
+    remaining = len([l for l in rest if is_item.match(l) and not parked.search(l) and _norm(l) not in existing])
+    print(f"REFILL={len(pull)}  CREDITED={len(credited)}  BACKLOG_REMAINING={remaining}")
 
 
 if __name__ == "__main__":

@@ -64,3 +64,21 @@
 # --- 27B-decomposed from roadmap [2026-09-14]: New itch_readiness_check.gd (fills a verified asymmetry with the Steam release checklist)  (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-14]: New player_stats_validator.gd (mirrors the existing EnemyStatsValidator/AbilityStatsValida (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Mission validator: terrain theme + turn-limit checks — scripts/mission/mission_validator.g (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Injury recovery: progress percentage — scripts/roster/injury_recovery.gd (verified via rea (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Input remapper: detect duplicate key bindings — scripts/settings/input_remapper.gd (verifi (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Codex: tech entries missing their reveal key/wrapper — scripts/codex/codex_data.gd (verifi (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Loot tier: minimum-level lookup (inverse of loot_tier) — scripts/battle/loot_tier.gd (veri (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-14]: Shield absorb: remaining shield after a hit — scripts/battle/shield_absorb.gd (verified vi (review + tweak) ---
+- [ ] [T1] scripts/battle/shield_absorb.gd — Add `static func remaining_shield(shield: int, incoming: int) -> int` that returns `maxi(maxi(shield, 0) - incoming, 0)`. VERIFY: `grep -q "static func remaining_shield" scripts/battle/shield_absorb.gd && grep -q "maxi(maxi(shield, 0) - incoming, 0)" scripts/battle/shield_absorb.gd`. (cat:godot; multifile:no)
+- [ ] [T1] tests/test_shield_absorb_remaining.gd — Create new test file extending `GutTest` with `func test_remaining_shield_basic()` asserting `ShieldAbsorb.remaining_shield(10, 3) == 7`. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gdir=tests -gtest=test_shield_absorb_remaining.gd -gexit`. (cat:test; multifile:no)
+- [ ] [T2] tests/test_shield_absorb_remaining.gd — Add `func test_remaining_shield_full_absorb()` asserting `ShieldAbsorb.remaining_shield(5, 5) == 0`. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gdir=tests -gtest=test_shield_absorb_remaining.gd -gexit`. (cat:test; multifile:no)
+- [ ] [T2] tests/test_shield_absorb_remaining.gd — Add `func test_remaining_shield_overflow()` asserting `ShieldAbsorb.remaining_shield(5, 10) == 0`. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gdir=tests -gtest=test_shield_absorb_remaining.gd -gexit`. (cat:test; multifile:no)
+- [ ] [T2] tests/test_shield_absorb_remaining.gd — Add `func test_remaining_shield_negative_input()` asserting `ShieldAbsorb.remaining_shield(-5, 10) == 0` to verify clamping behavior. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gdir=tests -gtest=test_shield_absorb_remaining.gd -gexit`. (cat:test; multifile:no)
+- [ ] [T2] tests/test_shield_absorb_remaining.gd — Add `func test_remaining_shield_zero_incoming()` asserting `ShieldAbsorb.remaining_shield(10, 0) == 10`. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gdir=tests -gtest=test_shield_absorb_remaining.gd -gexit`. (cat:test; multifile:no)

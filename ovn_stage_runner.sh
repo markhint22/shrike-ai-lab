@@ -72,10 +72,22 @@ llm(){ local pf="$1" body resp content i
 if [ -n "$item_arg" ]; then item="$item_arg"
 else
   # PREFER the 27B's sweet spot (python) so a slot LANDS an item; then FALL BACK to the harder
-  # non-godot items (frontend/wiring/T4/T5) so the 27B keeps ATTEMPTING them (it lands some, and the
-  # verify layer + escalation route the rest). GODOT is the one class we never pick — it's measured 0%
-  # and only wastes the slot on a guaranteed timeout; the sweep routes godot to Claude separately.
-  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·' | grep -viE '\.gd\b')"
+  # items (frontend/wiring/T4/T5/godot) so the 27B keeps ATTEMPTING them (it lands some, and the
+  # verify layer + escalation route the rest).
+  #
+  # 2026-09-14 RE-ENABLED godot (was hard-excluded here, "measured 0%, guaranteed timeout"): that
+  # measurement predated the decompose SOURCE-ONLY carve-out below AND ovn_autotest.sh's fast
+  # per-file gdparse/--check-only gate (both already existed in this file, just never re-tested
+  # against the picker). Root-caused the actual 0%: the decompose rule said "if the task asks to
+  # WRITE A TEST, emit []" and the model over-applied that to ANY item whose VERIFY line runs a GUT
+  # test file — which is nearly EVERY xlite queue item's wording (source description + GUT-test
+  # VERIFY) — so decompose silently emitted [] on almost the whole godot backlog. Fixed the rule
+  # text (see below) and re-verified: 3/3 manual decompose replays classify correctly, 2/2 full
+  # end-to-end runs landed real verified code (2280/2280 GUT tests) in 2.5-4 minutes each — nowhere
+  # near a timeout. Re-enabling; the existing verify+repair+escalate safety net means a wrong pick
+  # here costs a cycle, same as any other T3+ item, not a queue/repo risk. Monitor
+  # state/stage_runs/xlite-*.jsonl real land rate over the next day before trusting this at scale.
+  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·')"
   item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
   [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
 fi
@@ -113,6 +125,16 @@ decompose(){ # $1=task text  -> writes JSON array of {desc,files[],verify} to st
   # author GUT test scripts (the test-framework .gd format defeats it every time — proven empirically).
   # So for godot items, decompose into SOURCE-ONLY steps and verify by compile-check, NOT by making it
   # write a GUT test. The runner's full_verify still runs the EXISTING GUT suite to catch regressions.
+  #
+  # 2026-09-14 FIX: the rule text below used to just say "if the task asks to WRITE A TEST, emit []" —
+  # empirically (manual curl replay of this exact prompt, 3-for-3 real xlite queue items) the model
+  # over-applied that to ANY item whose VERIFY line runs a GUT test file, even when the task's own
+  # DESCRIPTION was a plain source addition ("Add static function X...") and the VERIFY was just
+  # pointing at a test that already exists or is a separate queue item. Since nearly every xlite queue
+  # item is worded exactly that way (source description + GUT-test VERIFY), this was silently emitting
+  # [] on almost the entire godot backlog — decompose_failed, not a model capability limit. Clarified
+  # the rule to key off the task DESCRIPTION, not the VERIFY clause; re-verified 3/3 items decompose
+  # correctly (2 source items produce a real step, 1 genuine test-writing item still emits []).
   local _rules
   case "$1" in
     *.gd*|*[Gg][Dd][Ss]cript*|*[Gg]odot*)
@@ -120,8 +142,12 @@ decompose(){ # $1=task text  -> writes JSON array of {desc,files[],verify} to st
 .gd file (no tests/, no test_*.gd) — authoring GUT tests is OUT OF SCOPE and will fail. Each step ADDS or
 MODIFIES only the named production .gd script(s). Each step "files" lists ONLY that source .gd. Each step
 "verify" MUST be exactly "gdparse <that .gd path>" (valid Godot-4 syntax) — nothing else. Write REAL Godot
-4.x code (typed, @export/@onready, await, callable .connect) — never Godot 3, never a stub/TODO. If the
-task asks to WRITE A TEST, emit an empty array [] (it is not a source task). Keep each step to 1 file.' ;;
+4.x code (typed, @export/@onready, await, callable .connect) — never Godot 3, never a stub/TODO. The
+task'"'"'s OWN VERIFY line frequently points at a GUT test file that ALREADY EXISTS or is handled by a
+SEPARATE queue item — that does NOT make this a test-writing task. Only emit an empty array [] if the
+task'"'"'s DESCRIPTION itself (before the VERIFY: clause) explicitly instructs you to add/create/write a NEW
+.gd test file — a description that adds a production function/method/class is a source task regardless of
+what its VERIFY clause happens to run. Keep each step to 1 file.' ;;
     *)
       _rules='2 to '"$MAX_STEPS"' steps, each SMALL. CRITICAL — every step must be SELF-VERIFYING: the code change
 AND a test that exercises it belong in the SAME step (its "files" should usually include both the source
@@ -383,6 +409,39 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     if grep -qiE 'for demonstration|placeholder|not implemented|NotImplementedError|TODO:? implement|for now,? (just|return)|# *stub|dummy (value|impl)|simple .* for demonstration' "$wt/$cf" 2>/dev/null; then
       echo "-- QUALITY FAIL: $cf is a stub/placeholder — a real working implementation is required --" >> "$vlog"; vok=0
     fi
+  done
+  # 2026-09-14: none of the keyword patterns above catch a bare `pass`-only body, which is valid
+  # GDScript/Python syntax (so it parses clean and passes every gate above) but is a complete no-op.
+  # Confirmed live: a godot staging run landed `static func simulate_missing_files() -> void: pass`
+  # — WRONG arg count, WRONG return type, and zero logic — and this exact check block let it through
+  # because "pass" alone matches none of the stub-keyword regex. Flag any newly-ADDED function whose
+  # entire body (ignoring blank lines/comments) is just `pass`/`...`/`return None` before the next
+  # def/func boundary or EOF — that shape is never a legitimate "real" implementation for a task that
+  # asked for actual logic.
+  for cf in $srcs; do
+    [ -f "$wt/$cf" ] || continue
+    case "$cf" in *.gd|*.py) : ;; *) continue ;; esac
+    if git -C "$wt" diff origin/overnight/feature..HEAD -- "$cf" 2>/dev/null | python3 -c "
+import sys, re
+added = [l[1:] for l in sys.stdin if l.startswith('+') and not l.startswith('+++')]
+i = 0
+while i < len(added):
+    if re.match(r'^\s*(static func|func|def)\s+\w+', added[i]):
+        j = i + 1
+        body = []
+        while j < len(added) and not re.match(r'^\s*(static func|func|def|class)\b', added[j]):
+            s = added[j].strip()
+            if s and not s.startswith('#'):
+                body.append(s)
+            j += 1
+        if body and all(b in ('pass', '...', 'return None', 'return') for b in body):
+            print(added[i].strip()[:60]); sys.exit(0)
+    i += 1
+sys.exit(1)
+" > /tmp/stub_hit.$$ 2>/dev/null; then
+      echo "-- QUALITY FAIL: $cf has a bare pass/no-op body for a newly-added function ($(cat /tmp/stub_hit.$$ 2>/dev/null)) — not a real implementation --" >> "$vlog"; vok=0
+    fi
+    rm -f /tmp/stub_hit.$$
   done
   # a changed test must EXERCISE the changed source — either by referencing a new symbol OR (for
   # endpoints/routes) by hitting a route path the source added (endpoint tests use client.get("/topics"),

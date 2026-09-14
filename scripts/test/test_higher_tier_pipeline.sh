@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Tests for the higher-tier pipeline added 2026-09-08:
 #   - ovn_autotest.sh GODOT gate (gdparse syntax + godot --check-only semantic)
-#   - queue_refill.py GODOT routing (godot -> Claude, never into the 27B queue)
+#   - queue_refill.py routing (python AND godot both flow into the 27B queue normally)
 #   - the INLINE higher-tier branch selection grep (run_overnight.sh)
-#   - the stage runner AUTO-PICK grep (python-prefer, godot-exclude)
+#   - the stage runner AUTO-PICK grep (python-preferred, godot allowed as fallback)
 #   - the decompose GODOT-vs-python rules selection
 # Pure-logic where possible so it runs anywhere; gate tests self-skip if gdparse/godot are absent.
+#
+# 2026-09-14: sections 1/2/4 UPDATED — godot's blanket "measured 0%, route to Claude" exclusion
+# (in run_overnight.sh's trigger, ovn_stage_runner.sh's auto-pick, AND queue_refill.py's refill
+# routing) was itself a stale decompose-prompt bug, not a real capability ceiling — see
+# project_godot-staging-reenabled-2026-09-14.md. Godot now flows through all three exactly like
+# any other language; python is still PREFERRED where both are available (it's still the 27B's
+# strongest category), it just no longer HARD-EXCLUDES godot as a fallback.
 set -uo pipefail
 OVN="${OVN_ROOT:-$HOME/overnight-queue}"
 P=0; F=0; S=0
@@ -13,17 +20,17 @@ ok(){   if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  
 nok(){  if eval "$2" >/dev/null 2>&1; then F=$((F+1)); echo "  FAIL(expected-false): $1"; else P=$((P+1)); fi; }
 skip(){ S=$((S+1)); echo "  SKIP: $1"; }
 
-# ============ 1. INLINE higher-tier branch: "repo has a doable NON-GODOT T3+ item?" ============
+# ============ 1. INLINE higher-tier branch: "repo has a doable T3+ item (any language)?" ============
 # This is the exact predicate run_overnight uses to decide whether to run the sub-flow.
 has_t3(){ grep -E '^- \[ \] ' "$1" 2>/dev/null | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' \
-            | grep -E '\[T[345]\]|·T[345]·' | grep -qviE '\.gd\b'; }
+            | grep -qE '\[T[345]\]|·T[345]·'; }
 d=$(mktemp -d)
 printf -- '- [ ] [T3] app/foo.py — add a fn\n' > "$d/py.md"
 ok   "inline fires on a python T3 item"        "has_t3 $d/py.md"
 printf -- '- [ ] [T4] app/svc.py — wire it\n'  > "$d/t4.md"
 ok   "inline fires on a T4 item"               "has_t3 $d/t4.md"
 printf -- '- [ ] [T3] scripts/battle/x.gd — add fn\n' > "$d/gd.md"
-nok  "inline does NOT fire on a godot-only T3"  "has_t3 $d/gd.md"
+ok   "inline fires on a godot-only T3 (godot no longer excluded)" "has_t3 $d/gd.md"
 printf -- '- [ ] [T1] app/foo.py — trivial\n- [ ] [T2] app/bar.py — small\n' > "$d/low.md"
 nok  "inline does NOT fire when only T1/T2"     "has_t3 $d/low.md"
 printf -- '- [ ] [AUTO-SKIP godot] [T3] x.gd — x\n- [ ] [T5] app/z.py — big\n' > "$d/mix.md"
@@ -32,10 +39,10 @@ printf -- '- [x] [T3] app/done.py — already done\n' > "$d/done.md"
 nok  "inline does NOT fire on a checked-off item" "has_t3 $d/done.md"
 rm -rf "$d"
 
-# ============ 2. STAGE RUNNER auto-pick: prefer python, NEVER pick godot ============
-pick(){  # mirrors ovn_stage_runner.sh lines 78-79
+# ============ 2. STAGE RUNNER auto-pick: prefer python, fall back to ANY other doable item (incl. godot) ============
+pick(){  # mirrors ovn_stage_runner.sh's post-2026-09-14 auto-pick
   local f="$1" _doable item
-  _doable="$(grep -E '^- \[ \] ' "$f" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·' | grep -viE '\.gd\b')"
+  _doable="$(grep -E '^- \[ \] ' "$f" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·')"
   item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
   [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
   printf '%s' "$item"
@@ -45,10 +52,9 @@ printf -- '- [ ] [T3] web/x.vue — ui\n- [ ] [T3] app/svc.py — logic\n' > "$d
 ok  "auto-pick PREFERS the python item over the vue" "[ \"\$(pick $d/q.md)\" = '[T3] app/svc.py — logic' ]"
 printf -- '- [ ] [T3] scripts/a.gd — godot\n- [ ] [T3] web/x.vue — ui\n' > "$d/q2.md"
 p2="$(pick "$d/q2.md")"
-ok  "auto-pick NEVER returns a .gd item (falls to vue)" "printf '%s' \"\$p2\" | grep -qv '\\.gd'"
-ok  "auto-pick fallback returns the non-godot hard item" "printf '%s' \"\$p2\" | grep -q '\\.vue'"
+ok  "auto-pick still prefers non-python items in file order when no python present (gets the FIRST doable, .gd here)" "printf '%s' \"\$p2\" | grep -q '\\.gd'"
 printf -- '- [ ] [T3] scripts/a.gd — godot only\n' > "$d/q3.md"
-ok  "auto-pick returns EMPTY when only godot remains" "[ -z \"\$(pick $d/q3.md)\" ]"
+ok  "auto-pick returns the godot item when it's the ONLY doable item (no longer hard-excluded)" "printf '%s' \"\$(pick $d/q3.md)\" | grep -q '\\.gd'"
 rm -rf "$d"
 
 # ============ 3. decompose GODOT-vs-python rules selection ============
@@ -57,17 +63,17 @@ ok  "decompose picks SOURCE-ONLY rules for a .gd item"   "[ \"\$(rules_kind '[T3
 ok  "decompose picks SOURCE-ONLY rules for a 'Godot' item" "[ \"\$(rules_kind '[T3] add a Godot scene loader')\" = godot ]"
 ok  "decompose picks self-verifying rules for a .py item" "[ \"\$(rules_kind '[T3] app/foo.py — add fn')\" = python ]"
 
-# ============ 4. queue_refill.py GODOT routing ============
+# ============ 4. queue_refill.py routing: godot pulled in normally, same as python ============
 if [ -f "$OVN/queue_refill.py" ]; then
   d=$(mktemp -d)
   printf -- '- [ ] [T3] app/a.py — real python work\n- [ ] [T3] scripts/b.gd — godot work\n- [ ] [T2] app/c.py — more python\n' > "$d/backlog.md"
   printf '# progress\n' > "$d/prog.md"
   out="$(python3 "$OVN/queue_refill.py" "$d/prog.md" "$d/backlog.md" 5 2>/dev/null)"
   ok  "refill pulls the python items"                 "grep -q 'app/a.py' $d/prog.md && grep -q 'app/c.py' $d/prog.md"
-  ok  "refill routes the .gd item to Claude (AUTO-SKIP in progress)" "grep -E 'AUTO-SKIP.*godot' $d/prog.md | grep -q 'scripts/b.gd'"
-  ok  "refill reports GODOT_TO_CLAUDE>=1"              "printf '%s' \"\$out\" | grep -qE 'GODOT_TO_CLAUDE=[1-9]'"
-  ok  "refill removes godot from the backlog"          "! grep -q 'scripts/b.gd' $d/backlog.md"
-  ok  "the routed godot line is NOT a plain 27B item"  "! grep -E '^- \\[ \\] \\[T[0-9]\\] scripts/b.gd' $d/prog.md"
+  ok  "refill pulls the godot item too (no longer diverted)" "grep -q 'scripts/b.gd' $d/prog.md"
+  ok  "the pulled godot line IS a plain doable item (not AUTO-SKIP'd)" "grep -E '^- \\[ \\] \\[T[0-9]\\] scripts/b.gd' $d/prog.md"
+  ok  "refill removes the pulled godot item from the backlog" "! grep -q 'scripts/b.gd' $d/backlog.md"
+  ok  "refill output no longer mentions GODOT_TO_CLAUDE"      "! printf '%s' \"\$out\" | grep -q 'GODOT_TO_CLAUDE'"
   rm -rf "$d"
 else
   skip "queue_refill.py not found at $OVN"

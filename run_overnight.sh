@@ -783,17 +783,18 @@ STUB
       fi
     fi
 
-    # HIGHER-TIER SUB-FLOW (inline, 2026-09-08): if this repo has a doable non-godot T3+ item, hand it
+    # HIGHER-TIER SUB-FLOW (inline, 2026-09-08): if this repo has a doable T3+ item, hand it
     # to the multi-stage runner (decompose -> per-step aider+gate -> independent verify) RIGHT HERE in
     # the fleet's own serial slot. Because we ARE the fleet and already hold the GPU, no pause/dedicate
     # is needed (OVN_STAGE_DEDICATE=0) — there is structurally NOTHING to contend with, so higher-tier
     # items can never be timed out by a concurrent fleet aider. This REPLACES the old separate paused
     # sweep: same queue, one serial loop, tier just selects the flow. Lower-tier items fall through to
-    # the normal scout+implement below. The runner auto-picks its own T3+ python item and checks it off.
+    # the normal scout+implement below. The runner auto-picks its own T3+ item (preferring python,
+    # falling back to anything else including godot — see ovn_stage_runner.sh's 2026-09-14 note) and
+    # checks it off. godot's own former exclusion here was removed the same day, same reasoning.
     if [ "${OVN_INLINE_STAGE:-1}" = 1 ] && [ -f "OVERNIGHT_PROGRESS.md" ] \
        && grep -E '^- \[ \] ' OVERNIGHT_PROGRESS.md 2>/dev/null \
-          | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·' \
-          | grep -qviE '\.gd\b'; then
+          | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -qE '\[T[345]\]|·T[345]·'; then
       echo "--- higher-tier sub-flow (inline in fleet slot; no pause, no contention) ---" >> "$task_log"
       ( cd "$SCRIPT_DIR" && OVN_STAGE_DEDICATE=0 timeout 1500 bash ovn_stage_runner.sh "$(basename "$repo")" ) >> "$task_log" 2>&1
       # 2026-09-09 FIX: this used to unconditionally echo "stage(higher-tier)" regardless of what
@@ -947,10 +948,24 @@ STUB
       [ "$found_new" -eq 1 ]
     }
 
+    # 2026-09-14: real outcome data showed NEEDS-DECISION was chosen far more often than any actual
+    # code-writing failure warranted - e.g. this repo's own attempts land ~60-75% of the time once
+    # tried, yet the scout hedges into NEEDS-DECISION on roughly half of everything it's shown
+    # (worse for less-common languages/frameworks, where unfamiliarity reads as "unsure"). A wrong
+    # PROCEED costs nothing (the build/test gate reverts it for free) while NEEDS-DECISION guarantees
+    # zero progress on a cycle that was going to be spent either way - so hedging is strictly the
+    # worse default. Added an explicit calibration line rather than just hoping the model infers it.
     SCOUT_PROMPT="Before writing any code, PLAN first. Reply in EXACTLY this format and nothing else:
 VERDICT: one of PROCEED | ALREADY-DONE | BLOCKED | NEEDS-DECISION
 PLAN: one line - if PROCEED, the change you will make in 1-2 short steps; if ALREADY-DONE, name the existing file/test that already implements the item; if BLOCKED, what a human must do
 FILES: up to ${max_files} existing repo file paths you would need to see in full (relative to the repo root, one per line), or NONE
+
+Default to PROCEED unless there is a concrete, nameable blocker (a missing credential/external
+account, a genuine product/design decision, or a referenced function/file that does not exist and
+isn't this task's own job to create). Do not choose NEEDS-DECISION merely because you are unsure
+of exact syntax, unfamiliar with the language/framework, or not 100% certain your first attempt
+will work — a good-faith attempt that fails costs nothing (the gate reverts it automatically); a
+NEEDS-DECISION guarantees no progress at all.
 
 Task: ${prompt}"
 

@@ -5,7 +5,7 @@
 # Usage: ovn_classify_fail.sh <task_log> <status>   -> prints one of:
 #   context-exceeded | diff-not-applied | no-edit | api-mismatch | syntax-error |
 #   test-red | build-red | plan-only | timeout | oversized | needs-decision | model-api-error |
-#   queue-exhausted | landed | unknown
+#   queue-exhausted | stage-unverified | landed | unknown
 #
 # Ordered most-specific-first; the FIRST signature that hits wins. Signatures are drawn from real
 # aider/gate output. Keep this cheap (greps only) — it runs once per item in record_outcome.
@@ -39,6 +39,14 @@ case "$status" in
   # happened). Trust the status text the same way model-api-error already does above.
   *"reverted(build-break)"*)          echo "build-red"; exit 0;;
   *"reverted-red"*)                   echo "test-red"; exit 0;;
+  # 2026-09-14: same shape of bug as skip(exhausted) above, one layer up — the higher-tier
+  # stage runner's own "no-op(stage-unverified)" status (run_overnight.sh's OVN_INLINE_STAGE
+  # echo when ovn_stage_runner.sh ran but couldn't confirm a verified push) doesn't match any
+  # log-content pattern below (there's often no failure text at all, just an unverified stage),
+  # so it fell through to the generic "unknown" fallback — 61 occurrences in 4 days, still
+  # live as of today, and the single largest chunk of the T3-T5 "unknown" bucket. The status
+  # already names the cause precisely; trust it the same way the other *_status cases above do.
+  *"no-op(stage-unverified)"*)        echo "stage-unverified"; exit 0;;
 esac
 
 # scan the tail of the log (the last attempt's output is what matters)
