@@ -45,6 +45,29 @@ for r in $REPOS; do
   task="$(printf '%s' "${parked_line#*:}" | sed -E 's/^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*\][[:space:]]*//')"
   [ "${#task}" -lt 15 ] && continue
 
+  # HARD-BANNED-FILE SHORT-CIRCUIT (2026-09-13): a parked item whose target is a
+  # hard-banned file (.queue-hard-banned-files) can NEVER land no matter how it's
+  # decomposed - a "smaller step" that still ends in "...and wire it into
+  # battle.gd" is exactly as banned as the original. Without this check, the LLM
+  # below routinely decomposes into a harmless standalone-file step (fine) PLUS
+  # one that still touches the banned file (which parks again, gets "recovered"
+  # again, forever) - confirmed live: xlite's flank-bonus/damage-calc idea spent
+  # 3 days and 6+ decomposition rounds cycling through flank_bonus.gd ->
+  # aim_modifiers.gd -> back to battle.gd every time, never once reaching a
+  # landable end state. Skip the LLM call entirely and escalate directly.
+  banned_hit=""
+  if [ -f "$rd/.queue-hard-banned-files" ]; then
+    while IFS= read -r bpat; do
+      [ -z "$bpat" ] && continue
+      case "$task" in *"$bpat"*) banned_hit="$bpat"; break ;; esac
+    done < <(grep -v '^\s*#' "$rd/.queue-hard-banned-files" | grep -v '^\s*$')
+  fi
+  if [ -n "$banned_hit" ]; then
+    items="- [ ] [CLAUDE] ${banned_hit} is hard-banned from automated edits (.queue-hard-banned-files) - no decomposition can route around a file-level ban, needs a human/Claude session (recovery:escalated)"
+    cnt=1
+    say "$r: parked item targets hard-banned file '${banned_hit}' — escalating directly, no LLM call"
+  else
+
   # compact layout for grounding (reuse real paths)
   layout="$(cd "$rd" 2>/dev/null && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' \) \
               -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -80)"
@@ -80,6 +103,7 @@ PROMPT_END
           | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
   items="$(printf '%s\n' "$resp" | grep -E '^- \[ \] (\[T[1-3]\].+VERIFY:|\[CLAUDE\])' | head -4)"
   cnt=$(printf '%s' "$items" | grep -c '^- \[ \]')
+  fi
   if [ "${cnt:-0}" -lt 1 ]; then
     say "$r: 27B gave no usable recovery for this item — leaving parked, tagging so we don't retry it forever"
     # tag the parked line so the NEXT run picks a different parked item (avoids looping on one hard item)

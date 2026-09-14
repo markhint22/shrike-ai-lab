@@ -38,3 +38,20 @@
 # --- 27B-decomposed from roadmap [2026-09-11]: Visual-regression diff flagging — backend/app/utils/visual_diff.py (diff_ratio, is_visual_ (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-11]: Remove dead fix-first stub router — backend/app/routers/fix_first.py is a leftover stub (` (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-13]: Surface overall suite health badge on Flake Dashboard — backend/app/utils/suite_health.py' (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-13]: Wire tiered flake-severity badges into the Flake Dashboard — backend/app/utils/flake_indic (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-13]: Consolidate duplicate status-color helpers and wire flaky coloring into the run list — thr (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-13]: Remove dead duplicate select_by_tag helper — backend/app/utils/test_selection.py's `select (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-13]: Add unit tests for the flakes Pinia store — frontend/src/stores/flakes.js (fetchFlakes, se (review + tweak) ---
+- [ ] [T1] frontend/src/stores/__tests__/flakes.test.js — Create the test file with mocked axios and Pinia setup following the pattern in frontend/src/stores/__tests__/testRuns.test.js. VERIFY: `npx vitest run frontend/src/stores/__tests__/flakes.test.js` passes with 0 tests (or skips) initially, confirming the file exists and imports resolve. (cat:test; multifile:no)
+- [ ] [T2] frontend/src/stores/__tests__/flakes.test.js — Add a test case verifying that `fetchFlakes` populates the `flakes` state array with the mocked response data on success. VERIFY: `npx vitest run frontend/src/stores/__tests__/flakes.test.js -t "successful fetch"` passes. (cat:test; multifile:no)
+- [ ] [T2] frontend/src/stores/__tests__/flakes.test.js — Add a test case verifying that `fetchFlakes` sets the `error` state and leaves `flakes` empty when the axios request rejects. VERIFY: `npx vitest run frontend/src/stores/__tests__/flakes.test.js -t "fetch error"` passes. (cat:test; multifile:no)
+- [ ] [T2] frontend/src/stores/__tests__/flakes.test.js — Add a test case verifying that `setQuarantine` updates the specific entry in the `flakes` array in place on successful API response. VERIFY: `npx vitest run frontend/src/stores/__tests__/flakes.test.js -t "setQuarantine success"` passes. (cat:test; multifile:no)
+- [ ] [T2] frontend/src/stores/__tests__/flakes.test.js — Add a test case verifying that `setQuarantine` surfaces the API error message in the `error` state when the request fails. VERIFY: `npx vitest run frontend/src/stores/__tests__/flakes.test.js -t "setQuarantine failure"` passes. (cat:test; multifile:no)
+- [ ] [T3] frontend/src/stores/flakes.js — Ensure the `fetchFlakes` action correctly handles loading state and error propagation to match the test expectations for empty data on error. VERIFY: `npx vitest run frontend/src/stores/__tests__/flakes.test.js` passes all tests. (cat:typescript; multifile:no)
+- [ ] [T3] frontend/src/stores/flakes.js — Ensure the `setQuarantine` action correctly updates the local state array and handles error messages to match the test expectations for in-place updates and error surfacing. VERIFY: `npx vitest run frontend/src/stores/__tests__/flakes.test.js` passes all tests. (cat:typescript; multifile:no)

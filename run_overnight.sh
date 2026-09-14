@@ -1381,6 +1381,26 @@ ${full_prompt}"
         fi
       fi
 
+      # MIGRATION-SAFETY GATE (2026-09-13): check_migrations.py has existed for a while
+      # (multi-head + String-FK-to-uuid crash-loop-prod checks) but was only ever wired
+      # into branch_hygiene.sh's HOURLY external sweep, not this per-cycle gate - so a
+      # commit that forks the Alembic migration chain (wrong/missing down_revision) landed
+      # immediately on feature and sat there for up to an hour before hygiene even noticed,
+      # blocking every later commit's merge in the meantime and requiring a manual fix each
+      # time. Recurred 4x this week (gitlark's 016/017 fork, gitlark's 016_add_connectors/
+      # 017 string mismatch, iptv_apps's 019 with down_revision=None, billwatch's empty
+      # 012_add_bill_embedding.py stub) - catching it here, the moment the bad commit is
+      # made, means it never leaves this cycle instead of blocking hygiene for the fleet.
+      if [ -f "$SCRIPT_DIR/scripts/check_migrations.py" ] && \
+         ! python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" >>"$task_log" 2>&1; then
+        echo "--- MIGRATION-SAFETY GATE: commit forked/broke the Alembic migration chain — reverting to ${BEFORE_SHA} ---" >> "$task_log"
+        git reset --hard "$BEFORE_SHA" --quiet
+        git clean -fd --quiet 2>/dev/null
+        emit_alert warn "$id" "migration-safety gate reverted a commit that forked or broke the Alembic migration chain (bad/missing down_revision)"
+        echo "reverted(migration-fork)"
+        return
+      fi
+
       # BUILD-GATE (2026-08-26): if this commit STRUCTURALLY broke the build — a
       # syntax/import/collection/parse error, i.e. the code no longer even loads —
       # REVERT it to BEFORE_SHA and do not push. This is the fix for the coder
