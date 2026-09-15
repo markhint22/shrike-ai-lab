@@ -4,8 +4,8 @@
 #
 # Usage: ovn_classify_fail.sh <task_log> <status>   -> prints one of:
 #   context-exceeded | diff-not-applied | no-edit | api-mismatch | syntax-error |
-#   test-red | build-red | plan-only | timeout | oversized | needs-decision | model-api-error |
-#   queue-exhausted | stage-unverified | landed | unknown
+#   test-red | build-red | migration-fork | ts-regression | plan-only | timeout | oversized |
+#   needs-decision | model-api-error | queue-exhausted | stage-unverified | landed | unknown
 #
 # Ordered most-specific-first; the FIRST signature that hits wins. Signatures are drawn from real
 # aider/gate output. Keep this cheap (greps only) — it runs once per item in record_outcome.
@@ -39,6 +39,17 @@ case "$status" in
   # happened). Trust the status text the same way model-api-error already does above.
   *"reverted(build-break)"*)          echo "build-red"; exit 0;;
   *"reverted-red"*)                   echo "test-red"; exit 0;;
+  # 2026-09-15: found while investigating gitlark's "test-red" spike — every single one of 12
+  # occurrences was actually status=reverted(migration-fork) (the alembic migration-safety gate
+  # catching a colliding/forked revision id), misclassified as test-red because alembic's error
+  # output happens to contain generic "failed"-shaped text that matches the test-red regex below.
+  # This masked the real, single root cause (one stale queue item with a hardcoded colliding
+  # revision) behind a generic "code doesn't pass tests" label. Trust the status text, as above.
+  *"reverted(migration-fork)"*)       echo "migration-fork"; exit 0;;
+  # 2026-09-15: same bug class, found by inspecting branch_hygiene.sh's full status vocabulary —
+  # this one hadn't fired yet in outcomes.jsonl, but would have hit the exact same generic
+  # test-red/build-red fallthrough the first time it did. Give it its own tag proactively.
+  *"reverted(ts-regression)"*)        echo "ts-regression"; exit 0;;
   # 2026-09-14: same shape of bug as skip(exhausted) above, one layer up — the higher-tier
   # stage runner's own "no-op(stage-unverified)" status (run_overnight.sh's OVN_INLINE_STAGE
   # echo when ovn_stage_runner.sh ran but couldn't confirm a verified push) doesn't match any

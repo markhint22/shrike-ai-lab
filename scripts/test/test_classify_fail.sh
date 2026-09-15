@@ -74,6 +74,23 @@ ok "no-op(reverted-red) status classifies as test-red even with unmatching log c
 ok "error-transient(API/network) status classifies as model-api-error" \
    "[ \"\$(bash "$C" "$tmp/empty.log" 'error-transient(API/network - see log)')\" = model-api-error ]"
 
+# --- FIXED BUG regression guard (2026-09-15): reverted(migration-fork) had no fast-path status
+# check, so it fell through to the generic log-content scan. Alembic's own error output happens
+# to contain generic "failed"-shaped text, so it coincidentally matched the test-red regex —
+# every one of gitlark's 12 "test-red" fail_reason entries on 2026-09-15 were actually this,
+# masking a single real root cause (a stale item with a hardcoded colliding revision id) behind
+# a generic "tests are red" label. ---
+cat > "$tmp/migfork.log" <<'EOF'
+1 failed, 40 passed
+FAILED tests/test_migrations.py::test_upgrade - some generic assert failing text
+--- MIGRATION-SAFETY GATE: commit forked/broke the Alembic migration chain — reverting ---
+EOF
+ok "reverted(migration-fork) status classifies as migration-fork, not test-red, even though the log content matches the test-red regex" \
+   "[ \"\$(bash "$C" "$tmp/migfork.log" 'reverted(migration-fork)')\" = migration-fork ]"
+
+ok "reverted(ts-regression) status classifies as ts-regression (proactive - hadn't fired yet as of 2026-09-15)" \
+   "[ \"\$(bash "$C" "$tmp/empty.log" 'reverted(ts-regression)')\" = ts-regression ]"
+
 rm -rf "$tmp"
 echo "Classify-fail model-api-error: $P passed, $F failed"
 [ "$F" -eq 0 ]

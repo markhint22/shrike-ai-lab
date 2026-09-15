@@ -115,6 +115,7 @@ fi
 # a GUT gate for Godot repos.
 run_gate() {
   local repo="$1" dir="$2" ran=0 rc=0
+  _GATE_TIMEOUT_HIT=0
   # migration safety gate: multi-head + String-FK-to-uuid crash-loop prod (2026-09-03)
   if [ -f "$HOME/overnight-queue/scripts/check_migrations.py" ] && \
      ! python3 "$HOME/overnight-queue/scripts/check_migrations.py" "$dir" >/dev/null 2>&1; then
@@ -135,7 +136,9 @@ run_gate() {
     ( cd "$pdir" && timeout "$TEST_TIMEOUT" bash -c 'npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund' ) >/dev/null 2>&1
     if [ -n "$hb" ]; then
       log "  gate: npm build in $pdir"
-      ( cd "$pdir" && timeout "$TEST_TIMEOUT" npm run build ) >/dev/null 2>&1 || return 1
+      ( cd "$pdir" && timeout "$TEST_TIMEOUT" npm run build ) >/dev/null 2>&1; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      [ "$rc" -ne 0 ] && return 1
       ran=1
     fi
     # skip npm test for VS Code extension harnesses (need a display; not deployable)
@@ -143,6 +146,7 @@ run_gate() {
     if [ -n "$ht" ]; then
       log "  gate: npm test in $pdir"
       ( cd "$pdir" && CI=1 timeout "$TEST_TIMEOUT" npm test --silent -- --run 2>/dev/null ) ; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       [ "$rc" -gt 1 ] && return 1
       ran=1
     fi
@@ -159,7 +163,21 @@ run_gate() {
       # (as opposed to an ordinary assertion failure, which prints to stdout and was already
       # visible) left zero diagnostic trail beyond "gate FAILED (build/tests red)". Merged into
       # the same stream as everything else here so a repeat is actually debuggable next time.
-      ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q -o addopts="" -p no:cacheprovider 2>&1 ) || return 1
+      #
+      # 2026-09-15: track timeout(1)'s own exit code (124 = killed for exceeding
+      # TEST_TIMEOUT) separately from a genuine pytest failure. Confirmed via
+      # logs/branch_hygiene.log — 40 historical "gate FAILED (build/tests red)" flags
+      # on billwatch, EVERY one investigated so far reached only a fraction of the
+      # suite (as low as 17%) in the full 900s before being killed, vs. a normal
+      # unloaded run finishing the ENTIRE ~1300-test suite in 45-55s — roughly a
+      # 100x slowdown, not a marginal/borderline timing issue. This is system
+      # contention (the fleet's own concurrent aider/test-verification load), not a
+      # real red test, and EVERY one of the 40 self-healed on a later run with no
+      # code change. See the retry-once wrapper below instead of flagging on the
+      # very first contention-caused timeout.
+      ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q -o addopts="" -p no:cacheprovider 2>&1 ) ; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      [ "$rc" -ne 0 ] && return 1
       ran=1
     fi
   fi
@@ -296,6 +314,22 @@ for repo in "${REPOS[@]}"; do
   # gate: does $FEAT build + test?
   run_gate "$repo" "$wt"; g=$?
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
+
+  # 2026-09-15 RETRY-ON-TIMEOUT: a gate that failed specifically because a `timeout`
+  # wrapper killed it (exit 124) — not a real red test — gets ONE retry with a fresh
+  # worktree before being flagged. Every one of 40 historical "gate FAILED" flags on
+  # billwatch investigated so far was this exact pattern (contention-caused, 100x
+  # slower than a normal run, self-healed on the NEXT scheduled cycle with zero code
+  # change) — this just does that same self-heal immediately instead of waiting up
+  # to 3h for the next cron tick and burning a human/Claude review flag on nothing.
+  if [ "$g" -eq 1 ] && [ "${_GATE_TIMEOUT_HIT:-0}" = 1 ]; then
+    log "  gate hit TEST_TIMEOUT (contention, not a red test) — retrying once with a fresh worktree"
+    wt2="$(mktemp -d "/tmp/hygiene-${name}-retry.XXXX")"
+    if git -C "$repo" worktree add --detach --quiet "$wt2" origin/$FEAT 2>/dev/null; then
+      run_gate "$repo" "$wt2"; g=$?
+      git -C "$repo" worktree remove --force "$wt2" >/dev/null 2>&1
+    fi
+  fi
 
   # Auto-merge ONLY when tests actually ran and passed (g==0). A failed gate (1)
   # OR "no build/test to gate on" (2) is flagged, never merged — so a repo whose

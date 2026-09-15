@@ -24,6 +24,18 @@ if [ -f "$H" ]; then
   # discard it), so a repeat is actually debuggable from the log instead of a dead end.
   ok "hygiene pytest gate does not discard stderr" \
      "! grep -E 'venv_pytest.*no:cacheprovider.*2>/dev/null' $H"
+  # 2026-09-15: 40 historical "gate FAILED (build/tests red)" flags on billwatch, every
+  # one investigated so far was TEST_TIMEOUT killing pytest at as little as 17% through
+  # the suite (contention, not a real red test) — self-healed on the next cron cycle
+  # every single time. Gate must distinguish timeout(1)'s exit 124 from a genuine
+  # failure and retry once with a fresh worktree before flagging, instead of waiting
+  # up to 3h for the next scheduled tick to do the same self-heal.
+  ok "hygiene tracks timeout(124) separately from a real test failure" \
+     "grep -q '_GATE_TIMEOUT_HIT' $H"
+  ok "hygiene pytest gate checks for exit 124 specifically" \
+     "grep -A2 'venv_pytest.* -q -o addopts' $H | grep -q '\"\$rc\" -eq 124'"
+  ok "hygiene retries once on a timeout-caused gate failure before flagging" \
+     "grep -q 'retrying once with a fresh worktree' $H"
 else
   echo "  (skip: $H not present on this host)"
 fi

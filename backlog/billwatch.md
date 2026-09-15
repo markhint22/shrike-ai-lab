@@ -82,6 +82,3 @@
 # --- 27B-decomposed from roadmap [2026-09-14]: Add a router-level test for POST /api/articles/rank — app/routers/article_relevance.py's r (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-14]: Add a router-level test for POST /api/bills/{bill_id}/background — app/routers/bill_backgr (review + tweak) ---
-- [ ] [T3] tests/test_bill_background_router.py — Add test case `test_get_bill_background_invalid_id_400` that calls endpoint with non-numeric bill_id and asserts response status 400. VERIFY: `pytest tests/test_bill_background_router.py::test_get_bill_background_invalid_id_400 -v` passes. (cat:test; multifile:no)
-- [ ] [T4] tests/test_bill_background_router.py — Add test case `test_get_bill_background_service_none_503` that mocks service to return None and asserts response status 503 and error body presence. VERIFY: `pytest tests/test_bill_background_router.py::test_get_bill_background_service_none_503 -v` passes. (cat:test; multifile:no)
-- [ ] [T5] billwatch-backend/app/routers/bill_background.py — Verify `get_bill_background` endpoint correctly handles non-numeric IDs by raising HTTPException 400 and service None by raising HTTPException 503 with detail. VERIFY: `grep -n "HTTPException" billwatch-backend/app/routers/bill_background.py | grep -E "400|503"` returns matches. (cat:endpoint; multifile:no)

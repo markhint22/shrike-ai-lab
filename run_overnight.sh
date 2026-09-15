@@ -796,13 +796,34 @@ STUB
        && grep -E '^- \[ \] ' OVERNIGHT_PROGRESS.md 2>/dev/null \
           | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -qE '\[T[345]\]|·T[345]·'; then
       echo "--- higher-tier sub-flow (inline in fleet slot; no pause, no contention) ---" >> "$task_log"
-      ( cd "$SCRIPT_DIR" && OVN_STAGE_DEDICATE=0 timeout 1500 bash ovn_stage_runner.sh "$(basename "$repo")" ) >> "$task_log" 2>&1
+      _STAGE_OUT="$(mktemp)"
+      ( cd "$SCRIPT_DIR" && OVN_STAGE_DEDICATE=0 timeout 1500 bash ovn_stage_runner.sh "$(basename "$repo")" ) > "$_STAGE_OUT" 2>&1
+      cat "$_STAGE_OUT" >> "$task_log"
       # 2026-09-09 FIX: this used to unconditionally echo "stage(higher-tier)" regardless of what
       # the stage runner actually did. That string matches none of record_outcome's known status
       # prefixes, so it fell through to the catch-all `*) cls=landed` case - EVERY inline higher-tier
       # attempt was counted as a land, inflating the T3+ "land rate" to ~95% when the stage runner's
       # own summary events showed the real rate was ~15-20% (state/stage_runs/*.jsonl: verified=True
       # only ~20% of runs). Read that repo's most recent stage-runs summary and classify honestly.
+      #
+      # 2026-09-15 FIX (same bug class, different direction): that "most recent summary" lookup
+      # doesn't verify the stage runner actually DID anything just now. If it exited early — "no
+      # doable T3+ item found" (queue genuinely drained) or "another stage runner holds the lock"
+      # (contention) — NO new file is written, so this falls back to re-reading whatever OLD
+      # summary file happens to be newest and reports ITS outcome as if it just happened. Confirmed
+      # live: xlite drained its real T3+ godot backlog after one legitimate escalation, then 19
+      # consecutive "no doable item" cycles overnight all got mis-recorded as fresh
+      # no-op(stage-unverified) godot failures — looked like the fleet failing at godot 19 times
+      # when it had correctly stopped trying because there was nothing left to try. Check the
+      # THIS-INVOCATION-ONLY output (not the stale cross-cycle file) for the early-exit phrases
+      # first, and report the honest "nothing happened" status instead of borrowing an old
+      # attempt's fate.
+      if grep -qE 'no doable T3\+ item found|another stage runner holds the lock' "$_STAGE_OUT"; then
+        rm -f "$_STAGE_OUT"
+        echo "skip(exhausted) stage(higher-tier)"
+        return
+      fi
+      rm -f "$_STAGE_OUT"
       _STAGE_SUMMARY="$(ls -t "$SCRIPT_DIR"/state/stage_runs/"$(basename "$repo")"-*.jsonl 2>/dev/null | head -1 | xargs -r grep '"event":"summary"' | tail -1)"
       _STAGE_PUSHED="$(printf '%s' "$_STAGE_SUMMARY" | grep -oE '"commits_pushed":[0-9]+' | grep -oE '[0-9]+$')"
       if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
