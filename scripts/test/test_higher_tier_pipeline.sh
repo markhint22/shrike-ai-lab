@@ -39,10 +39,11 @@ printf -- '- [x] [T3] app/done.py — already done\n' > "$d/done.md"
 nok  "inline does NOT fire on a checked-off item" "has_t3 $d/done.md"
 rm -rf "$d"
 
-# ============ 2. STAGE RUNNER auto-pick: prefer python, fall back to ANY other doable item (incl. godot) ============
-pick(){  # mirrors ovn_stage_runner.sh's post-2026-09-14 auto-pick
+# ============ 2. STAGE RUNNER auto-pick: prefer python, fall back to ANY other doable item (incl. godot, but never a godot TEST-file target) ============
+pick(){  # mirrors ovn_stage_runner.sh's post-2026-09-15 auto-pick
   local f="$1" _doable item
-  _doable="$(grep -E '^- \[ \] ' "$f" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·')"
+  _doable="$(grep -E '^- \[ \] ' "$f" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·' \
+              | grep -vE '\btests?/[A-Za-z0-9_./-]*\.gd\b|\btest_[A-Za-z0-9_]*\.gd\b')"
   item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
   [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
   printf '%s' "$item"
@@ -55,6 +56,14 @@ p2="$(pick "$d/q2.md")"
 ok  "auto-pick still prefers non-python items in file order when no python present (gets the FIRST doable, .gd here)" "printf '%s' \"\$p2\" | grep -q '\\.gd'"
 printf -- '- [ ] [T3] scripts/a.gd — godot only\n' > "$d/q3.md"
 ok  "auto-pick returns the godot item when it's the ONLY doable item (no longer hard-excluded)" "printf '%s' \"\$(pick $d/q3.md)\" | grep -q '\\.gd'"
+# 2026-09-15: a godot item whose TARGET is itself a GUT test file always fails the decompose
+# SOURCE-ONLY carve-out ("asks to WRITE A TEST -> emit []"), and decompose_failed has no
+# parking/backoff — confirmed live, the exact same item decompose_failed 3x in 9 seconds because
+# auto-pick kept re-selecting it every cycle. Must never be auto-picked at all.
+printf -- '- [ ] [T4] tests/test_codex_manager.gd — Add test case verifying mark_tech_seen calls mark_seen.\n- [ ] [T5] scripts/codex/codex_data.gd — Ensure tech_key handles edge cases.\n' > "$d/q4.md"
+ok  "auto-pick SKIPS a godot test-file target, picks the real source item instead" "[ \"\$(pick $d/q4.md)\" = '[T5] scripts/codex/codex_data.gd — Ensure tech_key handles edge cases.' ]"
+printf -- '- [ ] [T4] tests/test_codex_manager.gd — Add test case verifying mark_tech_seen calls mark_seen.\n' > "$d/q5.md"
+ok  "auto-pick returns EMPTY when a godot test-file target is the ONLY doable item" "[ -z \"\$(pick $d/q5.md)\" ]"
 rm -rf "$d"
 
 # ============ 3. decompose GODOT-vs-python rules selection ============

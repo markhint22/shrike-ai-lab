@@ -87,7 +87,18 @@ else
   # near a timeout. Re-enabling; the existing verify+repair+escalate safety net means a wrong pick
   # here costs a cycle, same as any other T3+ item, not a queue/repo risk. Monitor
   # state/stage_runs/xlite-*.jsonl real land rate over the next day before trusting this at scale.
-  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·')"
+  #
+  # 2026-09-15 FIX: confirmed live — a godot item whose TARGET is itself a GUT test file
+  # (tests/test_codex_manager.gd — "Add test case verifying...") gets auto-picked, hits the
+  # SOURCE-ONLY decompose carve-out's "asks to WRITE A TEST -> emit []" rule (correctly — the
+  # carve-out exists because the 27B genuinely can't author GUT tests), decompose_failed's exit 1
+  # has NO parking/backoff, so the fleet re-picks the EXACT SAME item next cycle forever. Confirmed
+  # via logs/ovn_stage_runner.log: the identical item decompose_failed 3x in 9 seconds. Since
+  # decompose will deterministically reject any godot item whose PRIMARY target is a test file,
+  # exclude those from auto-pick entirely rather than let them loop — this is prevention, not a
+  # general decompose_failed retry-limit (a separate, still-open gap for the non-godot case).
+  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·' \
+              | grep -vE '\btests?/[A-Za-z0-9_./-]*\.gd\b|\btest_[A-Za-z0-9_]*\.gd\b')"
   item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
   [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
 fi
