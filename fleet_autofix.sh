@@ -38,10 +38,23 @@ fi
 
 # ---- B) FIX (takes the loop's lock; WAITS for the cycle to finish rather than skipping,
 #         since cycles are short — only gives up if the loop is busy >10min, no cron pileup) ----
+# 2026-09-15 FIX: reconcile_branches.sh/queue_refill.sh ran here with NO overall
+# timeout while HOLDING fd 202 (run.lock) - a single hung git network call (a
+# stalled fetch/push to GitHub) held the fleet's main lock indefinitely. If
+# fleet_autofix's own process then got reaped (cron/systemd) before its child
+# git process did, the child kept fd 202 open with no live run_overnight OR
+# fleet_autofix left to release it - exactly the "orphaned run.lock, fleet
+# blocked" pattern lock_guard.sh has been force-clearing roughly daily (see its
+# own header comment: "Observed 2026-09-09: a hung fleet_autofix->reconcile
+# child held the lock for ~4h"). `timeout -k` sends SIGKILL after a grace
+# period if SIGTERM alone doesn't stop it, so a hang can no longer outlive
+# this tick indefinitely.
 exec 202>"$STATE_DIR/run.lock"
 if flock -w 600 202; then
-  if bash ./reconcile_branches.sh >> "$LOG" 2>&1; then say "reconcile ok"; else say "reconcile nonzero"; fi
-  if MIN_DOABLE=15 bash ./queue_refill.sh >> "$LOG" 2>&1; then say "refill ok"; else say "refill nonzero"; fi
+  if timeout -k 30 300 bash ./reconcile_branches.sh >> "$LOG" 2>&1; then say "reconcile ok"
+  else rc=$?; [ "$rc" -eq 124 ] && say "reconcile TIMED OUT after 300s (killed)" || say "reconcile nonzero ($rc)"; fi
+  if MIN_DOABLE=15 timeout -k 15 120 bash ./queue_refill.sh >> "$LOG" 2>&1; then say "refill ok"
+  else rc=$?; [ "$rc" -eq 124 ] && say "refill TIMED OUT after 120s (killed)" || say "refill nonzero ($rc)"; fi
 else
   say "run_overnight busy >10min — detection ran; branch-sync + refill deferred to next tick"
 fi

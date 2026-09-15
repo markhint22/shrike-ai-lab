@@ -620,8 +620,15 @@ run_aider_fix_task() {
 
     DEFAULT_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
     DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
-    git fetch origin "$DEFAULT_BRANCH" --quiet 2>/dev/null
-    git fetch origin "$branch" --quiet 2>/dev/null
+    # timeout on every git network call in this function (2026-09-15): this
+    # whole block runs while holding run.lock (fd 200), inherited by every
+    # child. An unbounded fetch/push/pull that stalls (flaky network, GitHub
+    # slowness) used to be able to hold that lock indefinitely; if the parent
+    # then got reaped before the stalled child did, the child kept the lock
+    # with no live owner left - lock_guard.sh has been force-clearing exactly
+    # that pattern roughly daily (see its own header comment).
+    timeout 30 git fetch origin "$DEFAULT_BRANCH" --quiet 2>/dev/null
+    timeout 30 git fetch origin "$branch" --quiet 2>/dev/null
 
     if [ "$persistent" = "true" ] && git rev-parse --verify --quiet "$branch" >/dev/null; then
       # Branch already exists locally from a previous run - keep building on
@@ -1534,7 +1541,7 @@ ${full_prompt}"
         fi
       fi
 
-      if git push origin "$branch" --quiet 2>>"$task_log"; then
+      if timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
         case "$VERIFY_RESULT" in
           fail) PUSH_STATUS="pushed(tests:FAIL - see log)" ;;
           pass) PUSH_STATUS="pushed(tests:pass)" ;;
@@ -1553,11 +1560,11 @@ ${full_prompt}"
         # auto-disabling healthy repos - billwatch/shrike - during heavy manual
         # pushing). If the rebase-retry also fails, emit a transient status.
         echo "--- push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
-        if git pull --rebase origin "$branch" >>"$task_log" 2>&1 && git push origin "$branch" --quiet 2>>"$task_log"; then
+        if timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
           echo "pushed(after-rebase)"
         else
           git rebase --abort >/dev/null 2>&1 || true
-          git fetch -q origin "$branch" 2>/dev/null && git reset --hard "origin/$branch" >/dev/null 2>&1 || true
+          timeout 30 git fetch -q origin "$branch" 2>/dev/null && git reset --hard "origin/$branch" >/dev/null 2>&1 || true
           echo "error-transient(push-diverged - resynced, retry next cycle)"
         fi
       fi

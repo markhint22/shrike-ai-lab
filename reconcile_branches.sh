@@ -27,8 +27,13 @@ merge_into(){
   git -C "$wt" checkout -B "$tgt" "origin/${tgt}" --quiet 2>/dev/null
   local rc=conflict
   if git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet merge --no-ff --no-edit -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard)" "origin/${src}" >/dev/null 2>&1; then
-    if git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
-    elif git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
+    # timeout on every network call (2026-09-15): an unbounded git push/pull
+    # here used to be able to hang indefinitely while holding fd 202
+    # (run.lock) from the fleet_autofix.sh caller - see that script's own
+    # 2026-09-15 comment for the "orphaned lock, fleet blocked" failure mode
+    # this closes off at the source.
+    if timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
+    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
     else rc=pushfail; fi
   else git -C "$wt" merge --abort >/dev/null 2>&1; rc=conflict; fi
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
@@ -44,12 +49,12 @@ sync_feature(){  # $1=repo $2=feat-branch — bring origin/<feat> up to origin/d
   local repo="$1" feat="$2" i uniq
   git -C "$repo" rev-parse --verify -q "origin/$feat" >/dev/null 2>&1 || { echo nobranch; return; }
   for i in 1 2 3 4 5; do
-    git -C "$repo" fetch -q origin develop "$feat" 2>/dev/null
+    timeout 30 git -C "$repo" fetch -q origin develop "$feat" 2>/dev/null
     [ "$(git -C "$repo" rev-list --count "origin/$feat..origin/develop" 2>/dev/null || echo 0)" -eq 0 ] && { echo nochange; return; }
     uniq=$(git -C "$repo" rev-list --count "origin/develop..origin/$feat" 2>/dev/null || echo 0)
     if [ "${uniq:-0}" -eq 0 ]; then
       # feature is a subset of develop -> fast-forward feature to develop's tip (no merge commit, no conflict possible)
-      git -C "$repo" push -q origin "origin/develop:refs/heads/$feat" 2>/dev/null && { echo ff; return; }
+      timeout 30 git -C "$repo" push -q origin "origin/develop:refs/heads/$feat" 2>/dev/null && { echo ff; return; }
       continue   # rejected = feature moved under us (fleet pushed); refetch + retry
     fi
     merge_into "$repo" "$feat" develop; return   # feature has unique commits -> real merge (never force-push)
@@ -60,14 +65,20 @@ sync_feature(){  # $1=repo $2=feat-branch — bring origin/<feat> up to origin/d
 for repo in $repos; do
   [ -d "$repo/.git" ] || continue
   name="$(basename "$repo")"
-  git -C "$repo" fetch -q origin 2>/dev/null || { log "$name: fetch failed"; continue; }
+  timeout 30 git -C "$repo" fetch -q origin 2>/dev/null || { log "$name: fetch failed/timed out"; continue; }
   git -C "$repo" rev-parse --verify -q origin/main    >/dev/null 2>&1 || { continue; }
   git -C "$repo" rev-parse --verify -q origin/develop >/dev/null 2>&1 || { continue; }
 
   # 1) main -> develop (back-merge). Flag a genuine DIRECT-to-main code commit (not a promote/merge commit).
   m_ahead=$(git -C "$repo" rev-list --count origin/develop..origin/main 2>/dev/null || echo 0)
   if [ "${m_ahead:-0}" -gt 0 ]; then
-    direct=$(git -C "$repo" log --format='%s' origin/develop..origin/main 2>/dev/null | grep -vcE '^release: promote|^Merge ' || echo 0)
+    # NOTE: no `|| echo 0` here - grep -c ALWAYS prints a valid count (even "0")
+    # and only exits 1 to signal "zero matches", which isn't a real failure. The
+    # old `|| echo 0` fired on that harmless exit 1 and appended a SECOND "0"
+    # line, so $direct became the two-line string "0\n0" whenever a back-merge
+    # had zero direct-to-main commits (a pure promote) - `[ "$direct" -gt 0 ]`
+    # below then choked with "integer expected" every time that happened.
+    direct=$(git -C "$repo" log --format='%s' origin/develop..origin/main 2>/dev/null | grep -vcE '^release: promote|^Merge ')
     if [ "$DRY" = 1 ]; then log "$name: [dry] back-merge main->develop (+$m_ahead, direct=$direct)"
     else
       rc=$(merge_into "$repo" develop main)
@@ -83,7 +94,7 @@ for repo in $repos; do
   #    current so neither falls behind develop when the OTHER branch (or a promote back-merge) lands
   #    on develop. reconcile is the SOLE owner of develop->feature (hygiene no longer pushes feature),
   #    so this runs frequently (every ~20min) and heals the benign two-features-into-develop drift.
-  git -C "$repo" fetch -q origin develop 2>/dev/null
+  timeout 30 git -C "$repo" fetch -q origin develop 2>/dev/null
   synced_any=0
   for feat in overnight/feature claude/feature; do
     git -C "$repo" rev-parse --verify -q "origin/$feat" >/dev/null 2>&1 || continue

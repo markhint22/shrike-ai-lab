@@ -27,7 +27,7 @@ for a in "$@"; do case "$a" in
 for repo in "${args[@]}"; do
   name="$(basename "$repo")"
   [ -d "$repo/.git" ] || { echo "SKIP $name (no checkout)"; continue; }
-  git -C "$repo" fetch -q origin 2>/dev/null
+  timeout 30 git -C "$repo" fetch -q origin 2>/dev/null  # 2026-09-15: timeout so a stalled fetch can't hang this repo's promote
   DEF="$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"; DEF="${DEF:-main}"
   if ! git -C "$repo" rev-parse --verify -q origin/develop >/dev/null; then echo "SKIP $name (no develop)"; continue; fi
   ahead="$(git -C "$repo" rev-list --count origin/$DEF..origin/develop 2>/dev/null || echo 0)"
@@ -64,7 +64,7 @@ for repo in "${args[@]}"; do
   git -C "$wt" checkout -qB "$DEF" "origin/$DEF"
   if git -C "$wt" merge --no-ff --no-edit -m "release: promote develop -> $DEF ($NOW)" origin/develop >/dev/null 2>&1; then
     git -C "$wt" tag "prod-$NOW-$name" 2>/dev/null || true
-    if git -C "$wt" push -q origin "$DEF" && git -C "$wt" push -q origin "prod-$NOW-$name" 2>/dev/null; then
+    if timeout 30 git -C "$wt" push -q origin "$DEF" && timeout 30 git -C "$wt" push -q origin "prod-$NOW-$name" 2>/dev/null; then
       echo "  ✅ PROMOTED $name develop -> $DEF (+$ahead). Prod deploy triggered. Rollback: git checkout prod-$NOW-$name"
     else echo "  ⚠️ push failed"; fi
   else

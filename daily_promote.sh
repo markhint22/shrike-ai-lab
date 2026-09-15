@@ -10,21 +10,28 @@
 # (stays on its last-good prod build) and surfaced in the ntfy summary.
 #
 # Cron (server): 0 9 * * *  cd ~/overnight-queue && ./daily_promote.sh >> logs/daily_promote.log 2>&1
+#
+# 2026-09-15 FIX: REMOVED the old "wait up to 15min for run_overnight's
+# run.lock, else skip EVERY repo and retry tomorrow" gate. That was an
+# all-or-nothing failure mode: one busy morning meant zero repos promoted
+# for a full 24h, which is exactly backwards for a tool whose whole job is
+# to stop drift from accumulating - a live incident (2026-09-15, iptv_apps
+# stuck 2h+ on an unrelated hygiene conflict) showed this compounding risk
+# directly. The lock was never actually protecting anything real:
+# promote_to_prod.sh's own git mutations (merge/tag/push) already run in an
+# isolated /tmp worktree, the identical pattern reconcile_branches.sh has
+# used UNLOCKED every ~20 minutes for weeks with no corruption. develop's
+# tip is ALSO always a complete, gated state - only branch_hygiene.sh and
+# reconcile_branches.sh ever write to it, never the fleet's own mid-task
+# work (that lives on overnight/feature/claude/feature) - so there was
+# never a real "wait for the cycle to finish before promoting FROM this"
+# reason in the first place. Each repo is still handled independently
+# below (a gate failure or merge conflict on one repo still just lands in
+# `blocked` and gets reported, it doesn't stop the others).
 set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
 REPOS="${OVN_PROMOTE_REPOS:-billwatch gitlark iptv_apps test-automation-agent xlite shrike-labs-website}"
-
-# Take run_overnight's lock and WAIT for the running cycle to finish (short) before promoting —
-# never interrupt a cycle mid-git. Give up after 15min so the daily tick can't hang forever.
-# 2026-09-07. (Does NOT call reconcile_branches itself - that runs on its own 10,30,50 * * * * cron; this comment previously claimed otherwise, corrected 2026-09-09.)
-mkdir -p "$HOME/overnight-queue/state"
-exec 203>"$HOME/overnight-queue/state/run.lock"
-if ! flock -w 900 203; then
-  echo "daily_promote: run_overnight busy >15min — skipping today's promote; will retry tomorrow."
-  curl -fsS --max-time 8 -H "Title: Daily promote skipped (loop busy)" -H "Tags: information_source" -d "run_overnight held the lock >15min at 9am — promote deferred to the next run." "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
-  exit 0
-fi
 
 promoted=""; nothing=""; blocked=""
 for r in $REPOS; do
