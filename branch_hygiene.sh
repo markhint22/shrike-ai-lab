@@ -181,6 +181,26 @@ run_gate() {
       ran=1
     fi
   fi
+  # Android (Gradle) — 2026-09-16 FIX: this gate had ZERO Kotlin/Android coverage even though
+  # run_overnight.sh's own per-item verify has run `./gradlew test` since 2026-08-14. Found while
+  # auditing pipeline verification coverage across all repos/languages (billwatch, gitlark, and
+  # iptv_apps together have 180+ .kt files): a Kotlin change that passed the per-item gate could
+  # still merge into develop via THIS gate with no re-check, and a multi-commit feature branch
+  # (this gate's actual job) was never gradle-verified at all. Same ANDROID_HOME/local.properties
+  # setup as run_overnight.sh's working version.
+  while IFS= read -r -d '' gradlew; do
+    gdir="$(dirname "$gradlew")"
+    if [ -f "$gdir/settings.gradle.kts" ] || [ -f "$gdir/settings.gradle" ]; then
+      log "  gate: ./gradlew test in $gdir"
+      ( cd "$gdir" &&
+        export ANDROID_HOME="$HOME/android-sdk" &&
+        [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
+        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) >/dev/null 2>&1; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      [ "$rc" -ne 0 ] && return 1
+      ran=1
+    fi
+  done < <(find "$dir" -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
   # godot / GUT (e.g. xlite): reuse installed headless Godot + the repo's own
   # vendored addons/gut. Exit code is untrustworthy - gate on the JUnit XML
   # failures count + no-asserts + a parse-error scan of --import output (same

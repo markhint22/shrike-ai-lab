@@ -149,7 +149,10 @@ while IFS= read -r pj; do
   wwd="$wt/${wd#"$rd"/}"
   [ -d "$wwd" ] && [ ! -e "$wwd/node_modules" ] && ln -s "$(cd "$wd" && pwd)/node_modules" "$wwd/node_modules" 2>/dev/null
 done < <(find "$rd" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
-layout="$(cd "$wt" && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' \) -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -100)"
+# 2026-09-16: added .kt (Android is now gradle-verified in full_verify() below; the model should
+# see Kotlin files exist when a doable item targets one). .swift deliberately NOT added — those
+# items are AUTO-SKIPped at the source (see ovn_swift_retag.py) since nothing here can verify them.
+layout="$(cd "$wt" && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' -o -name '*.kt' \) -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -100)"
 
 # ---- DECOMPOSE the item into ordered sub-steps (JSON) ----
 decompose(){ # $1=task text  -> writes JSON array of {desc,files[],verify} to stdout
@@ -236,15 +239,16 @@ jlog "$(jq -nc --arg r "$RUNID" --arg repo "$repo" --argjson t "$tier" --arg it 
 # count until it happens), just one extra round's worth as a realistic contingency, matching what's
 # actually been observed (a redecompose typically yields ~2 sub-steps, each retried like any step).
 # verify: full_verify() runs once, then up to OVN_VERIFY_REPAIR_ROUNDS times more (each a fresh
-# aider repair call at STEP_TIMEOUT plus a full re-verify) — budgeted at 900s/verify (a realistic
-# combined pytest+vitest estimate; most repos exercise one or two of pytest/vitest/godot per verify,
-# not all three at their own individual caps simultaneously). Capped at OVN_STAGE_HARD_TIMEOUT
-# (now an absolute ceiling, not a fixed runtime) so a pathological MAX_STEPS=6 item still can't
-# hold the lock forever — see the ceiling's own comment for why 12600s.
+# aider repair call at STEP_TIMEOUT plus a full re-verify) — budgeted at 1150s/verify (2026-09-16:
+# raised from 900s when the gradle/Android check was added to full_verify() — a repo like
+# iptv_apps/billwatch can legitimately exercise pytest+vitest+gradle all in the SAME verify pass,
+# ~600+240+240s, not just one or two of pytest/vitest/godot as before). Capped at
+# OVN_STAGE_HARD_TIMEOUT (an absolute ceiling, not a fixed runtime) so a pathological MAX_STEPS=6
+# item still can't hold the lock forever — see the ceiling's own comment for why 12600s.
 _repair_rounds="${OVN_VERIFY_REPAIR_ROUNDS:-2}"
 _per_step_budget=$(( MAX_ATT * STEP_TIMEOUT * (1 + REDECOMP) ))
 _steps_budget=$(( NSTEPS * _per_step_budget ))
-_verify_budget=$(( (_repair_rounds + 1) * 900 + _repair_rounds * STEP_TIMEOUT ))
+_verify_budget=$(( (_repair_rounds + 1) * 1150 + _repair_rounds * STEP_TIMEOUT ))
 _dynamic_budget=$(( _steps_budget + _verify_budget + 300 ))
 _ceiling="${OVN_STAGE_HARD_TIMEOUT:-12600}"
 _armed=$(( _dynamic_budget < _ceiling ? _dynamic_budget : _ceiling ))
@@ -416,6 +420,22 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     # of every T4/T5 attempt regardless of whether the change was actually good — same class of
     # bug as the run_overnight.sh 240->600 fix, just a separate hardcoded cap in this file.
     [ -d "$wt/$pkg" ] && { echo "-- pytest FULL in $pkg --" >> "$vlog"; ( cd "$wt/$pkg" && timeout 600 "$HOME/overnight-queue/$vp" -q -o addopts="" -p no:cacheprovider ) >> "$vlog" 2>&1 || vok=0; }
+  fi
+  # ANDROID (Gradle) — 2026-09-16 FIX: full_verify() had ZERO Kotlin/Android coverage, so a staged
+  # multi-step item touching a .kt file got NO real re-check before being trusted/pushed — the
+  # exact "false-pass" risk this function exists to close for python/vitest/godot. Same
+  # ANDROID_HOME/local.properties pattern as run_overnight.sh's working per-item gradle check.
+  if [ "$vok" = 1 ]; then
+    while IFS= read -r -d '' gradlew; do
+      gdir="$(dirname "$gradlew")"
+      if [ -f "$gdir/settings.gradle.kts" ] || [ -f "$gdir/settings.gradle" ]; then
+        echo "-- gradlew test FULL in ${gdir#"$wt"/} --" >> "$vlog"
+        ( cd "$gdir" &&
+          export ANDROID_HOME="$HOME/android-sdk" &&
+          [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
+          timeout 240 ./gradlew test --console=plain ) >> "$vlog" 2>&1 || vok=0
+      fi
+    done < <(find "$wt" -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
   fi
   # GODOT: GUT full suite + compile scan
   if [ "$vok" = 1 ] && [ -f "$wt/project.godot" ] && [ -x "$HOME/godot/godot4" ]; then
