@@ -79,15 +79,16 @@ for r in $ALL_REPOS; do
   f="repos/$r/OVERNIGHT_PROGRESS.md"; [ -f "$f" ] || continue
   nongodot="$(grep -E '^- \[ \] ' "$f" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·' | grep -viE '\.gd\b')"
   [ -z "$nongodot" ] && continue
-  # 2026-09-16 FIX: was 1500s, shorter than ovn_stage_runner.sh's own internal
-  # OVN_STAGE_HARD_TIMEOUT (2000s) recursive-kill watchdog — see the matching fix
-  # in run_overnight.sh's inline higher-tier call for the full incident writeup
-  # (a plain `timeout N cmd` only signals the direct child, not grandchildren, so
-  # this used to orphan a still-running full-verify pytest process when it raced
-  # past 1500s, which then crashed against a worktree the parent's EXIT trap had
-  # already deleted). Bumped above the inner watchdog so that one — which does
-  # walk and kill the whole descendant tree — is what actually fires.
-  timeout 2100 bash ovn_stage_runner.sh "$r" >> logs/ovn_stage_runner.log 2>&1 && done=$((done+1))
+  # 2026-09-16 FIX (round 2): was 1500s, shorter than ovn_stage_runner.sh's own internal
+  # hard-watchdog — see the matching fix in run_overnight.sh's inline higher-tier call for the
+  # full incident writeup (a plain `timeout N cmd` only signals the direct child, not
+  # grandchildren, so this used to orphan a still-running full-verify pytest process when it
+  # raced past the old fixed value, which then crashed against a worktree the parent's EXIT
+  # trap had already deleted). That inner watchdog is now DYNAMIC (scaled to the item's real
+  # step/repair budget) capped at an absolute ceiling (OVN_STAGE_HARD_TIMEOUT, 12600s/3.5h) —
+  # this outer timeout must stay above THAT ceiling so the inner one (which walks and kills the
+  # whole descendant tree) is always what actually fires.
+  timeout 12900 bash ovn_stage_runner.sh "$r" >> logs/ovn_stage_runner.log 2>&1 && done=$((done+1))
 done
 echo "$(date '+%F %T') stage-sweep ran $done repo(s)$([ "$paused_by_us" = 1 ] && echo ' (dedicated)')" >> logs/ovn_stage_runner.log
 # cleanup() on EXIT clears the pause -> fleet resumes immediately

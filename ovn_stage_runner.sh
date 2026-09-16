@@ -34,15 +34,37 @@ if ! flock -w 30 209; then say "another stage runner holds the lock — skipping
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
 # lock + contends on the 27B (this exact runaway crashed tok/s to 4 and had a 58-min zombie). Recursively
 # kill this process + every descendant after the cap, regardless of how we were launched.
+#
+# 2026-09-16 DYNAMIC REARM: this used to be a single fixed sleep (2000s) for the runner's ENTIRE
+# lifetime. But the real worst-case legitimate path — up to MAX_STEPS steps, each up to MAX_ATT
+# attempts plus one re-decompose's worth of sub-step attempts, THEN up to OVN_VERIFY_REPAIR_ROUNDS
+# repair rounds each re-running the FULL verify suite (pytest/vitest/godot, up to 600+240+210s) —
+# can legitimately clear 2000s for a 2+-step item that's genuinely still making progress, not hung.
+# Confirmed live: a real iptv_apps attempt with 2 real steps + repair rounds crashed at ~1534s
+# already close to the old ceiling, and a separate one got orphaned when the OUTER wrapper (a
+# different bug, fixed the same day) raced past 1500s. Rather than pick one bigger fixed number
+# (which either stays too tight for large items or needlessly delays hang-detection for small
+# ones), rearm this watchdog once NSTEPS is known (right after decompose) to a budget scaled to
+# the ACTUAL item size, capped at OVN_STAGE_HARD_TIMEOUT (now an absolute ceiling, not a fixed
+# runtime, raised 2000->12600s/3.5h — see the rearm call below for the real formula). The initial
+# spawn here only needs to cover flock-wait + the dedicate sleep + decompose's own retry loop
+# (up to 4 attempts * 300s + backoff), so a smaller startup value still catches a genuinely hung
+# decompose call quickly.
 _self=$$
-# `exec 209>&-`: the watchdog must NOT inherit the lock fd, or it holds state/stage.lock for 2000s AFTER
-# the runner exits — which made sequential batch items skip ("another runner holds the lock"). Closing
-# fd 209 here means the lock releases the instant the main runner exits, independent of the watchdog.
-( exec 209>&-
-  sleep "${OVN_STAGE_HARD_TIMEOUT:-2000}"
-  _kt(){ local c; for c in $(pgrep -P "$1" 2>/dev/null); do _kt "$c"; done; kill -9 "$1" 2>/dev/null; }
-  _kt "$_self" ) >/dev/null 2>&1 &
-_wd=$!
+_wd=0
+# `exec 209>&-`: the watchdog must NOT inherit the lock fd, or it holds state/stage.lock for the
+# full watchdog duration AFTER the runner exits — which made sequential batch items skip ("another
+# runner holds the lock"). Closing fd 209 here means the lock releases the instant the runner
+# exits, independent of the watchdog's own remaining sleep.
+_arm_watchdog(){ # $1 = seconds; kills any previously-armed watchdog first
+  [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null
+  ( exec 209>&-
+    sleep "$1"
+    _kt(){ local c; for c in $(pgrep -P "$1" 2>/dev/null); do _kt "$c"; done; kill -9 "$1" 2>/dev/null; }
+    _kt "$_self" ) >/dev/null 2>&1 &
+  _wd=$!
+}
+_arm_watchdog "${OVN_STAGE_STARTUP_TIMEOUT:-1500}"
 
 # DEDICATED INFERENCE by default: contention was the dominant failure driver — under load the 27B
 # generates too slowly and gets killed mid-edit (no-edit/timeout); SOLO it produces real edits fast
@@ -110,7 +132,7 @@ say "ITEM (T$tier): ${item:0:100}"
 git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
 wt="$(mktemp -d "/tmp/stage-${repo}.XXXX")"
 git -C "$rd" worktree add -q "$wt" origin/overnight/feature 2>/dev/null || { say "worktree failed"; exit 1; }
-cleanup(){ kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; }
+cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; }
 trap cleanup EXIT
 # 2026-09-09 FIX: a fresh `git worktree add` never includes gitignored content, so node_modules
 # is always absent here - every PER-STEP frontend gate (ovn_autotest.sh, called after every single
@@ -206,6 +228,28 @@ NSTEPS="$(printf '%s' "$STEPS_JSON" | jq 'length' 2>/dev/null || echo 0)"
 if [ "${NSTEPS:-0}" -lt 1 ]; then say "decompose produced no steps — abort"; jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"decompose_failed\"}"; exit 1; fi
 say "decomposed into $NSTEPS sub-steps"
 jlog "$(jq -nc --arg r "$RUNID" --arg repo "$repo" --argjson t "$tier" --arg it "$item" --argjson n "$NSTEPS" --argjson plan "$STEPS_JSON" '{run:$r,repo:$repo,tier:$t,item:$it,event:"decomposed",steps:$n,plan:$plan}')"
+
+# 2026-09-16 DYNAMIC REARM: now that we know how many steps we're actually committing to, size the
+# watchdog to what THIS item can legitimately need instead of one fixed number for every item.
+# per-step: MAX_ATT attempts at STEP_TIMEOUT, plus (if REDECOMP=1) one more round of that same
+# budget for whatever sub-steps a failing step's re-decompose produces — not per-sub-step (unknown
+# count until it happens), just one extra round's worth as a realistic contingency, matching what's
+# actually been observed (a redecompose typically yields ~2 sub-steps, each retried like any step).
+# verify: full_verify() runs once, then up to OVN_VERIFY_REPAIR_ROUNDS times more (each a fresh
+# aider repair call at STEP_TIMEOUT plus a full re-verify) — budgeted at 900s/verify (a realistic
+# combined pytest+vitest estimate; most repos exercise one or two of pytest/vitest/godot per verify,
+# not all three at their own individual caps simultaneously). Capped at OVN_STAGE_HARD_TIMEOUT
+# (now an absolute ceiling, not a fixed runtime) so a pathological MAX_STEPS=6 item still can't
+# hold the lock forever — see the ceiling's own comment for why 12600s.
+_repair_rounds="${OVN_VERIFY_REPAIR_ROUNDS:-2}"
+_per_step_budget=$(( MAX_ATT * STEP_TIMEOUT * (1 + REDECOMP) ))
+_steps_budget=$(( NSTEPS * _per_step_budget ))
+_verify_budget=$(( (_repair_rounds + 1) * 900 + _repair_rounds * STEP_TIMEOUT ))
+_dynamic_budget=$(( _steps_budget + _verify_budget + 300 ))
+_ceiling="${OVN_STAGE_HARD_TIMEOUT:-12600}"
+_armed=$(( _dynamic_budget < _ceiling ? _dynamic_budget : _ceiling ))
+_arm_watchdog "$_armed"
+say "watchdog rearmed for ${_armed}s (NSTEPS=$NSTEPS, dynamic budget was ${_dynamic_budget}s, ceiling ${_ceiling}s)"
 
 # ---- run ONE sub-step: returns 0 pass / 1 fail. logs the attempt. ----
 run_step(){ # $1=idx $2=desc $3=files(space-sep) $4=verify $5=redecomp-left

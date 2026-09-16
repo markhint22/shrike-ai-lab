@@ -804,9 +804,9 @@ STUB
           | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -qE '\[T[345]\]|·T[345]·'; then
       echo "--- higher-tier sub-flow (inline in fleet slot; no pause, no contention) ---" >> "$task_log"
       _STAGE_OUT="$(mktemp)"
-      # 2026-09-16 FIX: this outer `timeout` used to be 1500s, SHORTER than ovn_stage_runner.sh's
-      # own internal OVN_STAGE_HARD_TIMEOUT (2000s, default) hard-watchdog. The two disagreeing on
-      # who kills first is not academic — plain `timeout N cmd` only SIGTERMs the direct child
+      # 2026-09-16 FIX (round 2): this outer `timeout` used to be 1500s, SHORTER than
+      # ovn_stage_runner.sh's own internal OVN_STAGE_HARD_TIMEOUT hard-watchdog. The two disagreeing
+      # on who kills first is not academic — plain `timeout N cmd` only SIGTERMs the direct child
       # (bash ovn_stage_runner.sh); it does NOT recursively signal grandchildren. So when a
       # legitimate decompose+steps+full-verify pass ran long (a full pytest suite on top of several
       # real aider calls easily clears 25 minutes), THIS outer timeout fired first, SIGTERMing the
@@ -818,12 +818,16 @@ STUB
       # `os.chdir(session.startpath)` because /tmp/stage-iptv_apps.XXXX was already gone. Because
       # that failure looks identical to "verify genuinely failed," every one of the item's real,
       # good step-level work got discarded and the item re-escalated/re-attempted from scratch —
-      # inflating no-op counts and undercounting tokens for otherwise-successful attempts. Bumping
-      # this above ovn_stage_runner.sh's own hard-watchdog means that watchdog (which DOES walk and
-      # kill the whole descendant tree via `pgrep -P` before anything else runs) is always the one
-      # that actually fires if a genuine runaway needs killing — this outer timeout becomes a
-      # last-resort backstop that should essentially never trigger in normal operation.
-      ( cd "$SCRIPT_DIR" && OVN_STAGE_DEDICATE=0 timeout 2100 bash ovn_stage_runner.sh "$(basename "$repo")" ) > "$_STAGE_OUT" 2>&1
+      # inflating no-op counts and undercounting tokens for otherwise-successful attempts. First
+      # fix bumped this to 2100s to clear the OLD fixed 2000s inner watchdog. Round 2 (same day):
+      # ovn_stage_runner.sh's inner watchdog is now DYNAMIC (rearmed post-decompose to a budget
+      # scaled by how many steps + repair rounds the item actually needs), capped at an absolute
+      # ceiling (OVN_STAGE_HARD_TIMEOUT, raised 2000->12600s/3.5h — a multi-step item with repair
+      # rounds can legitimately need far more than 2000s; see that file's own comment for the exact
+      # budget formula). This outer timeout must stay above THAT ceiling, not the old fixed value,
+      # so ovn_stage_runner.sh's own whole-descendant-tree-killing watchdog is always what actually
+      # fires — this one stays a last-resort backstop that should essentially never trigger.
+      ( cd "$SCRIPT_DIR" && OVN_STAGE_DEDICATE=0 timeout 12900 bash ovn_stage_runner.sh "$(basename "$repo")" ) > "$_STAGE_OUT" 2>&1
       cat "$_STAGE_OUT" >> "$task_log"
       # 2026-09-09 FIX: this used to unconditionally echo "stage(higher-tier)" regardless of what
       # the stage runner actually did. That string matches none of record_outcome's known status
