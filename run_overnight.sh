@@ -848,7 +848,29 @@ STUB
     # empty repos stayed empty forever (0 doable despite self-gen making 12).
     BEFORE_SHA="$(git rev-parse HEAD)"
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
-      PROGRESS_READ_ARGS=(--read "OVERNIGHT_PROGRESS.md")
+      # 2026-09-16 FIX: OVERNIGHT_PROGRESS.md is append-only and long-lived —
+      # billwatch/gitlark/iptv_apps/test-automation-agent/xlite had all grown
+      # past 150KB (~35-50k tokens each). Reading the WHOLE file as --read
+      # context on every single task, on top of the repo-map + actual task
+      # files, was blowing qwen-dflash-27B's 65,536-token hard context limit
+      # (confirmed live: billwatch's context reached 66,388 tokens and every
+      # request hard-failed with litellm.ContextWindowExceededError — the
+      # "model-api-error" outcome class). Cap what gets fed to the model to
+      # the most recent slice of the file (still the full, uncapped file on
+      # disk / in git history — only the aider context is bounded) so this
+      # can't recur as these files keep growing.
+      PROGRESS_MAX_BYTES="${OVN_PROGRESS_MAX_BYTES:-20000}"
+      if [ "$(wc -c < OVERNIGHT_PROGRESS.md | tr -d ' ')" -gt "$PROGRESS_MAX_BYTES" ]; then
+        PROGRESS_TAIL_FILE="/tmp/ovn_progress_tail_$(basename "$PWD").md"
+        {
+          echo "(showing only the most recent ~${PROGRESS_MAX_BYTES} bytes of OVERNIGHT_PROGRESS.md — the full file on disk is larger; older history omitted here to stay within the model's context budget)"
+          echo
+          tail -c "$PROGRESS_MAX_BYTES" OVERNIGHT_PROGRESS.md
+        } > "$PROGRESS_TAIL_FILE"
+        PROGRESS_READ_ARGS=(--read "$PROGRESS_TAIL_FILE")
+      else
+        PROGRESS_READ_ARGS=(--read "OVERNIGHT_PROGRESS.md")
+      fi
     fi
 
     READ_ARGS=()
