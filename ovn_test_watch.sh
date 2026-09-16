@@ -27,8 +27,14 @@ emergency_enqueue(){ # $1=repo $2=area $3=failing-detail
   local pf="repos/$repo/OVERNIGHT_PROGRESS.md"
   [ -f "$pf" ] || return 0
   local item="- [ ] [EMERGENCY][T2] ${area} suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing: ${detail}"
-  # already filed an open emergency for this area? don't pile duplicates.
-  if grep -qF "[EMERGENCY][T2] ${area} suite is RED" "$pf"; then log "$repo/$area: emergency already queued — skip"; return 0; fi
+  # already filed an OPEN emergency for this area? don't pile duplicates. 2026-09-16 FIX: this
+  # used to grep -F the whole file, matching RETIRED/closed items too (a "- [x] (retired-...)"
+  # line from a stale-clone auto-retirement sweep counted as "already queued" forever after) —
+  # found live on gitlark, where a real openapi-contract test failure has been silently
+  # unactionable since 2026-08-30 because an unrelated dead-path retirement of an old emergency
+  # for the same area permanently blocked every later re-file. Only an un-checked `- [ ] ...`
+  # line for this area should count as "already queued".
+  if grep -qE "^- \[ \] .*\[EMERGENCY\]\[T2\] ${area} suite is RED" "$pf"; then log "$repo/$area: emergency already queued (open) — skip"; return 0; fi
   # insert right after the "## Next Steps" header so it's the top item worked next cycle
   python3 - "$pf" "$item" <<'PY'
 import sys
