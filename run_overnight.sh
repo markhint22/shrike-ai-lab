@@ -983,6 +983,32 @@ STUB
 
     full_prompt="${prompt}${STANDARDS_SUFFIX}"
 
+    # Tier-3 grounded failure memory (2026-09-16): if the item CURRENTLY on top is the
+    # exact same one whose last attempt got reverted/flailed (hash-gated so a stale note
+    # from an already-superseded item never leaks in), tell the model what specifically
+    # went wrong instead of letting it cold-start the same investigation again. Root
+    # cause this fixes: shrike-notify's revoke_token() item bounced across 25 cycles and
+    # 4 different theories (scope.py, the test file, auth.py's service layer, schemas.py)
+    # with zero memory of what the previous cycle already ruled out. Grounded in real
+    # log output only, written by ovn_item_guard.sh (never a model self-narration) -
+    # Reflexion (arXiv:2303.11366) found ungrounded reflection can be WORSE than none.
+    if [ -f "OVERNIGHT_PROGRESS.md" ]; then
+      _lf_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN' | head -1)"
+      _lf_file="$STATE_DIR/item_fails/${id}.lastfail"
+      if [ -n "$_lf_top" ] && [ -f "$_lf_file" ]; then
+        _lf_hash="$(printf '%s' "${_lf_top#*:}" | md5sum | cut -d' ' -f1)"
+        _lf_saved="$(cat "$_lf_file" 2>/dev/null)"
+        _lf_savedhash="${_lf_saved%%|*}"
+        _lf_savedsummary="${_lf_saved#*|}"
+        if [ "$_lf_savedhash" = "$_lf_hash" ] && [ -n "$_lf_savedsummary" ] && [ "$_lf_savedsummary" != "$_lf_saved" ]; then
+          full_prompt="${full_prompt}
+
+IMPORTANT: your last attempt on this exact item was reverted or produced nothing usable. Do NOT repeat the same approach. What actually happened: ${_lf_savedsummary}"
+          echo "--- lastfail memory injected: ${_lf_savedsummary:0:150}" >> "$task_log"
+        fi
+      fi
+    fi
+
     # Iterative file-feeding. Root cause found by live testing (2026-08-08):
     # aider's single-shot `--message` mode does NOT loop back after the
     # model asks to add more files mid-conversation - if the model's first
@@ -1566,6 +1592,38 @@ ${full_prompt}"
         emit_alert warn "$id" "build-gate reverted a commit that broke the build (syntax/import/parse error) — the model produced non-loading code"
         echo "reverted(build-break)"
         return
+      fi
+
+      # Tier-2 grounded fix-up (2026-09-16): before reverting a real test failure, give
+      # the model ONE bounded shot at fixing the SPECIFIC failure with the actual
+      # assertion in front of it, instead of discarding real progress on the first red
+      # run. Bounded to exactly one extra aider call + one re-verify, so a cycle that was
+      # always doomed doesn't cost more than ~2x - mirrors AlphaCodium's test-grounded
+      # run-fix loop (arXiv:2401.08500) rather than a blind retry. Deliberately scoped to
+      # "code loaded, a real assertion failed" - the TS-RATCHET/migration/build-break
+      # gates above already handle structural breaks, where a quick patch is less likely
+      # to help and riskier to attempt blind.
+      if [ "$VERIFY_RESULT" = "fail" ] && [ -x "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" ]; then
+        _fixup_summary="$(bash "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" "$task_log" 2>/dev/null)"
+        if [ -n "$_fixup_summary" ]; then
+          _fixup_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$')"
+          _fixup_fileargs=()
+          for _ff in $_fixup_touched; do [ -f "$_ff" ] && _fixup_fileargs+=(--file "$_ff"); done
+          echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting: ${_fixup_summary:0:200}" >> "$task_log"
+          timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_fixup_fileargs[@]}" \
+            --message "The test suite is failing after your last change: ${_fixup_summary}
+
+Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
+            >> "$task_log" 2>&1
+          _fixup_after="$(git rev-parse HEAD)"
+          if [ "$_fixup_after" != "$AFTER_SHA" ]; then
+            AFTER_SHA="$_fixup_after"
+            VERIFY_RESULT="$(run_repo_verification)"
+            echo "--- Tier-2 fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
+          else
+            echo "--- Tier-2 fix-up made no change ---" >> "$task_log"
+          fi
+        fi
       fi
 
       # NO-NEW-RED GUARD (2026-08-29): iptv + xlite are green at main and hygiene keeps

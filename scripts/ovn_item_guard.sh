@@ -33,6 +33,7 @@ TOKCAP="${OVN_ITEM_TOKEN_CAP:-200000}"
 mkdir -p "$state/item_fails" 2>/dev/null || exit 0
 hashf="$state/item_fails/${id}.hash"; countf="$state/item_fails/${id}.count"; toksf="$state/item_fails/${id}.toks"
 nhashf="$state/item_fails/${id}.noophash"; ncountf="$state/item_fails/${id}.noopcount"; ntoksf="$state/item_fails/${id}.nooptoks"
+lastfailf="$state/item_fails/${id}.lastfail"
 
 cur_toks=0
 if [ -n "$task_log" ] && [ -f "$task_log" ]; then
@@ -40,9 +41,9 @@ if [ -n "$task_log" ] && [ -f "$task_log" ]; then
   cur_toks="${cur_toks:-0}"
 fi
 
-# A clean landing clears BOTH streaks (fail and no-op).
+# A clean landing clears BOTH streaks (fail and no-op) plus any grounded failure memory.
 case "$status" in
-  *"tests:pass"*) rm -f "$hashf" "$countf" "$toksf" "$nhashf" "$ncountf" "$ntoksf" 2>/dev/null; exit 0 ;;
+  *"tests:pass"*) rm -f "$hashf" "$countf" "$toksf" "$nhashf" "$ncountf" "$ntoksf" "$lastfailf" 2>/dev/null; exit 0 ;;
 esac
 
 # The top unchecked item that is NOT already tagged blocked/skipped.
@@ -51,6 +52,27 @@ top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP
 lineno="${top%%:*}"
 text="${top#*:}"
 h="$(printf '%s' "$text" | md5sum | cut -d' ' -f1)"
+
+# --- Tier-3 grounded failure memory (2026-09-16) ------------------------------
+# Persist what THIS attempt actually did wrong (real log output, keyed to the
+# CURRENT top item's hash) so run_overnight.sh's next cycle can tell the model what
+# was already tried and failed instead of re-deriving the same investigation cold -
+# root-caused live on shrike-notify's revoke_token() item: 25 cycles bounced between
+# 4 different theories (scope.py, test file, auth.py service layer, schemas.py) with
+# zero memory of what the last attempt broke. Never written for the cheap
+# blocked/done/skip short-circuits below - there's no code-level evidence to ground a
+# lesson in there, and Reflexion (arXiv:2303.11366) found ungrounded reflection can
+# be WORSE than none.
+case "$status" in
+  no-op\(BLOCKED\)|no-op\(ALREADY-DONE\)|no-op\(NEEDS-DECISION\)) : ;;
+  *)
+    extractor="$(dirname "$0")/ovn_extract_failure.sh"
+    if [ -x "$extractor" ] && [ -n "$task_log" ] && [ -f "$task_log" ]; then
+      fsum="$(bash "$extractor" "$task_log" 2>/dev/null)"
+      [ -n "$fsum" ] && printf '%s|%s' "$h" "$fsum" > "$lastfailf"
+    fi
+    ;;
+esac
 
 # --- No-op streak: park an item that keeps doing nothing ---------------------
 # Catch every "nothing landed, not a hard fail" shape: no-op(BLOCKED),

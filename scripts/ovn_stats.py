@@ -36,7 +36,8 @@ if os.path.exists(P):
         if not m:
             continue
         lang, typ, cx, verif = m.groups()
-        rows.append({'ts': ts, 'oc': oc, 'lang': lang, 'type': typ, 'cx': cx, 'verif': verif})
+        rows.append({'ts': ts, 'oc': oc, 'lang': lang, 'type': typ, 'cx': cx, 'verif': verif,
+                     'repo': repo, 'file': f})
 
 if not rows:
     print("no queue activity recorded in the last %gh yet" % hours)
@@ -72,6 +73,36 @@ def noop_breakdown(sub):
         key = oc if oc in (c[0] for c in NOOP_CAUSES) else 'noop:flail'
         d[key] = d.get(key, 0) + 1
     return d
+
+# 2026-09-16: "no-op" was masking two very different things under one bucket -
+# blocked/done cost ONE scout call and stop there, while flailed/gate-reverted burn a
+# full multi-attempt implement pass (and for gate-rev, a full test-suite verification)
+# before being discarded. Root-caused live: shrike-notify's revoke_token() item alone
+# burned 18 of those expensive cycles in ~7.5h before finally landing, invisible inside
+# a single "92 no-op" digest line. Split the reporting so cheap and expensive no-ops
+# are never summed into one misleading number again.
+CHEAP_NOOP_KEYS = ('noop:blocked', 'noop:done')
+BURNED_NOOP_KEYS = ('noop:flail', 'noop:gate')
+
+def noop_cost_split(sub):
+    nb = noop_breakdown(sub)
+    cheap = sum(nb.get(k, 0) for k in CHEAP_NOOP_KEYS)
+    burned = sum(nb.get(k, 0) for k in BURNED_NOOP_KEYS)
+    return cheap, burned
+
+def repeat_offenders(sub, threshold=5):
+    """(repo, file) pairs whose flail/gate-rev no-ops repeat >= threshold times in the
+    window - the exact loop this split exists to surface (e.g. the same item silently
+    re-attempted and reverted a dozen-plus times while looking like ordinary no-op
+    noise). Sorted worst-first."""
+    cnt = {}
+    for r in sub:
+        if r['oc'] in ('noop:flail', 'noop:gate'):
+            key = (r.get('repo', '?'), r.get('file', '?'))
+            cnt[key] = cnt.get(key, 0) + 1
+    out = [(k, v) for k, v in cnt.items() if v >= threshold]
+    out.sort(key=lambda x: -x[1])
+    return out
 
 
 def runway():
@@ -149,7 +180,8 @@ def failing(axis):
 
 if ntfy:
     lines = ["Overnight · %gh · %d cycles" % (hours, total)]
-    head = "✅ %d landed   ➖ %d no-op   ❌ %d failed" % (L, N, F)
+    _cheap_n, _burned_n = noop_cost_split(rows)
+    head = "✅ %d landed   ➖ %d no-op (%d cheap-skip, %d burned-a-real-attempt)   ❌ %d failed" % (L, N, _cheap_n, _burned_n, F)
     if E:
         # recency: how long since the last error? a stale spike shouldn't look ongoing.
         last_err_ts = max((r.get('ts', 0) for r in rows if r['oc'] == 'error'), default=0)
@@ -175,6 +207,14 @@ if ntfy:
         meaning = next((m for k, _l, m in NOOP_CAUSES if k == top_key), "")
         if meaning and nb[top_key] >= 3:
             lines.append("→ mostly %s: %s" % (dict((k, l) for k, l, _ in NOOP_CAUSES).get(top_key, top_key), meaning))
+    # Repeat offenders (2026-09-16): the same (repo, item) burning flail/gate-rev cycles
+    # over and over - this is the real signal "no-op" was hiding. A single stuck item
+    # can rack up a dozen+ expensive cycles while looking like ordinary digest noise
+    # (shrike-notify's revoke_token(): 18 in ~7.5h before finally landing).
+    ro = repeat_offenders(rows)
+    if ro:
+        lines.append("🔁 Stuck (repeated flail/gate-rev): " +
+                      " · ".join("%s/%s x%d" % (repo, fname, n) for (repo, fname), n in ro[:5]))
     # 2026-09-09: the per-tier line that used to live here is now ovn_tier_stats.py's
     # job — it reads outcomes.jsonl (tier is explicit there, not inferred via the 'cx'
     # classification tag) and adds no-op/timeout/token detail this couldn't show.
@@ -203,12 +243,17 @@ if ntfy:
     print("\n".join(lines))
 else:
     print("Overnight throughput, last %gh — %d cycles" % (hours, total))
-    line = "  ✅ %d landed   ➖ %d no-op   ❌ %d failed" % (L, N, F)
+    _cheap_n, _burned_n = noop_cost_split(rows)
+    line = "  ✅ %d landed   ➖ %d no-op (%d cheap-skip, %d burned-a-real-attempt)   ❌ %d failed" % (L, N, _cheap_n, _burned_n, F)
     if E:
         line += "   ⚠ %d errored" % E
     print(line)
     if L + F:
         print("  pass-rate (of attempts that changed code): %d%%" % (100 * L // (L + F)))
+    ro = repeat_offenders(rows)
+    if ro:
+        print("  🔁 Stuck (repeated flail/gate-rev): " +
+              " · ".join("%s/%s x%d" % (repo, fname, n) for (repo, fname), n in ro[:5]))
     print()
     for name, axis in [("COMPLEXITY", "cx"), ("LANGUAGE", "lang"), ("TYPE", "type"), ("VERIFIABILITY", "verif")]:
         print("BY %s:" % name)

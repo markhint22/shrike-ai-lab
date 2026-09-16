@@ -54,6 +54,25 @@ for r in $REPOS; do
   task="$(printf '%s' "${parked_line#*:}" | sed -E 's/^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*\][[:space:]]*//')"
   [ "${#task}" -lt 15 ] && continue
 
+  # RECOVERY-LINEAGE CAP (2026-09-16): decomposition rewords the item text, which
+  # resets ovn_item_guard.sh's per-item-text streak counter - so the SAME underlying
+  # file/area could be "recovered" indefinitely, each time buying another few-cycle
+  # burn before parking again, with no real diagnosis ever happening. Confirmed live:
+  # shrike-notify's revoke_token()/messages.py area was recovered 5 separate times in
+  # one day (02:25, 04:25, 06:25, 12:25, 16:25) while the underlying item bounced
+  # between 4 different theories across 25 total cycles before finally landing. Cap
+  # total recoveries per FILE (stable across rewording, unlike the item-text hash) so a
+  # persistently-stuck area gets real analysis instead of another fresh roll of the
+  # dice - this is the escalation tier, not a park; it hands off with the actual
+  # recovery count as evidence, not just "27B could not land this."
+  LINEAGE_CAP="${OVN_RECOVER_LINEAGE_CAP:-2}"
+  lineage_file="$(printf '%s' "$task" | grep -oE '^[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+  lineage_key="$(printf '%s' "${r}__${lineage_file:-unknown}" | tr '/' '_')"
+  mkdir -p state/recovery_lineage 2>/dev/null
+  lineage_countf="state/recovery_lineage/${lineage_key}.count"
+  lineage_n=$(( $(cat "$lineage_countf" 2>/dev/null || echo 0) + 1 ))
+  printf '%s' "$lineage_n" > "$lineage_countf"
+
   # HARD-BANNED-FILE SHORT-CIRCUIT (2026-09-13): a parked item whose target is a
   # hard-banned file (.queue-hard-banned-files) can NEVER land no matter how it's
   # decomposed - a "smaller step" that still ends in "...and wire it into
@@ -71,7 +90,11 @@ for r in $REPOS; do
       case "$task" in *"$bpat"*) banned_hit="$bpat"; break ;; esac
     done < <(grep -v '^\s*#' "$rd/.queue-hard-banned-files" | grep -v '^\s*$')
   fi
-  if [ -n "$banned_hit" ]; then
+  if [ "$lineage_n" -gt "$LINEAGE_CAP" ]; then
+    items="- [ ] [CLAUDE] ${lineage_file:-this area} has been recovered/decomposed ${lineage_n} times (cap ${LINEAGE_CAP}) without ever landing - the fleet keeps re-guessing at this same file with no real diagnosis; needs a human/Claude session to understand the actual blast radius (recovery:escalated)"
+    cnt=1
+    say "$r: lineage '${lineage_key}' exceeded recovery cap (${lineage_n} > ${LINEAGE_CAP}) — escalating directly, no more decomposition"
+  elif [ -n "$banned_hit" ]; then
     items="- [ ] [CLAUDE] ${banned_hit} is hard-banned from automated edits (.queue-hard-banned-files) - no decomposition can route around a file-level ban, needs a human/Claude session (recovery:escalated)"
     cnt=1
     say "$r: parked item targets hard-banned file '${banned_hit}' — escalating directly, no LLM call"
