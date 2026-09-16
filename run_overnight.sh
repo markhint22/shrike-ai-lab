@@ -861,11 +861,28 @@ STUB
       # can't recur as these files keep growing.
       PROGRESS_MAX_BYTES="${OVN_PROGRESS_MAX_BYTES:-20000}"
       if [ "$(wc -c < OVERNIGHT_PROGRESS.md | tr -d ' ')" -gt "$PROGRESS_MAX_BYTES" ]; then
+        # 2026-09-16 FOLLOW-UP FIX: this header used to name the source file
+        # literally ("...bytes of OVERNIGHT_PROGRESS.md..."). aider scans
+        # EVERY loaded read-only file's own CONTENT (not just the human
+        # message) for existing repo-relative paths and silently re-adds
+        # any it finds IN FULL — so that one line was un-doing the whole
+        # cap by re-triggering a full-file load of the exact file this was
+        # built to avoid (confirmed live: billwatch still hit 67905 tokens
+        # with this header in place, byte-for-byte the same failure as
+        # before the cap existed). Worded to avoid a literal filename+
+        # extension token entirely.
+        # The tail slice is real historical DONE:/NEW: bullet text, which -
+        # over hundreds of entries - has a real chance of containing a past
+        # entry that itself names "OVERNIGHT_PROGRESS.md" (e.g. a bullet
+        # about fixing this very file's own parsing). Any such occurrence
+        # would re-trigger the same full-file auto-add this whole fix
+        # exists to prevent, so break up that one specific token wherever
+        # it appears in the copy (never touches the real file on disk).
         PROGRESS_TAIL_FILE="/tmp/ovn_progress_tail_$(basename "$PWD").md"
         {
-          echo "(showing only the most recent ~${PROGRESS_MAX_BYTES} bytes of OVERNIGHT_PROGRESS.md — the full file on disk is larger; older history omitted here to stay within the model's context budget)"
+          echo "(showing only the most recent ~${PROGRESS_MAX_BYTES} bytes of the overnight progress log — the full log is larger; older history omitted here to stay within the model's context budget)"
           echo
-          tail -c "$PROGRESS_MAX_BYTES" OVERNIGHT_PROGRESS.md
+          tail -c "$PROGRESS_MAX_BYTES" OVERNIGHT_PROGRESS.md | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
         } > "$PROGRESS_TAIL_FILE"
         PROGRESS_READ_ARGS=(--read "$PROGRESS_TAIL_FILE")
       else
