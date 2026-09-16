@@ -9,6 +9,9 @@
 #     (auto-disabled tasks, unacked alerts, red-green SUSPECT flags, no-op
 #     streaks, diverged clones, branch-hygiene review flags, main<-feature
 #     drift) and, if anything is actionable, pushes it to your phone via ntfy.
+#     Discontinued repos (DISCONTINUED_REPOS below) are skipped entirely by the
+#     drift/commit-sanity scans, and expected no-op branch-guard sync merges never
+#     count as a finding — this digest should only ever fire on real signal.
 #   * IF `claude` CLI + ANTHROPIC_API_KEY are present: ALSO runs a Claude review
 #     pass over recent overnight/feature commits ("does each commit do what its
 #     message claims?" - catches the 'remove duplicate' commit that ADDS one,
@@ -33,6 +36,15 @@ TS="$(date '+%Y-%m-%d %H:%M')"
 NOOP_STREAK_ALERT="${NOOP_STREAK_ALERT:-30}"
 NTFY_TOPIC="${NTFY_TOPIC:-}"
 NTFY_SERVER="${NTFY_SERVER:-https://ntfy.sh}"
+
+# Repos wound down for good (Railway/Vercel taken offline, every tasks.json entry
+# disabled) — see the shared repo's CLAUDE.md "DISCONTINUED" notice. Their branches
+# are frozen (nothing new ever lands), so the drift/commit-sanity scans below would
+# just re-flag the same already-shipped-to-main commits forever — confirmed both are
+# actually clean (zero real divergence, zero merge conflicts) on 2026-09-16 before
+# adding this skip. If either is ever revived, remove it from this list.
+DISCONTINUED_REPOS=(social-media-manager task-manager-platform)
+is_discontinued() { local n="$1" d; for d in "${DISCONTINUED_REPOS[@]}"; do [ "$n" = "$d" ] && return 0; done; return 1; }
 
 findings=()   # human-readable actionable lines
 
@@ -100,11 +112,16 @@ if [ -d "$REPOS" ]; then
   for r in "$REPOS"/*/ ; do
     [ -d "$r/.git" ] || continue
     name="$(basename "$r")"
+    is_discontinued "$name" && continue
     # refresh refs first — the server clones' origin/develop can lag a manual
     # fast-forward done elsewhere (e.g. from the Mac), which would otherwise
     # report phantom drift. Cheap; runs every 3h. Also refreshes refs for the
-    # commit-sanity scan (section 7) below.
-    git -C "$r" fetch origin develop overnight/feature --quiet 2>/dev/null || true
+    # commit-sanity scan (section 7) below — 2026-09-16: this used to skip `main`,
+    # so a repo nothing else ever fetches main for (e.g. one that stops getting
+    # promoted) would freeze its local origin/main ref forever, silently re-flagging
+    # commits that landed to main days/weeks ago as still "unlanded" on every single
+    # 3h cycle. Fetching main here too closes that class of phantom finding for good.
+    git -C "$r" fetch origin main develop overnight/feature --quiet 2>/dev/null || true
     ahead="$(git -C "$r" rev-list --count origin/develop..origin/overnight/feature 2>/dev/null || echo 0)"
     if [ "${ahead:-0}" -ge 40 ]; then
       findings+=("DRIFT: ${name} overnight/feature is ${ahead} commits ahead of develop — hygiene not landing.")
@@ -121,6 +138,7 @@ if [ -d "$REPOS" ]; then
   for r in "$REPOS"/*/ ; do
     [ -d "$r/.git" ] || continue
     name="$(basename "$r")"
+    is_discontinued "$name" && continue
     while IFS='|' read -r sha subj; do
       [ -z "$sha" ] && continue
       stat="$(git -C "$r" show "$sha" --shortstat --format='' 2>/dev/null | grep -E 'changed' | tail -1)"
@@ -128,7 +146,13 @@ if [ -d "$REPOS" ]; then
       del="$(echo "$stat" | grep -oE '[0-9]+ deletion'  | grep -oE '[0-9]+' || echo 0)"
       ins="${ins:-0}"; del="${del:-0}"
       if [ "$ins" -eq 0 ] && [ "$del" -eq 0 ]; then
-        findings+=("EMPTY COMMIT: ${name}@${sha} '${subj}' — 0 line changes (no-op/0-byte class).")
+        # chore(sync) branch-guard merges are EXPECTED to sometimes be 0-diff (there
+        # was nothing new to bring over) - that's the guard working, not a signal.
+        # Only flag an empty commit whose message actually CLAIMS real work, e.g. a
+        # feat/fix/test commit that landed with no content (the real bug this caught
+        # 2026-09-16: two commits titled "add X" that created 0-byte files).
+        echo "$subj" | grep -qiE '^chore\(sync\):' || \
+          findings+=("EMPTY COMMIT: ${name}@${sha} '${subj}' — 0 line changes (no-op/0-byte class).")
       elif echo "$subj" | grep -qiE '\b(remove|delete|dedup|de-dup|drop|clean ?up)\b.*(duplicate|dead|unused|redundant)' && [ "$ins" -gt "$del" ]; then
         findings+=("MSG/DIFF MISMATCH: ${name}@${sha} '${subj}' — message says remove but diff is +${ins}/-${del} (net ADD); verify it didn't add a duplicate.")
       elif [ $((ins + del)) -gt 600 ]; then

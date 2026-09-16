@@ -956,6 +956,16 @@ STUB
       --model "openai/${OVN_ACTIVE_MODEL:-$MODEL_NAME}"
       --openai-api-base "${LITELLM_BASE}/v1"
       --openai-api-key "${LITELLM_MASTER_KEY}"
+      # 2026-09-16: aider's --file auto-creates a missing target as a 0-byte file
+      # (base_coder.py touch_file), then its dirty-commits safety net sees that
+      # fresh empty file as "pre-existing state" and auto-commits it AS ITS OWN
+      # separate commit before applying the real edit - landing a spurious
+      # "feat: add X" commit with 0 insertions/0 deletions right before the real
+      # one. Caught live: iptv_apps@cb16f46c and shrike-monitor@6fa4e0d. We start
+      # every implement attempt from a clean tree and auto-commits (on by default)
+      # already captures every real edit, so there's never a legitimate dirty
+      # pre-existing change here to preserve - safe to disable outright.
+      --no-dirty-commits
     )
     if [ -f "$MODEL_METADATA_FILE" ]; then
       AIDER_BASE_ARGS+=(--model-metadata-file "$MODEL_METADATA_FILE")
