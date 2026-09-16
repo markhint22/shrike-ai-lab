@@ -65,8 +65,19 @@ for r in $REPOS; do
   # ---- PYTHON: every provisioned .venv/bin/pytest, full suite ----
   while IFS= read -r -d '' vp; do
     d="${vp%/.venv/bin/pytest}"
-    out="$( cd "$d" && timeout 360 ./.venv/bin/pytest -q --no-cov 2>&1 | tail -25 )"
-    if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then
+    # 2026-09-16 FIX: was `timeout 360 ... | tail -25`, which piped away timeout's own exit
+    # code (only tail's, always 0, survived into $?) — a suite that had grown past 360s (real
+    # case: iptv_apps measured at 383s) got silently reported GREEN because a truncated run
+    # never printed a "N failed" summary line for the grep below to match. Bumped the cap
+    # (360->600s, real worst case seen was 383s) AND now capture the real exit code
+    # separately from the tail-for-logging step, so a timeout is its own explicit branch
+    # instead of falling through to "no failures seen" -> green.
+    raw="$( cd "$d" && timeout 600 ./.venv/bin/pytest -q --no-cov 2>&1 )"; rc=$?
+    out="$(printf '%s' "$raw" | tail -25)"
+    if [ "$rc" -eq 124 ]; then
+      log "$r: pytest TIMED OUT in ${d##*/} after 600s (suite may have grown too slow, or something hung) — treating as RED, not green"
+      emergency_enqueue "$r" "$(basename "$d") pytest" "full suite did not finish within 600s (timed out, exit 124) — check whether the suite has grown past the cap or a test is hanging"
+    elif printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then
       fails="$(printf '%s' "$out" | grep -E 'FAILED|ERROR ' | head -5 | sed 's/  */ /g' | paste -sd'; ' -)"
       [ -z "$fails" ] && fails="$(printf '%s' "$out" | grep -E '[0-9]+ (failed|error)' | tail -1)"
       log "$r: pytest RED in ${d##*/} — $fails"
@@ -81,8 +92,13 @@ for r in $REPOS; do
     wd="$(dirname "$pj")"
     grep -q '"vitest"' "$pj" 2>/dev/null || continue
     [ -d "$wd/node_modules/vitest" ] || { log "$r: ${wd##*/} not provisioned (no node_modules) — skip web"; continue; }
-    out="$( cd "$wd" && CI=true timeout 240 npx vitest run 2>&1 | tail -25 )"
-    if printf '%s' "$out" | grep -qE '[0-9]+ failed|✖|FAIL '; then
+    # 2026-09-16 FIX: same pipe-swallows-exit-code + false-green-on-timeout fix as pytest above.
+    raw="$( cd "$wd" && CI=true timeout 400 npx vitest run 2>&1 )"; rc=$?
+    out="$(printf '%s' "$raw" | tail -25)"
+    if [ "$rc" -eq 124 ]; then
+      log "$r: vitest TIMED OUT in ${wd##*/} after 400s — treating as RED, not green"
+      emergency_enqueue "$r" "$(basename "$wd") vitest" "full suite did not finish within 400s (timed out, exit 124) — check whether the suite has grown past the cap or a test is hanging"
+    elif printf '%s' "$out" | grep -qE '[0-9]+ failed|✖|FAIL '; then
       fails="$(printf '%s' "$out" | grep -E 'FAIL |✖' | head -5 | paste -sd'; ' -)"
       log "$r: vitest RED in ${wd##*/}"
       emergency_enqueue "$r" "$(basename "$wd") vitest" "${fails:-see log}"
