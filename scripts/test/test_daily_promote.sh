@@ -100,11 +100,17 @@ ok "mixed run: promoted bucket has exactly repo-good" "echo \"\$out\" | grep -q 
 ok "mixed run: no-change bucket has exactly repo-nochange" "echo \"\$out\" | grep -q 'No change:.*repo-nochange'"
 ok "mixed run: blocked bucket has exactly repo-blocked" "echo \"\$out\" | grep -q 'BLOCKED.*repo-blocked'"
 
-# --- F: run_overnight's lock is respected — daily_promote waits for it rather than
-#     racing a mid-git cycle. We can't afford to wait out the real 900s timeout in a
-#     test, so this only asserts it acquires + proceeds normally when the lock is free
-#     (already exercised by every case above) and that it creates state/ if missing.
-ok "state/ dir created if missing (run.lock target)" "[ -d '$HOME/overnight-queue/state' ]"
+# --- F: REMOVED 2026-09-16 (stale, testing a feature that no longer exists) ---
+# This used to assert daily_promote.sh creates state/ as a side effect of taking
+# run_overnight's run.lock before promoting. That whole lock-wait gate was
+# deliberately REMOVED on 2026-09-15 (see daily_promote.sh's own header comment:
+# "REMOVED the old wait up to 15min for run_overnight's run.lock... That was an
+# all-or-nothing failure mode") - the script never creates or touches state/ at
+# all anymore. This assertion was never updated after that refactor and has been
+# failing on every run since, silently (nobody reads a script's own test output
+# unless something else prompts a look) - a false-red masking real signal in
+# `bash scripts/test/run_all.sh`'s summary line. Confirmed live: grep for
+# state/mkdir/.lock in daily_promote.sh today returns nothing.
 
 echo "daily_promote.sh: $P passed, $F failed"
 [ "$F" -eq 0 ]
