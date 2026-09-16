@@ -1102,6 +1102,20 @@ Task: ${prompt}"
     # attempt on ALREADY-DONE / BLOCKED so a done/blocked item can't waste a red push.
     OVN_VERDICT="$(grep -hoiE "VERDICT:[[:space:]]*(PROCEED|ALREADY-DONE|BLOCKED|NEEDS-DECISION)" "$task_log" 2>/dev/null | head -1 | sed -E "s/.*VERDICT:[[:space:]]*//I" | tr "[:lower:]" "[:upper:]")"
     OVN_PLAN="$(grep -hoiE "PLAN:[[:space:]]*.+" "$task_log" 2>/dev/null | head -1 | sed -E "s/^PLAN:[[:space:]]*//I; s/[[:space:]]*FILES:.*//I" | cut -c1-300)"
+    # 2026-09-16 FIX: this free-text plan gets embedded verbatim into the
+    # implement-phase --message below. aider scans that outgoing message
+    # for existing repo file paths and silently loads any match IN FULL
+    # (aider/coders/base_coder.py's check_for_file_mentions, run on every
+    # user message) - so a scout plan that so much as NAMES the overnight
+    # progress log (a real thing a 27B model does say, e.g. "per
+    # OVERNIGHT_PROGRESS.md...") reloads that 150-200KB file whole,
+    # completely defeating the PROGRESS_READ_ARGS tail cap below. Confirmed
+    # live: billwatch kept hitting the 65,536-token hard limit with the
+    # tail cap AND the STANDARDS_SUFFIX wording fix both already deployed -
+    # this was the third and actual source. Break the token itself (not a
+    # word boundary aider's matcher would still resolve) rather than trying
+    # to strip the whole mention out of the model's own sentence.
+    OVN_PLAN="$(printf '%s' "$OVN_PLAN" | sed -E 's/OVERNIGHT_PROGRESS\.md/OVERNIGHT PROGRESS LOG/gI')"
     # The 27B emits VERDICT/PLAN/FILES as ONE logical line the terminal WRAPS
     # across ~3 log lines, so the single-line OVN_PLAN above misses the file
     # token when it lands on a wrapped continuation (shrike's PrivacyPage.vue) ->
