@@ -39,7 +39,9 @@ def llm(prompt):
                                           "Authorization": f"Bearer {LKEY}"})
     with urllib.request.urlopen(req, timeout=150) as r:
         d = json.loads(r.read())
-    return d["choices"][0]["message"]["content"], int(d.get("usage", {}).get("completion_tokens", 0))
+    usage = d.get("usage", {})
+    return (d["choices"][0]["message"]["content"], int(usage.get("completion_tokens", 0)),
+            int(usage.get("prompt_tokens", 0)))
 
 def make_summary(title, text):
     prompt = (
@@ -51,18 +53,18 @@ def make_summary(title, text):
         '"key_points": "<3-5 short points, one per line>", '
         '"impact": "<1-2 sentences: who it affects and how>"}'
     )
-    raw, toks = llm(prompt)
+    raw, toks, ptoks = llm(prompt)
     i, j = raw.find("{"), raw.rfind("}")
     if i >= 0 and j > i:
         try:
             o = json.loads(raw[i:j+1])
             s = (o.get("summary") or "").strip()
             if s:
-                return s, (o.get("key_points") or "").strip(), (o.get("impact") or "").strip(), toks
+                return s, (o.get("key_points") or "").strip(), (o.get("impact") or "").strip(), toks, ptoks
         except Exception:
             pass
     t = raw.strip()
-    return (t[:1200], "", "", toks) if t else (None, None, None, toks)  # never a placeholder
+    return (t[:1200], "", "", toks, ptoks) if t else (None, None, None, toks, ptoks)  # never a placeholder
 
 def main():
     if not DB:
@@ -75,15 +77,17 @@ def main():
                    ORDER BY b.id DESC LIMIT %s""", (MAX_BILLS,))
     bills = cur.fetchall()
     done = 0
+    total_sent = total_recv = 0
     for bid, title, short_title, bsummary in bills:
         if time.time() - start > MAX_SECONDS:
             log("time budget reached — stopping for tonight"); break
         text = "\n\n".join(x for x in (title, short_title, bsummary) if x)
         t0 = time.time()
         try:
-            summ, kp, impact, toks = make_summary(title or "", text)
+            summ, kp, impact, toks, ptoks = make_summary(title or "", text)
         except Exception as e:
             log(f"  bill {bid}: LLM error {e}"); continue
+        total_sent += ptoks; total_recv += toks
         if not summ:  # never persist a non-summary (that was the original bug)
             log(f"  bill {bid}: empty generation, skipping (will retry)"); continue
         gen_ms = int((time.time() - t0) * 1000)
@@ -99,6 +103,19 @@ def main():
     remaining = cur.fetchone()[0]
     conn.close()
     log(f"backfill done: +{done} real summaries in {int(time.time()-start)}s; {remaining} bills still need one")
+    # 2026-09-16: this job's real token spend was captured per-bill in BillWatch's own DB
+    # (tokens_used column) but never surfaced to the fleet-wide ledger - log the run's total
+    # so it's part of the real "overall tokens spent" answer, not invisible outside prod's DB.
+    if total_sent or total_recv:
+        try:
+            ledger = os.path.expanduser("~/overnight-queue/state/token_ledger.jsonl")
+            os.makedirs(os.path.dirname(ledger), exist_ok=True)
+            with open(ledger, "a") as f:
+                f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                     "source": "billwatch-summary-backfill", "repo": "billwatch",
+                                     "tokens_sent": total_sent, "tokens_recv": total_recv}) + "\n")
+        except OSError:
+            pass
 
 if __name__ == "__main__":
     main()

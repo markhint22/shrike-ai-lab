@@ -39,11 +39,17 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
   local nfiles; nfiles="$(printf '%s\n' "$files" | grep -c .)"
   [ "$nfiles" -gt 3 ] && return 1
   local fileargs=(); while IFS= read -r fl; do fileargs+=(--file "$fl"); done <<< "$files"
-  ( cd "$wt" && timeout 400 "$HOME/aider-venv/bin/aider" --yes-always --no-check-update --no-auto-commits \
+  local _llm_out; _llm_out="$( cd "$wt" && timeout 400 "$HOME/aider-venv/bin/aider" --yes-always --no-check-update --no-auto-commits \
       --model openai/qwen-dflash-27B --openai-api-base http://localhost:4000/v1 --openai-api-key sk-shrike-local \
       "${fileargs[@]}" \
       --message "These files have UNRESOLVED git merge conflict markers (<<<<<<<, =======, >>>>>>>) from a real 'git merge' between two branches. Resolve every conflict by keeping BOTH sides' distinct real functionality wherever the two changes are compatible - never silently drop one side's real work. If one side is clearly a placeholder/stub (e.g. returns an empty value with a TODO) and the other is a complete, real implementation, keep the complete one. Remove ALL conflict markers from every file. Do not touch anything outside these exact files." \
-  ) >/dev/null 2>&1
+  2>&1 )"
+  # 2026-09-16: this call's token spend used to be thrown away entirely (>/dev/null) - extract
+  # it from aider's own "Tokens: X sent, Y received" line (same convention run_overnight.sh
+  # parses) and log it, still without polluting reconcile.log with the full transcript.
+  _llm_ts="$(printf '%s' "$_llm_out" | grep -oiE '[0-9.]+k? +sent' | grep -oiE '^[0-9.]+k?' | awk '/[kK]/{gsub(/[kK]/,"");s+=$1*1000;next}{s+=$1}END{print int(s)}')"
+  _llm_tr="$(printf '%s' "$_llm_out" | grep -oiE '[0-9.]+k? +received' | grep -oiE '^[0-9.]+k?' | awk '/[kK]/{gsub(/[kK]/,"");s+=$1*1000;next}{s+=$1}END{print int(s)}')"
+  bash "$HOME/overnight-queue/scripts/ovn_log_tokens.sh" reconcile-selfheal "$(basename "$repo")" "${_llm_ts:-0}" "${_llm_tr:-0}" 2>/dev/null || true
   # Check the FILE CONTENT for leftover markers, not git's index/unmerged state - aider edits
   # the files (with --no-auto-commits) but never runs `git add`, so `git diff --diff-filter=U`
   # keeps reporting "still unmerged" even after a fully correct text-level resolution (found

@@ -223,7 +223,12 @@ elif [ "${SUPERVISOR_USE_LOCAL:-0}" = "1" ]; then
 Commits:
 ${CTX}"
       PAYLOAD="$(jq -n --arg m "$MODEL" --arg p "$RP" '{model:$m,messages:[{role:"user",content:$p}],max_tokens:500,temperature:0}')"
-      REVIEW_TEXT="$(curl -sf --max-time 300 -H "Authorization: Bearer $LITELLM_KEY" -H "Content-Type: application/json" -d "$PAYLOAD" "$LITELLM_BASE/v1/chat/completions" 2>>"$DIR/logs/supervisor.log" | jq -r '.choices[0].message.content // ""')"
+      _raw="$(curl -sf --max-time 300 -H "Authorization: Bearer $LITELLM_KEY" -H "Content-Type: application/json" -d "$PAYLOAD" "$LITELLM_BASE/v1/chat/completions" 2>>"$DIR/logs/supervisor.log")"
+      REVIEW_TEXT="$(printf '%s' "$_raw" | jq -r '.choices[0].message.content // ""')"
+      # 2026-09-16: this runs every 3h and its real token spend was discarded entirely - log it.
+      bash "$DIR/scripts/ovn_log_tokens.sh" supervisor-review - \
+        "$(printf '%s' "$_raw" | jq -r '.usage.prompt_tokens // 0' 2>/dev/null)" \
+        "$(printf '%s' "$_raw" | jq -r '.usage.completion_tokens // 0' 2>/dev/null)" 2>/dev/null || true
       [ -z "$REVIEW_TEXT" ] && REVIEW_TEXT="_(local review returned nothing)_"
     fi
   else

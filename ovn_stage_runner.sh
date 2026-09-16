@@ -83,6 +83,12 @@ llm(){ local pf="$1" body resp content i
     resp="$(curl -fsS --max-time 300 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' \
       -H "Authorization: Bearer $LKEY" -d "$body" 2>>"$LOG")"
     content="$(printf '%s' "$resp" | jq -r '.choices[0].message.content // empty' 2>/dev/null)"
+    # 2026-09-16: this decompose/planning call's real token spend was discarded entirely
+    # (only .choices[0].message.content was ever kept) - the per-step aider calls below are
+    # already tracked via stage_runs/*.jsonl, but this call that PRECEDES them never was.
+    bash "$HOME/overnight-queue/scripts/ovn_log_tokens.sh" stage-decompose "$repo" \
+      "$(printf '%s' "$resp" | jq -r '.usage.prompt_tokens // 0' 2>/dev/null)" \
+      "$(printf '%s' "$resp" | jq -r '.usage.completion_tokens // 0' 2>/dev/null)" 2>/dev/null || true
     if [ -n "$content" ]; then printf '%s' "$content"; return 0; fi
     echo "$(date '+%F %T') llm attempt $i got empty (resp ${#resp} bytes) — backoff $((i*8))s (fleet contention?)" >> "$LOG"
     sleep $((i*8))

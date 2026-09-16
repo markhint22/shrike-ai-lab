@@ -64,7 +64,13 @@ File inventory (partial):
 $tree"
 
   payload="$(jq -n --arg m "$MODEL" --arg p "$prompt" '{model:$m,messages:[{role:"user",content:$p}],max_tokens:800,temperature:0.2}')"
-  proposal="$(curl -sf --max-time 300 -H "Authorization: Bearer $LITELLM_KEY" -H "Content-Type: application/json" -d "$payload" "$LITELLM_BASE/v1/chat/completions" 2>/dev/null | jq -r '.choices[0].message.content // ""')"
+  _raw="$(curl -sf --max-time 300 -H "Authorization: Bearer $LITELLM_KEY" -H "Content-Type: application/json" -d "$payload" "$LITELLM_BASE/v1/chat/completions" 2>/dev/null)"
+  proposal="$(printf '%s' "$_raw" | jq -r '.choices[0].message.content // ""')"
+  # 2026-09-16: this call's real token spend used to be discarded (only .choices[0].message.content
+  # was ever kept) - log it to the shared cross-pipeline ledger so it's part of the real total.
+  bash "$HOME/overnight-queue/scripts/ovn_log_tokens.sh" groom "$name" \
+    "$(printf '%s' "$_raw" | jq -r '.usage.prompt_tokens // 0' 2>/dev/null)" \
+    "$(printf '%s' "$_raw" | jq -r '.usage.completion_tokens // 0' 2>/dev/null)" 2>/dev/null || true
   [ -z "$proposal" ] && { echo "groom: $name — no proposal (model returned nothing)"; continue; }
 
   rpt="$REPORT_DIR/grooming-${name}-${DATE}.md"

@@ -60,8 +60,12 @@ Write a markdown briefing with EXACTLY these sections:
 - anything you're unsure about that the engineer must decide"
 
   local body; body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.read()}],'temperature':0.3,'max_tokens':1500}))" <<<"$prompt")"
-  local resp; resp="$(curl -fsS --max-time 200 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' -H "Authorization: Bearer $LITELLM_KEY" -d "$body" 2>>"$LOG" \
-          | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
+  local _raw; _raw="$(curl -fsS --max-time 200 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' -H "Authorization: Bearer $LITELLM_KEY" -d "$body" 2>>"$LOG")"
+  local resp; resp="$(printf '%s' "$_raw" | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
+  # 2026-09-16: this call's real token spend was discarded entirely - log it.
+  bash "$HOME/overnight-queue/scripts/ovn_log_tokens.sh" prework "$repo" \
+    "$(printf '%s' "$_raw" | jq -r '.usage.prompt_tokens // 0' 2>/dev/null)" \
+    "$(printf '%s' "$_raw" | jq -r '.usage.completion_tokens // 0' 2>/dev/null)" 2>/dev/null || true
   if [ "${#resp}" -lt 200 ]; then say "$repo/$slug: model returned too little (${#resp} chars) — skip"; return 1; fi
   {
     echo "# Prework: $task"

@@ -131,8 +131,12 @@ PROMPT_END
 
   say "$r: recovering parked item: ${task:0:80}"
   body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.read()}],'temperature':0.3,'max_tokens':900}))" <<<"$PROMPT")"
-  resp="$(curl -fsS --max-time 180 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' -H "Authorization: Bearer $LITELLM_KEY" -d "$body" 2>>"$LOG" \
-          | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
+  _raw="$(curl -fsS --max-time 180 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' -H "Authorization: Bearer $LITELLM_KEY" -d "$body" 2>>"$LOG")"
+  resp="$(printf '%s' "$_raw" | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
+  # 2026-09-16: this call's real token spend was discarded entirely - log it.
+  bash "$HOME/overnight-queue/scripts/ovn_log_tokens.sh" recover_parked "$r" \
+    "$(printf '%s' "$_raw" | jq -r '.usage.prompt_tokens // 0' 2>/dev/null)" \
+    "$(printf '%s' "$_raw" | jq -r '.usage.completion_tokens // 0' 2>/dev/null)" 2>/dev/null || true
   items="$(printf '%s\n' "$resp" | grep -E '^- \[ \] (\[T[1-3]\].+VERIFY:|\[CLAUDE\])' | head -4)"
   cnt=$(printf '%s' "$items" | grep -c '^- \[ \]')
   fi
