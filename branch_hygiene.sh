@@ -223,6 +223,33 @@ run_gate() {
     fi
     rm -f "$gout"; ran=1
   fi
+  # SHELL SCRIPTS — 2026-09-16 FIX: no gate anywhere ever checked a .sh file's syntax; a broken
+  # deploy/setup script could sit merged for as long as nothing happened to invoke it. Cheap
+  # (bash -n is near-instant even across dozens of files) so always run, no touched-detection
+  # needed.
+  while IFS= read -r -d '' sh; do
+    if ! bash -n "$sh" 2>/dev/null; then log "  gate: bash -n FAILED for ${sh#"$dir"/}"; return 1; fi
+    ran=1
+  done < <(find "$dir" -maxdepth 4 -type f -name "*.sh" -not -path "*/node_modules/*" -print0 2>/dev/null)
+  # DOCKER — 2026-09-16 FIX: same audit that found the Swift/Kotlin gaps
+  # (see ovn_swift_retag.py's docstring) also found Dockerfiles had zero pre-merge verification —
+  # a broken build only ever surfaced at actual Railway/Vercel deploy time. A REAL `docker build`
+  # is the only meaningful check, and it's by far the most expensive thing this gate can run
+  # (measured 146s cold on billwatch-backend's full FastAPI+deps image), so only pay that cost
+  # when the Dockerfile actually differs from the main clone's version — most gate runs won't have
+  # touched one at all. Always `docker rmi` the tagged image after, pass or fail, so repeated gate
+  # runs don't leak images.
+  while IFS= read -r -d '' df; do
+    ddir="$(dirname "$df")"; rel="${df#"$dir"/}"; mainfile="$repo/$rel"
+    [ -f "$mainfile" ] && cmp -s "$df" "$mainfile" && continue  # unchanged — skip the expensive build
+    log "  gate: docker build in $ddir"
+    imgtag="hygiene-gate-$(basename "$repo")-$$-$RANDOM"
+    ( cd "$ddir" && timeout 400 docker build -t "$imgtag" -f "$(basename "$df")" . ) >/dev/null 2>&1; rc=$?
+    docker rmi "$imgtag" >/dev/null 2>&1
+    [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+    [ "$rc" -ne 0 ] && return 1
+    ran=1
+  done < <(find "$dir" -maxdepth 3 -type f -name "Dockerfile" -print0 2>/dev/null)
   [ "$ran" -eq 1 ] && return 0 || return 2
 }
 

@@ -239,16 +239,18 @@ jlog "$(jq -nc --arg r "$RUNID" --arg repo "$repo" --argjson t "$tier" --arg it 
 # count until it happens), just one extra round's worth as a realistic contingency, matching what's
 # actually been observed (a redecompose typically yields ~2 sub-steps, each retried like any step).
 # verify: full_verify() runs once, then up to OVN_VERIFY_REPAIR_ROUNDS times more (each a fresh
-# aider repair call at STEP_TIMEOUT plus a full re-verify) — budgeted at 1150s/verify (2026-09-16:
-# raised from 900s when the gradle/Android check was added to full_verify() — a repo like
-# iptv_apps/billwatch can legitimately exercise pytest+vitest+gradle all in the SAME verify pass,
-# ~600+240+240s, not just one or two of pytest/vitest/godot as before). Capped at
-# OVN_STAGE_HARD_TIMEOUT (an absolute ceiling, not a fixed runtime) so a pathological MAX_STEPS=6
-# item still can't hold the lock forever — see the ceiling's own comment for why 12600s.
+# aider repair call at STEP_TIMEOUT plus a full re-verify) — budgeted at 1500s/verify (2026-09-16:
+# raised from 1150s to 1500s when the docker-build check was added on top of the earlier
+# gradle/Android addition — a repo like iptv_apps/billwatch can legitimately exercise
+# pytest+vitest+gradle+docker all in the SAME verify pass, ~600+240+240+400s (docker's 400s only
+# actually applies when a touched Dockerfile changed, but the item that touched it is exactly the
+# case this budget needs to cover). Capped at OVN_STAGE_HARD_TIMEOUT (an absolute ceiling, not a
+# fixed runtime) so a pathological MAX_STEPS=6 item still can't hold the lock forever — see the
+# ceiling's own comment for why 12600s.
 _repair_rounds="${OVN_VERIFY_REPAIR_ROUNDS:-2}"
 _per_step_budget=$(( MAX_ATT * STEP_TIMEOUT * (1 + REDECOMP) ))
 _steps_budget=$(( NSTEPS * _per_step_budget ))
-_verify_budget=$(( (_repair_rounds + 1) * 1150 + _repair_rounds * STEP_TIMEOUT ))
+_verify_budget=$(( (_repair_rounds + 1) * 1500 + _repair_rounds * STEP_TIMEOUT ))
 _dynamic_budget=$(( _steps_budget + _verify_budget + 300 ))
 _ceiling="${OVN_STAGE_HARD_TIMEOUT:-12600}"
 _armed=$(( _dynamic_budget < _ceiling ? _dynamic_budget : _ceiling ))
@@ -454,6 +456,27 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
       local wd; wd="$(dirname "$pj")"
       [ -d "$wd/node_modules" ] && { local wwd; wwd="$wt/${wd#"$rd"/}"; [ -e "$wwd/node_modules" ] || ln -s "$(cd "$wd" && pwd)/node_modules" "$wwd/node_modules" 2>/dev/null; echo "-- vitest FULL --" >> "$vlog"; ( cd "$wwd" && CI=true timeout 240 npx vitest run ) >> "$vlog" 2>&1 || vok=0; }
     fi
+  fi
+  # SHELL SCRIPTS — 2026-09-16 FIX: same coverage gap as branch_hygiene.sh's run_gate() (see its
+  # own 2026-09-16 comment) — no path here ever checked a .sh file's syntax either. Cheap, always run.
+  if [ "$vok" = 1 ]; then
+    while IFS= read -r -d '' sh; do
+      bash -n "$sh" 2>>"$vlog" || vok=0
+    done < <(find "$wt" -maxdepth 4 -type f -name "*.sh" -not -path "*/node_modules/*" -print0 2>/dev/null)
+  fi
+  # DOCKER — 2026-09-16 FIX: same as branch_hygiene.sh's run_gate() — only pay the expensive real
+  # `docker build` cost when the Dockerfile actually differs from the main clone (measured 146s
+  # cold on a representative FastAPI+deps image; see the per-verify budget comment above, raised
+  # to account for this). Always `docker rmi` the tagged image after, pass or fail.
+  if [ "$vok" = 1 ]; then
+    while IFS= read -r -d '' df; do
+      ddir="$(dirname "$df")"; rel="${df#"$wt"/}"; mainfile="$rd/$rel"
+      [ -f "$mainfile" ] && cmp -s "$df" "$mainfile" && continue
+      echo "-- docker build FULL in ${ddir#"$wt"/} --" >> "$vlog"
+      imgtag="stage-verify-$(basename "$rd")-$$-$RANDOM"
+      ( cd "$ddir" && timeout 400 docker build -t "$imgtag" -f "$(basename "$df")" . ) >> "$vlog" 2>&1 || vok=0
+      docker rmi "$imgtag" >/dev/null 2>&1
+    done < <(find "$wt" -maxdepth 3 -type f -name "Dockerfile" -print0 2>/dev/null)
   fi
   # SEMANTIC: a "wire/integrate/register X into FILE" item must leave FILE actually referencing X
   if printf '%s' "$item" | grep -qiE '\b(wire|integrate|register|hook|call|invoke)\b'; then
