@@ -99,7 +99,7 @@ You have NO shell. You cannot run tests, pytest, npm, or any command. Never say 
 1. ONE item, minimal focused diff. Edit only the specific file(s) the item names, match the existing style, add no new dependencies unless the item requires them.
 2. Write the diff THIS call. One or two sentences of plan, then the change. If you catch yourself still explaining or asking for more files, stop and write the diff with what you already have - a slightly imperfect real change beats a perfect explanation that gets killed at 600s.
 3. Keep it compiling and green. A commit that breaks the build (a syntax/import/parse error) is auto-reverted and nothing lands; when aider shows failing tests, fix them before you finish.
-4. Report ONLY via commit-message trailer lines - never edit OVERNIGHT_PROGRESS.md, it is read-only and the runner maintains it from your commit:
+4. Report ONLY via commit-message trailer lines - never edit the overnight progress log (it is read-only and the runner maintains it from your commit):
    DONE: <exact Next Steps item text you finished>
    DECISION: <what you decided and why>   (required when the item is marked NEEDS DECISION)
    NEW: <a short follow-up item>
