@@ -125,5 +125,18 @@ ok "D: repoD1 got recovered" "git --git-dir='$oD1' log --oneline overnight/featu
 ok "D: repoD2 was never even touched once the cap was hit" \
    "[ \"\$(git --git-dir='$oD2' log --oneline overnight/feature | wc -l)\" -eq 1 ]"
 
+# === E: a "route to Claude/CLAUDE" AUTO-SKIP tag is a terminal handoff, never re-picked
+# (2026-09-16 fix — this used to decompose+re-attempt the same item a Claude session was
+# independently completing via CLAUDE_QUEUE.md, causing a real branch-reconcile conflict) ===
+ROUTED=$'# Progress\n\n- [ ] [AUTO-SKIP staged: 27B could not land this (beyond it) — route to CLAUDE] [T4] backend/app/main.py — Import the new feature_flags router. VERIFY: grep -q feature_flags backend/app/main.py\n'
+oE="$(new_origin E "$ROUTED")"
+clone_into_repos repoE "$oE"
+: > "$REQLOG"
+OVN_RECOVER_MAX=4 run_recover repoE
+ok "E: zero LLM calls made for a route-to-Claude item" "[ \"\$(reqcount)\" -eq 0 ]"
+ok "E: origin has no new commit (item was never touched)" \
+   "[ \"\$(git --git-dir='$oE' log --oneline overnight/feature | wc -l)\" -eq 1 ]"
+ok "E: hold was never even acquired" "[ ! -f '$OQ/state/HOLD_repoE' ]"
+
 echo "Recover parked: $P passed, $F failed"
 [ "$F" -eq 0 ]

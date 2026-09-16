@@ -38,7 +38,16 @@ for r in $REPOS; do
   # to recovery FOREVER - confirmed live: billwatch had 31 parked items,100% of them already
   # `recovery:decomposed`, and every health-sweep "pushing 3 extra recovery passes" silently
   # recovered 0 because the filter excluded literally everything in the file.
-  parked_line="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | head -1)"
+  # 2026-09-16 FIX: "route to Claude"/"route to CLAUDE" inside an AUTO-SKIP tag is a
+  # DELIBERATE, TERMINAL handoff (godot .gd, swift, or "27B could not land this (beyond
+  # it)") — the item has already been (or is about to be) picked up via CLAUDE_QUEUE.md,
+  # not a "try again differently" park. Without this exclusion, this script decomposed and
+  # re-queued the SAME item back onto the fleet WHILE a Claude session was independently
+  # completing it from CLAUDE_QUEUE.md — confirmed live on gitlark: the fleet recovered +
+  # re-attempted "Import feature_flags router..." (already tagged route-to-CLAUDE) at the
+  # exact same time a Claude-dispatched agent built the real, more complete version, and
+  # both landed on different branches -> a real merge conflict at the next reconcile pass.
+  parked_line="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | grep -viE 'route to claude' | head -1)"
   [ -z "$parked_line" ] && continue
   lnno="${parked_line%%:*}"
   # the real task text = strip the leading [AUTO-SKIP ...] / [HUMAN-ONLY BLOCKED ITEM ...] tag

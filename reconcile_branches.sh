@@ -15,11 +15,82 @@ TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
 DRY="${DRY_RUN:-0}"
 repos="${*:-repos/billwatch repos/gitlark repos/iptv_apps repos/test-automation-agent repos/shrike-notify repos/shrike-monitor repos/xlite repos/shrike-labs-website}"
 log(){ echo "$(date '+%F %T') $*"; }
-conflicts=""; directs=""
+conflicts=""; directs=""; resolved=""
 
-# merge origin/<src> into <tgt> in an isolated worktree, push (rebase-retry once). echoes ok|conflict|pushfail|wterror|nochange
+# 2026-09-16: one bounded, always-independently-verified LLM-assisted conflict resolution
+# attempt, used ONLY for a develop<->feature sync (never main<->develop - that path always
+# goes straight to a human, unchanged). Root incident: the fleet's ovn_recover_parked.sh
+# decomposed+re-attempted an item already tagged "route to CLAUDE" (a terminal handoff, now
+# fixed separately) while a Claude session was independently completing the same work via
+# CLAUDE_QUEUE.md - both landed on different branches, producing a real add/add conflict at
+# the next reconcile pass that sat unresolved (and alerting) until a human/Claude noticed.
+# Feature branches are working branches, not production, so a bad automated resolution here
+# costs a wasted cycle, not an incident - and it's NEVER trusted blind: independently
+# re-verified by the repo's own real build/test gate (reusing branch_hygiene.sh's run_gate())
+# before ever being pushed. Scoped conservatively: <=3 conflicted files (a bigger conflict
+# needs a human, not more automation), one aider attempt, no retries. Falls back to the
+# ORIGINAL abort+alert behavior on any uncertainty (still conflicted after the attempt, gate
+# fails, or the gate has nothing it can even check) - this never lowers the safety bar, it
+# only adds a chance to clear the easy cases before bothering a human with them.
+try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=resolved+verified+committed, 1=give up
+  local wt="$1" repo="$2" tgt="$3" src="$4"
+  local files; files="$(git -C "$wt" diff --name-only --diff-filter=U)"
+  [ -z "$files" ] && return 1
+  local nfiles; nfiles="$(printf '%s\n' "$files" | grep -c .)"
+  [ "$nfiles" -gt 3 ] && return 1
+  local fileargs=(); while IFS= read -r fl; do fileargs+=(--file "$fl"); done <<< "$files"
+  ( cd "$wt" && timeout 400 "$HOME/aider-venv/bin/aider" --yes-always --no-check-update --no-auto-commits \
+      --model openai/qwen-dflash-27B --openai-api-base http://localhost:4000/v1 --openai-api-key sk-shrike-local \
+      "${fileargs[@]}" \
+      --message "These files have UNRESOLVED git merge conflict markers (<<<<<<<, =======, >>>>>>>) from a real 'git merge' between two branches. Resolve every conflict by keeping BOTH sides' distinct real functionality wherever the two changes are compatible - never silently drop one side's real work. If one side is clearly a placeholder/stub (e.g. returns an empty value with a TODO) and the other is a complete, real implementation, keep the complete one. Remove ALL conflict markers from every file. Do not touch anything outside these exact files." \
+  ) >/dev/null 2>&1
+  # Check the FILE CONTENT for leftover markers, not git's index/unmerged state - aider edits
+  # the files (with --no-auto-commits) but never runs `git add`, so `git diff --diff-filter=U`
+  # keeps reporting "still unmerged" even after a fully correct text-level resolution (found
+  # live in testing: aider correctly kept the real implementation over a placeholder stub,
+  # markers all gone, but the AA/unmerged index entry was untouched). Once we confirm the text
+  # is genuinely clean, WE tell git it's resolved by adding exactly the files that were
+  # conflicted (never a broad `git add -A`, which could stage something unrelated).
+  local remaining=0
+  while IFS= read -r fl; do
+    [ -z "$fl" ] && continue
+    grep -qE '^(<{7}|={7}|>{7})' "$wt/$fl" 2>/dev/null && remaining=1
+  done <<< "$files"
+  [ "$remaining" = 1 ] && return 1
+  while IFS= read -r fl; do [ -n "$fl" ] && git -C "$wt" add "$fl"; done <<< "$files"
+  git -C "$wt" diff --name-only --diff-filter=U | grep -q . && return 1   # belt-and-suspenders
+  # independently re-verify with the SAME gate branch_hygiene.sh trusts elsewhere - looking
+  # "unmarked" is not the same as actually building/passing.
+  local gate_src; gate_src="$(mktemp)"
+  sed -n '/^run_gate() {/,/^}/p' "$HOME/overnight-queue/branch_hygiene.sh" > "$gate_src"
+  log(){ :; }
+  # shellcheck disable=SC1090
+  source "$gate_src"; rm -f "$gate_src"
+  TEST_TIMEOUT="${TEST_TIMEOUT:-600}"
+  # run_gate's own callers (branch_hygiene.sh) always absolutize $repo before calling it -
+  # every path it builds internally (e.g. venv_pytest, mainfile for the docker touched-check)
+  # assumes that. reconcile_branches.sh's $repo is relative ("repos/<name>", valid only from
+  # $HOME/overnight-queue), and run_gate's own subshells `cd` into the worktree first - found
+  # live: this broke the pytest step with "timeout: failed to execute process: No such file or
+  # directory" (execve on a relative path resolved against the wrong cwd after the cd),
+  # reported as gate=fail even though the actual conflict resolution and tests were fine.
+  local abs_repo; abs_repo="$(cd "$repo" 2>/dev/null && pwd || echo "$repo")"
+  # run_gate's own npm/pytest/docker commands print their real output unredirected (by design,
+  # for branch_hygiene.sh's own log) - here that flooded reconcile.log with a full vitest/pytest
+  # transcript, found live while diagnosing the bug above. Keep just the most recent attempt for
+  # debugging instead of either polluting the shared log or discarding it entirely.
+  run_gate "$abs_repo" "$wt" > "$HOME/overnight-queue/logs/reconcile_gate_last.log" 2>&1; local grc=$?
+  [ "$grc" -ne 0 ] && return 1   # reject on FAIL(1) and on NOTHING-TO-CHECK(2) alike - no gate, no trust
+  git -C "$wt" add -A
+  git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q \
+    -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard, LLM-assisted conflict resolution, gate=tests-green)" >/dev/null 2>&1
+}
+
+# merge origin/<src> into <tgt> in an isolated worktree, push (rebase-retry once). $4=1 to allow
+# ONE LLM-assisted resolution attempt before giving up (see try_llm_resolve above; only passed by
+# the develop<->feature call site). echoes ok|llm_resolved|conflict|pushfail|wterror|nochange
 merge_into(){
-  local repo="$1" tgt="$2" src="$3"
+  local repo="$1" tgt="$2" src="$3" allow_llm="${4:-0}"
   local ahead; ahead=$(git -C "$repo" rev-list --count "origin/${tgt}..origin/${src}" 2>/dev/null || echo 0)
   [ "${ahead:-0}" -eq 0 ] && { echo nochange; return; }
   local wt; wt="$(mktemp -d "/tmp/reconcile-$(basename "$repo").XXXX")"
@@ -34,6 +105,10 @@ merge_into(){
     # this closes off at the source.
     if timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
     elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
+    else rc=pushfail; fi
+  elif [ "$allow_llm" = 1 ] && try_llm_resolve "$wt" "$repo" "$tgt" "$src"; then
+    if timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=llm_resolved
+    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=llm_resolved
     else rc=pushfail; fi
   else git -C "$wt" merge --abort >/dev/null 2>&1; rc=conflict; fi
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
@@ -57,7 +132,7 @@ sync_feature(){  # $1=repo $2=feat-branch — bring origin/<feat> up to origin/d
       timeout 30 git -C "$repo" push -q origin "origin/develop:refs/heads/$feat" 2>/dev/null && { echo ff; return; }
       continue   # rejected = feature moved under us (fleet pushed); refetch + retry
     fi
-    merge_into "$repo" "$feat" develop; return   # feature has unique commits -> real merge (never force-push)
+    merge_into "$repo" "$feat" develop 1; return   # feature has unique commits -> real merge (never force-push); 1=allow one LLM-assisted conflict resolution attempt (feature branch, not production)
   done
   echo pushfail
 }
@@ -105,6 +180,7 @@ for repo in $repos; do
     case "$rc" in
       ff) log "$name: fast-forwarded $feat to develop (+$d_ahead)"; synced_any=1;;
       ok) log "$name: merged develop->$feat (+$d_ahead)"; synced_any=1;;
+      llm_resolved) log "$name: 🤖 auto-resolved a develop->$feat CONFLICT (LLM-assisted, gate=tests-green)"; resolved="$resolved develop→$feat:${name}"; synced_any=1;;
       conflict) log "$name: 🔴 CONFLICT develop->$feat"; conflicts="$conflicts develop→$feat:${name}"; synced_any=1;;
       pushfail) log "$name: develop->$feat pushfail (fleet racing; next pass retries)"; synced_any=1;;
       nobranch|nochange) : ;;
@@ -125,4 +201,9 @@ if [ -n "$directs" ]; then
     -d "Found + back-merged a NON-promote commit sitting on main (a chat/hotfix pushed straight to main?):$directs. It's now on develop + feature too — nothing lost. Tip: commit app-repo work to overnight/feature so it rides the gated pipeline." \
     "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
 fi
-log "reconcile complete${conflicts:+ 🔴 conflicts:$conflicts}${directs:+ ℹ direct-to-main:$directs}"
+if [ -n "$resolved" ]; then
+  curl -fsS --max-time 8 -H "Title: 🤖 Branch reconcile auto-resolved a conflict" -H "Tags: robot" \
+    -d "A develop<->feature conflict was resolved automatically (LLM-assisted, independently re-verified against the repo's real test/build gate before pushing — gate=tests-green):$resolved. Worth a quick look, but no action needed." \
+    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+fi
+log "reconcile complete${conflicts:+ 🔴 conflicts:$conflicts}${directs:+ ℹ direct-to-main:$directs}${resolved:+ 🤖 auto-resolved:$resolved}"
