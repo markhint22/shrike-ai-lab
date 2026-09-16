@@ -6,10 +6,20 @@ fail_reason, tokens_sent, tokens_recv — all written by run_overnight.sh's
 record_outcome()) and produces a compact, ntfy-ready summary broken out by
 tier T1-T5 (+ "?" for items with no explicit [T#] tag in their text).
 
-Usage: ovn_tier_stats.py [hours=3] [--tokens-only]
+Usage: ovn_tier_stats.py [hours=3] [--tokens-only] [--all-time]
 --tokens-only prints just a one-line token-spend summary for the window (used to show a
 rolling 24h total alongside the regular 3h tier breakdown, without duplicating the whole
 tier table twice in one digest).
+--all-time ignores the hours cutoff entirely and reports the full history in state/outcomes.jsonl
+(the user's explicit "total tokens burned, ever" request — combine with --tokens-only for a
+one-liner). Every token total this script prints also breaks out how much was spent on attempts
+that did NOT land (severity not in good/expected — i.e. real failures/reverts/no-ops, not an
+exhausted-queue skip that never attempted anything and so never spent anything) — 2026-09-16:
+this used to be impossible to answer honestly for staged/T3+ items specifically, since
+run_overnight.sh's record_outcome() had no token data for them at all (each step's aider call
+logs to its own per-step file, never to the stdout record_outcome parses) — fixed at the source
+in run_overnight.sh (sums the real per-step tokens_sent/tokens_recv from the run's own
+state/stage_runs/*.jsonl, including failed/timed-out steps, before this script ever sees the row).
 Prints an empty string (nothing to show) if there's no data in the window —
 callers should skip the section entirely rather than print a "0 activity" line.
 """
@@ -22,8 +32,15 @@ import time
 P = os.path.expanduser("~/overnight-queue/state/outcomes.jsonl")
 _args = [a for a in sys.argv[1:] if not a.startswith("--")]
 tokens_only = "--tokens-only" in sys.argv[1:]
+all_time = "--all-time" in sys.argv[1:]
 hours = float(_args[0]) if _args else 3.0
-cutoff = time.time() - hours * 3600
+cutoff = 0.0 if all_time else time.time() - hours * 3600
+
+
+def is_failure(row):
+    # a real failure/waste: attempted something and it did NOT land. Excludes 'expected'
+    # (skip(exhausted) etc. — never attempted anything, spent nothing) and 'good' (landed).
+    return row.get("severity") not in ("good", "expected")
 
 rows = []
 if os.path.exists(P):
@@ -68,7 +85,15 @@ if tokens_only:
     if not (total_sent or total_recv):
         print("")
         sys.exit(0)
-    print(f"🔤 Last {hours:g}h tokens: {fmt_toks(total_sent)} sent / {fmt_toks(total_recv)} received ({len(rows)} tasks)")
+    fail_rows = [r for r in rows if is_failure(r)]
+    fail_sent = sum(r.get("tokens_sent", 0) or 0 for r in fail_rows)
+    fail_recv = sum(r.get("tokens_recv", 0) or 0 for r in fail_rows)
+    window = "all-time" if all_time else f"last {hours:g}h"
+    line = f"🔤 {window} tokens: {fmt_toks(total_sent)} sent / {fmt_toks(total_recv)} received ({len(rows)} tasks)"
+    if fail_sent or fail_recv:
+        pct = 100 * (fail_sent + fail_recv) // max(total_sent + total_recv, 1)
+        line += f"\n   💸 of which on non-landed attempts: {fmt_toks(fail_sent)} sent / {fmt_toks(fail_recv)} received ({pct}%, {len(fail_rows)} tasks)"
+    print(line)
     sys.exit(0)
 
 
@@ -120,10 +145,17 @@ if not lines:
     print("")
     sys.exit(0)
 
-out = ["📊 By tier (last %gh):" % hours] + lines
+window_label = "all-time" if all_time else "last %gh" % hours
+out = ["📊 By tier (%s):" % window_label] + lines
 if total_timeouts:
     out.append(f"⏱ {total_timeouts} timeout(s) total this window")
 if total_sent or total_recv:
     out.append(f"🔤 Tokens: {fmt_toks(total_sent)} sent / {fmt_toks(total_recv)} received")
+    fail_rows = [r for r in rows if is_failure(r)]
+    fail_sent = sum(r.get("tokens_sent", 0) or 0 for r in fail_rows)
+    fail_recv = sum(r.get("tokens_recv", 0) or 0 for r in fail_rows)
+    if fail_sent or fail_recv:
+        pct = 100 * (fail_sent + fail_recv) // max(total_sent + total_recv, 1)
+        out.append(f"💸 On non-landed attempts: {fmt_toks(fail_sent)} sent / {fmt_toks(fail_recv)} received ({pct}%)")
 
 print("\n".join(out))

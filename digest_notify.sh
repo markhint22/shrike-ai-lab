@@ -91,6 +91,20 @@ if [ -x "$DIR/scripts/ovn_tier_stats.py" ]; then
 $_TOKENS_24H"
 fi
 
+# 2026-09-16: an all-time cumulative total ("total tokens burned, ever, and how much of that was
+# on failures" - an explicit user request). Shown once per calendar day (same dedupe-stamp
+# pattern as ovn_toks_monitor.sh's state/toks_alerted) rather than every ${DIGEST_HOURS}h - an
+# all-time total barely moves between consecutive digests, so repeating it ~8x/day would just be
+# noise; the 24h rolling total above already covers "how much am I spending per day."
+if [ -x "$DIR/scripts/ovn_tier_stats.py" ] && [ "$(cat "$STATE_DIR/alltime_toks_shown" 2>/dev/null)" != "$(date +%F)" ]; then
+  _TOKENS_ALL="$(python3 "$DIR/scripts/ovn_tier_stats.py" --all-time --tokens-only 2>/dev/null)"
+  if [ -n "$_TOKENS_ALL" ]; then
+    body="$body
+$_TOKENS_ALL"
+    date +%F > "$STATE_DIR/alltime_toks_shown"
+  fi
+fi
+
 # classification pass-rate stats (2026-08-31): slice pass-rate by
 # language/type/complexity/verifiability so failures are attributed to the RIGHT
 # cause (a language like gdscript vs a complexity tier vs unverifiable gating).

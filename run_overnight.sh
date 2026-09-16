@@ -854,7 +854,25 @@ STUB
         return
       fi
       rm -f "$_STAGE_OUT"
-      _STAGE_SUMMARY="$(ls -t "$SCRIPT_DIR"/state/stage_runs/"$(basename "$repo")"-*.jsonl 2>/dev/null | head -1 | xargs -r grep '"event":"summary"' | tail -1)"
+      # 2026-09-16 FIX: every staged item's real token spend was being recorded as 0, success OR
+      # failure. Root cause: each step's aider call writes to its own per-step log file
+      # (state/stage_runs/<repo>-<run>-sN.log), never to the stdout this function captures into
+      # $task_log — so record_outcome()'s "Tokens: X sent, Y received" grep against $task_log had
+      # nothing to find for ANY staged attempt. The real per-step tokens were never lost, just
+      # never surfaced here: ovn_stage_runner.sh's own per-step jlog line already records
+      # tokens_sent/tokens_recv for every attempt (pass or fail) the moment it happens, well
+      # before the run's ultimate outcome is known — so summing them from the run's own jsonl
+      # (the same file $_STAGE_SUMMARY below already locates) gives the real total even for a
+      # run that failed, timed out, or was killed mid-step, not just a clean full pass. Appending
+      # in record_outcome's own expected "Tokens: X sent, Y received" text format means zero
+      # changes needed there — it already parses this out of $task_log.
+      _STAGE_JSONL="$(ls -t "$SCRIPT_DIR"/state/stage_runs/"$(basename "$repo")"-*.jsonl 2>/dev/null | head -1)"
+      if [ -n "$_STAGE_JSONL" ] && [ -f "$_STAGE_JSONL" ]; then
+        _stage_ts="$(jq -s '[.[].tokens_sent // 0] | add' "$_STAGE_JSONL" 2>/dev/null)"; _stage_ts="${_stage_ts:-0}"
+        _stage_tr="$(jq -s '[.[].tokens_recv // 0] | add' "$_STAGE_JSONL" 2>/dev/null)"; _stage_tr="${_stage_tr:-0}"
+        echo "Tokens: ${_stage_ts} sent, ${_stage_tr} received (summed across all per-step attempts in this staged run, including failed/timed-out steps)" >> "$task_log"
+      fi
+      _STAGE_SUMMARY="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep '"event":"summary"' | tail -1)"
       _STAGE_PUSHED="$(printf '%s' "$_STAGE_SUMMARY" | grep -oE '"commits_pushed":[0-9]+' | grep -oE '[0-9]+$')"
       if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
         echo "pushed(tests:pass) stage(higher-tier)"
