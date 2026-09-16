@@ -95,6 +95,27 @@ merge_into(){
   [ "${ahead:-0}" -eq 0 ] && { echo nochange; return; }
   local wt; wt="$(mktemp -d "/tmp/reconcile-$(basename "$repo").XXXX")"
   git -C "$repo" worktree add --quiet "$wt" "origin/${tgt}" 2>/dev/null || { echo wterror; return; }
+  # 2026-09-16 CRITICAL FIX: this `checkout -B "$tgt" ...` almost ALWAYS fails silently
+  # ("'$tgt' is already used by worktree at <main clone>" - git refuses to check out the
+  # same branch in two worktrees at once, and the main clone always has $tgt checked out).
+  # The worktree is then left in DETACHED HEAD. Every push below used the AMBIGUOUS form
+  # `git push origin "$tgt"`, which - while detached - resolves "$tgt" as a LOCAL ref
+  # lookup first: it finds the MAIN CLONE's OWN `refs/heads/$tgt` (shared across all
+  # worktrees of one repo) and pushes THAT commit, completely ignoring this worktree's
+  # actual (correctly merged/resolved) HEAD. Confirmed live: this either (a) silently
+  # reports "Everything up-to-date" -> exit 0 -> falsely reported as ok/llm_resolved while
+  # NOTHING actually reached origin (the common case, since the main clone is usually kept
+  # fetched-current), or (b) gets flat-out REJECTED as non-fast-forward if the main clone's
+  # ref happens to be stale. Root-caused a REAL incident: the same develop<->overnight/feature
+  # conflict on test-automation-agent got reported "🤖 auto-resolved" three separate times
+  # 20 minutes apart, and NONE of them ever actually landed - the divergence was identical
+  # each time because every "successful" push was silently discarding the real fix. This bug
+  # predates today's LLM-resolve work entirely (present in merge_into() since 2026-09-05) and
+  # affects BOTH this function's plain-merge path AND the LLM-assisted path, for BOTH the
+  # main<->develop and develop<->feature directions - any time an actual merge (not a plain
+  # fast-forward) was needed. Fix: push `HEAD:"$tgt"` explicitly everywhere below - this
+  # unambiguously pushes THIS WORKTREE'S OWN CURRENT COMMIT regardless of detached state,
+  # never the unrelated shared local ref.
   git -C "$wt" checkout -B "$tgt" "origin/${tgt}" --quiet 2>/dev/null
   local rc=conflict
   if git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet merge --no-ff --no-edit -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard)" "origin/${src}" >/dev/null 2>&1; then
@@ -103,12 +124,12 @@ merge_into(){
     # (run.lock) from the fleet_autofix.sh caller - see that script's own
     # 2026-09-15 comment for the "orphaned lock, fleet blocked" failure mode
     # this closes off at the source.
-    if timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
-    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=ok
+    if timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
+    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
     else rc=pushfail; fi
   elif [ "$allow_llm" = 1 ] && try_llm_resolve "$wt" "$repo" "$tgt" "$src"; then
-    if timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=llm_resolved
-    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "$tgt" 2>/dev/null; then rc=llm_resolved
+    if timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=llm_resolved
+    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=llm_resolved
     else rc=pushfail; fi
   else git -C "$wt" merge --abort >/dev/null 2>&1; rc=conflict; fi
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1

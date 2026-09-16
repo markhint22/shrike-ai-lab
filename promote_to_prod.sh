@@ -61,10 +61,17 @@ for repo in "${args[@]}"; do
 
   wt="$(mktemp -d "/tmp/promote-${name}.XXXX")"
   if ! git -C "$repo" worktree add -q "$wt" "origin/$DEF" 2>/dev/null; then echo "  worktree failed"; continue; fi
+  # 2026-09-16 CRITICAL FIX: checkout -B silently fails (detached HEAD) whenever $DEF is
+  # already checked out elsewhere sharing this repo's refs; the ambiguous `push origin "$DEF"`
+  # below would then resolve to whatever OTHER ref by that name exists (ignoring this
+  # worktree's own merged HEAD) - same bug found and fixed in reconcile_branches.sh and
+  # branch_hygiene.sh. Main clones here are conventionally on overnight/feature (not
+  # $DEF=main), so this has likely been safe in practice, but push HEAD:"$DEF" explicitly
+  # for the same defense-in-depth (this script pushes straight to PRODUCTION).
   git -C "$wt" checkout -qB "$DEF" "origin/$DEF"
   if git -C "$wt" merge --no-ff --no-edit -m "release: promote develop -> $DEF ($NOW)" origin/develop >/dev/null 2>&1; then
     git -C "$wt" tag "prod-$NOW-$name" 2>/dev/null || true
-    if timeout 30 git -C "$wt" push -q origin "$DEF" && timeout 30 git -C "$wt" push -q origin "prod-$NOW-$name" 2>/dev/null; then
+    if timeout 30 git -C "$wt" push -q origin "HEAD:$DEF" && timeout 30 git -C "$wt" push -q origin "prod-$NOW-$name" 2>/dev/null; then
       echo "  ✅ PROMOTED $name develop -> $DEF (+$ahead). Prod deploy triggered. Rollback: git checkout prod-$NOW-$name"
     else echo "  ⚠️ push failed"; fi
   else

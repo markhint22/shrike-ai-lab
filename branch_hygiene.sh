@@ -398,6 +398,20 @@ for repo in "${REPOS[@]}"; do
     log "  could not create main worktree — flagging"; echo "main worktree failed $(date)" > "$flag"
     report "| $name | ⚠️ +$ahead, main worktree failed |"; continue
   fi
+  # 2026-09-16 CRITICAL FIX: this checkout -B almost always fails silently whenever $mt
+  # happens to already be checked out somewhere else sharing this repo's refs (e.g. another
+  # concurrent worktree on the same branch), leaving $tmp_main in DETACHED HEAD. Every push
+  # below then used the AMBIGUOUS form `git push origin "$mt"`, which - while detached -
+  # resolves "$mt" as a LOCAL ref lookup FIRST: it finds whatever OTHER ref by that name
+  # already exists in this repo's shared ref store and pushes THAT commit, ignoring this
+  # worktree's own actual (correctly merged) HEAD entirely. Confirmed live in
+  # reconcile_branches.sh's identical pattern: this either silently reports "Everything
+  # up-to-date" (false success, nothing real pushed) or gets rejected as non-fast-forward,
+  # depending on how stale that other ref happens to be. Main clones here are conventionally
+  # checked out to overnight/feature (not $mt=develop), so this specific path has likely been
+  # safe in practice - but it's the same latent bug, in the single most critical script in
+  # the pipeline (the primary work-landing gate), so it gets the same fix: push HEAD:"$mt"
+  # explicitly, which is correct regardless of the worktree's branch/detached state.
   git -C "$tmp_main" checkout -B "$mt" "origin/$mt" --quiet 2>/dev/null
   if git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT into $mt (branch-hygiene, gate=$([ $g -eq 0 ] && echo tests-green || echo no-tests))" origin/$FEAT >/dev/null 2>&1; then
     # push with a rebase-retry: while the fleet actively works a repo, $mt can advance
@@ -405,8 +419,8 @@ for repo in "${REPOS[@]}"; do
     # tip and retrying once clears that WITHOUT flagging — otherwise every push race left a
     # stale "push failed" review flag (noise). The worktree shares refs with $repo.
     pushed=0
-    if git -C "$tmp_main" push --quiet origin "$mt" 2>/dev/null; then pushed=1
-    elif git -C "$tmp_main" pull --rebase --quiet origin "$mt" >/dev/null 2>&1 && git -C "$tmp_main" push --quiet origin "$mt" 2>/dev/null; then pushed=1; fi
+    if git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1
+    elif git -C "$tmp_main" pull --rebase --quiet origin "$mt" >/dev/null 2>&1 && git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1; fi
     if [ "$pushed" = 1 ]; then
       # 2026-09-07: do NOT push origin/$FEAT here — the old ff/force-push raced the fleet and could
       # CLOBBER commits the fleet pushed after our merge started. develop->feature is reconcile's job.
