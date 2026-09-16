@@ -12,6 +12,7 @@ echo; echo "===== Queue refill ====="; bash test_queue_refill.sh || rc=1
 echo; echo "===== Higher-tier pipeline (godot gate / refill routing / inline branch / auto-pick) ====="; bash test_higher_tier_pipeline.sh || rc=1
 echo; echo "===== Retire prefix-tolerance ====="; bash test_retire_prefix.sh || rc=1
 echo; echo "===== Branch reconcile guard ====="; bash test_reconcile_branches.sh || rc=1
+echo; echo "===== Context budget invariants (OVERNIGHT_PROGRESS.md context-overflow chain) ====="; bash test_context_budget_invariants.sh || rc=1
 echo; echo "===== Outcome classification (record_outcome status->class) ====="; bash test_outcome_classification.sh || rc=1
 echo; echo "===== Stage push-accounting (commits_pushed only on real push) ====="; bash test_stage_push_accounting.sh || rc=1
 echo; echo "===== Cron repo-coverage (branch_hygiene covers every fleet repo) ====="; bash test_cron_coverage.sh || rc=1
