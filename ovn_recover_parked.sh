@@ -125,6 +125,10 @@ Decide and output ONLY one of these two forms — no prose, no preamble:
 
 1) If it can be broken into smaller independently-landable steps, output 2 to 4 lines, each:
 - [ ] [T<1-3>] <real/path.ext> — <ONE tiny precise change> VERIFY: <exact test/command that proves it>. (cat:<category>; recovery:decomposed)
+   For a single GDScript test FILE, GUT requires -gtest=res://path/to/file.gd, NOT
+   -gdir= (that flag expects a DIRECTORY and silently reports "Nothing was run" -
+   not a failure, not a pass - if pointed at a file; a task using -gdir on a file
+   can never be verified as passing no matter how correct the code is).
    Rules: each step MUST be smaller/simpler than the original, use ONLY real paths above, be self-verifying,
    and prefer a NEW pure function + its own unit test (which is the fleet's strongest capability). For a
    test-writing step, assert on INVARIANTS/PROPERTIES (monotonic, bounded, idempotent, type) NOT a guessed
