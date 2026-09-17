@@ -160,7 +160,7 @@ PROMPT_END
   ./queue.sh hold "$r" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   # re-find the line (it may have shifted after the reset)
-  lnno2="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | head -1)"; lnno2="${lnno2%%:*}"
+  lnno2="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | grep -viE 'route to claude' | grep -vE '\[CLAUDE\]' | head -1)"; lnno2="${lnno2%%:*}"
   if [ -n "$lnno2" ]; then
     # pass items + header via FILES (never interpolate multi-line data into python source)
     items_file="$(mktemp)"; printf '%s\n' "$items" > "$items_file"
