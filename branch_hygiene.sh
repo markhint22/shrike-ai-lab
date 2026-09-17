@@ -181,6 +181,11 @@ run_gate() {
       ran=1
     fi
   fi
+  # 2026-09-16 (same night as the gate below was added): was ">/dev/null 2>&1" — a fast
+  # (~5s) gate FAILED reproduced as BUILD SUCCESSFUL when run interactively on the same
+  # commit/worktree seconds later, meaning the automated failure carried zero diagnostic
+  # trail (same class of blind spot the pytest gate above already had fixed on 2026-09-10).
+  # Stream to the log like every other gate here so a repeat is actually debuggable.
   # Android (Gradle) — 2026-09-16 FIX: this gate had ZERO Kotlin/Android coverage even though
   # run_overnight.sh's own per-item verify has run `./gradlew test` since 2026-08-14. Found while
   # auditing pipeline verification coverage across all repos/languages (billwatch, gitlark, and
@@ -195,7 +200,7 @@ run_gate() {
       ( cd "$gdir" &&
         export ANDROID_HOME="$HOME/android-sdk" &&
         [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
-        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) >/dev/null 2>&1; rc=$?
+        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) 2>&1; rc=$?
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       [ "$rc" -ne 0 ] && return 1
       ran=1

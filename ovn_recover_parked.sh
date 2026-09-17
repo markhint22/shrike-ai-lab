@@ -66,7 +66,13 @@ for r in $REPOS; do
   # dice - this is the escalation tier, not a park; it hands off with the actual
   # recovery count as evidence, not just "27B could not land this."
   LINEAGE_CAP="${OVN_RECOVER_LINEAGE_CAP:-2}"
-  lineage_file="$(printf '%s' "$task" | grep -oE '^[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+  # 2026-09-16 FIX (same night this was added): anchored to ^, but real task
+  # text is "[MED] {py·typing·T2·test-covered} `path/to/file.py` — desc" —
+  # the tag/backtick prefix means the file path is NEVER at position 0, so this
+  # never matched and every item silently fell back to the __unknown bucket
+  # (capping recoveries per-REPO instead of per-FILE, more aggressive than
+  # intended). Search anywhere in the string instead of anchoring to start.
+  lineage_file="$(printf '%s' "$task" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
   lineage_key="$(printf '%s' "${r}__${lineage_file:-unknown}" | tr '/' '_')"
   mkdir -p state/recovery_lineage 2>/dev/null
   lineage_countf="state/recovery_lineage/${lineage_key}.count"
