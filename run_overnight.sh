@@ -919,11 +919,36 @@ STUB
         # would re-trigger the same full-file auto-add this whole fix
         # exists to prevent, so break up that one specific token wherever
         # it appears in the copy (never touches the real file on disk).
+        # 2026-09-17 CRITICAL FIX: a plain byte-tail shows the CHRONOLOGICALLY LAST content,
+        # not the doable items - on an append-only file, a real unchecked item can sit
+        # anywhere and, once the file outgrows the tail window from that point on, becomes
+        # PERMANENTLY invisible to the scout (the tail only ever moves forward). Confirmed
+        # live across 4 repos simultaneously: gitlark/iptv_apps/test-automation-agent/
+        # billwatch had all grown past ~170-210KB, and real doable items sat as early as
+        # line 107 of an 883-line/210KB billwatch file - entirely outside the last 20000
+        # bytes. The scout's own stated reasoning ("only remaining item is [CLAUDE]-tagged",
+        # "no visible Next Steps") was CORRECT given what it was shown - it was just being
+        # shown a blind spot, not a real empty backlog. This is what actually drove last
+        # night's spike in cheap BLOCKED/NEEDS-DECISION no-ops across multiple repos at once.
+        # Fix: guarantee every real doable item (unchecked, not parked/escalated) is in the
+        # context regardless of file position, THEN fill remaining budget with recent
+        # history tail - same overall byte budget that was already proven safe against the
+        # 65,536-token hard limit, just allocated so real work can never fall out of view.
+        DOABLE_BUDGET=$(( PROGRESS_MAX_BYTES * 3 / 10 ))
+        HIST_BUDGET=$(( PROGRESS_MAX_BYTES - DOABLE_BUDGET ))
         PROGRESS_TAIL_FILE="/tmp/ovn_progress_tail_$(basename "$PWD").md"
         {
-          echo "(showing only the most recent ~${PROGRESS_MAX_BYTES} bytes of the overnight progress log — the full log is larger; older history omitted here to stay within the model's context budget)"
+          echo "(context budget-limited — the full log is larger. Real doable items below are"
+          echo "guaranteed visible regardless of where they sit in the log; older resolved"
+          echo "history is tail-truncated to fit the model's context budget.)"
           echo
-          tail -c "$PROGRESS_MAX_BYTES" OVERNIGHT_PROGRESS.md | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
+          echo "## Doable Next Steps (unchecked, not parked/escalated/claude-tagged)"
+          grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null \
+            | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' \
+            | head -c "$DOABLE_BUDGET" | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
+          echo
+          echo "## Recent history (older entries omitted to fit budget)"
+          tail -c "$HIST_BUDGET" OVERNIGHT_PROGRESS.md | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
         } > "$PROGRESS_TAIL_FILE"
         PROGRESS_READ_ARGS=(--read "$PROGRESS_TAIL_FILE")
       else

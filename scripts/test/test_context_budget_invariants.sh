@@ -23,7 +23,7 @@ ok "uncapped --read only used in the ELSE (under-cap) branch" \
 ok "tail header does not print the literal source filename" \
   "! grep -A3 'PROGRESS_TAIL_FILE=\"/tmp' $R | grep -q 'bytes of OVERNIGHT_PROGRESS.md'"
 ok "tail content is sed-stripped of the literal source filename" \
-  "grep -qE 'tail -c .\\\$PROGRESS_MAX_BYTES. OVERNIGHT_PROGRESS\\.md \\| sed' $R"
+  "grep -qE 'tail -c .\\\$(PROGRESS_MAX_BYTES|HIST_BUDGET). OVERNIGHT_PROGRESS\\.md \\| sed' $R"
 
 # --- Layer 3: the scout's free-text PLAN gets embedded verbatim into the next prompt -
 #     it must be sanitized first (a 27B model saying \"per OVERNIGHT_PROGRESS.md...\" in
@@ -54,6 +54,21 @@ print(','.join(hits))
 else
   echo "  (skip: $TASKS not present or python3 unavailable on this host)"
 fi
+
+# --- Layer 5 (2026-09-17): a plain byte-tail shows the CHRONOLOGICALLY LAST content, not
+#     the doable items - on an append-only file, a real unchecked item can sit anywhere and,
+#     once the file outgrows the tail window from that point on, becomes PERMANENTLY
+#     invisible to the scout. Confirmed live: billwatch's real next item sat at line 107 of
+#     an 883-line/210KB file, entirely outside the last 20000 bytes - the scout's repeated
+#     "nothing to do" verdicts were correct given what it was shown, not a real empty
+#     backlog. Doable items must be guaranteed into the context regardless of file position,
+#     before the historical tail fills the remaining budget. ---
+ok "doable items are extracted independent of file position (not just the byte tail)" \
+  "grep -A3 -F 'Doable Next Steps' $R | grep -qF 'OVERNIGHT_PROGRESS.md'"
+ok "doable-items section appears before the historical-tail section in the constructed context" \
+  "awk '/Doable Next Steps/{d=NR} /Recent history/{h=NR} END{exit !(d>0 && h>0 && h>d)}' $R"
+ok "doable items are excluded from parked/escalated/claude-tagged noise" \
+  "grep -qE 'AUTO-SKIP\\|HARD FILE BAN\\|\\\\\\[CLAUDE\\\\\\]' $R"
 
 echo "Context budget invariants: $P passed, $F failed"
 [ "$F" -eq 0 ]
