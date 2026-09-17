@@ -23,6 +23,23 @@ instead of N wasted cycles. Restricted to those two safe shapes — anything hea
 test, godot) is left to the existing cycle-based safety net, which is reliable if slower. Only
 the first SCAN_CAP eligible items are pre-checked per run, bounding worst-case time even if a
 run of items all happen to time out.
+
+2026-09-17: prune dedup'd-but-never-removed backlog lines every run, not just pulled/credited
+ones. Dedup (the `existing` set below) already refused to ever re-pull a backlog line whose
+content already exists in the live queue or done archive — but until now it only REMOVED lines
+from backlog/<repo>.md that were actually pulled or credited in that same run, so a line that
+was dedup-excluded on every single run (because it duplicates already-completed work) just sat
+in the file forever. That's not merely cosmetic: queue_refill.sh's own "is this repo's backlog
+dry" check is a raw grep -c over "^- [ ] [T1-5]" lines in the file BEFORE this script ever runs,
+with no idea about dedup — so N stale duplicate lines make a truly-exhausted backlog look like
+it still has N items available, permanently suppressing the "backlog is dry, needs a human"
+alert. Caught live on shrike-monitor: 3 lines added to backlog/shrike-monitor.md on 2026-09-10
+(config.py/logging_config.py/version.py polish items) duplicated work already completed and
+archived to OVERNIGHT_DONE.md five days earlier (2026-09-05) — a full week of a masked-dry
+backlog with zero alerts, the same failure shape as the gitlark/billwatch exhausted-roadmap
+bug found separately the same day. Fix: compute `dup` (backlog lines whose content is already
+in `existing`) up front and always fold it into the lines removed from the backlog file, even
+on the early-return path where nothing was pulled or credited.
 """
 import sys, re, datetime, subprocess, os
 
@@ -83,6 +100,12 @@ def main():
         except FileNotFoundError:
             pass
     eligible = [l for l in bl if is_item.match(l) and not parked.search(l) and _norm(l) not in existing]
+    # backlog lines that are real [T1-5] items but whose content is ALREADY in the live queue
+    # or done archive — permanently dedup-excluded from `eligible` above, so they'll never be
+    # pulled or pre-check-credited. Left in the file, they inflate queue_refill.sh's raw
+    # grep-based "backlog avail" count forever (see 2026-09-17 note in the module docstring).
+    # Always pruned below, independent of whether this run pulls/credits anything.
+    dup = [l for l in bl if is_item.match(l) and not parked.search(l) and _norm(l) in existing]
     # 2026-09-14 REMOVED the old "DEFAULT-PASS on godot" reroute (pulled every .gd backlog item and
     # pre-tagged it AUTO-SKIP/route-to-Claude before it ever reached the active queue) — that was the
     # SAME stale "measured 0%" assumption fixed today in ovn_stage_runner.sh/run_overnight.sh (see
@@ -107,13 +130,14 @@ def main():
         else:
             pull.append(l)
 
-    if not pull and not credited:
+    if not pull and not credited and not dup:
         remaining = len(eligible)
-        print(f"REFILL=0  BACKLOG_REMAINING={remaining}  CREDITED=0")
+        print(f"REFILL=0  BACKLOG_REMAINING={remaining}  CREDITED=0  PRUNED=0")
         return
 
-    # remove pulled + credited lines from the backlog (first occurrence each)
-    to_remove = list(pull) + list(credited)
+    # remove pulled + credited + already-consumed-duplicate lines from the backlog (first
+    # occurrence each)
+    to_remove = list(pull) + list(credited) + list(dup)
     rest = []
     for l in bl:
         if to_remove and l in to_remove:
@@ -141,7 +165,7 @@ def main():
                 f.write(checked + "\n")
 
     remaining = len([l for l in rest if is_item.match(l) and not parked.search(l) and _norm(l) not in existing])
-    print(f"REFILL={len(pull)}  CREDITED={len(credited)}  BACKLOG_REMAINING={remaining}")
+    print(f"REFILL={len(pull)}  CREDITED={len(credited)}  BACKLOG_REMAINING={remaining}  PRUNED={len(dup)}")
 
 
 if __name__ == "__main__":
