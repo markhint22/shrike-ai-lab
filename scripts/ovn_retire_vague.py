@@ -26,6 +26,19 @@ SKIP      = re.compile(r"human|HUMAN|AUTO-SKIP|decision|DELETE:|retired-", re.I)
 # A file-CREATION item legitimately names a path that does not exist yet.
 CREATE_INTENT = re.compile(r"\bcreate\b|does not exist yet|new pure|new module|new helper|add a new (pytest|vitest|test) file|write only a new", re.I)
 
+# 2026-09-17: many items (and, critically, RAW PYTEST OUTPUT quoted verbatim
+# into an item's text, e.g. "Failing: FAILED tests/test_broker.py::...") are
+# authored/emitted relative to an app subdirectory (backend/, app/, src/,
+# frontend/, web/, server/) rather than the true git repo root this sanitizer
+# runs from. Missed here, this wrongly dead-paths REAL, currently-relevant
+# items. Caught live: an EMERGENCY "pytest suite is RED" item on shrike-notify
+# named "tests/test_broker.py::test_publish_suppresses_fanout_during_quiet_hours"
+# (the real file is backend/tests/test_broker.py) got silently retired as
+# dead-path instead of ever being triaged, burying a real, currently-failing
+# test indefinitely.
+APP_ROOT_PREFIXES = ("backend", "app", "src", "frontend", "web", "server")
+
+
 def _path_exists(p):
     # Tolerate a leading "<repo>/" prefix: items are sometimes authored with the
     # repo dir prepended (e.g. "xlite/scripts/foo.gd"), but the sanitizer runs
@@ -35,6 +48,9 @@ def _path_exists(p):
     if os.path.exists(p):
         return True
     if "/" in p and os.path.exists(p.split("/", 1)[1]):
+        return True
+    # Try common one-level app-root prefixes before giving up (see note above).
+    if any(os.path.exists(os.path.join(prefix, p)) for prefix in APP_ROOT_PREFIXES):
         return True
     return False
 
