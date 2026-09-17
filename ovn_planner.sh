@@ -21,6 +21,39 @@ MODEL="${OVN_MODEL:-qwen-dflash-27B}"
 PLAN_THRESHOLD="${OVN_PLAN_THRESHOLD:-10}"   # decompose a feature when backlog has fewer than this many T-items
 LOG="logs/ovn_planner.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
+
+# 2026-09-17: this state (roadmap fully [decomposed], zero [ready] features left to pull from) was
+# found sitting SILENT for hours on gitlark+billwatch during a live audit -- the script logged
+# 'needs Claude research?' every single cycle but never told a human, unlike queue_refill.sh's
+# backlog-dry alert or queue_health.sh's low-doable alert. A repo can fully starve (roadmap
+# exhausted -> backlog empties -> live queue empties) with zero ntfy signal that a Claude research
+# pass (promote [needs-research] -> [ready] in roadmap/<repo>.md) is what's actually needed. Same
+# dry/newly-dry/reminder/recovered marker pattern as queue_refill.sh's qr_dry_<repo>, scoped to
+# THIS specific terminal state (not general backlog-low, which queue_refill already covers).
+STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
+RESEARCH_REMIND_HOURS="${OVN_RESEARCH_REMIND_HOURS:-24}"
+# same TOPIC-resolution pattern as queue_health.sh: explicit NTFY_TOPIC env (how cron invokes this
+# script) or a persisted state/ntfy_topic, else empty -> alert() no-ops. Keeps a fresh test sandbox
+# (no env var, no state file) from ever making a real network call.
+NTFY_TOPIC_RESOLVED="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
+alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
+needs_research_alert(){ # $1=repo $2=backlog-count
+  local r="$1" bc="$2" marker="$STATE_DIR/ovn_needs_research_${r}" now remind_secs last
+  now=$(date +%s); remind_secs=$(( RESEARCH_REMIND_HOURS * 3600 ))
+  if [ ! -f "$marker" ]; then
+    echo "$now" > "$marker"
+    alert "Roadmap exhausted: $r needs a Claude research pass" "books" "$r's roadmap/${r}.md has NO [ready] features left (all [decomposed]) and backlog/${r}.md is down to ${bc} item(s) -- the auto-planner can't make more work on its own. Promote a [needs-research] feature to [ready] (or add a new one) in roadmap/${r}.md to unstick it. (silent while still dry -- reminder repeats at most every ${RESEARCH_REMIND_HOURS}h)"
+    say "$r: sent needs-research alert (new)"
+  else
+    last=$(cat "$marker" 2>/dev/null || echo "$now")
+    if [ $(( now - last )) -ge "$remind_secs" ]; then
+      echo "$now" > "$marker"
+      alert "Still needs a Claude research pass: $r" "books" "Still no [ready] roadmap feature for $r after ${RESEARCH_REMIND_HOURS}h+. No rush -- periodic nudge."
+      say "$r: sent needs-research reminder"
+    fi
+  fi
+}
+clear_research_alert(){ local r="$1" marker="$STATE_DIR/ovn_needs_research_${r}"; [ -f "$marker" ] && rm -f "$marker" && say "$r: needs-research condition cleared"; }
 REPOS="${*:-billwatch gitlark iptv_apps test-automation-agent shrike-notify shrike-monitor xlite}"
 MAX_PER_RUN="${OVN_PLAN_MAX_PER_RUN:-4}"   # cap decompositions per invocation so cycle-end never balloons
 _did=0
@@ -41,7 +74,11 @@ for r in $REPOS; do
 
   # next [ready] feature (skip needs-research/decomposed/done)
   feat_line="$(grep -nE '^- \[ \] \[P[1-4]\] \[ready\]' "$rm" 2>/dev/null | head -1)"
-  [ -z "$feat_line" ] && { say "$r: backlog low ($bcount) but no [ready] roadmap feature (needs Claude research?)"; continue; }
+  if [ -z "$feat_line" ]; then
+    say "$r: backlog low ($bcount) but no [ready] roadmap feature (needs Claude research?)"
+    needs_research_alert "$r" "$bcount"
+    continue
+  fi
   fln="${feat_line%%:*}"
   feat="$(printf '%s' "${feat_line#*:}" | sed -E 's/^- \[ \] \[P[1-4]\] \[ready\] //')"
 
@@ -94,5 +131,6 @@ PROMPT_END
   # mark the feature decomposed in the roadmap
   sed -i "${fln}s/\[ready\]/[decomposed]/" "$rm"
   say "$r: appended ${n} 27B-decomposed items to backlog; marked feature [decomposed]"
+  clear_research_alert "$r"
   _did=$((_did+1))
 done
