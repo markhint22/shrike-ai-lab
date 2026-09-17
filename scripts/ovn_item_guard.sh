@@ -47,7 +47,21 @@ case "$status" in
 esac
 
 # The top unchecked item that is NOT already tagged blocked/skipped.
-top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN' | head -1)"
+# 2026-09-17 fix: this was the ONE selector 383a2d9 missed when it added a
+# \[CLAUDE\] exclusion to the 6 other "find the real top item" selectors in
+# run_overnight.sh/ovn_recover_parked.sh. Since THIS is the selector that both
+# (a) decides which line's pass/fail/no-op streak gets tracked and (b) applies
+# the "[AUTO-SKIP after N cycles...]" tag, missing the exclusion here meant
+# every cycle's real outcome (whatever file the model actually worked on, per
+# cycle_summary.log's planfiles=) kept getting attributed to the frozen
+# [CLAUDE]-escalated line instead - which then re-tripped the fail/no-op cap
+# and got AUTO-SKIP re-prepended onto the escalation line itself, over and
+# over. Confirmed still live on xlite AFTER 383a2d9 landed: the
+# addons/gut/version_numbers.gd escalation got auto-skip-tagged again at
+# 2026-09-17 17:24 (commit 28ca19a), 3.5h after the "fix". Apply the same
+# exclusion here so cap-tracking follows the item the fleet is actually
+# working on, not a stale terminal escalation note.
+top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
 [ -z "$top" ] && exit 0
 lineno="${top%%:*}"
 text="${top#*:}"

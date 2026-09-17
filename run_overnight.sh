@@ -1239,7 +1239,18 @@ Task: ${prompt}"
     # Per-cycle summary log (2026-08-30) for easy diagnosis: one line per repo
     # per cycle -> tail state/cycle_summary.log to see verdict distribution + the
     # planned files without digging through per-repo task logs.
-    _CS_TOP="$(grep -m1 -E "^- \[ \]" OVERNIGHT_PROGRESS.md 2>/dev/null | grep -oE "\`[^\`]+\`" | head -1 | tr -d '\`')"
+    # 2026-09-17 fix: this used to be a naive `grep -m1` with no tag exclusion,
+    # unlike every other "find the real top item" selector in this file (see the
+    # HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|[CLAUDE] exclusion pattern used
+    # elsewhere, e.g. the _lf_top/_ad_ln/_ac_ln selectors below). Once xlite's
+    # OVERNIGHT_PROGRESS.md picked up a parked [CLAUDE]-escalation line with no
+    # backtick-quoted code span at the very top of the file, _CS_TOP silently and
+    # permanently went empty -> every cycle's cycle_summary.log/task_stats.log
+    # "top_item" field logged the literal fallback "none", completely decoupled
+    # from planfiles= (the file the model actually worked on that cycle). Root
+    # cause: this selector was never updated when the [CLAUDE] exclusion was
+    # added to the other selectors. Apply the same exclusion here.
+    _CS_TOP="$(grep -E "^- \[ \]" OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1 | grep -oE "\`[^\`]+\`" | head -1 | tr -d '\`')"
     mkdir -p "$SCRIPT_DIR/state" 2>/dev/null
     # classify the item the model actually planned (its chosen file) for stats
     _CS_PF="$(echo $OVN_SCOUT_FILES | tr ' ' '\n' | grep -E '\.[A-Za-z]' | head -1)"
