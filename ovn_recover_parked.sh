@@ -47,7 +47,7 @@ for r in $REPOS; do
   # re-attempted "Import feature_flags router..." (already tagged route-to-CLAUDE) at the
   # exact same time a Claude-dispatched agent built the real, more complete version, and
   # both landed on different branches -> a real merge conflict at the next reconcile pass.
-  parked_line="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | grep -viE 'route to claude' | head -1)"
+  parked_line="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" 2>/dev/null | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | grep -viE 'route to claude' | grep -vE '\[CLAUDE\]' | head -1)"
   [ -z "$parked_line" ] && continue
   lnno="${parked_line%%:*}"
   # the real task text = strip the leading [AUTO-SKIP ...] / [HUMAN-ONLY BLOCKED ITEM ...] tag

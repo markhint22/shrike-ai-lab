@@ -763,7 +763,7 @@ STUB
     # the periodic Claude refills. Only safe patterns (bare-except, rel=noopener,
     # __repr__ -> str, __init__ -> None); the no-new-red gate catches any miss.
     if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_generate_items.py" ]; then
-      _DOABLE="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-' | wc -l | tr -d ' ')"
+      _DOABLE="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-|\[CLAUDE\]' | wc -l | tr -d ' ')"
       if [ "${_DOABLE:-9}" -le 3 ]; then
         _GEN="$(python3 "$SCRIPT_DIR/scripts/ovn_generate_items.py" . 12 2>>"$task_log")"
         if echo "$_GEN" | grep -qE 'GENERATED=[1-9]'; then
@@ -782,7 +782,7 @@ STUB
     # resumes automatically once it has work again. Reported as skip(exhausted),
     # tracked apart from real "faced work, did not land" no-ops.
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
-      _DOABLE_NOW="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-' | wc -l | tr -d ' ')"
+      _DOABLE_NOW="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-|\[CLAUDE\]' | wc -l | tr -d ' ')"
       if [ "${_DOABLE_NOW:-1}" -eq 0 ]; then
         echo "--- skip: 0 doable items (exhausted; resumes when refilled) ---" >> "$task_log"
         echo "skip(exhausted)"
@@ -1018,7 +1018,17 @@ STUB
     # log output only, written by ovn_item_guard.sh (never a model self-narration) -
     # Reflexion (arXiv:2303.11366) found ungrounded reflection can be WORSE than none.
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
-      _lf_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN' | head -1)"
+      # 2026-09-17 FIX: this (and 5 other doable-item filters in this file) omitted
+      # \[CLAUDE\] from its exclusion set. An [CLAUDE]-tagged escalation from
+      # ovn_recover_parked.sh (terminal - needs a human/Claude session, never the fleet)
+      # was still being picked up and attempted here, failing, getting AUTO-SKIP
+      # prepended (in front of, not replacing, the existing [CLAUDE] tag), then
+      # re-escalated by ovn_recover_parked.sh as a *new* parked item - an infinite
+      # loop. Confirmed live: xlite's addons/gut/version_numbers.gd was
+      # recovered/decomposed 8 times (cap 2) over 3 weeks without ever landing;
+      # gitlark and iptv_apps had 2 more items stuck the same way (lineage count 4
+      # each). Now excluded everywhere doable items are selected.
+      _lf_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' | head -1)"
       _lf_file="$STATE_DIR/item_fails/${id}.lastfail"
       if [ -n "$_lf_top" ] && [ -f "$_lf_file" ]; then
         _lf_hash="$(printf '%s' "${_lf_top#*:}" | md5sum | cut -d' ' -f1)"
@@ -1247,7 +1257,7 @@ Task: ${prompt}"
         for _df in $(echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}" | sort -u); do
           case "$_df" in *.md) continue;; esac
           _df_base="$(basename "$_df")"
-          _ad_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED' | grep -F "$_df_base" | head -1 | cut -d: -f1)"
+          _ad_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | grep -F "$_df_base" | head -1 | cut -d: -f1)"
           if [ -n "$_ad_ln" ]; then
             sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, scout-verified) /" OVERNIGHT_PROGRESS.md
             git add OVERNIGHT_PROGRESS.md
@@ -1733,7 +1743,7 @@ Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your c
           while IFS= read -r _cf; do
             [ -z "$_cf" ] && continue
             case "$_cf" in OVERNIGHT_PROGRESS.md) continue;; esac
-            _ac_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED' | grep -F "$_cf" | head -1 | cut -d: -f1)"
+            _ac_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | grep -F "$_cf" | head -1 | cut -d: -f1)"
             if [ -n "$_ac_ln" ]; then
               sed -i "${_ac_ln}s/^- \[ \] /- [x] /" OVERNIGHT_PROGRESS.md
               _ac_hit=1
