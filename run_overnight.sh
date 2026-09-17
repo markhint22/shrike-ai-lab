@@ -1550,6 +1550,28 @@ ${full_prompt}"
     if [ "$AIDER_EXIT" -ne 0 ]; then
       error_status "$task_log" "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
+      # Auto-regenerate a frozen OpenAPI contract (2026-09-17), if this repo has adopted
+      # that pattern (gitlark: backend/scripts/export_openapi.py writes to docs/openapi.json
+      # at the repo ROOT, not under backend/ - confirmed via the script's own OUTPUT_PATH).
+      # Deterministic, zero-LLM, so a router/schema change can never silently drift the
+      # contract and fail test_openapi_contract.py's "matches the live app" check. Found
+      # live: gitlark's overnight/feature accumulated 53 commits and ~12 HOURS of every
+      # branch_hygiene attempt gate-failing on exactly this, because nothing in the
+      # pipeline ever re-ran the export script - only a manual session running it broke
+      # the stall. Cheap (a few hundred ms) and idempotent (a no-op diff when nothing
+      # API-relevant changed), so just always run it when present rather than trying to
+      # detect which files matter.
+      if [ -f "backend/scripts/export_openapi.py" ] && [ -f "docs/openapi.json" ] \
+         && [ -x "backend/.venv/bin/python3" ]; then
+        ( cd backend && ./.venv/bin/python3 scripts/export_openapi.py ) >>"$task_log" 2>&1
+        if ! git diff --quiet -- docs/openapi.json; then
+          git add docs/openapi.json
+          git commit -q -m "chore(contract): auto-regenerate openapi.json (deterministic, matches this cycle's commit)"
+          AFTER_SHA="$(git rev-parse HEAD)"
+          echo "--- auto-regenerated docs/openapi.json (contract had drifted) ---" >> "$task_log"
+        fi
+      fi
+
       # Post-commit verification (2026-08-08 hardening). Provisioned once,
       # server-side, for all 7 repos (real .venv/node_modules, not
       # reinstalled every cycle - see docs/ops/LOCAL_LLM_UPGRADE_PLAN.md).
