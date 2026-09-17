@@ -1,0 +1,443 @@
+#!/usr/bin/env bash
+#
+# branch_hygiene.sh — daily branch reconciliation for the overnight fleet.
+#
+# WHY THIS EXISTS
+#   The overnight runner commits agent work to a persistent `$FEAT`
+#   branch per repo and (by original design) "never touches main — you review and
+#   merge yourself". That manual step lapsed, so `$FEAT` silently
+#   drifted 40-90 commits ahead of `main` in several repos = orphaned work.
+#
+#   This script makes that reconciliation automatic and daily, so work either
+#   LANDS on main (when it passes the gate) or is LOUDLY FLAGGED for review —
+#   it can never again silently accumulate.
+#
+# WHAT IT DOES, per managed repo:
+#   1. git fetch --prune  (drop local refs whose remote is gone)
+#   2. delete branches already merged into main   (local + remote)
+#   3. delete stale dated overnight/YYYY-MM-DD/* branches older than KEEP_DAYS
+#   4. reconcile $FEAT -> main behind a build+test GATE:
+#         green -> merge --no-ff into main, push (auto-deploy),
+#                  then fast-forward $FEAT to main (kept in sync)
+#         red   -> DO NOT merge; drop a NEEDS-REVIEW flag file + report line
+#   5. append a one-line-per-repo summary to $REPORT_FILE (if set)
+#
+# SAFETY
+#   - Never force-pushes. Never deletes main, $FEAT, or dependabot/*.
+#   - All merges are conflict-checked first; a conflicted merge is aborted + flagged.
+#   - Per-repo opt-out: set auto_merge=false for a repo to FLAG-ONLY (prune still runs).
+#   - Idempotent: safe to run repeatedly.
+#
+# USAGE
+#   branch_hygiene.sh --from-config          # repos from recurring_tasks.json
+#   branch_hygiene.sh /path/to/repo ...      # explicit repo paths
+#   KEEP_DAYS=3 AUTO_MERGE_DEFAULT=true branch_hygiene.sh --from-config
+#
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KEEP_DAYS="${KEEP_DAYS:-3}"                       # keep dated overnight/* this many days
+AUTO_MERGE_DEFAULT="${AUTO_MERGE_DEFAULT:-true}"  # gated auto-merge on green tests
+TEST_TIMEOUT="${TEST_TIMEOUT:-900}"               # seconds for the test/build gate
+STATE_DIR="${STATE_DIR:-$SCRIPT_DIR/state}"
+REPORT_FILE="${REPORT_FILE:-}"                    # optional markdown report to append to
+DRY_RUN="${DRY_RUN:-0}"                           # 1 = log mutations instead of running them
+FEAT="${HYGIENE_FEATURE_BRANCH:-overnight/feature}"  # land which agent branch: overnight/feature (27B) | claude/feature (Claude)
+NOW_EPOCH="$(date +%s)"
+
+# LOCK MODEL (rewritten 2026-09-07 — root-cause fix for "hygiene never lands"):
+#   The OLD design took run_overnight.sh's run.lock. But run_overnight holds that lock for its
+#   ENTIRE daemon lifetime (exec 200>run.lock; flock -n at startup — never released between cycles),
+#   so `flock -w 600 run.lock` here ALWAYS timed out and hygiene skipped EVERY hour. overnight/feature
+#   then piled up (gitlark hit +64 vs develop) and queue_health fired "hygiene stalled" — correctly.
+#   The old comment's iptv "$FEAT diverged" race came from hygiene PUSHING origin/$FEAT while the fleet
+#   pushed it too. FIX: hygiene now (1) never waits on the fleet — it only writes origin/develop, which
+#   the fleet never touches, via /tmp worktrees, so it's safe to run concurrently; (2) never pushes
+#   origin/$FEAT (that lockstep push is gone — reconcile_branches.sh owns develop->feature). We take a
+#   DEDICATED non-blocking lock only to stop two hygiene passes overlapping.
+HYGIENE_LOCK_FILE="$STATE_DIR/hygiene.lock"
+mkdir -p "$STATE_DIR"
+exec 201>"$HYGIENE_LOCK_FILE"
+if ! flock -n 201; then
+  echo "[branch-hygiene $(date '+%F %H:%M:%S')] another hygiene pass is already running — skipping this tick."
+  exit 0
+fi
+
+# Per-repo auto-merge opt-out (basename). Set to "false" to flag-only (no merge to main).
+# 2026-08-25: per explicit user decision, billwatch + shrike-labs-website are now
+# treated EXACTLY like the other repos — green (gated) work auto-merges to main,
+# which for these two means an autonomous PRODUCTION deploy. The build+test gate
+# is the only guard (nothing merges unless tests ran green). Re-add an entry here
+# as [name]=false to restore human-approved deploys for any repo.
+declare -A AUTO_MERGE_OVERRIDE=(
+  # 2026-08-25: temporarily flag-only again for the two LIVE PRODUCTION sites
+  # during the Qwen3-Coder trial. The coder is 20x faster but showed rough edges
+  # (syntax errors -> tests:FAIL) on night 1, so don't let it auto-deploy to prod
+  # until it proves reliable. Re-empty this to restore full auto-merge.
+  [billwatch]=true
+  [shrike-labs-website]=true
+)
+
+log()  { echo "[branch-hygiene $(date '+%F %H:%M:%S')] $*"; }
+report(){ [ -n "$REPORT_FILE" ] && echo "$*" >> "$REPORT_FILE" || true; }
+
+# --- resolve repo list -------------------------------------------------------
+#   --repos-dir <dir>  : every git repo directly under <dir>   (server layout)
+#   --from-config      : persistent_branch repos in recurring_tasks.json
+#   <path> [<path>...] : explicit repo paths
+REPOS=()
+if [ "${1:-}" = "--repos-dir" ]; then
+  base="${2:-}"
+  if [ -d "$base" ]; then
+    for d in "$base"/*/; do [ -d "$d/.git" ] && REPOS+=("${d%/}"); done
+  fi
+elif [ "${1:-}" = "--from-config" ]; then
+  CFG="$SCRIPT_DIR/recurring_tasks.json"
+  if [ -f "$CFG" ]; then
+    while IFS= read -r r; do [ -n "$r" ] && [ "$r" != "null" ] && REPOS+=("$r"); done \
+      < <(jq -r '.[]? | select((.persistent_branch // false) == true) | .repo' "$CFG" 2>/dev/null | sort -u)
+  fi
+else
+  for a in "$@"; do REPOS+=("$a"); done
+fi
+if [ "${#REPOS[@]}" -eq 0 ]; then
+  echo "no repos to process (use --repos-dir <dir>, --from-config, or pass paths)"; exit 0
+fi
+
+# --- gate: build + test the feature worktree; 0=pass, 1=fail, 2=nothing-to-run ---
+# $1 = main clone (source of the PROVISIONED, gitignored .venv/node_modules/GUT
+#      that a fresh worktree lacks); $2 = worktree (feature code to gate).
+# FIX 2026-08-25: a fresh worktree has no .venv, so the old check
+# `command -v pytest` tested the GLOBAL interpreter (no pytest) and every python
+# repo returned "nothing to run" -> flagged forever, and Godot wasn't handled at
+# all. Now we reuse the main clone's provisioned venv against the worktree code
+# (verified live: main-clone pytest collects+runs the worktree's tests), and add
+# a GUT gate for Godot repos.
+run_gate() {
+  local repo="$1" dir="$2" ran=0 rc=0
+  _GATE_TIMEOUT_HIT=0
+  # migration safety gate: multi-head + String-FK-to-uuid crash-loop prod (2026-09-03)
+  if [ -f "$HOME/overnight-queue/scripts/check_migrations.py" ] && \
+     ! python3 "$HOME/overnight-queue/scripts/check_migrations.py" "$dir" >/dev/null 2>&1; then
+    log "  gate: MIGRATION SAFETY FAILED"; return 1
+  fi
+  # web build+test (self-provisions via npm ci in the worktree). 2026-08-25 #6:
+  # scan root AND one-level subdirs (web/, billwatch-web/, ...) - the frontend
+  # is rarely at the repo root, so the old root-only check silently gated nothing
+  # for most repos' web app.
+  while IFS= read -r pj; do
+    [ -z "$pj" ] && continue
+    pdir="$(dirname "$pj")"
+    hb=""; jq -e '.scripts.build' "$pj" >/dev/null 2>&1 && hb=1
+    ht=""; jq -e '.scripts.test'  "$pj" >/dev/null 2>&1 && ht=1
+    [ -z "$hb$ht" ] && continue
+    # 2026-09-01 FIX: provision deps ONCE per package (test-only packages never
+    # got an npm ci before -> vscode-extension's tsc was "not found" -> false red).
+    ( cd "$pdir" && timeout "$TEST_TIMEOUT" bash -c 'npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund' ) >/dev/null 2>&1
+    if [ -n "$hb" ]; then
+      log "  gate: npm build in $pdir"
+      ( cd "$pdir" && timeout "$TEST_TIMEOUT" npm run build ) >/dev/null 2>&1; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      [ "$rc" -ne 0 ] && return 1
+      ran=1
+    fi
+    # skip npm test for VS Code extension harnesses (need a display; not deployable)
+    case "$pdir" in */vscode-extension|*/vscode-extension/*) ht="" ;; esac
+    if [ -n "$ht" ]; then
+      log "  gate: npm test in $pdir"
+      ( cd "$pdir" && CI=1 timeout "$TEST_TIMEOUT" npm test --silent -- --run 2>/dev/null ) ; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      [ "$rc" -gt 1 ] && return 1
+      ran=1
+    fi
+  done < <(find "$dir" -maxdepth 2 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
+  # python: reuse the main clone's PROVISIONED venv against the worktree code.
+  local venv_pytest pkg_rel wt_pkg
+  venv_pytest="$(find "$repo" -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  if [ -n "$venv_pytest" ]; then
+    pkg_rel="${venv_pytest%/.venv/bin/pytest}"; pkg_rel="${pkg_rel#"$repo"}"; pkg_rel="${pkg_rel#/}"
+    wt_pkg="$dir${pkg_rel:+/$pkg_rel}"
+    if [ -d "$wt_pkg" ]; then
+      log "  gate: pytest (reusing provisioned venv) in $wt_pkg"
+      # 2026-09-10: was `2>/dev/null` — silently discarded stderr, so a crash/traceback/hang
+      # (as opposed to an ordinary assertion failure, which prints to stdout and was already
+      # visible) left zero diagnostic trail beyond "gate FAILED (build/tests red)". Merged into
+      # the same stream as everything else here so a repeat is actually debuggable next time.
+      #
+      # 2026-09-15: track timeout(1)'s own exit code (124 = killed for exceeding
+      # TEST_TIMEOUT) separately from a genuine pytest failure. Confirmed via
+      # logs/branch_hygiene.log — 40 historical "gate FAILED (build/tests red)" flags
+      # on billwatch, EVERY one investigated so far reached only a fraction of the
+      # suite (as low as 17%) in the full 900s before being killed, vs. a normal
+      # unloaded run finishing the ENTIRE ~1300-test suite in 45-55s — roughly a
+      # 100x slowdown, not a marginal/borderline timing issue. This is system
+      # contention (the fleet's own concurrent aider/test-verification load), not a
+      # real red test, and EVERY one of the 40 self-healed on a later run with no
+      # code change. See the retry-once wrapper below instead of flagging on the
+      # very first contention-caused timeout.
+      ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q -o addopts="" -p no:cacheprovider 2>&1 ) ; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      [ "$rc" -ne 0 ] && return 1
+      ran=1
+    fi
+  fi
+  # Android (Gradle) — 2026-09-16 FIX: this gate had ZERO Kotlin/Android coverage even though
+  # run_overnight.sh's own per-item verify has run `./gradlew test` since 2026-08-14. Found while
+  # auditing pipeline verification coverage across all repos/languages (billwatch, gitlark, and
+  # iptv_apps together have 180+ .kt files): a Kotlin change that passed the per-item gate could
+  # still merge into develop via THIS gate with no re-check, and a multi-commit feature branch
+  # (this gate's actual job) was never gradle-verified at all. Same ANDROID_HOME/local.properties
+  # setup as run_overnight.sh's working version.
+  while IFS= read -r -d '' gradlew; do
+    gdir="$(dirname "$gradlew")"
+    if [ -f "$gdir/settings.gradle.kts" ] || [ -f "$gdir/settings.gradle" ]; then
+      log "  gate: ./gradlew test in $gdir"
+      ( cd "$gdir" &&
+        export ANDROID_HOME="$HOME/android-sdk" &&
+        [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
+        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) >/dev/null 2>&1; rc=$?
+      [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      [ "$rc" -ne 0 ] && return 1
+      ran=1
+    fi
+  done < <(find "$dir" -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
+  # godot / GUT (e.g. xlite): reuse installed headless Godot + the repo's own
+  # vendored addons/gut. Exit code is untrustworthy - gate on the JUnit XML
+  # failures count + no-asserts + a parse-error scan of --import output (same
+  # rules as the queue's run_repo_verification Godot branch).
+  if [ -f "$dir/project.godot" ] && [ -x "$HOME/godot/godot4" ]; then
+    local gout xml; gout="$(mktemp)"
+    ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >/dev/null 2>&1  # warm cache (class_names + assets) first
+    ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >"$gout" 2>&1
+    if { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; }; then rm -f "$gout"; return 1; fi
+    if [ -f "$dir/addons/gut/gut_cmdln.gd" ]; then
+      xml="$(mktemp)"
+      ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit "-gjunit_xml_file=$xml" ) >>"$gout" 2>&1
+      # A test/dep script that fails to COMPILE is logged here but is ABSENT from the
+      # JUnit XML (failures="0" still holds) and GUT exits 0 - this masked a real
+      # battle.gd compile break. Scan for the load/compile-failure signatures.
+      # (NOT bare "SCRIPT ERROR": vendored gut_loader.gd emits a benign one each run.)
+      if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
+      if [ ! -s "$xml" ] || ! grep -qE 'failures="0"' "$xml" || grep -qE 'status="no asserts"' "$xml"; then rm -f "$xml" "$gout"; return 1; fi
+      rm -f "$xml"
+    fi
+    rm -f "$gout"; ran=1
+  fi
+  # SHELL SCRIPTS — 2026-09-16 FIX: no gate anywhere ever checked a .sh file's syntax; a broken
+  # deploy/setup script could sit merged for as long as nothing happened to invoke it. Cheap
+  # (bash -n is near-instant even across dozens of files) so always run, no touched-detection
+  # needed.
+  while IFS= read -r -d '' sh; do
+    if ! bash -n "$sh" 2>/dev/null; then log "  gate: bash -n FAILED for ${sh#"$dir"/}"; return 1; fi
+    ran=1
+  done < <(find "$dir" -maxdepth 4 -type f -name "*.sh" -not -path "*/node_modules/*" -print0 2>/dev/null)
+  # DOCKER — 2026-09-16 FIX: same audit that found the Swift/Kotlin gaps
+  # (see ovn_swift_retag.py's docstring) also found Dockerfiles had zero pre-merge verification —
+  # a broken build only ever surfaced at actual Railway/Vercel deploy time. A REAL `docker build`
+  # is the only meaningful check, and it's by far the most expensive thing this gate can run
+  # (measured 146s cold on billwatch-backend's full FastAPI+deps image), so only pay that cost
+  # when the Dockerfile actually differs from the main clone's version — most gate runs won't have
+  # touched one at all. Always `docker rmi` the tagged image after, pass or fail, so repeated gate
+  # runs don't leak images.
+  while IFS= read -r -d '' df; do
+    ddir="$(dirname "$df")"; rel="${df#"$dir"/}"; mainfile="$repo/$rel"
+    [ -f "$mainfile" ] && cmp -s "$df" "$mainfile" && continue  # unchanged — skip the expensive build
+    log "  gate: docker build in $ddir"
+    imgtag="hygiene-gate-$(basename "$repo")-$$-$RANDOM"
+    ( cd "$ddir" && timeout 400 docker build -t "$imgtag" -f "$(basename "$df")" . ) >/dev/null 2>&1; rc=$?
+    docker rmi "$imgtag" >/dev/null 2>&1
+    [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+    [ "$rc" -ne 0 ] && return 1
+    ran=1
+  done < <(find "$dir" -maxdepth 3 -type f -name "Dockerfile" -print0 2>/dev/null)
+  [ "$ran" -eq 1 ] && return 0 || return 2
+}
+
+# --- per repo ----------------------------------------------------------------
+for repo in "${REPOS[@]}"; do
+  name="$(basename "$repo")"
+  [ -d "$repo/.git" ] || { log "SKIP $name (no .git at $repo)"; report "| $name | skipped (no checkout) |"; continue; }
+  log "=== $name ($repo) ==="
+  # 2026-09-01 FIX: resolve $repo to ABSOLUTE so the found venv_pytest path
+  # survives the `cd` into the worktree (a relative path breaks -> timeout ENOENT
+  # -> gate falsely fails; this stranded every python repo off main).
+  repo="$(cd "$repo" 2>/dev/null && pwd || echo "$repo")"
+  git -C "$repo" fetch --prune --quiet origin 2>/dev/null
+
+  DEF="$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
+  DEF="${DEF:-main}"
+  # SAFETY (2026-09-14): default merge target must be 'develop' (staging), NOT $DEF
+  # (the repo's actual default branch, almost always 'main'/production). A bare
+  # manual invocation of this script with HYGIENE_MERGE_TARGET unset used to fall
+  # through to $DEF and silently merge+push overnight/feature straight to main,
+  # bypassing the gated promote_to_prod.sh entirely - confirmed live: gitlark got
+  # 167 commits pushed to production main this way. The cron always sets
+  # HYGIENE_MERGE_TARGET=develop explicitly; this default now matches that intent
+  # so an unset env var can never target production by accident. Falls back to
+  # $DEF only if the repo genuinely has no 'develop' ref, with a loud warning.
+  mt="${HYGIENE_MERGE_TARGET:-develop}"
+  if ! git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$mt"; then
+    log "  WARNING: merge target '$mt' has no origin ref for $name — falling back to $DEF (repo default branch). Set HYGIENE_MERGE_TARGET explicitly to silence this."
+    mt="$DEF"
+  fi
+
+  # 2. delete branches merged into main (local + remote), preserving protected refs
+  protected="^(${DEF}|${mt}|develop|overnight/feature|claude/feature)$"
+  git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads \
+    | grep -vE "$protected" \
+    | while IFS= read -r b; do
+        [ -z "$b" ] && continue
+        if git -C "$repo" merge-base --is-ancestor "$b" "origin/$DEF" 2>/dev/null; then
+          if [ "$DRY_RUN" = 1 ]; then log "  [dry-run] would prune local (merged): $b"
+          else git -C "$repo" branch -D "$b" >/dev/null 2>&1 && log "  pruned local (merged): $b"; fi
+        fi
+      done
+  git -C "$repo" for-each-ref --format='%(refname:short)' refs/remotes/origin \
+    | sed 's@^origin/@@' \
+    | grep -vE "$protected|^(HEAD|origin)$" | grep -vE '^dependabot/' \
+    | while IFS= read -r b; do
+        [ -z "$b" ] && continue
+        if git -C "$repo" merge-base --is-ancestor "origin/$b" "origin/$DEF" 2>/dev/null; then
+          if [ "$DRY_RUN" = 1 ]; then log "  [dry-run] would prune remote (merged): $b"
+          else git -C "$repo" push --quiet origin --delete "$b" >/dev/null 2>&1 && log "  pruned remote (merged): $b"; fi
+        fi
+      done
+
+  # 3. delete stale dated overnight/YYYY-MM-DD/* branches older than KEEP_DAYS
+  git -C "$repo" for-each-ref --format='%(refname:short)' refs/remotes/origin \
+    | sed 's@^origin/@@' \
+    | grep -E '^overnight/[0-9]{4}-[0-9]{2}-[0-9]{2}/' \
+    | while IFS= read -r b; do
+        d="$(echo "$b" | sed -E 's@^overnight/([0-9]{4}-[0-9]{2}-[0-9]{2})/.*@\1@')"
+        de="$(date -j -f %Y-%m-%d "$d" +%s 2>/dev/null || date -d "$d" +%s 2>/dev/null)"
+        [ -z "$de" ] && continue
+        age=$(( (NOW_EPOCH - de) / 86400 ))
+        if [ "$age" -gt "$KEEP_DAYS" ]; then
+          if [ "$DRY_RUN" = 1 ]; then log "  [dry-run] would prune stale dated: $b (${age}d)"
+          else
+            git -C "$repo" push --quiet origin --delete "$b" >/dev/null 2>&1 && log "  pruned stale dated: $b (${age}d)"
+            git -C "$repo" branch -D "$b" >/dev/null 2>&1
+          fi
+        fi
+      done
+
+  # 4. reconcile $FEAT -> main behind a gate
+  if ! git -C "$repo" rev-parse --verify --quiet origin/$FEAT >/dev/null; then
+    report "| $name | no $FEAT |"; continue
+  fi
+  ahead="$(git -C "$repo" rev-list --count origin/$mt..origin/$FEAT 2>/dev/null)"
+  if [ "${ahead:-0}" -eq 0 ]; then
+    rm -f "$STATE_DIR/branch_hygiene_review_${name}"   # clear any stale flag now that it's synced
+    # feature has nothing to land, but $mt (develop) may have advanced independently
+    # (reconcile's main->develop back-merges, an out-of-band landing) — keep feature
+    # CURRENT so it never falls BEHIND develop. ahead==0 means feature ⊆ $mt, so this
+    # is always a clean fast-forward (no merge commit, no conflict possible). This is
+    # the hourly safety net for the "feature drifted behind develop" class (iptv +12).
+    behind="$(git -C "$repo" rev-list --count origin/$FEAT..origin/$mt 2>/dev/null || echo 0)"
+    # NOTE 2026-09-07: hygiene no longer pushes origin/$FEAT (it raced the fleet's own pushes and
+    # forced diverged-heals). reconcile_branches.sh (every 20min, lock-free) owns develop->feature.
+    [ "${behind:-0}" -gt 0 ] && log "  $FEAT is +$behind behind $mt — reconcile will sync it (hygiene no longer pushes $FEAT)"
+    log "  $FEAT already in $mt — nothing to land"
+    report "| $name | in sync |"; continue
+  fi
+
+  auto="$AUTO_MERGE_DEFAULT"
+  [ -n "${AUTO_MERGE_OVERRIDE[$name]:-}" ] && auto="${AUTO_MERGE_OVERRIDE[$name]}"
+  flag="$STATE_DIR/branch_hygiene_review_${name}"
+  mkdir -p "$STATE_DIR"
+
+  if [ "$auto" != "true" ]; then
+    echo "$FEAT is ${ahead} commits ahead of $mt — flag-only (auto_merge disabled) $(date)" > "$flag"
+    log "  FLAG-ONLY: $name $FEAT +$ahead (human approval required)"
+    report "| $name | ⚠️ +$ahead, needs human merge (flag-only) |"; continue
+  fi
+
+  # isolated worktree at $FEAT so the live checkout is untouched
+  wt="$(mktemp -d "/tmp/hygiene-${name}.XXXX")"
+  if ! git -C "$repo" worktree add --detach --quiet "$wt" origin/$FEAT 2>/dev/null; then
+    log "  could not create worktree — flagging"; echo "worktree add failed $(date)" > "$flag"
+    report "| $name | ⚠️ +$ahead, worktree failed |"; continue
+  fi
+  # gate: does $FEAT build + test?
+  run_gate "$repo" "$wt"; g=$?
+  git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
+
+  # 2026-09-15 RETRY-ON-TIMEOUT: a gate that failed specifically because a `timeout`
+  # wrapper killed it (exit 124) — not a real red test — gets ONE retry with a fresh
+  # worktree before being flagged. Every one of 40 historical "gate FAILED" flags on
+  # billwatch investigated so far was this exact pattern (contention-caused, 100x
+  # slower than a normal run, self-healed on the NEXT scheduled cycle with zero code
+  # change) — this just does that same self-heal immediately instead of waiting up
+  # to 3h for the next cron tick and burning a human/Claude review flag on nothing.
+  if [ "$g" -eq 1 ] && [ "${_GATE_TIMEOUT_HIT:-0}" = 1 ]; then
+    log "  gate hit TEST_TIMEOUT (contention, not a red test) — retrying once with a fresh worktree"
+    wt2="$(mktemp -d "/tmp/hygiene-${name}-retry.XXXX")"
+    if git -C "$repo" worktree add --detach --quiet "$wt2" origin/$FEAT 2>/dev/null; then
+      run_gate "$repo" "$wt2"; g=$?
+      git -C "$repo" worktree remove --force "$wt2" >/dev/null 2>&1
+    fi
+  fi
+
+  # Auto-merge ONLY when tests actually ran and passed (g==0). A failed gate (1)
+  # OR "no build/test to gate on" (2) is flagged, never merged — so a repo whose
+  # tests we can't detect can never be silently auto-deployed.
+  if [ "$g" -ne 0 ]; then
+    reason=$([ "$g" -eq 1 ] && echo "gate FAILED (build/tests red)" || echo "no build/test gate available")
+    echo "$reason: $FEAT +$ahead $(date)" > "$flag"
+    log "  $reason for $name — NOT merging, flagged for review"
+    report "| $name | 🔴 +$ahead, $reason — needs review |"; continue
+  fi
+
+  # gate passed: tests ran green. Merge $FEAT into main.
+  if [ "$DRY_RUN" = 1 ]; then
+    log "  [dry-run] gate green — would merge $FEAT (+$ahead) -> $mt, push, sync feature"
+    report "| $name | [dry-run] would merge +$ahead (gate green) |"; continue
+  fi
+  tmp_main="$(mktemp -d "/tmp/hygiene-main-${name}.XXXX")"
+  if ! git -C "$repo" worktree add --quiet "$tmp_main" "origin/$mt" 2>/dev/null; then
+    log "  could not create main worktree — flagging"; echo "main worktree failed $(date)" > "$flag"
+    report "| $name | ⚠️ +$ahead, main worktree failed |"; continue
+  fi
+  # 2026-09-16 CRITICAL FIX: this checkout -B almost always fails silently whenever $mt
+  # happens to already be checked out somewhere else sharing this repo's refs (e.g. another
+  # concurrent worktree on the same branch), leaving $tmp_main in DETACHED HEAD. Every push
+  # below then used the AMBIGUOUS form `git push origin "$mt"`, which - while detached -
+  # resolves "$mt" as a LOCAL ref lookup FIRST: it finds whatever OTHER ref by that name
+  # already exists in this repo's shared ref store and pushes THAT commit, ignoring this
+  # worktree's own actual (correctly merged) HEAD entirely. Confirmed live in
+  # reconcile_branches.sh's identical pattern: this either silently reports "Everything
+  # up-to-date" (false success, nothing real pushed) or gets rejected as non-fast-forward,
+  # depending on how stale that other ref happens to be. Main clones here are conventionally
+  # checked out to overnight/feature (not $mt=develop), so this specific path has likely been
+  # safe in practice - but it's the same latent bug, in the single most critical script in
+  # the pipeline (the primary work-landing gate), so it gets the same fix: push HEAD:"$mt"
+  # explicitly, which is correct regardless of the worktree's branch/detached state.
+  git -C "$tmp_main" checkout -B "$mt" "origin/$mt" --quiet 2>/dev/null
+  if git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT into $mt (branch-hygiene, gate=$([ $g -eq 0 ] && echo tests-green || echo no-tests))" origin/$FEAT >/dev/null 2>&1; then
+    # push with a rebase-retry: while the fleet actively works a repo, $mt can advance
+    # between our merge and our push (a transient non-ff). Rebasing the merge onto the new
+    # tip and retrying once clears that WITHOUT flagging — otherwise every push race left a
+    # stale "push failed" review flag (noise). The worktree shares refs with $repo.
+    pushed=0
+    if git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1
+    elif git -C "$tmp_main" pull --rebase --quiet origin "$mt" >/dev/null 2>&1 && git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1; fi
+    if [ "$pushed" = 1 ]; then
+      # 2026-09-07: do NOT push origin/$FEAT here — the old ff/force-push raced the fleet and could
+      # CLOBBER commits the fleet pushed after our merge started. develop->feature is reconcile's job.
+      rm -f "$flag"
+      log "  MERGED $name $FEAT (+$ahead) -> $mt (reconcile will bring $mt back into $FEAT)"
+      report "| $name | ✅ merged +$ahead to $mt ($([ $g -eq 0 ] && echo gated || echo no-tests)) |"
+    else
+      log "  push to $mt failed (after rebase-retry) — flagging"; echo "push failed $(date)" > "$flag"
+      report "| $name | ⚠️ +$ahead, push failed |"
+    fi
+  else
+    git -C "$tmp_main" merge --abort >/dev/null 2>&1
+    echo "MERGE CONFLICT: $FEAT +$ahead vs $mt $(date)" > "$flag"
+    log "  MERGE CONFLICT for $name — aborted, flagged"
+    report "| $name | 🔴 +$ahead, merge CONFLICT — needs review |"
+  fi
+  git -C "$repo" worktree remove --force "$tmp_main" >/dev/null 2>&1
+done
+
+log "branch hygiene complete"
