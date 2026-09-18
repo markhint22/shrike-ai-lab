@@ -62,9 +62,25 @@ $items work items done across $cycles run(s), on: ${allrepos:-–}"
 [ "$NE" -gt 0 ] && body="$body
 
 ⛔ $NE errored (network/timeout)  [$Eraw]"
-[ "$NN" -gt 0 ] && body="$body
+if [ "$NN" -gt 0 ]; then
+  # 2026-09-18 FIX: this used to just print the flat $NN count with no breakdown, so
+  # "the fleet correctly declined 4 already-done items" (fine, cheap) and "the fleet
+  # burned 8 real implement+verify attempts and landed nothing" (worth investigating)
+  # looked identical. Reuse ovn_stats.py's existing cheap/burned + per-cause split.
+  _NOOP_LINE=""
+  if [ -x "$DIR/scripts/ovn_stats.py" ]; then
+    _NOOP_LINE="$(python3 "$DIR/scripts/ovn_stats.py" "$DIGEST_HOURS" --noop-headline 2>/dev/null)"
+  fi
+  if [ -n "$_NOOP_LINE" ]; then
+    body="$body
+
+➖ $_NOOP_LINE"
+  else
+    body="$body
 
 ➖ $NN no change (item already done, or nothing to do)"
+  fi
+fi
 body="$body
 
 Every line above is one work item. Only ✅ reaches the feature branch; ⚠️/↩️/⛔ never do."

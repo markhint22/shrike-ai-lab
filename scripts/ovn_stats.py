@@ -16,6 +16,7 @@ from collections import defaultdict
 P = os.path.expanduser("~/overnight-queue/state/task_stats.log")
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 ntfy = '--ntfy' in sys.argv
+noop_headline = '--noop-headline' in sys.argv
 hours = float(args[0]) if args else 24.0
 cutoff = time.time() - hours * 3600
 
@@ -177,6 +178,29 @@ def failing(axis):
             out.append((k, 100 * l // (l + f)))
     out.sort(key=lambda x: x[1])
     return out
+
+# 2026-09-18: the digest's headline no-op line used to just print a flat count with
+# no breakdown ("N no change (item already done, or nothing to do)") - useless for
+# telling "the fleet correctly declined 4 already-done items" (fine) apart from "the
+# fleet burned 8 real implement+verify attempts and got nothing" (worth investigating).
+# This mode reuses the SAME cheap/burned split + per-cause labels already computed
+# below for the full report, just condensed to one digest-ready line.
+if noop_headline:
+    nb = noop_breakdown(rows)
+    cheap, burned = noop_cost_split(rows)
+    total_noop = cheap + burned
+    if total_noop == 0:
+        print("")
+        sys.exit(0)
+    ok_bits = ["%d %s" % (nb[k], l) for k, l, _ in NOOP_CAUSES if k in CHEAP_NOOP_KEYS and nb.get(k)]
+    bad_bits = ["%d %s" % (nb[k], l) for k, l, _ in NOOP_CAUSES if k in BURNED_NOOP_KEYS and nb.get(k)]
+    line = "%d no-op" % total_noop
+    if ok_bits:
+        line += " -- %d OK/cheap (%s)" % (cheap, ", ".join(ok_bits))
+    if bad_bits:
+        line += ("; " if ok_bits else " -- ") + "%d WORTH A LOOK, burned a real attempt (%s)" % (burned, ", ".join(bad_bits))
+    print(line)
+    sys.exit(0)
 
 if ntfy:
     lines = ["Overnight · %gh · %d cycles" % (hours, total)]
