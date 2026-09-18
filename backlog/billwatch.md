@@ -108,3 +108,15 @@
 # --- 27B-decomposed from roadmap [2026-09-18]: Consolidate duplicate/stale billwatch-web/src/services/api.test.ts — two separate test fil (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-18]: Fix Android registration silently dropping the address field — billwatch-android/app/src/m (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Fix the two broken/never-run files in billwatch-ios/Tests/ and wire the directory into a r (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Add real unit tests for BillSummaryService (app/services/bill_summary_service.py, 136 line (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Add unit tests for TrendingService (app/services/trending_service.py, 172 lines) — this is (review + tweak) ---
+- [ ] [T1] tests/test_trending_service.py — Create file with `test_get_trending_bills_returns_empty_list_when_no_data` mocking `db.execute` to return empty result. VERIFY: `cd billwatch-backend && python -m pytest tests/test_trending_service.py::test_get_trending_bills_returns_empty_list_when_no_data -v`. (cat:test; multifile:no)
+- [ ] [T1] tests/test_trending_service.py — Add `test_get_trending_bills_calculates_score_correctly` mocking DB to return bills with known view counts and timestamps. VERIFY: `cd billwatch-backend && python -m pytest tests/test_trending_service.py::test_get_trending_bills_calculates_score_correctly -v`. (cat:test; multifile:no)
+- [ ] [T1] tests/test_trending_service.py — Add `test_get_trending_bills_filters_by_time_window` mocking DB to return bills outside the 24h window and asserting they are excluded. VERIFY: `cd billwatch-backend && python -m pytest tests/test_trending_service.py::test_get_trending_bills_filters_by_time_window -v`. (cat:test; multifile:no)
+- [ ] [T1] tests/test_trending_service.py — Add `test_get_trending_bills_handles_db_exception` mocking `db.execute` to raise `SQLAlchemyError` and asserting graceful handling or re-raise. VERIFY: `cd billwatch-backend && python -m pytest tests/test_trending_service.py::test_get_trending_bills_handles_db_exception -v`. (cat:test; multifile:no)
+- [ ] [T1] tests/test_trending_service.py — Add `test_get_top_sponsors_returns_correct_order` mocking DB to return sponsor data and verifying sorting logic. VERIFY: `cd billwatch-backend && python -m pytest tests/test_trending_service.py::test_get_top_sponsors_returns_correct_order -v`. (cat:test; multifile:no)
+- [ ] [T1] tests/test_trending_service.py — Add `test_get_trending_bills_respects_limit_parameter` mocking DB to return more items than limit and asserting truncation. VERIFY: `cd billwatch-backend && python -m pytest tests/test_trending_service.py::test_get_trending_bills_respects_limit_parameter -v`. (cat:test; multifile:no)

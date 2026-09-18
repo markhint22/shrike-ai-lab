@@ -86,3 +86,35 @@
 # --- 27B-decomposed from roadmap [2026-09-18]: Consolidate divergent, zero-caller sanitize-filename helpers — backend/app/utils/sanitize_ (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-18]: Remove dead orphaned frontend/src/views/TestRunDetailPage.vue — this 17-line file (the onl (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Wire the Upload model into the upload confirm/status/list/delete endpoints — round-5's fin (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Finish wiring kb_index.build_index()/build_index_from_rows() — round-5's "Wire kb_index.bu (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Fix the dead-code-removal mechanism leaving empty tracked stub files instead of deleting t (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Remove dead duplicate PR-comment helpers left behind in execution_engine.py — the real, wi (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Add unit tests for the Vue Router auth guard — frontend/src/router/index.js's `router.befo (review + tweak) ---
+- [ ] [T1] frontend/src/router/__tests__/index.test.js — Create test file with Vitest setup, mocking Pinia auth store and vue-router memory history. VERIFY: `cd frontend && npx vitest run src/router/__tests__/index.test.js --passWithNoTests` exits 0. (cat:test; multifile:no)
+- [ ] [T2] frontend/src/router/__tests__/index.test.js — Add test case verifying unauthenticated user navigating to a `requiresAuth` route is redirected to `/login` with correct `redirect` query param. VERIFY: `cd frontend && npx vitest run src/router/__tests__/index.test.js -t "unauthenticated"` passes. (cat:test; multifile:no)
+- [ ] [T3] frontend/src/router/__tests__/index.test.js — Add test case verifying authenticated user navigating to `/login` is redirected to `/dashboard`. VERIFY: `cd frontend && npx vitest run src/router/__tests__/index.test.js -t "authenticated login redirect"` passes. (cat:test; multifile:no)
+- [ ] [T4] frontend/src/router/__tests__/index.test.js — Add test case verifying authenticated user navigating to `/signup` is redirected to `/dashboard`. VERIFY: `cd frontend && npx vitest run src/router/__tests__/index.test.js -t "authenticated signup redirect"` passes. (cat:test; multifile:no)
+- [ ] [T5] frontend/src/router/__tests__/index.test.js — Add test case verifying authenticated user navigating to a protected route calls `next()` without redirection. VERIFY: `cd frontend && npx vitest run src/router/__tests__/index.test.js -t "authenticated protected access"` passes. (cat:test; multifile:no)
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Add unit tests for the ci Pinia store — frontend/src/stores/ci.js (109 lines: fetchIntegra (review + tweak) ---
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Create test file with mocked axios and Pinia setup, verifying `fetchIntegrations` populates `state.integrations` on success. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "fetchIntegrations"`. (cat:test; multifile:no)
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Add test case verifying `fetchIntegrations` sets `state.error` when axios request fails. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "fetchIntegrations error"`. (cat:test; multifile:no)
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Add test case verifying `createIntegration` pushes new item to `state.integrations` after successful API call. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "createIntegration"`. (cat:test; multifile:no)
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Add test case verifying `deleteIntegration` removes the matching item from `state.integrations`. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "deleteIntegration"`. (cat:test; multifile:no)
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Add test case verifying `fetchSchedules` populates `state.schedules` on success. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "fetchSchedules"`. (cat:test; multifile:no)
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Add test case verifying `createSchedule` pushes new item to `state.schedules` after successful API call. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "createSchedule"`. (cat:test; multifile:no)
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Add test case verifying `deleteSchedule` removes the matching item from `state.schedules`. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "deleteSchedule"`. (cat:test; multifile:no)
+- [ ] [T1] frontend/src/stores/__tests__/ci.test.js — Add test case verifying `runDueSchedules` returns response without mutating `state.integrations` or `state.schedules`. VERIFY: `npx vitest run frontend/src/stores/__tests__/ci.test.js -t "runDueSchedules"`. (cat:test; multifile:no)
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Wire plan_normalizer.normalize_test_plan() into the upload/test-plan flow — backend/app/ut (review + tweak) ---
+- [ ] [T1] backend/app/utils/plan_normalizer.py — Verify `normalize_test_plan` handles edge cases: empty dict, None input, and non-dict plan types by raising ValueError or returning appropriate defaults. VERIFY: python -m pytest backend/tests/test_plan_normalizer.py::test_normalize_empty_dict -v (cat:python; multifile:no)
+- [ ] [T2] backend/app/utils/plan_normalizer.py — Add unit tests for `normalize_test_plan` covering action string normalization (lowercase/trim) and missing steps/assertions defaulting to empty lists. VERIFY: python -m pytest backend/tests/test_plan_normalizer.py::test_normalize_action_strings -v (cat:test; multifile:no)
+- [ ] [T3] backend/app/routers/uploads.py — Import `normalize_test_plan` from `backend.app.utils.plan_normalizer` at the top of the file. VERIFY: grep -n "from backend.app.utils.plan_normalizer import normalize_test_plan" backend/app/routers/uploads.py (cat:python; multifile:no)
+- [ ] [T4] backend/app/routers/uploads.py — In `upload_test_plan`, call `normalize_test_plan(parsed_yaml)` after manual validation passes and assign result to a new variable `normalized_plan`. VERIFY: grep -n "normalized_plan = normalize_test_plan" backend/app/routers/uploads.py (cat:python; multifile:no)
+- [ ] [T5] backend/app/routers/uploads.py — Replace all references to the raw parsed YAML dict in `upload_test_plan` response construction and execution handoff with `normalized_plan`. VERIFY: grep -c "parsed_yaml" backend/app/routers/uploads.py && ! grep -n "parsed_yaml\[" backend/app/routers/uploads.py | grep -v "normalize_test_plan" (cat:python; multifile:no)
