@@ -507,6 +507,21 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   local changed; changed="$(git -C "$wt" diff --name-only origin/overnight/feature..HEAD 2>/dev/null)"
   local srcs tests; srcs="$(printf '%s\n' "$changed" | grep -E '\.(py|gd|ts|tsx|vue)$' | grep -viE 'test|spec')"
   tests="$(printf '%s\n' "$changed" | grep -iE 'test|spec' | grep -E '\.(py|gd|ts|tsx|vue)$')"
+  # 2026-09-18: the srcs/tests-exercise guard below only runs when $srcs is non-empty, so a step
+  # that touches ZERO real source files and only creates an EMPTY test/source file (0 bytes) sails
+  # through completely unchecked - confirmed live twice tonight: billwatch's vote_sync_service.py +
+  # test_vote_sync_service.py landed as a 0-byte "feat" commit (self-healed by a later step before
+  # this was caught), and test-automation-agent's test_upload_status.py stayed 0 bytes forever while
+  # get_upload_status() in uploads.py was never actually touched - the item was still marked
+  # "staged 1/1 DONE" because the FULL suite (which trivially collects 0 tests from an empty file
+  # without failing) stayed green. Same bug class as the empty FlakeDashboardPage.spec.js 3-day
+  # false-red, generalized: any 0-byte file this step touched is never a real deliverable.
+  for cf in $changed; do
+    [ -f "$wt/$cf" ] || continue
+    if [ ! -s "$wt/$cf" ]; then
+      echo "-- QUALITY FAIL: $cf is a 0-byte file - not a real implementation or test --" >> "$vlog"; vok=0
+    fi
+  done
   local cf
   for cf in $srcs; do
     [ -f "$wt/$cf" ] || continue
