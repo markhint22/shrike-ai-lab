@@ -188,7 +188,13 @@ for t in TIER_ORDER:
     if n == 0:
         continue
     pct = 100 * landed // n
-    label = f"T{t}" if t != "?" else "T?"
+    # 2026-09-17: "T?" looked like a data-quality gap (untagged/unknown work) but is
+    # actually just the ongoing-* background lanes, which never carry a [T#] queue-item
+    # tag by design (they are not sourced from OVERNIGHT_PROGRESS.md items). The denominator
+    # here already excludes skip(exhausted) noise - this bucket is real, correctly-measured
+    # ongoing-lane activity, not unclassified mystery work. Label it plainly so a digest
+    # reader does not mistake it for a bug.
+    label = f"T{t}" if t != "?" else "Ongoing-lane"
     bits = [f"{label}: {landed}/{n} ({pct}%)"]
     extra = []
     if noop:
