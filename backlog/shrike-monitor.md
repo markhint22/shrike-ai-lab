@@ -58,16 +58,5 @@
 # --- 27B-decomposed from roadmap [2026-09-18]: Two more dead uptime-ratio-family duplicates, on top of the wired app.models.uptime_ratio( (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-18]: parse_comma_separated() dead — duplicates config.py's inline CORS parsing verbatim — `app/ (review + tweak) ---
-- [ ] [T5] backend/tests/test_utils.py — Ensure existing tests for `parse_comma_separated` cover the specific input patterns used by CORS configuration (e.g., "http://a.com, http://b.com"). VERIFY: python -m pytest backend/tests/test_utils.py -v. (cat:test; multifile:no)
 
 # --- 27B-decomposed from roadmap [2026-09-18]: Five pure-math utility modules with full test coverage and zero production callers — `clam (review + tweak) ---
-- [ ] [T1] backend/app/utils/clamp.py — Remove the `clamp` function and its docstring as it has zero production callers. VERIFY: `grep -r "from.*utils.clamp import" backend/app/ --include="*.py" | grep -v test_ | wc -l` returns 0. (cat:refactor; multifile:no)
-- [ ] [T1] backend/tests/test_clamp.py — Delete the entire test file for the removed `clamp` utility. VERIFY: `test ! -f backend/tests/test_clamp.py`. (cat:test; multifile:no)
-- [ ] [T1] backend/app/utils/ema.py — Remove the `ema` function and its docstring as it has zero production callers. VERIFY: `grep -r "from.*utils.ema import" backend/app/ --include="*.py" | grep -v test_ | wc -l` returns 0. (cat:refactor; multifile:no)
-- [ ] [T1] backend/tests/test_ema.py — Delete the entire test file for the removed `ema` utility. VERIFY: `test ! -f backend/tests/test_ema.py`. (cat:test; multifile:no)
-- [ ] [T1] backend/app/utils/mean_stdev.py — Remove the `mean_stdev` function and its docstring as it has zero production callers. VERIFY: `grep -r "from.*utils.mean_stdev import" backend/app/ --include="*.py" | grep -v test_ | wc -l` returns 0. (cat:refactor; multifile:no)
-- [ ] [T1] backend/tests/test_mean_stdev.py — Delete the entire test file for the removed `mean_stdev` utility. VERIFY: `test ! -f backend/tests/test_mean_stdev.py`. (cat:test; multifile:no)
-- [ ] [T1] backend/app/utils/pct_change.py — Remove the `pct_change` function and its docstring as it has zero production callers. VERIFY: `grep -r "from.*utils.pct_change import" backend/app/ --include="*.py" | grep -v test_ | wc -l` returns 0. (cat:refactor; multifile:no)
-- [ ] [T1] backend/tests/test_pct_change.py — Delete the entire test file for the removed `pct_change` utility. VERIFY: `test ! -f backend/tests/test_pct_change.py`. (cat:test; multifile:no)
-- [ ] [T1] backend/app/utils/round_sig.py — Remove the `round_sig` function and its docstring as it has zero production callers. VERIFY: `grep -r "from.*utils.round_sig import" backend/app/ --include="*.py" | grep -v test_ | wc -l` returns 0. (cat:refactor; multifile:no)
-- [ ] [T1] backend/tests/test_round_sig.py — Delete the entire test file for the removed `round_sig` utility. VERIFY: `test ! -f backend/tests/test_round_sig.py`. (cat:test; multifile:no)
