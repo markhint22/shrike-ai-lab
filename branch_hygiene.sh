@@ -58,8 +58,21 @@ NOW_EPOCH="$(date +%s)"
 HYGIENE_LOCK_FILE="$STATE_DIR/hygiene.lock"
 mkdir -p "$STATE_DIR"
 exec 201>"$HYGIENE_LOCK_FILE"
-if ! flock -n 201; then
-  echo "[branch-hygiene $(date '+%F %H:%M:%S')] another hygiene pass is already running — skipping this tick."
+# 2026-09-18 FIX: billwatch (+ shrike-labs-website)'s dedicated 3-hourly cron slot fires
+# at :10 past the hour, only 10 minutes after the hourly 6-repo pass starts at :00 - and
+# that hourly pass routinely takes longer than 10 minutes to get through all 6 repos'
+# build+test gates. Confirmed live: EVERY billwatch-scheduled tick since at least
+# 2026-09-13 hit this non-blocking flock and bailed immediately with "already running -
+# skipping this tick", so billwatch's overnight/feature -> develop hygiene has been
+# missing its slot for 5+ days straight, not occasionally. Drift grew to 46 commits
+# and the daily 09:00 gated prod promote shipped a develop 47 commits behind
+# overnight/feature - real, tested work silently never reached production. A plain
+# `flock -w N` fix (patient wait instead of immediate bail) covers billwatch/
+# shrike-labs-website's slot without changing the hourly pass's own non-blocking
+# behavior between ITS OWN repos (HYGIENE_LOCK_WAIT unset there, defaults to 0 = -n).
+HYGIENE_LOCK_WAIT="${HYGIENE_LOCK_WAIT:-0}"
+if ! flock -w "$HYGIENE_LOCK_WAIT" 201; then
+  echo "[branch-hygiene $(date '+%F %H:%M:%S')] another hygiene pass is already running — skipping this tick (waited ${HYGIENE_LOCK_WAIT}s)."
   exit 0
 fi
 
