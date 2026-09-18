@@ -51,9 +51,37 @@ while IFS='|' read -r _ c_id c_type c_out c_branch c_log _; do
     no-op*) _oc=noop:flail;;                    # PROCEED but produced no usable diff (too hard for the 27B)
     *) _oc=skip;;
   esac
-  _cs_line="$(grep "ongoing-${id} " "$STATE_DIR/cycle_summary.log" 2>/dev/null | tail -1)"
-  _cls="$(echo "$_cs_line" | grep -oE 'class=\{[^}]*\}' | sed 's/class=//')"
-  _cfl="$(echo "$_cs_line" | grep -oE 'top_item=[^ ]+' | sed 's/top_item=//')"
+  # 2026-09-17 fix: this used to be a naive `grep ... | tail -1` with NO staleness
+  # check, so once a repo's cycle_summary.log went quiet for this id (paused,
+  # stuck behind a lock-orphan crash-loop, or simply moved to the T3+ staged
+  # pipeline -- ovn_stage_runner.sh's higher-tier sub-flow never writes
+  # cycle_summary.log at all), EVERY subsequent report line for that id -- even
+  # hours later, even a genuine "skip" outcome with nothing to do with the old
+  # target -- got silently mislabeled with whatever class=/top_item= was logged
+  # last. Diagnosed live 2026-09-17 on test-automation-agent: "update_flake_stats"
+  # kept showing up as top_item in task_stats.log for 4+ hours (13:46-21:43) after
+  # that item was already AUTO-SKIPped and retired via Claude at 19:08, and while
+  # the repo was actually succeeding on unrelated fresh backlog items via the
+  # staged pipeline (which produces no cycle_summary.log line to update against) --
+  # fabricating the appearance of the 27B endlessly retrying one stuck target.
+  # Fix: only reuse a cycle_summary.log line's classification if it's NEWER (by
+  # line number) than the last one already consumed for this id; otherwise treat
+  # this cycle as unclassified (matches the pre-existing intentional "nothing to
+  # classify" skip below) rather than reattributing stale data.
+  _cs_match="$(grep -n "ongoing-${id} " "$STATE_DIR/cycle_summary.log" 2>/dev/null | tail -1)"
+  _cs_lineno="${_cs_match%%:*}"
+  _cs_line="${_cs_match#*:}"
+  _cursor_file="$STATE_DIR/.cycle_notify_cursor__${id}"
+  _last_lineno="$(cat "$_cursor_file" 2>/dev/null)"
+  _last_lineno="${_last_lineno:-0}"
+  if [ -n "$_cs_lineno" ] && [ "$_cs_lineno" -gt "$_last_lineno" ] 2>/dev/null; then
+    _cls="$(echo "$_cs_line" | grep -oE 'class=\{[^}]*\}' | sed 's/class=//')"
+    _cfl="$(echo "$_cs_line" | grep -oE 'top_item=[^ ]+' | sed 's/top_item=//')"
+    echo "$_cs_lineno" > "$_cursor_file"
+  else
+    _cls=""
+    _cfl=""
+  fi
   [ -n "$_cls" ] && printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$id" "$_oc" "$_cls" "${_cfl:-?}" >> "$STATE_DIR/task_stats.log"
 done < <(grep -E "^\| ongoing" "$REPORT")
 
