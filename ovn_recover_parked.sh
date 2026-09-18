@@ -110,6 +110,38 @@ for r in $REPOS; do
   layout="$(cd "$rd" 2>/dev/null && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' \) \
               -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -80)"
 
+  # 2026-09-18 FIX: ground the decompose-vs-already-satisfied decision in the
+  # target file's REAL current content, not just its bare path in the layout
+  # listing above. Without this, the LLM can't tell whether the described
+  # behavior already exists, and invents a decomposition/re-spec that either
+  # duplicates or CONTRADICTS the shipped implementation — confirmed live,
+  # same day, 3x on xlite alone: find_input_conflicts (d801e72), loot_tier.gd
+  # min_level_for_tier 1st/2nd-gen duplicates (a390335), and a 3rd-gen
+  # test-file duplicate of the same function (OVERNIGHT_PROGRESS.md ~line
+  # 1087). Reuses $lineage_file (already extracted above for the recovery
+  # cap) as the target path. Content is substituted into the prompt via a
+  # python3 string-replace on a placeholder AFTER the heredoc below, NOT
+  # interpolated directly into the heredoc — real source can contain
+  # backticks (e.g. JS template literals like `${x}`), and this heredoc is
+  # unquoted (uses parameter/command expansion), so pasting raw file content
+  # straight into it would risk bash trying to execute backtick-enclosed
+  # source fragments as command substitution.
+  target_file="$lineage_file"
+  case "$target_file" in
+    *..*|/*) target_file="" ;;  # refuse path traversal / absolute paths
+  esac
+  target_note_file="$(mktemp)"
+  if [ -n "$target_file" ] && [ -f "$rd/$target_file" ]; then
+    {
+      printf 'CURRENT CONTENT of %s (it already exists -- read this before deciding; if the behavior described in STUCK ITEM is already implemented below, choose option 2):\n' "$target_file"
+      head -c 8000 "$rd/$target_file" 2>/dev/null | head -150
+    } > "$target_note_file"
+  elif [ -n "$target_file" ]; then
+    printf '%s does not exist yet in this repo -- this is real new-file work, not a re-spec.\n' "$target_file" > "$target_note_file"
+  else
+    printf '(could not determine a single target file from the task text below -- decide from the task text and layout alone)\n' > "$target_note_file"
+  fi
+
   read -r -d '' PROMPT <<PROMPT_END || true
 An autonomous coding fleet (a 27B model driving aider) tried this item repeatedly and kept failing
 (reverting or making no change). Your job: make it COMPLETABLE. Choose ONE:
@@ -120,6 +152,8 @@ $layout
 
 STUCK ITEM:
 $task
+
+##TARGET_FILE_CONTENT##
 
 Decide and output ONLY one of these two forms — no prose, no preamble:
 
@@ -138,6 +172,16 @@ Decide and output ONLY one of these two forms — no prose, no preamble:
    refactor, real product/design decision, external creds), output EXACTLY one line:
 - [ ] [CLAUDE] <one-line why it needs Claude/human> (recovery:escalated)
 PROMPT_END
+
+  # substitute the real file content in via python3 string-replace (pure
+  # string op, no shell re-interpretation of whatever the file contains).
+  PROMPT="$(OVN_TMPL="$PROMPT" OVN_NOTE="$target_note_file" python3 -c '
+import os
+tmpl = os.environ["OVN_TMPL"]
+note = open(os.environ["OVN_NOTE"], encoding="utf-8", errors="replace").read()
+print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
+')"
+  rm -f "$target_note_file"
 
   say "$r: recovering parked item: ${task:0:80}"
   body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.read()}],'temperature':0.3,'max_tokens':900}))" <<<"$PROMPT")"
