@@ -1269,7 +1269,19 @@ Task: ${prompt}"
     _CS_PF="$(echo $OVN_SCOUT_FILES | tr ' ' '\n' | grep -E '\.[A-Za-z]' | head -1)"
     _CS_ITEM="$(grep -m1 -F "${_CS_PF:-$_CS_TOP}" OVERNIGHT_PROGRESS.md 2>/dev/null)"
     _CS_TAG="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "$_CS_ITEM" 2>/dev/null || echo '{?}')"
-    echo "$(date +%H:%M:%S) ${id} verdict=${OVN_VERDICT:-NONE} planfiles=[$(echo $OVN_SCOUT_FILES | tr '\n' ' ')] top_item=${_CS_TOP:-none} class=${_CS_TAG}" >> "$SCRIPT_DIR/state/cycle_summary.log"
+    # 2026-09-18 FIX: top_item= always logged the STATIC top-of-OVERNIGHT_PROGRESS.md
+    # backtick snippet (_CS_TOP), even for "ongoing-*" cycles that don't work items
+    # from that queue at all - so it silently repeated the SAME label for many
+    # consecutive cycles whenever the main queue's top item happened not to change,
+    # completely decoupled from what the ongoing lane actually did that cycle
+    # (confirmed live across xlite/test-automation-agent/iptv-apps/gitlark:
+    # identical planfiles+top_item blocks spanning hours, e.g. test-automation-agent
+    # logging top_item=Upload for 6 straight cycles while the real per-cycle work
+    # had already moved on). _CS_PF (the real scouted file, already computed above
+    # and already preferred for _CS_ITEM one line up) is the accurate per-cycle
+    # signal - prefer it here too, falling back to _CS_TOP only when a cycle truly
+    # produced no scouted file (e.g. a cheap ALREADY-DONE/BLOCKED short-circuit).
+    echo "$(date +%H:%M:%S) ${id} verdict=${OVN_VERDICT:-NONE} planfiles=[$(echo $OVN_SCOUT_FILES | tr '\n' ' ')] top_item=${_CS_PF:-${_CS_TOP:-none}} class=${_CS_TAG}" >> "$SCRIPT_DIR/state/cycle_summary.log"
     if [ "$OVN_VERDICT" = "BLOCKED" ] || [ "$OVN_VERDICT" = "ALREADY-DONE" ] || [ "$OVN_VERDICT" = "NEEDS-DECISION" ]; then
       echo "--- scout verdict=${OVN_VERDICT}; skipping implement this cycle (no code attempt, no wasted red) ---" >> "$task_log"
       # ALREADY-DONE crediting (2026-08-30): the #1 remaining no-op source was a
