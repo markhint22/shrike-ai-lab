@@ -1212,8 +1212,21 @@ Task: ${prompt}"
     # from scratch and frequently produced NO diff (61/62 no-ops carried
     # verdict=PROCEED). Feed the plan forward and forbid re-planning; skip the code
     # attempt on ALREADY-DONE / BLOCKED so a done/blocked item can't waste a red push.
-    OVN_VERDICT="$(grep -hoiE "VERDICT:[[:space:]]*(PROCEED|ALREADY-DONE|BLOCKED|NEEDS-DECISION)" "$task_log" 2>/dev/null | head -1 | sed -E "s/.*VERDICT:[[:space:]]*//I" | tr "[:lower:]" "[:upper:]")"
-    OVN_PLAN="$(grep -hoiE "PLAN:[[:space:]]*.+" "$task_log" 2>/dev/null | head -1 | sed -E "s/^PLAN:[[:space:]]*//I; s/[[:space:]]*FILES:.*//I" | cut -c1-300)"
+    # 2026-09-17 FIX: was `head -1`, which grabbed the FIRST VERDICT: line in the scout
+    # task_log. aider sometimes runs the scout prompt through TWO completions in one
+    # invocation - e.g. the model first tries to actually EDIT a read-only-in-chat file,
+    # aider's own guard injects a "not editable" correction, and the model replies again
+    # with a corrected, final verdict. `head -1` was locking in the STALE pre-correction
+    # verdict every time this happened. Confirmed live: gitlark's circuit_breaker.py
+    # return-type-hint item logged "VERDICT: BLOCKED ... file is READ-ONLY" (93 tokens)
+    # immediately followed in the SAME task_log by "VERDICT: ALREADY-DONE ... already
+    # contains def _on_success(self) -> None" (174 tokens) - the harness parsed BLOCKED,
+    # never credited the item, and it burned 235k-250k tokens across 5 cycles before
+    # parking, then hit the recovery-lineage cap (4, escalated to CLAUDE) for a task that
+    # was already 100% done in the code the whole time. Use the LAST verdict/plan in the
+    # log (the model's final, corrected answer) instead of the first.
+    OVN_VERDICT="$(grep -hoiE "VERDICT:[[:space:]]*(PROCEED|ALREADY-DONE|BLOCKED|NEEDS-DECISION)" "$task_log" 2>/dev/null | tail -1 | sed -E "s/.*VERDICT:[[:space:]]*//I" | tr "[:lower:]" "[:upper:]")"
+    OVN_PLAN="$(grep -hoiE "PLAN:[[:space:]]*.+" "$task_log" 2>/dev/null | tail -1 | sed -E "s/^PLAN:[[:space:]]*//I; s/[[:space:]]*FILES:.*//I" | cut -c1-300)"
     # 2026-09-16 FIX: this free-text plan gets embedded verbatim into the
     # implement-phase --message below. aider scans that outgoing message
     # for existing repo file paths and silently loads any match IN FULL
