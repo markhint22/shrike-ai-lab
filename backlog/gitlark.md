@@ -90,9 +90,11 @@
 # --- 27B-decomposed from roadmap [2026-09-17]: Delete the dead duplicate `GitHubFileService` — `backend/app/services/github_file_service. (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-17]: Delete the dead duplicate `RealTimeUpdateService` — `backend/app/services/realtime_update_ (review + tweak) ---
-- [ ] [T1] backend/tests/test_realtime_update_service_removal.py — Create a test that asserts `backend/app/services/realtime_update_service.py` does not exist and that `import backend.app.services.realtime_update_service` raises `ModuleNotFoundError`. VERIFY: `cd backend && python -m pytest tests/test_realtime_update_service_removal.py -v`. (cat:test; multifile:no)
-- [ ] [T3] backend/app/services/realtime_update_service.py — Delete the file containing the dead `RealTimeUpdateService` class. VERIFY: `test ! -f backend/app/services/realtime_update_service.py`. (cat:refactor; multifile:no)
-- [ ] [T4] backend/app — Ensure no remaining imports of `realtime_update_service` or `RealTimeUpdateService` exist in the codebase. VERIFY: `grep -r "realtime_update_service\|RealTimeUpdateService" backend/app/ --include="*.py" | wc -l` returns 0. (cat:refactor; multifile:yes)
-- [ ] [T1] backend/tests/test_realtime_service_integrity.py — Create a test verifying that `backend.app.services.realtime_service` imports successfully and exposes the `realtime_service` singleton instance. VERIFY: `cd backend && python -m pytest tests/test_realtime_service_integrity.py -v`. (cat:test; multifile:no)
-- [ ] [T3] backend/app/routers/realtime.py — Verify that all 8 call sites correctly reference `realtime_service` from `backend.app.services.realtime_service` and not the deleted service. VERIFY: `grep -c "realtime_service" backend/app/routers/realtime.py` returns at least 8 and `grep "RealTimeUpdateService" backend/app/routers/realtime.py` returns 0. (cat:refactor; multifile:no)
-- [ ] [T5] backend — Run the full backend test suite to ensure no regressions from removing the dead service. VERIFY: `cd backend && python -m pytest tests/ -v --tb=short`. (cat:test; multifile:yes)
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Wire the built-and-tested severity scoring + Markdown formatting into the AI code review e (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Replace github_webhook's hand-rolled HMAC check with the shared, already-tested `webhook_s (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Consolidate the duplicate, fully-dead in-memory vector-search stubs — `backend/app/service (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Port the VS Code "Enhanced Code Review" command out of stranded Python pseudocode — `vscod (review + tweak) ---

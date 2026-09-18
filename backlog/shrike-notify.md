@@ -56,10 +56,11 @@
 # --- 27B-decomposed from roadmap [2026-09-17]: Add a message-TTL `Settings` field and wire it into the broker singleton — `backend/app/co (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-17]: Enforce retention cap and TTL on the persisted message store, not just in-memory history — (review + tweak) ---
-- [ ] [T1] backend/app/persistence.py — Add `prune(topic: str, keep_max: int | None = None, ttl_seconds: float | None = None) -> int` method to `MessageStore` that executes `DELETE FROM messages WHERE topic = :topic AND (created_at < :cutoff OR id NOT IN (SELECT id FROM messages WHERE topic = :topic ORDER BY created_at DESC LIMIT :keep_max))` and returns rowcount. VERIFY: `pytest backend/tests/test_persistence.py::test_prune_by_count -v`. (cat:python; multifile:no)
-- [ ] [T2] backend/tests/test_persistence.py — Add `test_prune_by_count` that inserts 10 rows for topic 't1', calls `store.prune('t1', keep_max=5)`, and asserts `SELECT COUNT(*) FROM messages WHERE topic='t1'` equals 5 and the oldest 5 rows are gone. VERIFY: `pytest backend/tests/test_persistence.py::test_prune_by_count -v`. (cat:test; multifile:no)
-- [ ] [T2] backend/tests/test_persistence.py — Add `test_prune_by_ttl` that inserts rows with varying `created_at` timestamps, calls `store.prune('t1', ttl_seconds=60)`, and asserts only rows within the last 60 seconds remain. VERIFY: `pytest backend/tests/test_persistence.py::test_prune_by_ttl -v`. (cat:test; multifile:no)
-- [ ] [T3] backend/app/services/broker.py — Modify `Broker.publish()` to call `await self.store.prune(message.topic, keep_max=self._history_size, ttl_seconds=self._ttl)` immediately after `await self.store.save(message)` when `self.store is not None`. VERIFY: `pytest backend/tests/test_broker.py::test_publish_prunes_persisted -v`. (cat:python; multifile:no)
-- [ ] [T3] backend/tests/test_broker.py — Add `test_publish_prunes_persisted` that mocks a `MessageStore`, publishes 10 messages with `history_size=5`, and asserts `store.prune` was called with correct `keep_max` and `ttl_seconds` arguments. VERIFY: `pytest backend/tests/test_broker.py::test_publish_prunes_persisted -v`. (cat:test; multifile:no)
-- [ ] [T4] backend/app/config.py — Ensure `NOTIFY_HISTORY_SIZE` and `NOTIFY_TTL_SECONDS` environment variables are parsed and exposed as `settings.history_size` and `settings.ttl_seconds` for use by `Broker` and `MessageStore`. VERIFY: `python -c "from backend.app.config import get_settings; s=get_settings(); print(s.history_size, s.ttl_seconds)"`. (cat:python; multifile:no)
-- [ ] [T4] backend/tests/test_integration_auth_persist.py — Add `test_end_to_end_retention_cap` that enables persistence, publishes 100 messages to a single topic with `NOTIFY_HISTORY_SIZE=10`, and asserts the database contains exactly 10 rows for that topic. VERIFY: `pytest backend/tests/test_integration_auth_persist.py::test_end_to_end_retention_cap -v`. (cat:test; multifile:yes)
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Delete the unverified-signature `validate_scope_token()`/`token_allows()` pair in `backend (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: `QuietHoursConfig.timezone` is a fully dead field — modeled, tested, never configurable or (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Remove the duplicate `is_quiet_hours_active()` definition in `backend/app/utils/quiet_hour (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-18]: Wire up or delete the fully-orphaned `backend/app/services/topic_stats.py` — `summarize_to (review + tweak) ---
