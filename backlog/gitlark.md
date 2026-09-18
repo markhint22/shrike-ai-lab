@@ -4,10 +4,6 @@
 
 
 # --- gitlark deepen (2026-09-04): release-blockers first (Terms page, validation, error states, WCAG) ---
-- [ ] [T2] backend/tests/test_conversation_analytics_summary.py — Unit-test ConversationAnalytics.generate_summary in backend/app/services/conversation_analytics.py (total_messages == len(messages); user_messages/ai_messages count role=="user"/"assistant"; conversation_id echoed). Async, in-memory. VERIFY: pytest passes. (polish:test-coverage)
-- [ ] [T2] backend/tests/test_search_get_suggestions.py — Unit-test ConversationSearchService.get_suggestions filtering in backend/app/services/search.py (falsy/empty suggestions dropped, result capped at 10). Construct with a stub/None db_session; only exercise the pure filter path. VERIFY: pytest passes. (polish:test-coverage)
-- [ ] [T2] backend/tests/test_reactions_counts.py — Unit-test ReactionService.get_message_reactions aggregation in backend/app/services/reactions.py against a fake result object (counts group by reaction; empty -> {}). VERIFY: pytest passes. (polish:test-coverage)
-- [ ] [T1] backend/tests/test_feature_flag_rollout.py — Unit-test FeatureFlagService.create_flag + is_enabled + update_rollout in backend/app/services/feature_flags.py (disabled flag -> False; enabled+rollout 100 -> True; unknown flag -> False; update_rollout changes result). Async, in-memory. VERIFY: pytest passes. (polish:test-coverage)
 
 # --- next-year roadmap decomposition (2026-09-05): usage-insights coverage + deprecated-model guards + reliability ---
 
@@ -88,3 +84,15 @@
 # --- 27B-decomposed from roadmap [2026-09-15]: Fix ReviewCollaborationManager's WebSocket path mismatch and mount it in the review UI — ` (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-15]: Wire VS Code snippet star/delete into commands and context menu — `vscode-extension/src/se (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Route the already-built Connector Runs page — `web/src/pages/ConnectorRunsPage.vue` is a c (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Delete the dead duplicate `GitHubFileService` — `backend/app/services/github_file_service. (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Delete the dead duplicate `RealTimeUpdateService` — `backend/app/services/realtime_update_ (review + tweak) ---
+- [ ] [T1] backend/tests/test_realtime_update_service_removal.py — Create a test that asserts `backend/app/services/realtime_update_service.py` does not exist and that `import backend.app.services.realtime_update_service` raises `ModuleNotFoundError`. VERIFY: `cd backend && python -m pytest tests/test_realtime_update_service_removal.py -v`. (cat:test; multifile:no)
+- [ ] [T3] backend/app/services/realtime_update_service.py — Delete the file containing the dead `RealTimeUpdateService` class. VERIFY: `test ! -f backend/app/services/realtime_update_service.py`. (cat:refactor; multifile:no)
+- [ ] [T4] backend/app — Ensure no remaining imports of `realtime_update_service` or `RealTimeUpdateService` exist in the codebase. VERIFY: `grep -r "realtime_update_service\|RealTimeUpdateService" backend/app/ --include="*.py" | wc -l` returns 0. (cat:refactor; multifile:yes)
+- [ ] [T1] backend/tests/test_realtime_service_integrity.py — Create a test verifying that `backend.app.services.realtime_service` imports successfully and exposes the `realtime_service` singleton instance. VERIFY: `cd backend && python -m pytest tests/test_realtime_service_integrity.py -v`. (cat:test; multifile:no)
+- [ ] [T3] backend/app/routers/realtime.py — Verify that all 8 call sites correctly reference `realtime_service` from `backend.app.services.realtime_service` and not the deleted service. VERIFY: `grep -c "realtime_service" backend/app/routers/realtime.py` returns at least 8 and `grep "RealTimeUpdateService" backend/app/routers/realtime.py` returns 0. (cat:refactor; multifile:no)
+- [ ] [T5] backend — Run the full backend test suite to ensure no regressions from removing the dead service. VERIFY: `cd backend && python -m pytest tests/ -v --tb=short`. (cat:test; multifile:yes)

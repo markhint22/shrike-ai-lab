@@ -2,15 +2,6 @@
 # queue_refill.py pulls [T1-T5] items from here into OVERNIGHT_PROGRESS.md when doable is low.
 # Each item is ONE file, a spec (not a goal), and self-verifying. Add more over time.
 
-- [ ] [T2] iptv-web/src/components/PaywallModal.vue — add role="dialog" and aria-modal="true" to the modal container div (v-if="show" class="fixed inset-0 ..."), plus aria-labelledby pointing at the title element (give the title an id). VERIFY: a vitest mount with show:true asserts wrapper.get('[role=dialog]').attributes('aria-modal') === 'true'. (polish:a11y)
-- [ ] [T2] iptv-web/src/views/ProfilesView.vue — add role="dialog" + aria-modal="true" + aria-labelledby to the fixed inset-0 add/edit-profile modal container. VERIFY: view test with the modal open asserts one [role=dialog][aria-modal=true] exists. (polish:a11y)
-- [ ] [T2] iptv-web/src/views/SubscriptionView.vue — add role="dialog" + aria-modal="true" + aria-labelledby to the cancel-subscription modal (fixed inset-0 container). VERIFY: test opens the cancel modal and asserts [role=dialog] present with aria-modal="true". (polish:a11y)
-- [ ] [T2] iptv-web/src/views/ParentalView.vue — add role="dialog" + aria-modal="true" + aria-labelledby to the PIN/settings modal fixed inset-0 container. VERIFY: test asserts the opened modal root has role="dialog" and aria-modal="true". (polish:a11y)
-- [ ] [T2] iptv-web/src/views/StreamDetailView.vue — add role="dialog" + aria-modal="true" + aria-labelledby to the fixed inset-0 modal/overlay container. VERIFY: test asserts [role=dialog][aria-modal=true] present when the modal is shown. (polish:a11y)
-- [ ] [T2] iptv-web/src/components/PaywallModal.vue — add a @keydown.esc handler that calls handleClose() so the modal is dismissible by keyboard (today it only closes on @click.self), gated on dismissible. VERIFY: mount test triggers keydown.esc and asserts a close event was emitted; with dismissible:false asserts none emitted. (polish:a11y)
-- [ ] [T2] iptv-web/src/views/ProfilesView.vue — add Escape-key-to-close to the add/edit-profile modal (currently closable only by button/backdrop). VERIFY: view test dispatches keydown Escape and asserts the modal v-if state becomes false. (polish:a11y)
-- [ ] [T2] iptv-web/src/views/SubscriptionView.vue — add Escape-key-to-close to the cancel-subscription modal. VERIFY: test opens the modal, dispatches Escape, asserts showCancelModal is false. (polish:a11y)
-- [ ] [T1] iptv-backend/app/schemas/subscription.py — add Field(ge=0) to SubscriptionPlanBase.price_cents and Field(ge=0) to SubscriptionPlanCreate.trial_days. VERIFY: a pytest constructs SubscriptionPlanCreate(name="x", price_cents=-1) and asserts pydantic.ValidationError; price_cents=0 is accepted. (polish:validation)
 
 # --- next-year roadmap decomposition (2026-09-05): downloads / EPG-push / recommendations ---
 
@@ -75,3 +66,8 @@
 # --- 27B-decomposed from roadmap [2026-09-16]: Add unit tests for Android's revenue-critical PaywallViewModel — iptv-android/app/src/main (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-16]: Make iOS WatchlistViewModel dependency-injectable and add its first unit tests — iptv-ios/ (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Wire the backend's already-implemented EPG auto-map endpoint into Android and iOS's EPG "A (review + tweak) ---
+- [ ] [T3] iptv-ios/ChickadeeStreams/Services/APIService+Extended.swift — Modify `addEPGSource()` to call `autoMap(sourceId:)` in a `Task` or `fire-and-forget` manner after successful source addition, ensuring the main flow is not blocked by potential auto-map latency. VERIFY: `grep -A 10 "func addEPGSource" iptv-ios/ChickadeeStreams/Services/APIService+Extended.swift | grep -q "autoMap"`. (cat:ios; multifile:no)
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Wire the already-implemented, already-tested favorites/watchlist ordering helper into a re (review + tweak) ---

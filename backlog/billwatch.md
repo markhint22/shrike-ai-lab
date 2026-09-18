@@ -82,3 +82,16 @@
 # --- 27B-decomposed from roadmap [2026-09-14]: Add a router-level test for POST /api/articles/rank — app/routers/article_relevance.py's r (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-14]: Add a router-level test for POST /api/bills/{bill_id}/background — app/routers/bill_backgr (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Add router-level test coverage for app/routers/analytics.py — mounted at prefix /api/analy (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Add router tests for POST /api/legislators/sync and POST /api/legislators/sync-stats — app (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Vote/RollCallVote data has no production ingestion path — app/services/congress_api.py's g (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Delete orphaned dead-code service app/services/webhook_service.py — its WebhookService (re (review + tweak) ---
+- [ ] [T1] billwatch-backend/app/services/webhook_service.py — Delete the file containing the orphaned WebhookService class and its methods. VERIFY: `test -f billwatch-backend/app/services/webhook_service.py && echo "FAIL" || echo "PASS"` (cat:refactor; multifile:no)
+- [ ] [T2] billwatch-backend/tests/test_webhook_service.py — Delete the test file that exclusively tests the deleted WebhookService. VERIFY: `test -f billwatch-backend/tests/test_webhook_service.py && echo "FAIL" || echo "PASS"` (cat:test; multifile:no)
+- [ ] [T3] billwatch-backend/app/services/__init__.py — Remove any import or export of `webhook_service` or `WebhookService` if present. VERIFY: `grep -r "webhook_service\|WebhookService" billwatch-backend/app/ && echo "FAIL" || echo "PASS"` (cat:refactor; multifile:no)
+- [ ] [T4] billwatch-backend/app/main.py — Verify no router registration or dependency injection references the deleted webhook service. VERIFY: `grep -r "webhook" billwatch-backend/app/main.py && echo "FAIL" || echo "PASS"` (cat:refactor; multifile:no)
+- [ ] [T5] billwatch-backend/app/routers/__init__.py — Ensure no router module imports or references the deleted webhook service. VERIFY: `grep -r "webhook" billwatch-backend/app/routers/ && echo "FAIL" || echo "PASS"` (cat:refactor; multifile:no)

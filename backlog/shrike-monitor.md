@@ -44,3 +44,17 @@
 # --- 27B-decomposed from roadmap [2026-09-14]: Delete dead duplicate consecutive_failures(list[bool]) util — `app/utils/consecutive_failu (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-14]: Delete two dead duplicate HTTP-status classifiers — `app/services/checker.py`'s `classify_ (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Negative MAX_RESULTS/MAX_MONITORS env var crashes the store on the first write — `Settings (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Three more dead exports in app/services/checker.py never reach production — `determine_inc (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: Entire app/utils/status_streak.py module (3 functions) built and unit-tested but never wir (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-17]: app/utils/alert_key.py's alert_key() dead — Notifier's real dedup mechanism (`Notifier._la (review + tweak) ---
+- [ ] [T1] backend/app/utils/alert_key.py — Refactor `alert_key` to accept a generic `incident_id` parameter (str/int) and document that it can be a timestamp or counter, ensuring backward compatibility with existing string inputs. VERIFY: python -m pytest backend/tests/test_alert_key.py -v. (cat:python; multifile:no)
+- [ ] [T2] backend/app/services/scheduler.py — Add an `incident_id` field to the internal state tracking in `MonitorScheduler` (e.g., `_current_incident_id`) that increments or updates on every status transition, and expose it via a helper method `get_current_incident_id(monitor_id)`. VERIFY: python -m pytest backend/tests/test_scheduler.py -v. (cat:python; multifile:no)
+- [ ] [T3] backend/app/services/scheduler.py — Modify the logic that triggers `Notifier.notify_transition` to pass the current `incident_id` retrieved from the scheduler state as a new argument. VERIFY: python -m pytest backend/tests/test_scheduler.py -v. (cat:python; multifile:no)
+- [ ] [T4] backend/app/services/notifier.py — Update `Notifier.notify_transition` signature to accept an `incident_id` parameter and update the internal `_last_notified` dictionary keys to use `alert_key(monitor_id, new_status, incident_id)` instead of just `monitor_id`. VERIFY: python -m pytest backend/tests/test_notifier.py -v. (cat:python; multifile:no)
+- [ ] [T5] backend/tests/test_notifier.py — Add a regression test `test_distinct_incidents_same_status_not_deduped` that simulates a down->up->down->up sequence on the same monitor with distinct incident IDs, asserting that both "up" notifications are sent. VERIFY: python -m pytest backend/tests/test_notifier.py::test_distinct_incidents_same_status_not_deduped -v. (cat:test; multifile:no)
+- [ ] [T3] backend/app/main.py — Ensure the application startup or dependency injection context correctly initializes the `MonitorScheduler` and `Notifier` instances so that the new `incident_id` flow is active in the production runtime. VERIFY: python -m pytest backend/tests/test_core.py -v. (cat:python; multifile:no)
