@@ -68,8 +68,3 @@
 # --- 27B-decomposed from roadmap [2026-09-18]: Delete the dead `humanize_count()` helper in `app/utils/humanize.py` — this pure compact-c (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-18]: Delete the dead `resolve_checker_dependencies()` introspection helper in `app/services/che (review + tweak) ---
-- [ ] [T1] backend/app/services/checker.py — Remove the `resolve_checker_dependencies()` function definition spanning lines 88-108. VERIFY: `grep -n "def resolve_checker_dependencies" backend/app/services/checker.py` returns no output. (cat:refactor; multifile:no)
-- [ ] [T2] backend/tests/test_checker_import.py — Add a test case asserting that `resolve_checker_dependencies` is not present in the `checker` module namespace. VERIFY: `pytest backend/tests/test_checker_import.py -v` passes. (cat:test; multifile:no)
-- [ ] [T3] backend/app/services/checker.py — Verify no other functions in the module reference `resolve_checker_dependencies` via introspection or direct call. VERIFY: `grep -rn "resolve_checker_dependencies" backend/` returns no output. (cat:refactor; multifile:no)
-- [ ] [T4] backend/tests/test_core.py — Ensure existing core integration tests still pass after the removal to confirm no hidden dependencies. VERIFY: `pytest backend/tests/test_core.py -v` passes. (cat:test; multifile:no)
-- [ ] [T5] backend/app/services/__init__.py — Confirm that `checker` module imports remain valid and do not expose the removed function if it was previously re-exported. VERIFY: `python -c "from backend.app.services import checker; assert not hasattr(checker, 'resolve_checker_dependencies')"` exits with code 0. (cat:refactor; multifile:no)

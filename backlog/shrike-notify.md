@@ -70,3 +70,12 @@
 # --- 27B-decomposed from roadmap [2026-09-18]: Consolidate the duplicated quiet-hours/delivery-decision helpers — only one code path is a (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-18]: Wire or delete `publish_message()` in `app/utils/publish_client.py` — this async HTTP-clie (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-19]: A revoked token becomes valid again after any process restart, even with `NOTIFY_PERSIST=1 (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-19]: `app/models.py::Message` declares the `severity` field twice, back to back — lines 112-113 (review + tweak) ---
+- [ ] [T1] backend/app/models.py — Remove the duplicate `severity: str | None = None` line at line 113 within the `Message` dataclass. VERIFY: `grep -n "severity" backend/app/models.py | wc -l` returns 1. (cat:python; multifile:no)
+- [ ] [T2] backend/tests/test_core.py — Add a test asserting `len([f for f in dataclasses.fields(Message) if f.name == 'severity']) == 1`. VERIFY: `pytest backend/tests/test_core.py -k "test_message_severity_field_count" -v` passes. (cat:test; multifile:no)
+- [ ] [T3] backend/app/models.py — Ensure the remaining `severity` field retains its original default value and type annotation exactly as before deletion. VERIFY: `python -c "from backend.app.models import Message; m=Message(); assert m.severity is None; print('OK')"` succeeds. (cat:python; multifile:no)
+- [ ] [T4] backend/tests/test_broker.py — Verify existing severity round-trip tests still pass without modification after the duplicate removal. VERIFY: `pytest backend/tests/test_broker.py -k "severity" -v` passes. (cat:test; multifile:no)
+- [ ] [T5] backend/app/models.py — Confirm no other fields in `Message` are duplicated by running a static check for repeated field names in the dataclass body. VERIFY: `python -c "import dataclasses; from backend.app.models import Message; names=[f.name for f in dataclasses.fields(Message)]; assert len(names)==len(set(names)); print('No duplicates')"` succeeds. (cat:python; multifile:no)
