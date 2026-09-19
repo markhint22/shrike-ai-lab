@@ -486,18 +486,39 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   fi
   # SEMANTIC: a "wire/integrate/register X into FILE" item must leave FILE actually referencing X
   if printf '%s' "$item" | grep -qiE '\b(wire|integrate|register|hook|call|invoke)\b'; then
-    local sym tgt
+    local sym sym_alt tgt refs ok=0 cand
     sym="$(printf '%s' "$item" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*`' | head -1 | tr -d '`' | sed 's/.*\.//')"
+    # 2026-09-19 FIX: the FIRST bare-identifier backtick token is frequently the function being
+    # EDITED, not the thing being integrated — e.g. "Wrap the `db.commit()` call in
+    # `add_to_watchlist()` ... that calls `handle_integrity_error(db, x)`" picks add_to_watchlist
+    # (its own `()` variant doesn't match the bare-identifier regex, so the LAST plain-identifier
+    # backtick token elsewhere in the item, e.g. inside its own VERIFY clause, wins by default).
+    # add_to_watchlist is the function whose body was modified, so it structurally has exactly one
+    # "def" reference and nothing else — the check then ALWAYS reports SEMANTIC FAIL for this class
+    # of item regardless of how correct the edit is. Confirmed live: iptv_apps spun on this exact
+    # false positive for 9 consecutive stage-runner cycles (~4.5h) across two near-identical items
+    # (favorites.py add_to_watchlist/add_favorite) — the aider diff each time correctly defined AND
+    # called handle_integrity_error, but the item was reverted anyway every single time.
+    # Fix: also compute the LAST backtick-quoted call-syntax token, "`name(", in the item (usually
+    # the real callee described by "...that calls `X(...)`") and try both candidates, original
+    # bare-identifier first. This is strictly additive — any item whose original extraction already
+    # passes is unaffected (the loop short-circuits on the first match), so nothing that already
+    # verifies correctly can regress; only previously-false-FAIL items get a fair second look.
+    sym_alt="$(printf '%s' "$item" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*\(' | tail -1 | tr -d '`(' | sed 's/.*\.//')"
     # target file: prefer a file named after "into/in <file>"; else the item's PRIMARY named file (the
     # one at the start, e.g. "checker.py — Integrate X into ..."). NOT the last path (that's often the test).
     tgt="$(printf '%s' "$item" | grep -oiE '\b(into|in) +`?[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue)' | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue)' | head -1)"
     [ -z "$tgt" ] && tgt="$(printf '%s' "$item" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue)' | head -1)"
-    if [ -n "$sym" ] && [ -n "$tgt" ] && [ -f "$wt/$tgt" ]; then
-      # count references OUTSIDE the symbol's own definition line: a real integration USES the symbol
-      local refs; refs="$(grep -c "$sym" "$wt/$tgt" 2>/dev/null)"; refs="${refs:-0}"   # NO `|| echo 0` (that yields "0\n0" -> integer errors)
-      if [ "${refs:-0}" -ge 2 ] || { [ "${refs:-0}" -ge 1 ] && ! grep -qE "(def|func|function|static func) +$sym" "$wt/$tgt" 2>/dev/null; }; then
-        echo "-- semantic OK: $tgt uses $sym ($refs refs) --" >> "$vlog"
-      else
+    if [ -n "$tgt" ] && [ -f "$wt/$tgt" ] && { [ -n "$sym" ] || [ -n "$sym_alt" ]; }; then
+      for cand in "$sym" "$sym_alt"; do
+        [ -z "$cand" ] && continue
+        # count references OUTSIDE the symbol's own definition line: a real integration USES the symbol
+        refs="$(grep -c "$cand" "$wt/$tgt" 2>/dev/null)"; refs="${refs:-0}"   # NO `|| echo 0` (that yields "0\n0" -> integer errors)
+        if [ "$refs" -ge 2 ] || { [ "$refs" -ge 1 ] && ! grep -qE "(def|func|function|static func) +$cand" "$wt/$tgt" 2>/dev/null; }; then
+          echo "-- semantic OK: $tgt uses $cand ($refs refs) --" >> "$vlog"; ok=1; sym="$cand"; break
+        fi
+      done
+      if [ "$ok" = 0 ]; then
         echo "-- SEMANTIC FAIL: $tgt only defines (or never uses) $sym — the claimed integration never happened --" >> "$vlog"; vok=0
       fi
     fi
