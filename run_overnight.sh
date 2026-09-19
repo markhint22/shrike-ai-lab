@@ -1277,6 +1277,20 @@ Task: ${prompt}"
     # classify the item the model actually planned (its chosen file) for stats
     _CS_PF="$(echo $OVN_SCOUT_FILES | tr ' ' '\n' | grep -E '\.[A-Za-z]' | head -1)"
     _CS_ITEM="$(grep -m1 -F "${_CS_PF:-$_CS_TOP}" OVERNIGHT_PROGRESS.md 2>/dev/null)"
+    # 2026-09-19 FIX: when the scout-derived path (_CS_PF) or the roadmap's
+    # top backtick span (_CS_TOP) does not appear VERBATIM anywhere in
+    # OVERNIGHT_PROGRESS.md (e.g. the scout named a slightly different path
+    # than the roadmap literally uses -- confirmed live on xlite,
+    # scripts/utils.gd vs the roadmap's addons/gut/utils.gd), the -F grep
+    # above returns nothing and _CS_ITEM is silently empty. ovn_classify.py
+    # then has no text to extract a path from and always falls back to the
+    # other/other/T2/build-verified tag, regardless of the item's real
+    # language -- confirmed via 5 xlite gdscript entries misclassified as
+    # 'other' this way (2026-09-18 04:09-12:03, state/task_stats.log). Fall
+    # back to classifying the bare path token itself (ovn_classify.py's
+    # lang_of() reads the extension directly and handles a bare path fine)
+    # instead of an empty string.
+    _CS_ITEM="${_CS_ITEM:-${_CS_PF:-$_CS_TOP}}"
     _CS_TAG="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "$_CS_ITEM" 2>/dev/null || echo '{?}')"
     # 2026-09-18 FIX: top_item= always logged the STATIC top-of-OVERNIGHT_PROGRESS.md
     # backtick snippet (_CS_TOP), even for "ongoing-*" cycles that don't work items
