@@ -68,3 +68,14 @@
 # --- 27B-decomposed from roadmap [2026-09-18]: Delete the dead `humanize_count()` helper in `app/utils/humanize.py` — this pure compact-c (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-18]: Delete the dead `resolve_checker_dependencies()` introspection helper in `app/services/che (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-19]: `app/services/checker.py`'s `probe()` has a whole notifier/status_code-aware notify branch (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-19]: `MonitorPersistence.save_result()` never prunes old rows — the `results` table grows witho (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-19]: Three more zero-caller functions in `app/models.py` itself, on top of the checker.py/incid (review + tweak) ---
+- [ ] [T1] backend/app/utils/percentile.py — Create new module with `percentile(data: list[float], p: float) -> float` implementing linear interpolation matching numpy default. VERIFY: python -c "from backend.app.utils.percentile import percentile; assert percentile([1,2,3,4], 95) == 3.85". (cat:python; multifile:no)
+- [ ] [T2] backend/tests/test_percentile_util.py — Create unit tests for `backend/app/utils/percentile.py` covering edge cases (empty list, single element, exact match, interpolation). VERIFY: pytest backend/tests/test_percentile_util.py -v. (cat:test; multifile:no)
+- [ ] [T3] backend/app/models.py — Replace inline p95 calculation in `latency_stats()` with call to `backend.app.utils.percentile.percentile` and remove redundant local math. VERIFY: grep -n "int(0.95" backend/app/models.py | wc -l && pytest backend/tests/test_models.py -v. (cat:refactor; multifile:no)
+- [ ] [T4] backend/app/models.py — Remove `worst_status()` function definition and its docstring. VERIFY: grep -n "def worst_status" backend/app/models.py | wc -l. (cat:refactor; multifile:no)
+- [ ] [T5] backend/app/models.py — Remove `should_alert()` function definition and its docstring. VERIFY: grep -n "def should_alert" backend/app/models.py | wc -l. (cat:refactor; multifile:no)

@@ -74,8 +74,17 @@
 # --- 27B-decomposed from roadmap [2026-09-19]: A revoked token becomes valid again after any process restart, even with `NOTIFY_PERSIST=1 (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-19]: `app/models.py::Message` declares the `severity` field twice, back to back — lines 112-113 (review + tweak) ---
-- [ ] [T1] backend/app/models.py — Remove the duplicate `severity: str | None = None` line at line 113 within the `Message` dataclass. VERIFY: `grep -n "severity" backend/app/models.py | wc -l` returns 1. (cat:python; multifile:no)
-- [ ] [T2] backend/tests/test_core.py — Add a test asserting `len([f for f in dataclasses.fields(Message) if f.name == 'severity']) == 1`. VERIFY: `pytest backend/tests/test_core.py -k "test_message_severity_field_count" -v` passes. (cat:test; multifile:no)
-- [ ] [T3] backend/app/models.py — Ensure the remaining `severity` field retains its original default value and type annotation exactly as before deletion. VERIFY: `python -c "from backend.app.models import Message; m=Message(); assert m.severity is None; print('OK')"` succeeds. (cat:python; multifile:no)
-- [ ] [T4] backend/tests/test_broker.py — Verify existing severity round-trip tests still pass without modification after the duplicate removal. VERIFY: `pytest backend/tests/test_broker.py -k "severity" -v` passes. (cat:test; multifile:no)
-- [ ] [T5] backend/app/models.py — Confirm no other fields in `Message` are duplicated by running a static check for repeated field names in the dataclass body. VERIFY: `python -c "import dataclasses; from backend.app.models import Message; names=[f.name for f in dataclasses.fields(Message)]; assert len(names)==len(set(names)); print('No duplicates')"` succeeds. (cat:python; multifile:no)
+
+# --- 27B-decomposed from roadmap [2026-09-19]: Delete the orphaned `truncate_body()` helper in `app/models.py` — `truncate_body(body, max (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-19]: Delete the orphaned `severity_rank()`/`is_actionable()` pair in `app/utils/severity.py` —  (review + tweak) ---
+
+# --- 27B-decomposed from roadmap [2026-09-19]: Delete the orphaned `normalize_topic()` helper in `app/utils/topic_slug.py` — this lenient (review + tweak) ---
+- [ ] [T1] backend/app/utils/topic_slug.py — Remove the `normalize_topic` function definition and its docstring. VERIFY: `grep -n "def normalize_topic" backend/app/utils/topic_slug.py` returns no output. (cat:refactor; multifile:no)
+- [ ] [T1] backend/tests/test_topic_slug.py — Delete all test functions that call `normalize_topic` (e.g., `test_normalize_topic_idempotence`, `test_normalize_topic_length_capping`, `test_normalize_topic_punctuation`). VERIFY: `grep -n "normalize_topic" backend/tests/test_topic_slug.py` returns no output. (cat:test; multifile:no)
+- [ ] [T2] backend/app/utils/topic_slug.py — Ensure the file remains valid Python and contains only the `slugify` function (or is empty if `slugify` was also orphaned, but layout implies `slugify` exists). VERIFY: `python -c "import ast; ast.parse(open('backend/app/utils/topic_slug.py').read())"` exits 0. (cat:python; multifile:no)
+- [ ] [T2] backend/tests/test_topic_slug.py — Ensure the test file remains valid Python and imports only existing symbols. VERIFY: `python -c "import ast; ast.parse(open('backend/tests/test_topic_slug.py').read())"` exits 0. (cat:test; multifile:no)
+- [ ] [T3] backend/app/models.py — Verify that `validate_topic` is the sole topic validation gate and does not import or call `normalize_topic`. VERIFY: `grep -n "normalize_topic" backend/app/models.py` returns no output. (cat:python; multifile:no)
+- [ ] [T3] backend/app/routers/publish.py — Verify that the publish endpoint uses `validate_topic` (strict rejection) and does not attempt lenient normalization. VERIFY: `grep -n "normalize_topic" backend/app/routers/publish.py` returns no output. (cat:endpoint; multifile:no)
+- [ ] [T4] backend/app/ — Perform a final repository-wide grep to confirm zero references to `normalize_topic` in production code. VERIFY: `grep -rn "normalize_topic" backend/app/` returns no output. (cat:refactor; multifile:yes)
+- [ ] [T4] backend/tests/ — Perform a final repository-wide grep to confirm zero references to `normalize_topic` in test code. VERIFY: `grep -rn "normalize_topic" backend/tests/` returns no output. (cat:test; multifile:yes)
