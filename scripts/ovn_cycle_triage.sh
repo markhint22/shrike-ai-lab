@@ -10,7 +10,7 @@ repo="${1:-}"; status="${2:-}"; tasklog="${3:-}"; state="${4:-}"; id="${5:-}"
 log="$state/cycle_triage.log"
 prog="$repo/OVERNIGHT_PROGRESS.md"
 
-item="$(grep -viE 'HUMAN-ONLY|AUTO-SKIP' "$prog" 2>/dev/null | grep -m1 -E '^- \[ \]' | sed -E 's/^- \[ \] //; s/[`*]//g' | cut -c1-64)"
+item="$(grep -viE 'HUMAN-ONLY|AUTO-SKIP|\[CLAUDE\]' "$prog" 2>/dev/null | grep -m1 -E '^- \[ \]' | sed -E 's/^- \[ \] //; s/[`*]//g' | cut -c1-64)"
 attempts="$(grep -c 'implement attempt' "$tasklog" 2>/dev/null || echo 0)"
 flags=""
 grep -qE 'exit=124|timed out|Killed|hard-killed' "$tasklog" 2>/dev/null && flags="${flags}TIMEOUT "
