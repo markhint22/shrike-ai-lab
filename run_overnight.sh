@@ -945,10 +945,19 @@ STUB
           echo "## Doable Next Steps (unchecked, not parked/escalated/claude-tagged)"
           grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null \
             | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' \
-            | head -c "$DOABLE_BUDGET" | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
+            | python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" head "$DOABLE_BUDGET" \
+            | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
           echo
           echo "## Recent history (older entries omitted to fit budget)"
-          tail -c "$HIST_BUDGET" OVERNIGHT_PROGRESS.md | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
+          # 2026-09-19 FIX: a raw byte tail/head can split a multibyte UTF-8 sequence in half,
+          # producing invalid UTF-8 that later crashes aider's own JSON-encoding step
+          # (UnicodeDecodeError, seen live against test-automation-agent's file) and aborts
+          # the whole cycle with NEEDS-DECISION. ovn_progress_slice.py does the identical
+          # byte-count cut but decodes with errors='ignore' so a boundary-split sequence is
+          # dropped instead of raising - never changes output when the file was already
+          # valid UTF-8 within budget.
+          python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" tail "$HIST_BUDGET" OVERNIGHT_PROGRESS.md \
+            | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
         } > "$PROGRESS_TAIL_FILE"
         PROGRESS_READ_ARGS=(--read "$PROGRESS_TAIL_FILE")
       else
