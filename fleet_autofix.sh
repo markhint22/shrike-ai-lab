@@ -49,8 +49,15 @@ fi
 # child held the lock for ~4h"). `timeout -k` sends SIGKILL after a grace
 # period if SIGTERM alone doesn't stop it, so a hang can no longer outlive
 # this tick indefinitely.
-exec 202>"$STATE_DIR/run.lock"
-if flock -w 600 202; then
+# 2026-09-18: migrated to the shared scripts/lib_lock.sh helper (Phase 1, day 2 - branch_hygiene.sh
+# was day 1 in 9054f371, see that commit + scripts/lib_lock.sh's header for the full root-cause
+# writeup). Same bounded-wait behavior as the flock -w 600 this replaces (a wait of 600 is
+# byte-for-byte equivalent), plus an ntfy alert if the wait itself times out - the actual "stuck,"
+# not "briefly busy," signal. Directly relevant here: lock_guard.sh has been periodically force-
+# clearing orphaned run.lock holders left by a hung reconcile/refill child (see its own log) - a
+# different lock than hygiene.lock, but the same anti-pattern this helper exists to replace.
+source scripts/lib_lock.sh
+if acquire_lock "$STATE_DIR/run.lock" 202 600 fleet-autofix; then
   if timeout -k 30 300 bash ./reconcile_branches.sh >> "$LOG" 2>&1; then say "reconcile ok"
   else rc=$?; [ "$rc" -eq 124 ] && say "reconcile TIMED OUT after 300s (killed)" || say "reconcile nonzero ($rc)"; fi
   if MIN_DOABLE=15 timeout -k 15 120 bash ./queue_refill.sh >> "$LOG" 2>&1; then say "refill ok"
