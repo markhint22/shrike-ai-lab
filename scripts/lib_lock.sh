@@ -32,6 +32,17 @@
 # push every 20-40 minutes). A successful acquire clears the marker so the next
 # fresh contention alerts immediately, same as `recovered` in queue_refill.sh.
 #
+# 2026-09-19 OPERATIONAL NOTE: the 23458fb credit-loss/lock-cooldown fix above
+# landed run_overnight.sh as mode 100644 (non-executable) - overnight-queue.service
+# execs it directly as ExecStart, so this silently crash-looped the whole fleet for
+# ~2h (10:18-12:15 CDT) before anyone noticed, fixed in 3e3982e by chmod +x only.
+# Practice going forward for ANY edit to a script this systemd/cron execs directly
+# (run_overnight.sh, branch_hygiene.sh, fleet_autofix.sh, ovn_stage_runner.sh,
+# scripts/ovn_item_guard.sh): when using an atomic write-then-mv swap, explicitly
+# `chmod --reference=<original> <new file>` (or `chmod +x`) BEFORE the `mv`, and
+# verify with `test -x <file>` (or `git show HEAD --stat` after committing) - do
+# not assume a heredoc/cp/mv preserves the original mode bits.
+#
 # Usage: source this file, then:
 #   acquire_lock "$STATE_DIR/some.lock" 201 "${SOME_LOCK_WAIT:-0}" "my-script"
 #   # ... exit 0 here if it returned 1 - the lock was NOT acquired ...
