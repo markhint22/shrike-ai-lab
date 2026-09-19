@@ -685,8 +685,15 @@ if [ "$VERIFIED" = 1 ]; then
   fi
 fi
 
-# ---- mark the item done ONLY if independently verified (else leave OPEN for a clean re-attempt) ----
-if [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ -z "$item_arg" ]; then   # only auto-picked items live in the queue
+# ---- mark the item done ONLY if independently verified AND actually pushed (else leave OPEN
+# for a clean re-attempt). 2026-09-18 FIX: this used to gate only on $VERIFIED/$passed, so a
+# push-race loss ("push FAILED (fleet racing)" above, ncommits left at 0) still fell through to
+# this branch and permanently checked the item off in OVERNIGHT_PROGRESS.md even though the
+# verified code never reached origin/overnight/feature - confirmed live (billwatch
+# BillWatchAPIClientTests.swift, marked [x] DONE while origin/overnight/feature still had the
+# un-removed FlockWorks test methods). Require ncommits>0 too, so a lost-to-a-race item is left
+# OPEN for a clean re-attempt instead of being silently and permanently marked done. ----
+if [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -gt 0 ] && [ -z "$item_arg" ]; then   # only auto-picked items live in the queue
   ./queue.sh hold "$repo" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" python3 - <<'PY'
@@ -706,6 +713,11 @@ PY
       git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): mark staged T$tier item ($passed/$NSTEPS) so it isn't re-run"
       git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
+elif [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -eq 0 ] && [ -z "$item_arg" ]; then
+  # Verified and would have landed, but the push itself lost a fleet race - leave the item OPEN
+  # (no OVERNIGHT_PROGRESS.md edit at all) so the next cycle gets a completely clean re-attempt
+  # rather than silently losing this work forever.
+  say "leaving item OPEN for a clean re-attempt (verified but push failed - not marking done)"
 elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   # ESCALATE: the staged pipeline (retries + re-decomp + target-fn context) landed NOTHING — this is
   # genuinely beyond the 27B (usually a wire-into-a-complex-existing-function). Stop looping the fleet
