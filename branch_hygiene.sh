@@ -151,7 +151,12 @@ run_gate() {
       log "  gate: npm test in $pdir"
       ( cd "$pdir" && CI=1 timeout "$TEST_TIMEOUT" npm test --silent -- --run 2>/dev/null ) ; rc=$?
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
-      [ "$rc" -gt 1 ] && return 1
+      # 2026-09-19 FIX: was "-gt 1", which let a real vitest test-failure exit
+      # code of 1 (the normal "tests failed" exit status) slip through as
+      # non-fatal -- only exit codes >=2 (CLI/config errors) tripped the gate.
+      # The npm-build gate two blocks above already correctly uses -ne 0;
+      # match that here so a red vitest suite actually blocks the merge.
+      [ "$rc" -ne 0 ] && return 1
       ran=1
     fi
   done < <(find "$dir" -maxdepth 2 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
