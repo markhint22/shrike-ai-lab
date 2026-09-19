@@ -28,8 +28,14 @@ jlog(){ echo "$1" >> "$SLOG"; }   # $1 = a json object string
 # ONLY ONE stage runner at a time. Concurrent stage runners (a manual run + the cron sweep + the loop)
 # each spawn an aider that contends on the SINGLE-THREADED llama-server, collapsing tok/s (60 solo ->
 # ~4 under 4-way load) and timing steps out. Serialize them so each gets the GPU to itself.
-exec 209>state/stage.lock
-if ! flock -w 30 209; then say "another stage runner holds the lock — skipping (avoids 27B contention)"; exit 0; fi
+# 2026-09-19: migrated to the shared scripts/lib_lock.sh helper (Phase 1, day 3 - branch_hygiene.sh
+# was day 1 in 9054f37, fleet_autofix.sh was day 2 in 193923b; see those commits + lib_lock.sh's
+# header for the full root-cause writeup). A wait of 30 is byte-for-byte equivalent to the
+# `flock -w 30 209` this replaces, plus an ntfy alert if the wait itself times out - the actual
+# "stuck," not "briefly busy," signal. fd 209 is unchanged (the watchdog subshell below still
+# closes it the same way).
+source scripts/lib_lock.sh
+if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
 # lock + contends on the 27B (this exact runaway crashed tok/s to 4 and had a 58-min zombie). Recursively
