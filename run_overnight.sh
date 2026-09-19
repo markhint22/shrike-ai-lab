@@ -1312,6 +1312,29 @@ Task: ${prompt}"
       # skipped implement but never ticked the checkbox. If the scout's PLAN
       # names a file matching an unchecked, non-human item, credit that item so
       # it leaves rotation (mirrors the green-commit auto-credit logic).
+      # 2026-09-19 FIX: both credit commits below used to stop at `git commit` with
+      # no push. This whole branch `return`s right after (see below) - it never reaches
+      # the normal end-of-item push logic further down in this function - so a credit
+      # commit made here only ever existed as an unpushed local commit, one `git reset
+      # --hard origin/...` away (queue_refill.sh does exactly that on every refill, and
+      # so does this same function's own next-cycle checkout) from being silently wiped.
+      # Confirmed live: gitlark's tag_normalizer.py/test_tag_normalizer.py item was
+      # scout-verified ALREADY-DONE and "credited" 3 separate times across ~80 minutes
+      # (07:43, 08:18, 09:02) while OVERNIGHT_PROGRESS.md on origin never actually
+      # gained the `[x]` - each credit commit got discarded before it ever reached
+      # origin, so the item kept re-facing the scout every cycle at ~14k tokens a shot
+      # forever. Push (with one rebase-retry, matching the main push path's pattern)
+      # immediately after each credit commit so it can never be silently lost this way.
+      _credit_push() {
+        timeout 30 git push origin "$branch" --quiet 2>>"$task_log" && return 0
+        echo "--- credit-push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
+        if timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
+          return 0
+        fi
+        git rebase --abort >/dev/null 2>&1 || true
+        echo "--- credit-push failed after rebase-retry; this credit may be lost next reset ---" >> "$task_log"
+        return 1
+      }
       if [ "$OVN_VERDICT" = "ALREADY-DONE" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -n "$OVN_PLAN" ]; then
         for _df in $(echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}" | sort -u); do
           case "$_df" in *.md) continue;; esac
@@ -1320,7 +1343,9 @@ Task: ${prompt}"
           if [ -n "$_ad_ln" ]; then
             sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, scout-verified) /" OVERNIGHT_PROGRESS.md
             git add OVERNIGHT_PROGRESS.md
-            git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet 2>>"$task_log" || true
+            if git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet 2>>"$task_log"; then
+              _credit_push
+            fi
             echo "--- credited already-done item at line ${_ad_ln} (matched ${_df_base}) ---" >> "$task_log"
             break
           fi
@@ -1335,7 +1360,9 @@ Task: ${prompt}"
         _SKC="$(bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
         if echo "$_SKC" | grep -qE 'CREDITED=[1-9]'; then
           git add OVERNIGHT_PROGRESS.md
-          git commit -q -m "chore(queue): credit already-satisfied item (scout verdict path)" 2>>"$task_log" || true
+          if git commit -q -m "chore(queue): credit already-satisfied item (scout verdict path)" 2>>"$task_log"; then
+            _credit_push
+          fi
         fi
       fi
       echo "no-op(${OVN_VERDICT})"

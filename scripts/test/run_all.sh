@@ -35,6 +35,7 @@ echo; echo "===== Pipeline audit false-positive regressions (lock multi-PID, Lit
 echo; echo "===== Pause-guard (stale deploy/stage-pause self-heal, manual-pause dedup) ====="; bash test_pause_guard.sh || rc=1
 echo; echo "===== GPU autoswap (contention guard, restart/health recovery) ====="; bash test_gpu_autoswap.sh || rc=1
 echo; echo "===== Fleet autofix (persistent-issue thresholds, dedup) ====="; bash test_fleet_autofix.sh || rc=1
+echo; echo "===== Lock-guard alert cooldown (fleet-autofix contention-alert dedup) ====="; bash test_lib_lock_cooldown.sh || rc=1
 echo; echo "===== Daily promote classification (promoted/blocked/no-change) ====="; bash test_daily_promote.sh || rc=1
 echo; echo "===== ovn_planner (backlog decomposition, malformed-response guard) ====="; bash test_ovn_planner.sh || rc=1
 echo; echo "===== ovn_prework (Claude briefing generation, no-clone/failure requeue) ====="; bash test_ovn_prework.sh || rc=1

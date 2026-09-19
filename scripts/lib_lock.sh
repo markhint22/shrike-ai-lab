@@ -14,6 +14,24 @@
 #      is wrong" signal (a normal, brief overlap resolves during the wait and never
 #      alerts; only a holder that's stuck past the wait window fires).
 #
+# 2026-09-19 FIX: fleet-autofix (wait=600) runs every 20min via cron, and
+# run_overnight.sh routinely holds run.lock for a full multi-repo cycle (the
+# "whole block runs holding run.lock" design in run_overnight.sh) - often well
+# over an hour. That means the *normal*, everyday case became "fleet-autofix
+# waits out its whole 600s window and gives up", not the rare "holder is stuck"
+# case this alert was designed for. Confirmed live: ~20 identical "fleet-autofix
+# lock contention" ntfy pushes in one 12h overnight window, none of them a real
+# problem (every one self-resolved by the next tick once run_overnight finished
+# its cycle) - this was the single largest source of the "many errors and
+# warnings" the alerting was supposed to be reserved for. Same fix shape as the
+# existing dry-repo/roadmap-exhausted reminders elsewhere in this codebase
+# (state/qr_dry_<repo> markers): alert once when contention STARTS, stay silent
+# on every immediately-following contention while it persists, and only
+# re-alert once per LOCK_ALERT_COOLDOWN_SECS if it's still ongoing (a real
+# "genuinely stuck" holder now reads as one alert + hourly reminders, not a
+# push every 20-40 minutes). A successful acquire clears the marker so the next
+# fresh contention alerts immediately, same as `recovered` in queue_refill.sh.
+#
 # Usage: source this file, then:
 #   acquire_lock "$STATE_DIR/some.lock" 201 "${SOME_LOCK_WAIT:-0}" "my-script"
 #   # ... exit 0 here if it returned 1 - the lock was NOT acquired ...
@@ -21,6 +39,8 @@
 # A wait of 0 behaves exactly like the old `flock -n` (immediate bail, no alert
 # spam for callers that fire so often a brief overlap is routine and expected -
 # e.g. the hourly 6-repo pass shouldn't wait on itself between its own repos).
+LOCK_ALERT_COOLDOWN_SECS="${LOCK_ALERT_COOLDOWN_SECS:-3600}"   # 1h between repeat alerts for the SAME still-stuck lock
+
 acquire_lock() {
   local lock_file="$1" fd="$2" wait_seconds="${3:-0}" label="${4:-lock}"
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null
@@ -31,14 +51,31 @@ acquire_lock() {
       local _lock_dir; _lock_dir="$(dirname "$lock_file")"
       local _state_dir; _state_dir="$(dirname "$_lock_dir")"
       [ "$(basename "$_lock_dir")" = "state" ] && _state_dir="$_lock_dir"
-      local topic="${NTFY_TOPIC:-$(cat "$_state_dir/ntfy_topic" 2>/dev/null)}"
-      if [ -n "$topic" ]; then
-        curl -fsS --max-time 8 -H "Title: $label lock contention" -H "Tags: warning" \
-          -d "$label waited ${wait_seconds}s for $(basename "$lock_file") and gave up — another pass is still holding it. If this repeats, either the holder is stuck or the wait window is too short." \
-          "https://ntfy.sh/$topic" >/dev/null 2>&1 || true
+      local _marker="$_state_dir/lock_alert_${label}_$(basename "$lock_file")"
+      local _now; _now=$(date +%s)
+      local _last=0; [ -f "$_marker" ] && _last="$(cat "$_marker" 2>/dev/null || echo 0)"
+      if [ $(( _now - ${_last:-0} )) -ge "$LOCK_ALERT_COOLDOWN_SECS" ]; then
+        echo "$_now" > "$_marker" 2>/dev/null
+        local topic="${NTFY_TOPIC:-$(cat "$_state_dir/ntfy_topic" 2>/dev/null)}"
+        if [ -n "$topic" ]; then
+          curl -fsS --max-time 8 -H "Title: $label lock contention" -H "Tags: warning" \
+            -d "$label waited ${wait_seconds}s for $(basename "$lock_file") and gave up — another pass is still holding it. If this repeats, either the holder is stuck or the wait window is too short. (silent on immediate repeats — reminder repeats at most every $((LOCK_ALERT_COOLDOWN_SECS/60))min while it stays stuck)" \
+            "https://ntfy.sh/$topic" >/dev/null 2>&1 || true
+        fi
+      else
+        echo "[$label $(date '+%F %H:%M:%S')] contention persists (no alert, within cooldown)."
       fi
     fi
     return 1
+  fi
+  # Lock acquired cleanly this tick - clear any stale contention marker so the
+  # NEXT genuinely-new contention alerts right away instead of inheriting an
+  # old cooldown window from an unrelated earlier incident.
+  if [ "$wait_seconds" -gt 0 ] 2>/dev/null; then
+    local _lock_dir2; _lock_dir2="$(dirname "$lock_file")"
+    local _state_dir2; _state_dir2="$(dirname "$_lock_dir2")"
+    [ "$(basename "$_lock_dir2")" = "state" ] && _state_dir2="$_lock_dir2"
+    rm -f "$_state_dir2/lock_alert_${label}_$(basename "$lock_file")" 2>/dev/null
   fi
   return 0
 }
