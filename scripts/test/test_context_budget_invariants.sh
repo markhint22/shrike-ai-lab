@@ -23,7 +23,7 @@ ok "uncapped --read only used in the ELSE (under-cap) branch" \
 ok "tail header does not print the literal source filename" \
   "! grep -A3 'PROGRESS_TAIL_FILE=\"/tmp' $R | grep -q 'bytes of OVERNIGHT_PROGRESS.md'"
 ok "tail content is sed-stripped of the literal source filename" \
-  "grep -qE 'tail -c .\\\$(PROGRESS_MAX_BYTES|HIST_BUDGET). OVERNIGHT_PROGRESS\\.md \\| sed' $R"
+  "grep -A1 -E 'ovn_progress_slice\\.py. tail .\\\$HIST_BUDGET. OVERNIGHT_PROGRESS\\.md' $R | grep -q 'sed .s/OVERNIGHT_PROGRESS'"
 
 # --- Layer 3: the scout's free-text PLAN gets embedded verbatim into the next prompt -
 #     it must be sanitized first (a 27B model saying \"per OVERNIGHT_PROGRESS.md...\" in
