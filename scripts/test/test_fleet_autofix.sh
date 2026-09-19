@@ -33,7 +33,8 @@ export NTFY_TOPIC="shrike_fleetautofix_selftest_ignore"   # any alert goes to an
 
 reset_env(){
   export HOME="$tmp/home"
-  rm -rf "$HOME"; mkdir -p "$HOME/overnight-queue/state" "$HOME/overnight-queue/logs"
+  rm -rf "$HOME"; mkdir -p "$HOME/overnight-queue/state" "$HOME/overnight-queue/logs" "$HOME/overnight-queue/scripts"
+  cp "$HERE/../lib_lock.sh" "$HOME/overnight-queue/scripts/lib_lock.sh"
   LOG="$HOME/overnight-queue/logs/fleet_autofix.log"
   export FAKE_RECONCILE_LOG="$tmp/reconcile.log"; export FAKE_REFILL_LOG="$tmp/refill.log"
   : > "$FAKE_RECONCILE_LOG"; : > "$FAKE_REFILL_LOG"
