@@ -550,9 +550,22 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     fi
   done
   local cf
+  # 2026-09-20 FIX: this used to grep the WHOLE file on disk ("$wt/$cf") instead of just the
+  # lines this stage run actually added/changed, so any file that already legitimately contained
+  # one of these substrings ANYWHERE — e.g. a pre-existing VS Code `placeHolder:` API option, an
+  # HTML/Tailwind `placeholder="..."` attribute or `placeholder-gray-400` class, or an old comment
+  # documenting a genuinely-unimplemented unrelated feature — permanently blocked every future
+  # stage-runner change to that file, no matter how unrelated or how cleanly it verified. Confirmed
+  # live: gitlark's backend/app/routers/pull_requests.py (a stale "VERIFY/test-result correlation
+  # is NOT implemented" comment) failed this gate 8 times across three days, and gitlark's
+  # code-review.ts, iptv_apps's DiscoverView.vue and HomeView.vue each tripped it on a bare
+  # `placeholder`/`placeHolder` identifier while their actual new code was a fully passing,
+  # verified change — all discarded as no-op(stage-unverified) for a false reason. Scope the check
+  # to only the lines this run actually added, via the same origin/overnight/feature..HEAD diff
+  # already used to build $changed above, so pre-existing file content can no longer trigger it.
   for cf in $srcs; do
     [ -f "$wt/$cf" ] || continue
-    if grep -qiE 'for demonstration|placeholder|not implemented|NotImplementedError|TODO:? implement|for now,? (just|return)|# *stub|dummy (value|impl)|simple .* for demonstration' "$wt/$cf" 2>/dev/null; then
+    if git -C "$wt" diff origin/overnight/feature..HEAD -- "$cf" 2>/dev/null | grep -E '^\+' | grep -vE '^\+\+\+' | grep -qiE 'for demonstration|placeholder|not implemented|NotImplementedError|TODO:? implement|for now,? (just|return)|# *stub|dummy (value|impl)|simple .* for demonstration'; then
       echo "-- QUALITY FAIL: $cf is a stub/placeholder — a real working implementation is required --" >> "$vlog"; vok=0
     fi
   done
