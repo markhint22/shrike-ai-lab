@@ -261,10 +261,17 @@ error_status() {
 # if another run is already in progress, skip this invocation entirely
 # rather than queue up behind it - the next cron tick will pick up any
 # skipped work anyway.
+# 2026-09-20: migrated to the shared scripts/lib_lock.sh helper (Phase 1, day 4 - branch_hygiene.sh
+# was day 1 in 9054f37, fleet_autofix.sh was day 2 in 193923b, ovn_stage_runner.sh was day 3 in
+# bda7ef2; see those commits + lib_lock.sh's header for the full root-cause writeup). A wait of 0
+# is byte-for-byte equivalent to the `flock -n 200` this replaces (immediate bail, no alert - this
+# lock is held for a whole multi-repo cycle, often over an hour, so waiting here is never the right
+# behavior for this caller). Sourced via $SCRIPT_DIR (not a bare relative path like the day 2/3
+# callers) because this script is exec'd directly by overnight-queue.service with no
+# WorkingDirectory set, so cwd is not guaranteed to be the repo root.
+source "$SCRIPT_DIR/scripts/lib_lock.sh"
 LOCK_FILE="$STATE_DIR/run.lock"
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-  log "Another run_overnight.sh is already in progress (lock: ${LOCK_FILE}) — skipping this invocation entirely."
+if ! acquire_lock "$LOCK_FILE" 200 0 run-overnight; then
   exit 0
 fi
 
