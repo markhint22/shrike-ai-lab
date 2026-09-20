@@ -1822,6 +1822,34 @@ Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your c
       # the TOP item, so credit ANY unchecked, non-blocked item whose EXACT named file this
       # green commit touched. Single-file items name their target file, so a green change to
       # that file is that item's completion.
+      #
+      # REAL-DIFF GUARD (2026-09-20 hardening): "touched" used to mean merely appearing in
+      # `git diff --name-only` between BEFORE_SHA/AFTER_SHA - which a file satisfies even
+      # when it was newly added with ZERO content (0 insertions/0 deletions), e.g. a stray
+      # aider --file placeholder that a later dedupe/cleanup step commits as an empty stub.
+      # Caught live on shrike-notify: the model wrote a real 53-line notify_cli.py during
+      # the read-only scout pass, that content was correctly discarded (scout must never
+      # leak into implement), the implement pass then worked on a DIFFERENT file and
+      # committed only that - but a same-cycle "auto-remove duplicate Python class/function
+      # definition(s)" commit separately added notify_cli.py to git as a brand-new, fully
+      # EMPTY file (0/0 diff), and this gate then marked the real "create notify_cli.py"
+      # roadmap item [x] done off the back of that empty add, permanently losing the real
+      # work (never re-attempted). Require the named file's OWN diff for this cycle to have
+      # at least one real inserted or deleted line before crediting it - a 0/0 diff (pure
+      # rename/mode-change/no-op add) no longer counts as "done." Binary files report "-"
+      # for both counts in --numstat; treated as a real change since line-counting doesn't
+      # apply (can't be the empty-file case this guard targets).
+      _ac_has_real_diff() {
+        local _f="$1" _stat _add _del
+        _stat="$(git diff --numstat "$BEFORE_SHA" "$AFTER_SHA" -- "$_f" 2>/dev/null)"
+        [ -z "$_stat" ] && return 1
+        _add="$(printf '%s' "$_stat" | awk '{print $1}')"
+        _del="$(printf '%s' "$_stat" | awk '{print $2}')"
+        if [ "$_add" = "-" ] || [ "$_del" = "-" ]; then
+          return 0  # binary file - can't line-count, don't block on it
+        fi
+        [ "${_add:-0}" -gt 0 ] || [ "${_del:-0}" -gt 0 ]
+      }
       if [ "$VERIFY_RESULT" != "fail" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
         _ac_changed="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . | grep -v '^$')"
         _ac_hit=0
@@ -1829,6 +1857,10 @@ Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your c
           while IFS= read -r _cf; do
             [ -z "$_cf" ] && continue
             case "$_cf" in OVERNIGHT_PROGRESS.md) continue;; esac
+            if ! _ac_has_real_diff "$_cf"; then
+              echo "--- auto-credit: SKIPPED ${_cf} - it's in the diff but has a 0/0 (empty) change, not real work ---" >> "$task_log"
+              continue
+            fi
             _ac_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | grep -F "$_cf" | head -1 | cut -d: -f1)"
             if [ -n "$_ac_ln" ]; then
               sed -i "${_ac_ln}s/^- \[ \] /- [x] /" OVERNIGHT_PROGRESS.md
