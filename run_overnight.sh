@@ -555,6 +555,21 @@ run_redgreen_check() {
   done
   [ -z "$dtests" ] && { echo "n/a"; return; }
 
+  # 2026-09-20 FIX: a brand-new source file (created by this same commit) doesn't exist at
+  # $before, so `git checkout "$before" -- $file` below fails/no-ops silently on it — the
+  # "before" pytest run then executes against the SAME post-fix source (never actually
+  # reverted), trivially passes, and gets mis-flagged [redgreen:SUSPECT] as if the new test
+  # were vacuous. Confirmed benign 3x this session: always a genuine net-new file, never an
+  # actual vacuous test. Skip the check entirely (do not flag) rather than run it against a
+  # revert that can't happen.
+  local sf
+  for sf in $src; do
+    if ! git cat-file -e "$before:$sf" 2>/dev/null; then
+      echo "--- red-green: skipped — $sf did not exist at $before (net-new file, nothing to revert) ---" >> "$task_log"
+      echo "n/a"; return
+    fi
+  done
+
   # Revert ONLY the source to pre-fix (keep the new tests), run just the new
   # tests, then restore. Cleanup restores source even if pytest is killed.
   echo "--- red-green: running new test(s) against pre-fix source ---" >> "$task_log"
@@ -881,6 +896,27 @@ STUB
       fi
       _STAGE_SUMMARY="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep '"event":"summary"' | tail -1)"
       _STAGE_PUSHED="$(printf '%s' "$_STAGE_SUMMARY" | grep -oE '"commits_pushed":[0-9]+' | grep -oE '[0-9]+$')"
+      # 2026-09-20 FIX: ovn_stats.py's by-language/type pass-rate breakdown reads
+      # state/task_stats.log, which cycle_notify.sh only ever populates for the BASIC
+      # scout+implement flow (it needs a matching state/cycle_summary.log line, which this
+      # higher-tier inline sub-flow never writes — it returns straight out of this function,
+      # well before the code further down in this file that appends to cycle_summary.log).
+      # Confirmed live: shrike-monitor/xlite showed "no queue activity recorded" in
+      # ovn_stats.py despite 100% of their real recent work going through THIS path (their
+      # raw digest counts were fine — cycle_notify.sh's np/nf/nr/nn/ne tally already reads the
+      # report table directly — only the classified per-language/type view was blind). The
+      # stage runner's own per-run jsonl already has everything needed (repo, tier, item text
+      # with an embedded target file + a cat: tag) without needing cycle_summary.log at all.
+      _stage_item="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep -m1 '"event":"decomposed"' | grep -oE '"item":"[^"]*"' | sed -E 's/^"item":"//; s/"$//')"
+      _stage_file="$(printf '%s' "$_stage_item" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | grep -vE '\.md$' | head -1)"
+      _stage_tag="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "${_stage_item:-$_stage_file}" 2>/dev/null || echo '{?}')"
+      if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
+        _stage_oc=pass
+      else
+        _stage_oc=noop:flail
+      fi
+      mkdir -p "$SCRIPT_DIR/state" 2>/dev/null
+      printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(basename "$repo")" "$_stage_oc" "$_stage_tag" "${_stage_file:-?}" >> "$SCRIPT_DIR/state/task_stats.log"
       if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
         echo "pushed(tests:pass) stage(higher-tier)"
       else
