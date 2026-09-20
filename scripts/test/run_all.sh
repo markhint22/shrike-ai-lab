@@ -61,5 +61,12 @@ echo; echo "===== Generate-items self-generation (T1 tagging) ====="; python3 te
 echo; echo "===== Queue health sweep (auto-recover starved repos, report dupes/already-done) ====="; bash test_queue_health_sweep.sh || rc=1
 echo; echo "===== Filesize retag (T1/T2 large-file items route to staged pipeline) ====="; python3 test_filesize_retag.py || rc=1
 echo; echo "===== Godot report (noise-filtered pass-rate windows) ====="; python3 test_godot_report.py || rc=1
+echo; echo "===== Redgreen net-new-file guard (no false [redgreen:SUSPECT] on new files) ====="; bash test_redgreen_net_new_file.sh || rc=1
+echo; echo "===== Stage scope guard (multifile:no rejects undeclared/junk files) ====="; bash test_stage_scope_guard.sh || rc=1
+echo; echo "===== Stage-routed task_stats.log write (ovn_stats.py stage-runner blind spot) ====="; bash test_stage_task_stats_write.sh || rc=1
+echo; echo "===== Feature groups (feat-tag + file-based approximate grouping, % complete) ====="; bash test_ovn_feature_groups.sh || rc=1
+echo; echo "===== Feature-complete watch (distinct completion push, no double-fire) ====="; bash test_ovn_feature_watch.sh || rc=1
+echo; echo "===== Hourly digest (lean 1h summary, silent when idle) ====="; bash test_hourly_notify.sh || rc=1
+echo; echo "===== Digest feature-progress section wiring ====="; bash test_digest_feature_section.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

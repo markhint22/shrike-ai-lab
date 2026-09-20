@@ -365,6 +365,39 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
     else
       if ( cd "$wt" && bash "$HOME/overnight-queue/scripts/ovn_autotest.sh" "$wt" ) >> "$slog" 2>&1; then
         fa=""; rc=0
+        # 2026-09-20 scope guard: for a multifile:no item, reject a step that touched files
+        # outside its declared target(s) + a reasonable matching test-companion, instead of
+        # silently accepting whatever else the diff contains — this is exactly the shape of
+        # the earlier shrike-monitor incident where an obviously-hallucinated junk file
+        # (aether/README.md) slipped through a scope-less gate.
+        if printf '%s' "$item" | grep -qiE 'multifile:no'; then
+          local _declared _touched _extra _tf _df _tb _base _ok
+          _declared="$(
+            { printf '%s\n' "$files" | tr ' ' '\n'
+              printf '%s' "$item" | sed -E 's/^\[T[0-9]\] //' | grep -oE '^[A-Za-z0-9_./-]+\.[A-Za-z0-9]+'
+            } | grep -vE '^$' | sort -u)"
+          _touched="$(git -C "$wt" status --porcelain 2>/dev/null | awk '{print $2}' | sort -u)"
+          _extra=""
+          while IFS= read -r _tf; do
+            [ -z "$_tf" ] && continue
+            _ok=0
+            while IFS= read -r _df; do
+              [ -z "$_df" ] && continue
+              if [ "$_tf" = "$_df" ]; then _ok=1; break; fi
+              # allow a same-basename test companion (foo.py <-> test_foo.py/foo_test.py/
+              # foo.spec.ts/foo.test.ts), regardless of directory
+              _tb="$(basename "$_tf" | sed -E 's/\.[A-Za-z0-9]+$//; s/^test_//; s/_test$//; s/\.(spec|test)$//')"
+              _base="$(basename "$_df" | sed -E 's/\.[A-Za-z0-9]+$//; s/^test_//; s/_test$//; s/\.(spec|test)$//')"
+              if [ -n "$_tb" ] && [ "$_tb" = "$_base" ]; then _ok=1; break; fi
+            done <<< "$_declared"
+            [ "$_ok" -eq 0 ] && _extra="$_extra $_tf"
+          done <<< "$_touched"
+          if [ -n "$(printf '%s' "$_extra" | tr -d '[:space:]')" ]; then
+            fa="scope-violation"; rc=1
+            excerpt="multifile:no step touched undeclared file(s):${_extra} (declared: $(printf '%s' "$_declared" | tr '\n' ' '))"
+            say "  step $idx REJECTED (scope): touched undeclared file(s):${_extra}"
+          fi
+        fi
       else
         fa="$(bash "$HOME/overnight-queue/ovn_classify_fail.sh" "$atmp" reverted 2>/dev/null)"; rc=1
         excerpt="$(grep -iE 'error|fail|assert|expected|traceback|<failure|cannot|not found|no attribute|no such' "$atmp" 2>/dev/null | tail -4 | tr '\n' ' ' | cut -c1-320)"
