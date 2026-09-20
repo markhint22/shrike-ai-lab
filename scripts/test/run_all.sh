@@ -70,8 +70,9 @@ echo; echo "===== Feature-complete watch (distinct completion push, no double-fi
 echo; echo "===== Hourly digest (lean 1h summary, silent when idle) ====="; bash test_hourly_notify.sh || rc=1
 echo; echo "===== Digest feature-progress section wiring ====="; bash test_digest_feature_section.sh || rc=1
 echo; echo "===== Digest no-op/reverted repeat-detail wiring ====="; bash test_digest_noop_detail.sh || rc=1
-echo; echo "===== Delete-hint prompt guidance (aider DELETE: trailer steering) ====="; bash test_delete_hint_prompt.sh || rc=1
 echo; echo "===== Migration-safety gate bounded fix-up (zero-repair gap closed) ====="; bash test_migration_gate_fixup.sh || rc=1
 echo; echo "===== BUILD-GATE Kotlin diagnostic grounding (kotlinc file:line:col extraction) ====="; bash test_buildgate_kotlinc_grounding.sh || rc=1
+echo; echo "===== Android Gradle flavor-task disambiguation (ambiguous VERIFY command guard) ====="; bash test_gradle_flavor_guard.sh || rc=1
+echo; echo "===== Delete-hint prompt guidance (aider DELETE: trailer steering) ====="; bash test_delete_hint_prompt.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

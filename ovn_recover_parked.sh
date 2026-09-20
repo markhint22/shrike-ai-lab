@@ -192,6 +192,21 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
     "$(printf '%s' "$_raw" | jq -r '.usage.prompt_tokens // 0' 2>/dev/null)" \
     "$(printf '%s' "$_raw" | jq -r '.usage.completion_tokens // 0' 2>/dev/null)" 2>/dev/null || true
   items="$(printf '%s\n' "$resp" | grep -E '^- \[ \] (\[T[1-3]\].+VERIFY:|\[CLAUDE\])' | head -4)"
+  # Android flavor-task disambiguation (2026-09-20): same fix as ovn_planner.sh's
+  # decomposition path — this LLM call also freely writes gradle VERIFY commands and has
+  # no way to know a repo's real product-flavor names, so it can hand back the exact same
+  # ambiguous ":app:testDebugUnitTest" shape that fails immediately on a flavored module
+  # (e.g. iptv-android's googleTv/fireTv). Reuse the same shared guard.
+  _gradle_guard="$HOME/overnight-queue/scripts/ovn_gradle_flavor_guard.sh"
+  if [ -f "$_gradle_guard" ]; then
+    _guard_log="$(mktemp)"
+    # NEVER let a missing/misbehaving guard silently empty out a good recovery decomposition -
+    # only replace $items if the guard actually produced output.
+    _guard_out="$(printf '%s\n' "$items" | bash "$_gradle_guard" "$rd" 2>"$_guard_log")"
+    [ -n "$_guard_out" ] && items="$_guard_out"
+    [ -s "$_guard_log" ] && say "$r: $(cat "$_guard_log")"
+    rm -f "$_guard_log"
+  fi
   cnt=$(printf '%s' "$items" | grep -c '^- \[ \]')
   fi
   if [ "${cnt:-0}" -lt 1 ]; then

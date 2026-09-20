@@ -123,6 +123,25 @@ PROMPT_END
     say "$r: 27B produced only ${n} valid items — NOT appending (needs Claude review of the prompt/feature)"
     continue
   fi
+  # Android flavor-task disambiguation (2026-09-20): the 27B has no way to know a repo's
+  # real Gradle product-flavor names (not in its layout/prompt context here), so it
+  # routinely writes VERIFY commands using the single-variant task shape
+  # (":app:testDebugUnitTest") that AGP only accepts when the app module has ZERO
+  # product flavors. iptv-android declares googleTv+fireTv (billwatch-android declares
+  # none, confirmed by audit) - Gradle then fails immediately with "Task '...' is
+  # ambiguous in project ':app'" before a single test runs. scripts/ovn_gradle_flavor_guard.sh
+  # rewrites that exact shape to Gradle's own umbrella ":<module>:test" task, which is
+  # valid whether or not the module has flavors.
+  _gradle_guard="$HOME/overnight-queue/scripts/ovn_gradle_flavor_guard.sh"
+  if [ -f "$_gradle_guard" ]; then
+    _guard_log="$(mktemp)"
+    # NEVER let a missing/misbehaving guard silently empty out a good decomposition -
+    # only replace $items if the guard actually produced output.
+    _guard_out="$(printf '%s\n' "$items" | bash "$_gradle_guard" "repos/$r" 2>"$_guard_log")"
+    [ -n "$_guard_out" ] && items="$_guard_out"
+    [ -s "$_guard_log" ] && say "$r: $(cat "$_guard_log")"
+    rm -f "$_guard_log"
+  fi
   # 2026-09-20 feature tracking: tag every item this feature decomposes into with a durable
   # [feat:ID] marker so a % complete / completion notification can be computed later (see
   # scripts/ovn_feature_groups.py's header for the full investigation — until this, the link
