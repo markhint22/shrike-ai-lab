@@ -123,9 +123,21 @@ PROMPT_END
     say "$r: 27B produced only ${n} valid items — NOT appending (needs Claude review of the prompt/feature)"
     continue
   fi
+  # 2026-09-20 feature tracking: tag every item this feature decomposes into with a durable
+  # [feat:ID] marker so a % complete / completion notification can be computed later (see
+  # scripts/ovn_feature_groups.py's header for the full investigation — until this, the link
+  # from a decomposed item back to its parent roadmap feature was thrown away the moment
+  # queue_refill.py copied it into OVERNIGHT_PROGRESS.md as a bare line). The tag survives
+  # checkbox toggling (run_overnight.sh's sed only ever rewrites the "- [ ] " prefix) and
+  # archival to OVERNIGHT_DONE.md (archive_done.py moves lines verbatim), so it stays
+  # attached to the item for its whole life. ID = repo + decompose-date + a slug of the
+  # feature title, which also doubles as a human-readable label in the completion push.
+  feat_slug="$(printf '%s' "$feat" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40)"
+  feat_id="${r}-$(date '+%Y%m%d')-${feat_slug:-item}"
+  items="$(printf '%s\n' "$items" | sed -E "s/\$/ [feat:${feat_id}]/")"
   {
     echo ""
-    echo "# --- 27B-decomposed from roadmap [$(date '+%F')]: ${feat:0:90} (review + tweak) ---"
+    echo "# --- 27B-decomposed from roadmap [$(date '+%F')]: ${feat:0:90} (review + tweak) [feat:${feat_id}] ---"
     printf '%s\n' "$items"
   } >> "$bl"
   # mark the feature decomposed in the roadmap
