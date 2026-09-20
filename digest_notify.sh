@@ -2,6 +2,14 @@
 # Every ~3h (cron): roll state/digest_buffer.log up into ONE human-readable ntfy
 # message, then clear the buffer. Replaces the old per-cycle push. If nothing ran
 # in the window, sends a short "quiet" heartbeat so you still know the box is alive.
+#
+# 2026-09-20: hourly_notify.sh (cron, hourly) now ALSO fires a leaner version of the
+# landed-detail + tier-breakdown sections below for the trailing 1h — this digest stays the
+# "fuller" one on purpose (tokens, by-language pass-rate, planning activity, and — new this
+# same date — feature progress) and is effectively a rollup covering the last ~3 hourly
+# summaries, not a duplicate of them. It is also still the ONLY one of the two that sends an
+# idle/paused/not-running heartbeat, so a quiet box is never ambiguous even on an hour where
+# hourly_notify.sh correctly stayed silent.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="$DIR/state"
@@ -116,6 +124,18 @@ if [ -x "$DIR/scripts/ovn_landed_detail.py" ]; then
   [ -n "$_LANDED_DETAIL" ] && body="$body
 
 $_LANDED_DETAIL"
+fi
+
+# 2026-09-20: feature-level % complete, for whichever multi-item groups (real [feat:ID]
+# planner-linked features, or an approximate same-file fallback where no such tag exists yet —
+# see scripts/ovn_feature_groups.py's header for the full investigation) had a landed item in
+# this window. A DISTINCT "🎉 Feature complete" push (ovn_feature_watch.sh, cron) fires the
+# moment a real feature's last sub-item lands, separately from this routine digest.
+if [ -x "$DIR/scripts/ovn_feature_groups.py" ]; then
+  _FEAT="$(OVN_QUEUE_DIR="$DIR" python3 "$DIR/scripts/ovn_feature_groups.py" --digest "$DIGEST_HOURS" --max-total 6 2>/dev/null)"
+  [ -n "$_FEAT" ] && body="$body
+
+$_FEAT"
 fi
 
 # 2026-09-09: tier-sliced pass/no-op/timeout + token spend. outcomes.jsonl has the accurate,
