@@ -11,7 +11,26 @@ SERVER="${NTFY_SERVER:-https://ntfy.sh}"
 DIGEST_HOURS=3
 [ -n "$TOPIC" ] || exit 0
 
-send() { curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "$SERVER/$TOPIC" >/dev/null 2>&1 || true; }
+# 2026-09-19 FIX: this used to be a bare `curl ... || true` — a single transient failure
+# (network blip, ntfy.sh 5xx, etc.) was silently swallowed with no retry, and the caller
+# always proceeded as if delivery had succeeded (see the unconditional buffer-clear this
+# used to feed). Confirmed live: cron invoked this script on schedule and it ran to
+# completion (buffer rotated to .last as usual), but the ~18:20 CDT digest never reached
+# ntfy — no error anywhere because nothing checked curl's exit code. Now retries a few
+# times and reports real success/failure so the caller can decide whether it's safe to
+# drop the buffer.
+send() {
+  local title="$1" tags="$2" body="$3" attempt rc=0
+  for attempt in 1 2 3; do
+    if curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -d "$body" "$SERVER/$TOPIC" >/dev/null 2>&1; then
+      return 0
+    fi
+    rc=$?
+    [ "$attempt" -lt 3 ] && sleep 2
+  done
+  echo "$(date '+%Y-%m-%d %H:%M:%S') send() FAILED after 3 attempts (curl rc=$rc): title='$title'" >&2
+  return 1
+}
 
 # 2026-09-09: an empty buffer only means "nothing since the last digest" — it does NOT imply
 # idle-or-paused (that vague "or" read as alarming even when the queue was running fine the
@@ -143,8 +162,15 @@ if [ -x "$DIR/scripts/ovn_planning_stats.py" ]; then
 $_PLANNING"
 fi
 
-send "Overnight queue" "robot" "$body"
-
-# clear the buffer (keep one rotation for debugging)
-cp "$BUF" "$BUF.last" 2>/dev/null || true
-: > "$BUF"
+# 2026-09-19 FIX: only rotate/clear the buffer if the digest actually delivered. Previously
+# this ran unconditionally, so a failed send (see send() above) still wiped the accumulated
+# stats — the next cycle would report a falsely-quiet window and the failed window's data
+# was gone for good. On failure, leave the buffer in place so the next cycle's digest
+# naturally accumulates and reports the missed window's items too.
+if send "Overnight queue" "robot" "$body"; then
+  # clear the buffer (keep one rotation for debugging)
+  cp "$BUF" "$BUF.last" 2>/dev/null || true
+  : > "$BUF"
+else
+  echo "$(date '+%Y-%m-%d %H:%M:%S') digest delivery failed — leaving buffer intact for retry+accumulation next cycle" >&2
+fi
