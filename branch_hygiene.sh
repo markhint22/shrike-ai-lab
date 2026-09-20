@@ -206,11 +206,23 @@ run_gate() {
     gdir="$(dirname "$gradlew")"
     if [ -f "$gdir/settings.gradle.kts" ] || [ -f "$gdir/settings.gradle" ]; then
       log "  gate: ./gradlew test in $gdir"
+      # 2026-09-19: also capture output to a tempfile (in addition to the normal
+      # stream to the log) so we can detect the known "Gradle build daemon
+      # disappeared unexpectedly" / AAPT2 "Idle daemon unexpectedly exit" infra
+      # flake — a stale/shared Gradle daemon's AAPT2 sub-process dying between two
+      # unrelated builds that happen to reuse the same daemon (confirmed root cause
+      # for the 2026-09-19 21:27 billwatch flag: a standalone `./gradlew test` rerun
+      # of the exact same commit passed clean in 50s). Same treatment as the
+      # pytest TEST_TIMEOUT retry below: one immediate retry in a fresh worktree
+      # instead of flagging on a non-code infra crash.
+      gradle_out="$(mktemp)"
       ( cd "$gdir" &&
         export ANDROID_HOME="$HOME/android-sdk" &&
         [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
-        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) 2>&1; rc=$?
+        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) 2>&1 | tee "$gradle_out"; rc=${PIPESTATUS[0]}
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
+      grep -qE "daemon (has disappeared|unexpectedly exit)|Gradle build daemon disappeared unexpectedly" "$gradle_out" && _GATE_TIMEOUT_HIT=1
+      rm -f "$gradle_out"
       [ "$rc" -ne 0 ] && return 1
       ran=1
     fi
@@ -383,8 +395,13 @@ for repo in "${REPOS[@]}"; do
   # slower than a normal run, self-healed on the NEXT scheduled cycle with zero code
   # change) — this just does that same self-heal immediately instead of waiting up
   # to 3h for the next cron tick and burning a human/Claude review flag on nothing.
+  # 2026-09-19: _GATE_TIMEOUT_HIT is now also set by the gradlew gate above on a
+  # "Gradle build daemon disappeared unexpectedly" / AAPT2 "Idle daemon unexpectedly
+  # exit" infra crash — same known-flaky, not-a-red-test category, so it gets the
+  # same one-retry treatment (confirmed via a standalone `./gradlew test` rerun of
+  # billwatch's exact failing commit passing clean).
   if [ "$g" -eq 1 ] && [ "${_GATE_TIMEOUT_HIT:-0}" = 1 ]; then
-    log "  gate hit TEST_TIMEOUT (contention, not a red test) — retrying once with a fresh worktree"
+    log "  gate hit a known infra flake (timeout or Gradle daemon crash, not a red test) — retrying once with a fresh worktree"
     wt2="$(mktemp -d "/tmp/hygiene-${name}-retry.XXXX")"
     if git -C "$repo" worktree add --detach --quiet "$wt2" origin/$FEAT 2>/dev/null; then
       run_gate "$repo" "$wt2"; g=$?
