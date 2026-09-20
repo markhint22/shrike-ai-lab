@@ -87,6 +87,33 @@ out7="$(python3 "$SCRIPT" 3 --max-len 40 2>&1)"
 ok "long path is truncated"                    "! printf '%s' \"\$out7\" | grep -q '$longpath'"
 ok "truncated path keeps the filename tail"    "printf '%s' \"\$out7\" | grep -q 'service.py'"
 
+# --- 9: a landed file belonging to a real [feat:] group shows feature attribution
+# (2026-09-20) — "repo (T2, feature: "Title"): file" instead of "repo (T2·cat): file" —
+# by asking scripts/ovn_feature_groups.py which group contains this repo+file, then
+# resolving the human title from roadmap/<repo>.md.
+mkdir -p "$HOME/overnight-queue/repos/billwatch" "$HOME/overnight-queue/roadmap"
+cat > "$HOME/overnight-queue/repos/billwatch/OVERNIGHT_PROGRESS.md" <<'EOF'
+- [x] [T2] `billwatch-backend/app/services/trending_service.py` — cache trends. VERIFY: x. (cat:python; multifile:no) [feat:billwatch-20260101-bill-caching-done-c-1]
+- [ ] [T2] `billwatch-backend/app/services/other.py` — more. VERIFY: x. (cat:python; multifile:no) [feat:billwatch-20260101-bill-caching-done-c-1]
+EOF
+: > "$HOME/overnight-queue/repos/billwatch/OVERNIGHT_DONE.md"
+cat > "$HOME/overnight-queue/roadmap/billwatch.md" <<'EOF'
+- [ ] [P2] [decomposed] Bill Caching — done. {c:1}
+EOF
+: > "$TSF"
+echo -e "$now\tbillwatch\tpass\t{py·other·T2·test-covered}\tbillwatch-backend/app/services/trending_service.py" >> "$TSF"
+out8="$(python3 "$SCRIPT" 3 2>&1)"
+ok "a feat-tagged landed item shows its human-readable feature title" \
+  "printf '%s' \"\$out8\" | grep -q 'billwatch (T2, feature: \"Bill Caching\"): billwatch-backend/app/services/trending_service.py'"
+
+# an item with NO [feat:] tag keeps the original file-only format unchanged
+: > "$HOME/overnight-queue/repos/billwatch/OVERNIGHT_PROGRESS.md"
+: > "$TSF"
+echo -e "$now\tbillwatch\tpass\t{py·other·T2·test-covered}\tbillwatch-backend/app/services/untagged.py" >> "$TSF"
+out9="$(python3 "$SCRIPT" 3 2>&1)"
+ok "an untagged item falls back to the plain (tier·category) format, no fabricated feature" \
+  "printf '%s' \"\$out9\" | grep -q 'billwatch (T2·other): billwatch-backend/app/services/untagged.py'"
+
 rm -rf "$tmp"
 echo "ovn_landed_detail.py: $P passed, $F failed"
 [ "$F" -eq 0 ]

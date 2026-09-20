@@ -56,12 +56,16 @@ if [ ! -s "$BUF" ]; then
   exit 0
 fi
 
-cycles=0; NP=0; NF=0; NR=0; NN=0; NE=0
+cycles=0; NP=0; NF=0; NR=0; NN=0; NE=0; NI=0
 pass=""; fail=""; rev=""; err=""
-while IFS=$'\t' read -r ts a b c d e P F R E; do
+while IFS=$'\t' read -r ts a b c d e P F R E I; do
   [ -z "${a:-}" ] && continue
   cycles=$((cycles+1))
   NP=$((NP+a)); NF=$((NF+b)); NR=$((NR+c)); NN=$((NN+d)); NE=$((NE+e))
+  # IDLE=N is a 2026-09-20 addition (cycle_notify.sh) - $I is empty for any pre-existing
+  # buffer line written by the OLD cycle_notify.sh before this fix deployed, so default it
+  # to 0 rather than let an empty operand blow up the arithmetic.
+  _idle_val="${I#IDLE=}"; NI=$((NI+${_idle_val:-0}))
   pass="$pass,${P#PASS=}"; fail="$fail,${F#FAIL=}"; rev="$rev,${R#REV=}"; err="$err,${E#ERR=}"
 done < "$BUF"
 
@@ -69,9 +73,38 @@ uniq_csv() { echo "$1" | tr ',' '\n' | grep -vE '^$' | sort -u | paste -sd', ' -
 Praw="$(uniq_csv "$pass")"; Fraw="$(uniq_csv "$fail")"; Rraw="$(uniq_csv "$rev")"; Eraw="$(uniq_csv "$err")"
 allrepos="$(uniq_csv "$pass,$fail,$rev,$err")"
 
+# 2026-09-20 FIX (math-mismatch bug): $items below now ALWAYS equals the sum of every
+# ✅/⚠️/↩️/⛔/➖ count shown further down, because both are the SAME $NP/$NF/$NR/$NN/$NE
+# variables (previously the ➖ line below substituted a DIFFERENT, independently-sourced
+# count from ovn_stats.py's task_stats.log-based classification, which - even before
+# cycle_notify.sh's own classification bugs above were fixed - only ever covers a subset
+# of real no-op cycles; the two numbers had no reason to agree and, confirmed live,
+# regularly didn't: a real 3h window with $items=67 and $NN=48 displayed "➖ 10 no-op",
+# so the visible lines summed to 34 while the header claimed 67 "work items done").
 items=$((NP+NF+NR+NN+NE))
+
+# 2026-09-20: terse one-line, at-a-glance summary - MUST be the first thing in the body
+# (previously the digest led with the "$items work items done..." line and buried the
+# short version among/after the detailed sections; someone should be able to read just
+# this line and get the gist). Real ✅/➖/↩️/⚠️/⛔ counts only (idle rows and the header's
+# own "work items" total are supporting detail below, not repeated here).
+SUMMARY="✅ ${NP} landed, ${NN} no-op, ${NR} reverted"
+[ "$NF" -gt 0 ] && SUMMARY="${SUMMARY}, ${NF} failed"
+[ "$NE" -gt 0 ] && SUMMARY="${SUMMARY}, ${NE} errored"
+_READY=0
+if [ -x "$DIR/scripts/ovn_feature_groups.py" ]; then
+  _READY="$(OVN_QUEUE_DIR="$DIR" python3 "$DIR/scripts/ovn_feature_groups.py" --ready-count "$DIGEST_HOURS" 2>/dev/null)"
+  case "$_READY" in ''|*[!0-9]*) _READY=0 ;; esac
+fi
+if [ "$_READY" -gt 0 ]; then
+  _READY_WORD="feature"; [ "$_READY" -gt 1 ] && _READY_WORD="features"
+  SUMMARY="${SUMMARY} — ${_READY} ${_READY_WORD} ready to test"
+fi
+
 body="Overnight queue · last ~${DIGEST_HOURS}h ($(date '+%a %H:%M'))
-$items work items done across $cycles run(s), on: ${allrepos:-–}"
+${SUMMARY}
+
+$items work items done across $cycles run(s), on: ${allrepos:-–}$( [ "$NI" -gt 0 ] && echo " (+${NI} idle check(s) with nothing to do, not counted above)")"
 # 2026-09-09 FIX: this used to say "landed on main" - wrong since the staging-flow change (see
 # CLAUDE.md "Staging flow restored"). Every landed item here pushes to overnight/feature; it only
 # reaches develop via the next hourly branch_hygiene merge, and only reaches main/prod via the
@@ -94,14 +127,21 @@ if [ "$NN" -gt 0 ]; then
   # "the fleet correctly declined 4 already-done items" (fine, cheap) and "the fleet
   # burned 8 real implement+verify attempts and landed nothing" (worth investigating)
   # looked identical. Reuse ovn_stats.py's existing cheap/burned + per-cause split.
+  #
+  # 2026-09-20 FIX: this used to let that breakdown REPLACE $NN outright with a smaller,
+  # independently-sourced number (see the $items comment above) - the displayed count
+  # could disagree with the header math. Always show the real, header-consistent $NN;
+  # append the cause breakdown as supplementary detail on however many of those $NN
+  # cycles got a cause logged, worded so it can never read as a second, competing total.
   _NOOP_LINE=""
   if [ -x "$DIR/scripts/ovn_stats.py" ]; then
     _NOOP_LINE="$(python3 "$DIR/scripts/ovn_stats.py" "$DIGEST_HOURS" --noop-headline 2>/dev/null)"
   fi
-  if [ -n "$_NOOP_LINE" ]; then
+  _NOOP_CAUSE="$(printf '%s' "$_NOOP_LINE" | sed -nE 's/^[0-9]+ no-op *-- *(.+)$/\1/p')"
+  if [ -n "$_NOOP_CAUSE" ]; then
     body="$body
 
-➖ $_NOOP_LINE"
+➖ $NN no change (item already done, or nothing to do) — cause on record for some: $_NOOP_CAUSE"
   else
     body="$body
 
@@ -136,6 +176,21 @@ if [ -x "$DIR/scripts/ovn_feature_groups.py" ]; then
   [ -n "$_FEAT" ] && body="$body
 
 $_FEAT"
+fi
+
+# 2026-09-20: proactive "features in progress" - previously the ONLY feature-progress signal
+# outside this window-scoped section above was ovn_feature_watch.sh's 100%-complete push;
+# there was no way to see a real [feat:ID] group's standing %-complete unless it happened to
+# land something in THIS exact window. Deliberately real-feat-only (never the file-based
+# approximation fallback - that one stays completion-silent by design, see
+# scripts/ovn_feature_groups.py's header) and not gated on window activity - a feature can be
+# "in progress" for days between the fleet touching it, and this is meant to be visible the
+# whole time it's incomplete. Kept in the fuller 3h digest, not the lean hourly one.
+if [ -x "$DIR/scripts/ovn_feature_groups.py" ]; then
+  _FEAT_PROGRESS="$(OVN_QUEUE_DIR="$DIR" python3 "$DIR/scripts/ovn_feature_groups.py" --in-progress --max-total 6 2>/dev/null)"
+  [ -n "$_FEAT_PROGRESS" ] && body="$body
+
+$_FEAT_PROGRESS"
 fi
 
 # 2026-09-09: tier-sliced pass/no-op/timeout + token spend. outcomes.jsonl has the accurate,

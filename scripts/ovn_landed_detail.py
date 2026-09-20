@@ -16,17 +16,57 @@ size (existing 3h digests already run ~2-3KB; this adds well under 1KB with defa
 Usage: ovn_landed_detail.py [hours=3] [--max-per-repo N] [--max-total N] [--max-len N]
 Prints an empty string (nothing to show) if there's no landed activity in the window —
 callers should skip the section entirely rather than print an empty header.
+
+2026-09-20: each landed line now also shows which FEATURE the item belongs to, when it
+has one — "billwatch (T2, feature: "Bill Summary Caching"): trending_service.py" instead
+of just "billwatch (T2·other): trending_service.py" — by asking ovn_feature_groups.py
+(same directory) which real [feat:ID] group (if any) contains this repo+file, then
+resolving that id to a human title from roadmap/<repo>.md. Items with no feature tag
+(older/ungrouped backlog, or a title that can't be resolved) keep the original
+file-only format unchanged — never fabricated.
 """
 import os
 import re
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import ovn_feature_groups as _ofg
+except Exception:
+    _ofg = None
+
 P = os.environ.get("TASK_STATS", os.path.expanduser("~/overnight-queue/state/task_stats.log"))
 if not os.path.exists(P) and os.path.exists("state/task_stats.log"):
     P = "state/task_stats.log"
 
 TAG_RE = re.compile(r'\{([^.·]*)[.·]([^.·]*)[.·]([^.·]*)[.·]([^}]*)\}')
+
+_feat_cache = {}
+
+
+def _feature_for(repo, fpath):
+    """-> (feat_id, title_or_None) for this repo+file, or None — memoized per repo so a
+    digest with several landed lines from the same repo only parses that repo's
+    OVERNIGHT_PROGRESS.md/OVERNIGHT_DONE.md/roadmap once. Any failure (missing module,
+    malformed data) degrades to "no attribution" rather than breaking the whole listing —
+    this is enrichment, not the core function of this script."""
+    if _ofg is None:
+        return None
+    if repo not in _feat_cache:
+        try:
+            _feat_cache[repo] = {
+                r["key"]: r for r in _ofg.repo_groups(repo, min_total=2) if r["kind"] == "feat"
+            }
+        except Exception:
+            _feat_cache[repo] = {}
+    for feat_id, r in _feat_cache[repo].items():
+        if fpath in r["_files"]:
+            try:
+                return feat_id, _ofg.feature_title(repo, feat_id)
+            except Exception:
+                return feat_id, None
+    return None
 
 
 def _int_arg(args, flag, default):
@@ -85,7 +125,16 @@ def main():
             # tier is already stored WITH its "T" prefix (e.g. "T2") in task_stats.log's
             # {lang.type.tier.verif} tag — don't re-prepend one (would render as "TT2").
             tier_disp = tier if (tier == '?' or tier.upper().startswith('T')) else f"T{tier}"
-            lines.append(f"  {repo} ({tier_disp}·{cat}): {fdisp}")
+            feat = _feature_for(repo, fpath)
+            if feat and feat[1]:
+                lines.append(f'  {repo} ({tier_disp}, feature: "{feat[1]}"): {fdisp}')
+            elif feat:
+                # has a real [feat:ID] tag but the title couldn't be resolved (e.g. the
+                # roadmap line was since edited/removed) — show the real id rather than
+                # silently reverting to the plain format OR fabricating a name.
+                lines.append(f"  {repo} ({tier_disp}, feature: {feat[0]}): {fdisp}")
+            else:
+                lines.append(f"  {repo} ({tier_disp}·{cat}): {fdisp}")
             total += 1
     if total == 0:
         return

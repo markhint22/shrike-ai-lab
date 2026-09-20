@@ -33,6 +33,11 @@ send() {
   return 1
 }
 
+# 2026-09-20: a terse one-liner ($_ONE), sourced from the SAME outcomes.jsonl rows the tier
+# breakdown below already groups by (ovn_tier_stats.py's own --oneline mode) — so this can
+# never disagree with the table it sits next to, unlike digest_notify.sh's old header total
+# (see that script's own 2026-09-20 fix comment for the bug this avoids repeating here).
+_ONE="$(python3 "$DIR/scripts/ovn_tier_stats.py" "$HOURS" --oneline 2>/dev/null)"
 _TIERS="$(python3 "$DIR/scripts/ovn_tier_stats.py" "$HOURS" 2>/dev/null)"
 _LANDED_DETAIL="$(python3 "$DIR/scripts/ovn_landed_detail.py" "$HOURS" --max-per-repo 2 --max-total 8 2>/dev/null)"
 _FEAT="$(OVN_QUEUE_DIR="$DIR" python3 "$DIR/scripts/ovn_feature_groups.py" --digest "$HOURS" --max-total 4 2>/dev/null)"
@@ -42,7 +47,13 @@ if [ -z "$_TIERS" ] && [ -z "$_LANDED_DETAIL" ] && [ -z "$_FEAT" ]; then
   exit 0
 fi
 
+# 2026-09-20: terse summary line goes FIRST (was previously implicit only in the tier table
+# further down) — someone should be able to read just the title + this line and get the
+# gist; the tier/detail/feature sections below are for digging in.
 body="Overnight queue · last ~${HOURS}h ($(date '+%a %H:%M'))"
+[ -n "$_ONE" ] && body="$body
+
+$_ONE"
 [ -n "$_TIERS" ] && body="$body
 
 $_TIERS"

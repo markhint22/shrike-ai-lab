@@ -19,8 +19,8 @@ if [ ! -f "$SCRIPT" ]; then
 fi
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/repos/demo" "$tmp/backlog" "$tmp/state"
-export OVN_QUEUE_DIR="$tmp" OVN_REPOS_DIR="$tmp/repos" OVN_BACKLOG_DIR="$tmp/backlog" OVN_TASK_STATS="$tmp/state/task_stats.log"
+mkdir -p "$tmp/repos/demo" "$tmp/backlog" "$tmp/state" "$tmp/roadmap"
+export OVN_QUEUE_DIR="$tmp" OVN_REPOS_DIR="$tmp/repos" OVN_BACKLOG_DIR="$tmp/backlog" OVN_TASK_STATS="$tmp/state/task_stats.log" OVN_ROADMAP_DIR="$tmp/roadmap"
 
 # --- 1: a real [feat:] group, partially done, not yet complete ---
 cat > "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
@@ -98,6 +98,95 @@ cat >> "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
 EOF
 out7="$(python3 "$SCRIPT" --digest 3 2>&1)"
 ok "an untouched-this-window group is not surfaced in the digest" "! printf '%s' \"\$out7\" | grep -q 'other.py'"
+
+# --- 6: feature_title() re-derives ovn_planner.sh's slug (from the FULL remaining roadmap
+# line text - title + why + tags - not just the title) to resolve a [feat:ID] tag to a
+# human-readable title. See ovn_planner.sh's own feat_id minting comment for why the slug
+# has to come from the whole line, not just the title.
+cat > "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
+- [x] [T2] `app/a.py` — thing. VERIFY: x. (cat:python; multifile:no) [feat:demo-20260101-bill-caching-done-c-1]
+- [ ] [T2] `app/b.py` — thing. VERIFY: x. (cat:python; multifile:no) [feat:demo-20260101-bill-caching-done-c-1]
+EOF
+: > "$tmp/backlog/demo.md"
+cat > "$tmp/roadmap/demo.md" <<'EOF'
+- [ ] [P2] [decomposed] Bill Caching — done. {c:1}
+EOF
+out8="$(python3 -c "
+import sys; sys.path.insert(0, '$SCRIPTS')
+import ovn_feature_groups as ofg
+print(ofg.feature_title('demo', 'demo-20260101-bill-caching-done-c-1'))
+" 2>&1)"
+ok "feature_title resolves a real roadmap line to its human title" "[ \"\$out8\" = 'Bill Caching' ]"
+out9="$(python3 -c "
+import sys; sys.path.insert(0, '$SCRIPTS')
+import ovn_feature_groups as ofg
+print(ofg.feature_title('demo', 'demo-20260101-no-such-slug'))
+" 2>&1)"
+ok "feature_title returns None (never fabricates) when no roadmap line's slug matches" "[ \"\$out9\" = 'None' ]"
+
+# --- 7: --in-progress lists every real, not-yet-done feat group across ALL repos, with its
+# resolved title, and NEVER a file-kind approximate group.
+cat > "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
+- [x] [T2] `app/a.py` — thing. VERIFY: x. (cat:python; multifile:no) [feat:demo-20260101-bill-caching-done-c-1]
+- [ ] [T2] `app/b.py` — thing. VERIFY: x. (cat:python; multifile:no) [feat:demo-20260101-bill-caching-done-c-1]
+- [x] [T1] `app/shared.py` — fix 1. VERIFY: x. (cat:python; multifile:no)
+- [x] [T1] `app/shared.py` — fix 2. VERIFY: x. (cat:python; multifile:no)
+EOF
+: > "$tmp/backlog/demo.md"
+out10="$(python3 "$SCRIPT" --in-progress 2>&1)"
+ok "in-progress shows the real feat group with its human title, not the raw id" \
+  "printf '%s' \"\$out10\" | grep -q 'demo \"Bill Caching\" — 1/2 items (50%)'"
+ok "in-progress never surfaces the file-based approximate group" \
+  "! printf '%s' \"\$out10\" | grep -q 'shared.py'"
+
+# a feat group that's already done (100% + nothing left in the backlog) is NOT "in progress"
+cat > "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
+- [x] [T2] `app/a.py` — thing. VERIFY: x. (cat:python; multifile:no) [feat:demo-20260101-bill-caching-done-c-1]
+- [x] [T2] `app/b.py` — thing. VERIFY: x. (cat:python; multifile:no) [feat:demo-20260101-bill-caching-done-c-1]
+EOF
+: > "$tmp/backlog/demo.md"
+out11="$(python3 "$SCRIPT" --in-progress 2>&1)"
+ok "a fully-done feat group is not listed as in-progress" "[ -z \"\$out11\" ]"
+
+# --- 8: --ready-count prints a single integer - real feat groups that are BOTH done and
+# had a landed item in the trailing window (the digest's "N feature(s) ready to test" line).
+now="$(date +%s)"
+printf '%s\tdemo\tpass\t{py.other.T2.tested}\tapp/b.py\n' "$now" > "$tmp/state/task_stats.log"
+out12="$(python3 "$SCRIPT" --ready-count 3 2>&1)"
+ok "ready-count is 1 when a real feat group just completed in-window" "[ \"\$out12\" = '1' ]"
+old_ts=$(( now - 30 * 3600 ))   # 30h ago, outside a 3h window
+printf '%s\tdemo\tpass\t{py.other.T2.tested}\tapp/b.py\n' "$old_ts" > "$tmp/state/task_stats.log"
+out13="$(python3 "$SCRIPT" --ready-count 3 2>&1)"
+ok "ready-count is 0 once the completing landed row falls outside the window" "[ \"\$out13\" = '0' ]"
+
+# --- 9: ovn_planner.sh's own decompose format does NOT backtick-wrap the target file (only
+# inline code snippets and the VERIFY command are backticked) - confirmed live on a real
+# xlite item. The file must still be recorded via the bare leading-token fallback, not
+# silently dropped (which would leave every planner-decomposed [feat:] group's `files` set
+# permanently empty and break feature-to-landed-item attribution for all NEW features).
+cat > "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
+- [ ] [T1] app/ap_pool.py — Add `static func percent_full(current, cap)` that returns 0 if `cap <= 0`. VERIFY: `grep -q "percent_full" app/ap_pool.py`. (cat:python; multifile:no) [feat:demo-20260101-real-planner-format]
+- [ ] [T2] tests/test_ap_pool.py — Add `test_percent_full_zero_cap`. VERIFY: pytest tests/test_ap_pool.py. (cat:test; multifile:no) [feat:demo-20260101-real-planner-format]
+EOF
+: > "$tmp/backlog/demo.md"
+out14="$(python3 -c "
+import sys; sys.path.insert(0, '$SCRIPTS')
+import ovn_feature_groups as ofg
+print(ofg.feat_lookup_for_file('demo', 'app/ap_pool.py'))
+" 2>&1)"
+ok "a planner-format item's bare (non-backtick) target file is still recorded and matchable" \
+  "printf '%s' \"\$out14\" | grep -q 'demo-20260101-real-planner-format'"
+# the false-positive guards from test 3b must still hold with the new fallback in place
+cat > "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
+- [x] [T1] `static func get_multiplier(is_flanking: bool) -> float: return 1.5 if is_flanking else 1.0` — thing. VERIFY: x. (cat:python; multifile:no)
+- [x] [T1] `static func get_multiplier(is_flanking: bool) -> float: return 1.5 if is_flanking else 1.0` — thing2. VERIFY: x. (cat:python; multifile:no)
+- [x] [T1] `OS.execute` — thing. VERIFY: x. (cat:python; multifile:no)
+- [x] [T1] `OS.execute` — thing2. VERIFY: x. (cat:python; multifile:no)
+EOF
+: > "$tmp/backlog/demo.md"
+out15="$(python3 "$SCRIPT" demo --json 2>&1)"
+ok "the bare-leading-token fallback does not resurrect the code-snippet false positives" \
+  "[ \"\$out15\" = '[]' ]"
 
 echo "ovn_feature_groups.py: $P passed, $F failed"
 [ "$F" -eq 0 ]

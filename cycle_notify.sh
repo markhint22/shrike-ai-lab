@@ -17,7 +17,7 @@ mkdir -p "$STATE_DIR"
 
 # clean, space-free repo-id lists (safe to store tab-separated)
 pass=""; fail=""; rev=""; err=""
-np=0; nf=0; nr=0; nn=0; ne=0
+np=0; nf=0; nr=0; nn=0; ne=0; ni=0
 while IFS='|' read -r _ c_id c_type c_out c_branch c_log _; do
   id="$(echo "$c_id" | xargs | sed 's/^ongoing-//')"
   out="$(echo "$c_out" | xargs)"
@@ -30,14 +30,34 @@ while IFS='|' read -r _ c_id c_type c_out c_branch c_log _; do
       ft="$(grep -hoE 'FAILED [A-Za-z0-9_./:]+|[A-Za-z0-9_./]+\.py::[A-Za-z0-9_:]+ FAILED|(×|✕) [^[:space:]]+' "$logp" 2>/dev/null | sed -E 's/^FAILED //; s/ FAILED$//; s/^(×|✕) //' | sort -u | head -6 | tr '\n' ',' | sed 's/,$//')"
       echo "$(date '+%F %H:%M') | ${id} | ${fc:-?} | ${ft:-<names not in log>}" >> "$STATE_DIR/failing_tests.log"
       ;;
+    # 2026-09-20 FIX: run_overnight.sh's own "pushed" status has THREE forms -
+    # "pushed(tests:pass)" (caught above), "pushed(tests:FAIL - see log)" (caught by
+    # the tests:FAIL arm above), and a bare "pushed" / "pushed(after-rebase)" when
+    # VERIFY_RESULT was neither pass nor fail (verification skipped/unknown, or a
+    # push-rejected-then-rebased retry). That last form has NO "tests:pass" substring,
+    # so it fell through every arm to the no-op catch-all below - a real landed commit
+    # was being counted (and displayed) as a no-op. Confirmed live in reports/*.md
+    # ("ongoing-billwatch | pushed"). Any remaining "pushed*" status at this point in
+    # the case (tests:pass/tests:FAIL already sliced off above) is still a real push.
+    pushed*)               pass="$pass $id"; np=$((np+1));;
     reverted*|*build-gate*) rev="$rev $id"; nr=$((nr+1));;
     error*)                err="$err $id"; ne=$((ne+1));;
     no-op*)                nn=$((nn+1));;
-    # 2026-09-10 fix: qualified no-op forms (no-op(BLOCKED), no-op(stage-unverified),
-    # no-op(reverted-red)) and unrelated real outcome strings (disabled, skip(exhausted))
-    # used to match none of the above and fall through uncounted - if a WHOLE cycle
-    # consisted only of these, the sum stayed 0 and the entire cycle silently never
-    # reached digest_buffer.log (line 55 below), even though real activity happened.
+    # 2026-09-20 FIX: "disabled" (task never ran this cycle), "skip(exhausted)" (repo
+    # genuinely has nothing doable - the SAME condition ovn_stats.py's own no-op
+    # counter deliberately excludes, see its "'skip' ... is deliberately NOT counted
+    # as a no-op" comment), "skipped(paused)" (mid-run pause), and "held(<repo>)" (a
+    # human hold) all mean NO attempt happened this cycle - not a no-op attempt that
+    # burned a real cycle. These used to fall into the same catch-all as a genuine
+    # no-op below, inflating $nn with idle/never-ran rows. Confirmed live: a 3h
+    # window's real $nn of 100 was ~76 of these idle rows (40 skip(exhausted) across
+    # 4 dry repos + 36 disabled entries for wound-down repos) plus only 23 genuine
+    # no-op attempts (state/task_stats.log's own independent classification agreed:
+    # exactly 23) plus 1 misclassified bare "pushed" - see digest_notify.sh's no-op
+    # line for the other half of this fix. Track them separately (ni) so a reader
+    # can no longer see "$NN no-op" claim more no-ops happened than genuinely did.
+    disabled|skip\(exhausted\)*|skipped\(paused\)|held\(*\))
+      ni=$((ni+1));;
     *)                     nn=$((nn+1));;
   esac
   # classification stats (2026-08-31): attribute each repo-cycle outcome to the
@@ -85,11 +105,14 @@ while IFS='|' read -r _ c_id c_type c_out c_branch c_log _; do
   [ -n "$_cls" ] && printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$id" "$_oc" "$_cls" "${_cfl:-?}" >> "$STATE_DIR/task_stats.log"
 done < <(grep -E "^\| ongoing" "$REPORT")
 
-# nothing ran (paused / abort) -> record nothing
-[ $((np+nf+nr+nn+ne)) -eq 0 ] && exit 0
+# nothing ran (paused / abort) -> record nothing. ni counts toward this check (not toward
+# the digest's "items done" math) so an all-idle cycle (e.g. every repo dry) still writes a
+# row instead of being silently dropped - same intent as the original 2026-09-10 fix, just
+# with idle rows no longer misrepresented as no-op work below.
+[ $((np+nf+nr+nn+ne+ni)) -eq 0 ] && exit 0
 
 j() { echo $* | tr ' ' ',' | sed 's/^,//;s/,$//'; }   # space-list -> comma-list
-printf '%s\t%d\t%d\t%d\t%d\t%d\tPASS=%s\tFAIL=%s\tREV=%s\tERR=%s\n' \
+printf '%s\t%d\t%d\t%d\t%d\t%d\tPASS=%s\tFAIL=%s\tREV=%s\tERR=%s\tIDLE=%d\n' \
   "$(date '+%s')" "$np" "$nf" "$nr" "$nn" "$ne" \
-  "$(j $pass)" "$(j $fail)" "$(j $rev)" "$(j $err)" \
+  "$(j $pass)" "$(j $fail)" "$(j $rev)" "$(j $err)" "$ni" \
   >> "$STATE_DIR/digest_buffer.log"

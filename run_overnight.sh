@@ -166,7 +166,16 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     *pushed*|*landed*|*tests:pass*|*done*|trained) cls=landed; sev=good;;
     *)                              cls=unknown;   sev=neutral;;
   esac
-  st="$(printf '%s' "$3" | tr -d '"' | cut -c1-80)"
+  # 2026-09-20 FIX: $3 (the raw STATUS string) can itself contain an embedded literal
+  # newline - e.g. a merge/conflict message gets prepended ahead of the real status,
+  # "OVERNIGHT_PROGRESS.md: needs merge\nno-op(reverted-red)" with a REAL newline, not
+  # an escaped one. Stripping quotes (tr -d '"') was not enough: printf's "%s" below
+  # writes that raw newline straight into the middle of a JSON string literal, which
+  # both produces invalid JSON for that one record AND splits it across two physical
+  # lines in outcomes.jsonl, corrupting whichever line happens to follow too if IT
+  # doesn't start a fresh record (confirmed live: state/outcomes.jsonl line ~4128).
+  # Flatten any newlines/carriage-returns/tabs to spaces before they ever reach printf.
+  st="$(printf '%s' "$3" | tr -d '"' | tr '\n\r\t' '   ' | cut -c1-80)"
   # fail-cause tag (2026-09-07): stop lumping everything as "flailing" — classify WHY, so the higher-tier
   # pain points are visible + addressable. Only bother when it's not a clean land.
   local fail_reason=""

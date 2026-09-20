@@ -87,14 +87,20 @@ bash "$tmp/cycle_notify.sh" "$REPORT2" >/dev/null 2>&1
 LINE2="$(tail -1 "$STATE/digest_buffer.log" 2>/dev/null)"
 ok "two passes in one cycle are comma-joined in PASS=" "echo \"$LINE2\" | grep -q 'PASS=billwatch,gitlark'"
 
-# --- E: FIXED BUG regression guard (2026-09-10) — a cycle whose rows are ONLY qualified
-# no-op forms (no-op(BLOCKED) etc) or unrelated real outcome strings (disabled,
-# skip(exhausted)) must still reach digest_buffer.log, not be silently dropped. The
-# original case statement matched only the bare literal `no-op)`, so real outcome
+# --- E: FIXED BUG regression guard (2026-09-10, updated 2026-09-20) — a cycle whose rows
+# are ONLY qualified no-op forms (no-op(BLOCKED) etc) or unrelated real outcome strings
+# (disabled, skip(exhausted)) must still reach digest_buffer.log, not be silently dropped.
+# The original case statement matched only the bare literal `no-op)`, so real outcome
 # strings seen live in reports/*.md (no-op(BLOCKED), no-op(stage-unverified),
 # no-op(reverted-red), disabled, skip(exhausted)) fell through every bucket uncounted -
 # if a WHOLE cycle consisted only of these, the sum stayed 0 and line 55's early-exit
-# dropped the entire cycle even though real activity happened. ---
+# dropped the entire cycle even though real activity happened.
+#
+# 2026-09-20 UPDATE: disabled/skip(exhausted) no longer land in the SAME bucket as a real
+# no-op attempt (nn) - they mean no attempt happened at all, so they're now their own IDLE
+# bucket (see cycle_notify.sh's 2026-09-20 fix comment: lumping them into nn was the main
+# cause of a real digest showing "$NN no-op" far higher than what the fleet actually
+# attempted). This test now asserts the split, not the old lumped nn=3. ---
 rm -rf "$STATE"
 REPORT3="$DIR/report3.md"
 cat > "$REPORT3" <<EOF4
@@ -107,7 +113,33 @@ bash "$tmp/cycle_notify.sh" "$REPORT3" >/dev/null 2>&1
 ok "an all-disabled/skip/qualified-no-op cycle still writes a digest line (was silently dropped before the fix)" \
    "[ -s '$STATE/digest_buffer.log' ]"
 LINE3="$(tail -1 "$STATE/digest_buffer.log" 2>/dev/null)"
-ok "all three rows are counted (nn=3), not lost" "echo \"$LINE3\" | grep -qE \$'\\t0\\t0\\t0\\t3\\t0\\t'"
+ok "disabled + skip(exhausted) are counted as IDLE, not real no-op work (2026-09-20 fix)" \
+   "echo \"\$LINE3\" | grep -qE 'IDLE=2\$'"
+ok "no-op(BLOCKED) is still counted as a real no-op (nn=1, not 3)" \
+   "echo \"\$LINE3\" | grep -qE \$'\\t0\\t0\\t0\\t1\\t0\\t'"
+
+# --- F: 2026-09-20 FIX regression guard — a bare "pushed"/"pushed(after-rebase)" status
+# (VERIFY_RESULT was neither pass nor fail, or a push-rejected-then-rebased retry) is a
+# REAL landed commit and must count as a pass, not fall through to the no-op catch-all.
+# "held(<repo>)" (human hold) and "skipped(paused)" (mid-run pause) are, like
+# disabled/skip(exhausted) above, idle - no attempt happened - not a no-op attempt.
+rm -rf "$STATE"
+REPORT4="$DIR/report4.md"
+cat > "$REPORT4" <<EOF5
+# Report
+| ongoing-billwatch | aider_fix | pushed | overnight/feature | $DIR/logs/f.log | 5s |
+| ongoing-gitlark | aider_fix | pushed(after-rebase) | overnight/feature | $DIR/logs/g.log | 5s |
+| ongoing-iptv-apps | aider_fix | held(iptv-apps) | overnight/feature | $DIR/logs/h.log | 1s |
+| ongoing-xlite | aider_fix | skipped(paused) | overnight/feature | $DIR/logs/i.log | 1s |
+EOF5
+bash "$tmp/cycle_notify.sh" "$REPORT4" >/dev/null 2>&1
+LINE4="$(tail -1 "$STATE/digest_buffer.log" 2>/dev/null)"
+ok "bare 'pushed' and 'pushed(after-rebase)' both count as landed (np=2), not no-op" \
+   "echo \"\$LINE4\" | grep -qE \$'\\t2\\t0\\t0\\t0\\t0\\t'"
+ok "'pushed' landed items are still recorded in the PASS= bucket" \
+   "echo \"\$LINE4\" | grep -q 'PASS=billwatch,gitlark'"
+ok "held(<repo>) + skipped(paused) are counted as IDLE (2 more), not no-op" \
+   "echo \"\$LINE4\" | grep -qE 'IDLE=2\$'"
 
 rm -rf "$tmp"
 echo "cycle_notify: $P passed, $F failed"

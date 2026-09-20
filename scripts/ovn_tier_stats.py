@@ -6,7 +6,12 @@ fail_reason, tokens_sent, tokens_recv — all written by run_overnight.sh's
 record_outcome()) and produces a compact, ntfy-ready summary broken out by
 tier T1-T5 (+ "?" for items with no explicit [T#] tag in their text).
 
-Usage: ovn_tier_stats.py [hours=3] [--tokens-only] [--all-time]
+Usage: ovn_tier_stats.py [hours=3] [--tokens-only] [--all-time] [--oneline]
+--oneline (2026-09-20) prints a single terse "✅ N landed, N no-op, N reverted[, N failed]"
+line for a digest's top-of-message summary, using outcomes.jsonl's own `class` field —
+the same field the per-tier breakdown below already groups by — so this can never
+disagree with the tier table it sits next to the way digest_notify.sh's old header total
+(a separate, independently-computed count) used to disagree with ITS OWN detail section.
 --tokens-only prints just a one-line token-spend summary for the window (used to show a
 rolling 24h total alongside the regular 3h tier breakdown, without duplicating the whole
 tier table twice in one digest).
@@ -46,6 +51,7 @@ LEDGER = os.path.expanduser("~/overnight-queue/state/token_ledger.jsonl")
 _args = [a for a in sys.argv[1:] if not a.startswith("--")]
 tokens_only = "--tokens-only" in sys.argv[1:]
 all_time = "--all-time" in sys.argv[1:]
+oneline = "--oneline" in sys.argv[1:]
 hours = float(_args[0]) if _args else 3.0
 cutoff = 0.0 if all_time else time.time() - hours * 3600
 
@@ -155,6 +161,21 @@ if tokens_only:
         line += "\n      " + " · ".join(f"{s} {fmt_toks(v[0] + v[1])}" for s, v in top_src)
         grand_sent, grand_recv = total_sent + ledger_sent, total_recv + ledger_recv
         line += f"\n   Σ overall (tasks + overhead): {fmt_toks(grand_sent)} sent / {fmt_toks(grand_recv)} received"
+    print(line)
+    sys.exit(0)
+
+
+if oneline:
+    if not rows:
+        print("")
+        sys.exit(0)
+    landed = sum(1 for r in rows if r.get("class") == "landed")
+    noop = sum(1 for r in rows if r.get("class") == "noop")
+    reverted = sum(1 for r in rows if r.get("class") == "reverted")
+    failed = sum(1 for r in rows if r.get("class") in ("error", "oversized", "unknown", "held"))
+    line = f"✅ {landed} landed, {noop} no-op, {reverted} reverted"
+    if failed:
+        line += f", {failed} failed"
     print(line)
     sys.exit(0)
 
