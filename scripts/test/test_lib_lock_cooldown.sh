@@ -12,6 +12,13 @@
 # stale window from an unrelated earlier incident, and (4) wait=0 callers (e.g.
 # branch_hygiene.sh's own-repo-to-own-repo overlap) never alert at all, cooldown or not -
 # unchanged legacy behavior.
+#
+# 2026-09-20 addition: the optional 5th "notify" arg (fleet_autofix.sh now passes "log" for
+# its run.lock contention - see lib_lock.sh's 2026-09-20 header note and fleet_autofix.sh -
+# lock_guard.sh independently detects+alerts a REAL orphan on that same lock, so this specific
+# caller's routine "waited and gave up" case was pure noise). Verifies: the marker/cooldown
+# bookkeeping is UNCHANGED (still gates on the same schedule) but no ntfy push is attempted,
+# and the default (omitted 5th arg) still behaves exactly as before (push to ntfy).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/../lib_lock.sh"; [ -f "$LIB" ] || LIB="$HERE/lib_lock.sh"
@@ -42,8 +49,8 @@ for _ in $(seq 1 50); do
 done
 
 run_acquire(){
-  local wait="$1" label="$2" logfile="$3"
-  ( source "$LIB"; acquire_lock "$LOCKFILE" 201 "$wait" "$label" ) >> "$logfile" 2>&1
+  local wait="$1" label="$2" logfile="$3" notify="${4:-ntfy}"
+  ( source "$LIB"; acquire_lock "$LOCKFILE" 201 "$wait" "$label" "$notify" ) >> "$logfile" 2>&1
 }
 
 # --- 1: first contention (wait>0) alerts and creates a cooldown marker ---
@@ -66,6 +73,17 @@ log3="$tmp/l3.log"; : > "$log3"
 LOCK_ALERT_COOLDOWN_SECS=3600 run_acquire 1 selftest-B "$log3"
 ok "different label: alerts fresh (own marker, unaffected by selftest-A's cooldown)" "! grep -q 'within cooldown' '$log3'"
 ok "different label: creates its own marker" "[ -f '$STATE/lock_alert_selftest-B_run.lock' ]"
+
+# --- 3b: notify="log" gates/marks identically but never touches ntfy at all ---
+log3b="$tmp/l3b.log"; : > "$log3b"
+LOCK_ALERT_COOLDOWN_SECS=3600 run_acquire 1 selftest-logmode "$log3b" log
+marker_log="$STATE/lock_alert_selftest-logmode_run.lock"
+ok "notify=log: still logs the base contention line" "grep -q 'another pass is already running' '$log3b'"
+ok "notify=log: still creates its own cooldown marker (bookkeeping unchanged)" "[ -f '$marker_log' ]"
+ok "notify=log: logs a 'suppressed' line instead of pushing to ntfy" "grep -q 'ntfy push suppressed' '$log3b'"
+log3c="$tmp/l3c.log"; : > "$log3c"
+LOCK_ALERT_COOLDOWN_SECS=3600 run_acquire 1 selftest-logmode "$log3c" log
+ok "notify=log: an immediate repeat is STILL cooldown-suppressed the same as ntfy mode" "grep -q 'within cooldown' '$log3c'"
 
 # --- 4: wait=0 callers never alert (legacy `flock -n` behavior unchanged) ---
 log4="$tmp/l4.log"; : > "$log4"

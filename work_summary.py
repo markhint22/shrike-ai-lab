@@ -7,11 +7,18 @@ reverted / no-op / parked over a window, broken out by tier (so higher-tier prog
 the top repos — suitable for the ntfy body.
 
 Usage: work_summary.py [hours]   (default 24)  — reads state/outcomes.jsonl relative to CWD.
+
+2026-09-20: appends a short "what actually landed" per-item detail list (repo + tier +
+target file, via scripts/ovn_landed_detail.py) after the aggregate counts above — outcomes.jsonl
+itself has no per-item description (its `id` field is just the generic tasks.json task id, the
+same for every item a repo runs), but state/task_stats.log does carry a real target path per
+landed row. See ovn_landed_detail.py's own header for the full rationale.
 """
-import json, sys, time, datetime, collections, os
+import json, subprocess, sys, time, datetime, collections, os
 
 HOURS = int(sys.argv[1]) if len(sys.argv) > 1 else 24
 PATH = os.environ.get("OUTCOMES", "state/outcomes.jsonl")
+_HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def main():
@@ -80,6 +87,25 @@ def main():
             lines.append(f"  staged higher-tier (independently verified): {vr} complete"
                          + (f", {_c} false-pass caught" if _c else "") + (f", {_l} legacy-unverified" if _l else ""))
     except Exception: pass
+
+    # 2026-09-20: per-item "what landed" detail (repo + tier + target file), via the same
+    # task_stats.log source ovn_stats.py already reads. Slightly larger caps than the 3h
+    # digest's use of this script (this fires far less often - once/day, or inline on an
+    # actionable supervisor push - so it can afford a bit more per-item detail).
+    detail_script = os.environ.get(
+        "OVN_LANDED_DETAIL_SCRIPT", os.path.join(_HERE, "scripts", "ovn_landed_detail.py"))
+    if os.path.exists(detail_script):
+        try:
+            out = subprocess.run(
+                [sys.executable, detail_script, str(HOURS), "--max-per-repo", "4", "--max-total", "16"],
+                capture_output=True, text=True, timeout=15,
+            ).stdout.strip()
+            if out:
+                lines.append("")
+                lines.append(out)
+        except Exception:
+            pass
+
     print("\n".join(lines))
 
 

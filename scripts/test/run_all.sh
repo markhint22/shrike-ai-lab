@@ -22,6 +22,8 @@ echo; echo "===== Lock-guard holder identity (orphan detection under crash-loop)
 echo; echo "===== Verify-timeout headroom (iptv_apps false-revert prevention) ====="; bash test_verify_timeout_headroom.sh || rc=1
 echo; echo "===== check_migrations.py (alembic safety gate) ====="; bash test_check_migrations.sh || rc=1
 echo; echo "===== Ntfy digest stats (tier/planning) ====="; bash test_ntfy_stats.sh || rc=1
+echo; echo "===== Ntfy landed-detail (per-item repo/tier/file lines for digests) ====="; bash test_ovn_landed_detail.sh || rc=1
+echo; echo "===== Work summary (24h fleet digest: aggregate counts + landed detail) ====="; bash test_work_summary.sh || rc=1
 echo; echo "===== Queue-health dedup (no repeat deploy-failure alerts) ====="; bash test_queue_health_dedup.sh || rc=1
 echo; echo "===== Stage node_modules provisioning (per-step frontend gate fix) ====="; bash test_stage_node_modules.sh || rc=1
 echo; echo "===== Queue-refill dry dedup (no repeat out-of-items alerts) ====="; bash test_queue_refill_dry_dedup.sh || rc=1

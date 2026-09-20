@@ -104,6 +104,20 @@ body="$body
 
 Every line above is one work item. Only ✅ reaches the feature branch; ⚠️/↩️/⛔ never do."
 
+# 2026-09-20: the ✅/➖ lines above only ever gave aggregate counts ("4 landed") - no way to
+# tell WHAT landed without tailing logs by hand. state/outcomes.jsonl's own `id` field is just
+# the generic tasks.json task id (e.g. "ongoing-billwatch"), not a per-item description - but
+# state/task_stats.log (the file ovn_stats.py already reads above) DOES carry a real per-item
+# target path per landed row, so ovn_landed_detail.py surfaces that instead. Capped per-repo
+# and overall so this can't blow past ntfy's practical message-size ceiling (existing digests
+# already run ~2-3KB; this adds well under 1KB with these defaults).
+if [ -x "$DIR/scripts/ovn_landed_detail.py" ]; then
+  _LANDED_DETAIL="$(python3 "$DIR/scripts/ovn_landed_detail.py" "$DIGEST_HOURS" --max-per-repo 3 --max-total 12 2>/dev/null)"
+  [ -n "$_LANDED_DETAIL" ] && body="$body
+
+$_LANDED_DETAIL"
+fi
+
 # 2026-09-09: tier-sliced pass/no-op/timeout + token spend. outcomes.jsonl has the accurate,
 # EXPLICIT tier per item (record_outcome's own [T#] tag parse), so this replaced the old
 # ovn_stats.py "Tiers:" line below, which inferred tier from a separate classification tag and

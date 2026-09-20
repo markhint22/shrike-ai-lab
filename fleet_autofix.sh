@@ -56,8 +56,17 @@ fi
 # not "briefly busy," signal. Directly relevant here: lock_guard.sh has been periodically force-
 # clearing orphaned run.lock holders left by a hung reconcile/refill child (see its own log) - a
 # different lock than hygiene.lock, but the same anti-pattern this helper exists to replace.
+# 2026-09-20 NOISE FIX: this specific call is the ONLY thing that ever fired lib_lock.sh's
+# "lock contention" ntfy push in practice (48h audit: 12/25 messages on the topic) - and it's
+# genuinely redundant, not a backstop, because lock_guard.sh's own cron (*/10) independently
+# `fuser`-checks this exact run.lock and kills+alerts on a REAL orphan on its own, with no
+# dependency on fleet-autofix's wait ever timing out. Every one of the 12 occurrences in that
+# audit coincided with run_overnight simply still legitimately holding the lock (normal,
+# self-resolving), not an orphan lock_guard.sh had to intervene on. Passing "log" here keeps
+# the same cooldown-gated write to logs/fleet_autofix.log (nothing lost - cron already
+# redirects this script's stdout there) but stops pushing the routine case to a human's phone.
 source scripts/lib_lock.sh
-if acquire_lock "$STATE_DIR/run.lock" 202 600 fleet-autofix; then
+if acquire_lock "$STATE_DIR/run.lock" 202 600 fleet-autofix log; then
   if timeout -k 30 300 bash ./reconcile_branches.sh >> "$LOG" 2>&1; then say "reconcile ok"
   else rc=$?; [ "$rc" -eq 124 ] && say "reconcile TIMED OUT after 300s (killed)" || say "reconcile nonzero ($rc)"; fi
   if MIN_DOABLE=15 timeout -k 15 120 bash ./queue_refill.sh >> "$LOG" 2>&1; then say "refill ok"

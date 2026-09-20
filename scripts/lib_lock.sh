@@ -43,9 +43,25 @@
 # verify with `test -x <file>` (or `git show HEAD --stat` after committing) - do
 # not assume a heredoc/cp/mv preserves the original mode bits.
 #
+# 2026-09-20 NOISE FIX: fleet-autofix's contention alert on run.lock specifically (the
+# ONLY caller that hits this path routinely - see fleet_autofix.sh) turned out to be pure
+# noise even WITH the hourly cooldown above: ntfy history audit (48h window, 2026-09-20)
+# showed 12 of 25 total messages on the topic were this one alert, and cross-checking each
+# occurrence against lock_guard.sh's cron (*/10, independently `fuser`-checks run.lock and
+# kills+alerts on a genuinely-orphaned holder - see its own header) showed every single
+# "gave up" alert coincided with run_overnight legitimately still holding the lock, not an
+# orphan - i.e. lock_guard.sh already owns "tell a human the lock is ACTUALLY stuck" for
+# this exact lock file, independent of whether fleet-autofix's own wait times out. That
+# makes fleet-autofix's push redundant with a real problem detector that already exists,
+# not a backstop for one. Callers can now pass a 5th arg to route this to the LOG only
+# (still written every time, cooldown-gated exactly as before) instead of ntfy - use this
+# for a caller whose contention is independently covered by another detector; leave it as
+# "ntfy" (default, unchanged) for a lock with no separate orphan-detector watching it.
+#
 # Usage: source this file, then:
 #   acquire_lock "$STATE_DIR/some.lock" 201 "${SOME_LOCK_WAIT:-0}" "my-script"
 #   # ... exit 0 here if it returned 1 - the lock was NOT acquired ...
+#   acquire_lock "$STATE_DIR/some.lock" 201 "${SOME_LOCK_WAIT:-0}" "my-script" log   # ntfy push suppressed, log-only
 #
 # A wait of 0 behaves exactly like the old `flock -n` (immediate bail, no alert
 # spam for callers that fire so often a brief overlap is routine and expected -
@@ -53,7 +69,7 @@
 LOCK_ALERT_COOLDOWN_SECS="${LOCK_ALERT_COOLDOWN_SECS:-3600}"   # 1h between repeat alerts for the SAME still-stuck lock
 
 acquire_lock() {
-  local lock_file="$1" fd="$2" wait_seconds="${3:-0}" label="${4:-lock}"
+  local lock_file="$1" fd="$2" wait_seconds="${3:-0}" label="${4:-lock}" notify="${5:-ntfy}"
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null
   eval "exec ${fd}>\"\$lock_file\""
   if ! flock -w "$wait_seconds" "$fd"; then
@@ -67,11 +83,15 @@ acquire_lock() {
       local _last=0; [ -f "$_marker" ] && _last="$(cat "$_marker" 2>/dev/null || echo 0)"
       if [ $(( _now - ${_last:-0} )) -ge "$LOCK_ALERT_COOLDOWN_SECS" ]; then
         echo "$_now" > "$_marker" 2>/dev/null
-        local topic="${NTFY_TOPIC:-$(cat "$_state_dir/ntfy_topic" 2>/dev/null)}"
-        if [ -n "$topic" ]; then
-          curl -fsS --max-time 8 -H "Title: $label lock contention" -H "Tags: warning" \
-            -d "$label waited ${wait_seconds}s for $(basename "$lock_file") and gave up — another pass is still holding it. If this repeats, either the holder is stuck or the wait window is too short. (silent on immediate repeats — reminder repeats at most every $((LOCK_ALERT_COOLDOWN_SECS/60))min while it stays stuck)" \
-            "https://ntfy.sh/$topic" >/dev/null 2>&1 || true
+        if [ "$notify" = "ntfy" ]; then
+          local topic="${NTFY_TOPIC:-$(cat "$_state_dir/ntfy_topic" 2>/dev/null)}"
+          if [ -n "$topic" ]; then
+            curl -fsS --max-time 8 -H "Title: $label lock contention" -H "Tags: warning" \
+              -d "$label waited ${wait_seconds}s for $(basename "$lock_file") and gave up — another pass is still holding it. If this repeats, either the holder is stuck or the wait window is too short. (silent on immediate repeats — reminder repeats at most every $((LOCK_ALERT_COOLDOWN_SECS/60))min while it stays stuck)" \
+              "https://ntfy.sh/$topic" >/dev/null 2>&1 || true
+          fi
+        else
+          echo "[$label $(date '+%F %H:%M:%S')] contention persisted past the ${LOCK_ALERT_COOLDOWN_SECS}s cooldown — logged only, ntfy push suppressed for this caller (a genuinely orphaned lock is independently caught+alerted by lock_guard.sh; see this file's 2026-09-20 header note)."
         fi
       else
         echo "[$label $(date '+%F %H:%M:%S')] contention persists (no alert, within cooldown)."
