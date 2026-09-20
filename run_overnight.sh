@@ -1768,16 +1768,57 @@ ${full_prompt}"
       # is NOT reverted (kept + reported as tests:FAIL) — that can be a real fix
       # in progress or a pre-existing flake. Grep the verification output (already
       # in $task_log) for unambiguous structural-break signals across py/gd/js.
-      if [ "$VERIFY_RESULT" = "fail" ] && { grep -E "SyntaxError|IndentationError|invalid syntax|ImportError while loading|cannot import name|ERROR collecting|errors during collection|SCRIPT ERROR|Parse Error|ERROR: Failed to load|Cannot find module|error TS[0-9]|Build failed|Compilation error|compile[A-Za-z]*Kotlin FAILED|compile[A-Za-z]*JavaWithJavac FAILED" "$task_log" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; }; then
-        echo "--- BUILD-GATE: commit structurally broke the build — reverting to ${BEFORE_SHA} ---" >> "$task_log"
-        git reset --hard "$BEFORE_SHA" --quiet
-        git clean -fd --quiet 2>/dev/null
-        if [ -x "$HOME/godot/godot4" ] && [ -f project.godot ]; then
-          timeout 60 "$HOME/godot/godot4" --headless --path . --import >/dev/null 2>>"$task_log"
+      _BUILD_BREAK_POS_RE="SyntaxError|IndentationError|invalid syntax|ImportError while loading|cannot import name|ERROR collecting|errors during collection|SCRIPT ERROR|Parse Error|ERROR: Failed to load|Cannot find module|error TS[0-9]|Build failed|Compilation error|compile[A-Za-z]*Kotlin FAILED|compile[A-Za-z]*JavaWithJavac FAILED"
+      _BUILD_BREAK_NEG_RE="has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null"
+      if [ "$VERIFY_RESULT" = "fail" ] && { grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | grep -q .; }; then
+        # BUILD-GATE grounded fix-up (2026-09-20): plain aider_fix items (T1/T2, and the
+        # ongoing-* background lanes, which run this exact same path) used to get ZERO
+        # repair attempts on a structural break — straight to revert, no matter how trivial
+        # (e.g. one unclosed dict literal). T3+ staged items already get 2 attempts/step +
+        # a redecompose round + up to OVN_VERIFY_REPAIR_ROUNDS repair passes, which is the
+        # dominant reason T1/T2 land at ~51-66% vs ~85-95% for T3+ (root-caused 2026-09-16,
+        # reconfirmed live 2026-09-20 against a fresh ~9.5h sample: 9/9 reverted-class rows
+        # in the window were build-break, every one a zero-repair immediate revert — including
+        # a one-line missing `}` in billwatch's vote_sync_service.py a targeted retry would
+        # plausibly have fixed). Mirrors the Tier-2 grounded fix-up below EXACTLY: one bounded
+        # extra aider call + one re-verify, same shape, same cost bound (~2x on an already-
+        # doomed cycle, never more). Deliberately does NOT re-grep $task_log for the build-break
+        # signal afterward to decide whether it worked — the ORIGINAL error text is still
+        # sitting earlier in the cumulative log even after a real fix (this function's log is
+        # append-only), which would falsely re-trigger this branch; only $VERIFY_RESULT (a
+        # fresh run_repo_verification call) decides, exactly as the Tier-2 fix-up already does
+        # via the NO-NEW-RED GUARD below it.
+        _buildfix_summary="$(grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-500)"
+        if [ -n "$_buildfix_summary" ]; then
+          _buildfix_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$')"
+          _buildfix_fileargs=()
+          for _bf in $_buildfix_touched; do [ -f "$_bf" ] && _buildfix_fileargs+=(--file "$_bf"); done
+          echo "--- BUILD-GATE fix-up: one bounded attempt at the structural break before reverting: ${_buildfix_summary:0:200}" >> "$task_log"
+          timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_buildfix_fileargs[@]}" \
+            --message "Your last change broke the build: ${_buildfix_summary}
+
+Fix this SPECIFIC structural error (syntax/import/parse) so the code loads again. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
+            >> "$task_log" 2>&1
+          _buildfix_after="$(git rev-parse HEAD)"
+          if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
+            AFTER_SHA="$_buildfix_after"
+            VERIFY_RESULT="$(run_repo_verification)"
+            echo "--- BUILD-GATE fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
+          else
+            echo "--- BUILD-GATE fix-up made no change ---" >> "$task_log"
+          fi
         fi
-        emit_alert warn "$id" "build-gate reverted a commit that broke the build (syntax/import/parse error) — the model produced non-loading code"
-        echo "reverted(build-break)"
-        return
+        if [ "$VERIFY_RESULT" = "fail" ]; then
+          echo "--- BUILD-GATE: commit structurally broke the build — reverting to ${BEFORE_SHA} ---" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          git clean -fd --quiet 2>/dev/null
+          if [ -x "$HOME/godot/godot4" ] && [ -f project.godot ]; then
+            timeout 60 "$HOME/godot/godot4" --headless --path . --import >/dev/null 2>>"$task_log"
+          fi
+          emit_alert warn "$id" "build-gate reverted a commit that broke the build (syntax/import/parse error) — the model produced non-loading code"
+          echo "reverted(build-break)"
+          return
+        fi
       fi
 
       # Tier-2 grounded fix-up (2026-09-16): before reverting a real test failure, give
