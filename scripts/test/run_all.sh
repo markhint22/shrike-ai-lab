@@ -23,6 +23,7 @@ echo; echo "===== Verify-timeout headroom (iptv_apps false-revert prevention) ==
 echo; echo "===== check_migrations.py (alembic safety gate) ====="; bash test_check_migrations.sh || rc=1
 echo; echo "===== Ntfy digest stats (tier/planning) ====="; bash test_ntfy_stats.sh || rc=1
 echo; echo "===== Ntfy landed-detail (per-item repo/tier/file lines for digests) ====="; bash test_ovn_landed_detail.sh || rc=1
+echo; echo "===== Ntfy no-op/reverted repeat-detail (grouped/deduped stuck-item lines) ====="; bash test_ovn_noop_detail.sh || rc=1
 echo; echo "===== Work summary (24h fleet digest: aggregate counts + landed detail) ====="; bash test_work_summary.sh || rc=1
 echo; echo "===== Queue-health dedup (no repeat deploy-failure alerts) ====="; bash test_queue_health_dedup.sh || rc=1
 echo; echo "===== Stage node_modules provisioning (per-step frontend gate fix) ====="; bash test_stage_node_modules.sh || rc=1
@@ -68,5 +69,6 @@ echo; echo "===== Feature groups (feat-tag + file-based approximate grouping, % 
 echo; echo "===== Feature-complete watch (distinct completion push, no double-fire) ====="; bash test_ovn_feature_watch.sh || rc=1
 echo; echo "===== Hourly digest (lean 1h summary, silent when idle) ====="; bash test_hourly_notify.sh || rc=1
 echo; echo "===== Digest feature-progress section wiring ====="; bash test_digest_feature_section.sh || rc=1
+echo; echo "===== Digest no-op/reverted repeat-detail wiring ====="; bash test_digest_noop_detail.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

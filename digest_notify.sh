@@ -166,6 +166,19 @@ if [ -x "$DIR/scripts/ovn_landed_detail.py" ]; then
 $_LANDED_DETAIL"
 fi
 
+# 2026-09-20: repeat no-op/reverted items, grouped+deduped (full-day audit finding) - the
+# ➖/↩️ counts above are raw per-CYCLE outcome tallies, so a single stale item the fleet keeps
+# re-picking and re-failing inflates the apparent number of distinct problems (confirmed live:
+# one billwatch item alone produced 7-8 separate no-op/revert records in a day). This groups
+# by (repo, file, tier) and shows one line per repeat with a count, distinguishing items that
+# eventually landed (self-resolved) from ones still stuck - see ovn_noop_detail.py's header.
+if [ -x "$DIR/scripts/ovn_noop_detail.py" ]; then
+  _NOOP_DETAIL="$(python3 "$DIR/scripts/ovn_noop_detail.py" "$DIGEST_HOURS" --max-total 8 2>/dev/null)"
+  [ -n "$_NOOP_DETAIL" ] && body="$body
+
+$_NOOP_DETAIL"
+fi
+
 # 2026-09-20: feature-level % complete, for whichever multi-item groups (real [feat:ID]
 # planner-linked features, or an approximate same-file fallback where no such tag exists yet —
 # see scripts/ovn_feature_groups.py's header for the full investigation) had a landed item in
