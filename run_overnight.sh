@@ -2309,12 +2309,12 @@ fi
 
 [ -x "$SCRIPT_DIR/cycle_notify.sh" ] && "$SCRIPT_DIR/cycle_notify.sh" "$REPORT_FILE" 2>/dev/null || true
 
-# --- daily branch hygiene: reconcile overnight/feature -> main, prune dead branches ---
-# Runs after each full pass so agent work never silently orphans on overnight/feature.
-# Skip when paused mid-run, or disable via RUN_BRANCH_HYGIENE=0.
-HYGIENE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ "$REMAINING_SKIPPED" -ne 1 ] && [ "${RUN_BRANCH_HYGIENE:-1}" = "1" ] && [ -x "$HYGIENE_DIR/branch_hygiene.sh" ]; then
-  log "Running daily branch hygiene..."
-  { echo ""; echo "### Branch hygiene"; echo "| repo | outcome |"; echo "|---|---|"; } >> "$REPORT_FILE"
-  REPORT_FILE="$REPORT_FILE" "$HYGIENE_DIR/branch_hygiene.sh" --from-config 2>&1 | while IFS= read -r l; do log "$l"; done
-fi
+# --- daily branch hygiene: REMOVED 2026-09-20 ---
+# The per-cycle "branch_hygiene.sh --from-config" call here was dead code: it reads
+# recurring_tasks.json for persistent_branch repos, but that file never existed on
+# this box, so every invocation logged "no repos to process" and exited (94x over the
+# prior 3 days, confirmed via journalctl). Real branch hygiene already runs via the
+# separate, working cron jobs (hourly + every-3h, --repos-dir with explicit repo
+# paths, see crontab -l) which actively merge overnight/feature and claude/feature
+# into develop. Removed rather than fixed the config, since the working cron path
+# already covers every fleet repo.
