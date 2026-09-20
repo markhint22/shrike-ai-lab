@@ -1778,14 +1778,53 @@ ${full_prompt}"
       # 017 string mismatch, iptv_apps's 019 with down_revision=None, billwatch's empty
       # 012_add_bill_embedding.py stub) - catching it here, the moment the bad commit is
       # made, means it never leaves this cycle instead of blocking hygiene for the fleet.
-      if [ -f "$SCRIPT_DIR/scripts/check_migrations.py" ] && \
-         ! python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" >>"$task_log" 2>&1; then
-        echo "--- MIGRATION-SAFETY GATE: commit forked/broke the Alembic migration chain — reverting to ${BEFORE_SHA} ---" >> "$task_log"
-        git reset --hard "$BEFORE_SHA" --quiet
-        git clean -fd --quiet 2>/dev/null
-        emit_alert warn "$id" "migration-safety gate reverted a commit that forked or broke the Alembic migration chain (bad/missing down_revision)"
-        echo "reverted(migration-fork)"
-        return
+      if [ -f "$SCRIPT_DIR/scripts/check_migrations.py" ]; then
+        _migcheck_out="$(python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
+        _migcheck_rc=$?
+        printf '%s\n' "$_migcheck_out" >> "$task_log"
+        if [ "$_migcheck_rc" -ne 0 ]; then
+          # MIGRATION-SAFETY fix-up (2026-09-20): mirrors the BUILD-GATE/Tier-2 grounded
+          # fix-ups above/below EXACTLY - one bounded extra aider call using the real,
+          # structured check_migrations.py output (the exact "revision 'X' declared in N
+          # files" / "MULTIPLE HEADS [...]" / "FK ... is String but target ... is UUID"
+          # line, not a paraphrase), one re-check, fall through to the existing revert
+          # path only if it's still broken. This gate previously reverted a forked/broken
+          # migration chain with ZERO repair attempts - the one structural gate in this
+          # function that hadn't gotten the bounded-repair treatment yet (found auditing
+          # for other zero-repair paths after landing the BUILD-GATE fix-up). Same reused
+          # plumbing (AIDER_BASE_ARGS, aider_timeout, one extra aider call + one re-verify),
+          # no new bounding logic.
+          _migfix_summary="$(printf '%s' "$_migcheck_out" | grep -E '^  ✗|MULTIPLE HEADS' | tr '\n' ' ' | tr -s ' ' | cut -c1-500)"
+          if [ -n "$_migfix_summary" ]; then
+            _migfix_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -E 'alembic/versions/' || true)"
+            _migfix_fileargs=()
+            for _mf in $_migfix_touched; do [ -f "$_mf" ] && _migfix_fileargs+=(--file "$_mf"); done
+            echo "--- MIGRATION-SAFETY fix-up: one bounded attempt at the migration-chain break before reverting: ${_migfix_summary:0:200}" >> "$task_log"
+            timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_migfix_fileargs[@]}" \
+              --message "Your last change broke the Alembic migration chain: ${_migfix_summary}
+
+Fix this SPECIFIC migration-chain error (correct down_revision / resolve the multiple-heads or duplicate-revision-id / fix the FK column type) so 'alembic upgrade head' resolves to a single linear chain again. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
+              >> "$task_log" 2>&1
+            _migfix_after="$(git rev-parse HEAD)"
+            if [ "$_migfix_after" != "$AFTER_SHA" ]; then
+              AFTER_SHA="$_migfix_after"
+              _migcheck_out="$(python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
+              _migcheck_rc=$?
+              printf '%s\n' "$_migcheck_out" >> "$task_log"
+              echo "--- MIGRATION-SAFETY fix-up re-check: $([ "$_migcheck_rc" -eq 0 ] && echo ok || echo fail) ---" >> "$task_log"
+            else
+              echo "--- MIGRATION-SAFETY fix-up made no change ---" >> "$task_log"
+            fi
+          fi
+          if [ "$_migcheck_rc" -ne 0 ]; then
+            echo "--- MIGRATION-SAFETY GATE: commit forked/broke the Alembic migration chain — reverting to ${BEFORE_SHA} ---" >> "$task_log"
+            git reset --hard "$BEFORE_SHA" --quiet
+            git clean -fd --quiet 2>/dev/null
+            emit_alert warn "$id" "migration-safety gate reverted a commit that forked or broke the Alembic migration chain (bad/missing down_revision)"
+            echo "reverted(migration-fork)"
+            return
+          fi
+        fi
       fi
 
       # BUILD-GATE (2026-08-26): if this commit STRUCTURALLY broke the build — a
