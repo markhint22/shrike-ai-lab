@@ -640,6 +640,25 @@ run_coverage_check() {
 run_aider_fix_task() {
   local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}" aider_timeout="${11:-600}"
 
+  # Deletion-hint prompt guidance (2026-09-20): aider's udiff edit format has no way to
+  # express "delete a file" — a "--- x / +++ /dev/null" hunk always fails here with
+  # "'/dev/null' is not in the subpath of ..." (the patch tool validates every target
+  # path against the repo root, and /dev/null never resolves inside it). The model
+  # already knows the working DELETE: trailer (STANDARDS_SUFFIX rule 4), but that's one
+  # line in a 7-point list it doesn't reliably weight over its default assumption of how
+  # to delete a file in a diff. Confirmed live (iptv_apps test_dvr_sweep_job.py,
+  # 2026-09-20): a delete-shaped item burned a full failed udiff attempt plus a
+  # multi-paragraph self-argument about why /dev/null was rejected before finally
+  # falling back to DELETE: on a later cycle — 92k-172k tokens per occurrence for work
+  # that should cost one short commit. When the item text itself names deleting/removing
+  # a file, prepend a loud, item-specific reminder ahead of everything else in the
+  # prompt. Purely additive: an item whose text doesn't match is completely unaffected.
+  if printf '%s' "$prompt" | grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b'; then
+    prompt="IMPORTANT: this task deletes/removes a file. Do NOT try to delete it via a diff/patch (a \"--- x\" / \"+++ /dev/null\" hunk always fails here with \"'/dev/null' is not in the subpath of ...\" — that path is never valid in this environment, don't retry it or argue with the error). Instead, just end your commit message with this trailer: DELETE: <path> — that is the ONLY mechanism that works here to remove a file.
+
+${prompt}"
+  fi
+
   if [ ! -d "$repo/.git" ]; then
     log "Repo ${repo} has no .git checkout — skipping"
     echo "error: no .git at ${repo}"
