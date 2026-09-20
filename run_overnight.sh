@@ -1856,6 +1856,20 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
         # fresh run_repo_verification call) decides, exactly as the Tier-2 fix-up already does
         # via the NO-NEW-RED GUARD below it.
         _buildfix_summary="$(grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-500)"
+        # Kotlin build-red grounding (2026-09-20): the outer Gradle banner grabbed above
+        # ("compileDebugUnitTestKotlin FAILED" / "Build failed" / "Compilation error. See
+        # log for more details") carries ZERO actionable detail - Python failures get the
+        # real traceback line inline via that same grep, but kotlinc's actual diagnostic
+        # ("e: file:///.../Foo.kt:68:6 Missing '}'") sits deeper in the full build log and
+        # was never surfaced. Confirmed live 2026-09-20: all 5 Kotlin BUILD-GATE fix-up
+        # attempts so far saw only the banner and either made no change (3/5) or guessed
+        # wrong (2/5) - one of those was a one-line missing '}' whose exact file:line:col
+        # was sitting right there in the log the whole time (billwatch's
+        # BillingRepositoryTest.kt:68:6). Pull the real kotlinc diagnostic line(s) out of
+        # the FULL task_log (not just the tail-6 banner window above) and put them FIRST,
+        # since they're the part with an actual chance of grounding a fix.
+        _kotlinc_diag="$(grep -oE 'file://[^ ]+\.kt:[0-9]+:[0-9]+ .*' "$task_log" 2>/dev/null | sed "s#^file://$(pwd)/##" | sort -u | head -8 | tr '\n' ' ' | tr -s ' ' | cut -c1-400)"
+        [ -n "$_kotlinc_diag" ] && _buildfix_summary="${_kotlinc_diag} ${_buildfix_summary}"
         if [ -n "$_buildfix_summary" ]; then
           _buildfix_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$')"
           _buildfix_fileargs=()
