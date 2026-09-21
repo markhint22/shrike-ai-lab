@@ -33,7 +33,23 @@ MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
 SUPPRESS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/alert_suppress.txt"
 suppressed(){ [ -f "$SUPPRESS_FILE" ] && grep -vE '^\s*#|^\s*$' "$SUPPRESS_FILE" | sed 's/#.*//' | awk '{print $1}' | grep -qxF "$1"; }
 
-alert(){ [ "$DRYRUN" = 1 ] && { echo "  [ntfy] $1 :: $3" ; return 0; }; curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
+# shrike-notify dual-publish (no-op unless SHRIKE_NOTIFY_URL is configured — see
+# shrike_notify_lib.sh for the topic taxonomy and env var docs).
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./shrike_notify_lib.sh
+[ -f "$LIB_DIR/shrike_notify_lib.sh" ] && source "$LIB_DIR/shrike_notify_lib.sh"
+
+# alert <title> <tags> <body> [repo-for-topic]
+# $repo (the main sweep's loop variable, set by `read` below and in scope for every
+# call site inside that loop) is used to build the "fleet_<repo>_deploy" shrike-notify
+# topic unless an explicit 4th arg is given — used by the shrike-monitor supplementary
+# check below, which runs outside the per-surface loop and has no single $repo.
+alert(){
+  local topic_repo="${4:-${repo:-queue}}"
+  [ "$DRYRUN" = 1 ] && { echo "  [ntfy] $1 :: $3" ; return 0; }
+  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+  command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${topic_repo}_deploy" "$1" "$2" "$3"
+}
 log(){ echo "$(date '+%F %T') $*"; }
 hc(){ curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null; }
 
@@ -165,4 +181,32 @@ while IFS='|' read -r key repo label provider target health fleet; do
     alert "🚨 Deploy failed: $label (human)" "rotating_light" "$label deploy FAILED and this repo isn't 27B-managed — needs you. ${err:0:200}"
   fi
 done <<< "$SURFACES"
+
+# ---- supplementary signal: shrike-monitor fleet status ----
+# Independent of the Railway/Vercel CLI checks above (doesn't replace them — this
+# is the "one more health signal" the SHRIKE_MONITOR_URL integration adds). No-op
+# unless SHRIKE_MONITOR_URL is set (see register_monitors.sh + HUMAN_QUEUE.md).
+shrike_monitor_supplement(){
+  [ -n "${SHRIKE_MONITOR_URL:-}" ] || return 0
+  local murl="${SHRIKE_MONITOR_URL%/}" hdr=() out total healthy
+  [ -n "${SHRIKE_MONITOR_TOKEN:-}" ] && hdr=(-H "Authorization: Bearer ${SHRIKE_MONITOR_TOKEN}")
+  out="$(curl -fsS --max-time 8 "${hdr[@]}" "$murl/monitors/status" 2>/dev/null)" || { log "shrike-monitor: unreachable (skip supplementary check)"; return 0; }
+  total="$(printf '%s' "$out" | python3 -c 'import sys,json
+try:
+    print(json.load(sys.stdin).get("total_monitors", ""))
+except Exception:
+    print("")' 2>/dev/null)"
+  healthy="$(printf '%s' "$out" | python3 -c 'import sys,json
+try:
+    print(json.load(sys.stdin).get("healthy_monitors", ""))
+except Exception:
+    print("")' 2>/dev/null)"
+  [ -n "$total" ] || { log "shrike-monitor: couldn't parse /monitors/status response"; return 0; }
+  log "shrike-monitor: $healthy/$total monitors healthy (supplementary signal)"
+  if [ "$healthy" != "$total" ]; then
+    alert "⚠️ shrike-monitor: fleet degraded ($healthy/$total)" "warning" "shrike-monitor independently reports $healthy/$total monitors healthy — a supplementary signal alongside deploy_watch's own Railway/Vercel checks above. Check shrike-monitor's /monitors/*/incidents for which surface." "queue"
+  fi
+}
+shrike_monitor_supplement
+
 log "deploy_watch pass complete"

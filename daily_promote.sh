@@ -29,9 +29,15 @@
 # below (a gate failure or merge conflict on one repo still just lands in
 # `blocked` and gets reported, it doesn't stop the others).
 set -uo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HOME/overnight-queue" || exit 1
 TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
 REPOS="${OVN_PROMOTE_REPOS:-billwatch gitlark iptv_apps test-automation-agent xlite shrike-labs-website}"
+
+# shrike-notify dual-publish (no-op unless SHRIKE_NOTIFY_URL is configured — see
+# shrike_notify_lib.sh for the topic taxonomy and env var docs).
+# shellcheck source=./shrike_notify_lib.sh
+[ -f "$DIR/shrike_notify_lib.sh" ] && source "$DIR/shrike_notify_lib.sh"
 
 promoted=""; nothing=""; blocked=""
 for r in $REPOS; do
@@ -49,4 +55,5 @@ No change:${nothing:- none}"
 [ -n "$blocked" ] && body="$body
 ⚠ BLOCKED (gate/conflict — stayed on last-good):$blocked"
 curl -fsS --max-time 8 -H "Title: Daily prod promote" -H "Tags: rocket" -d "$body" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_queue_promote" "Daily prod promote" "rocket" "$body"
 echo "$body"

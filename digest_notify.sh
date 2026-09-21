@@ -27,8 +27,16 @@ DIGEST_HOURS=3
 # ntfy — no error anywhere because nothing checked curl's exit code. Now retries a few
 # times and reports real success/failure so the caller can decide whether it's safe to
 # drop the buffer.
+# shrike-notify dual-publish (no-op unless SHRIKE_NOTIFY_URL is configured — see
+# shrike_notify_lib.sh for the topic taxonomy and env var docs).
+# shellcheck source=./shrike_notify_lib.sh
+[ -f "$DIR/shrike_notify_lib.sh" ] && source "$DIR/shrike_notify_lib.sh"
+
 send() {
   local title="$1" tags="$2" body="$3" attempt rc=0
+  # Independent parallel sink — doesn't participate in the ntfy retry/rc logic above,
+  # fires once per call regardless of ntfy's own success/failure.
+  command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_queue_task" "$title" "$tags" "$body"
   for attempt in 1 2 3; do
     if curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -d "$body" "$SERVER/$TOPIC" >/dev/null 2>&1; then
       return 0
