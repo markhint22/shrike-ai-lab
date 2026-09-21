@@ -16,6 +16,14 @@ MODEL="${OVN_MODEL:-qwen-dflash-27B}"
 mkdir -p prework logs
 LOG="logs/ovn_prework.log"; say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 
+# 2026-09-21: respect a manual/GPU-testing pause — this script hits the local LLM directly
+# (real GPU contention) and had no pause check, so `queue.sh pause` before a dedicated GPU
+# session did NOT actually stop this from firing on its own cron.
+if [ -f state/PAUSED ]; then
+  say "queue is paused (state/PAUSED exists) — skipping this run entirely"
+  exit 0
+fi
+
 do_one(){
   local repo="$1" task="$2"
   local rd="repos/$repo"; [ -d "$rd" ] || { say "$repo: no clone"; return 1; }

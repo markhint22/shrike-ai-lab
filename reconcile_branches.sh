@@ -34,6 +34,11 @@ conflicts=""; directs=""; resolved=""
 # only adds a chance to clear the easy cases before bothering a human with them.
 try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=resolved+verified+committed, 1=give up
   local wt="$1" repo="$2" tgt="$3" src="$4"
+  # 2026-09-21: respect a manual/GPU-testing pause. Only this LLM-assist path touches the
+  # GPU (real aider/local-model call) — the rest of this script's plain git merging keeps
+  # running as normal during a pause; give up gracefully here exactly like any other
+  # resolve failure (caller's existing `git merge --abort` + conflict-report path handles it).
+  [ -f state/PAUSED ] && return 1
   local files; files="$(git -C "$wt" diff --name-only --diff-filter=U)"
   [ -z "$files" ] && return 1
   local nfiles; nfiles="$(printf '%s\n' "$files" | grep -c .)"

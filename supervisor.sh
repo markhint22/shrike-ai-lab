@@ -203,9 +203,13 @@ if command -v claude >/dev/null 2>&1 && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   REVIEW_TITLE="Claude review"; REVIEW_NOTE=" (+Claude review)"
   PROMPT="You are the overnight-queue supervisor. For each active repo clone under ${REPOS} on branch overnight/feature, inspect the last 5 commits (git log -p -5 origin/main..overnight/feature). Flag ONLY: (a) a commit whose diff does NOT do what its message claims (e.g. 'remove duplicate' that adds one), (b) a test that looks vacuous or mirrors the code's own assumption, (c) an OVERNIGHT_PROGRESS.md item that is oversized or stale. Output a terse bulleted list of real findings with repo + commit sha, or 'no issues found'. Do not edit anything."
   REVIEW_TEXT="$(timeout 900 claude -p "$PROMPT" --allowedTools "Bash(git*),Read,Grep,Glob" 2>>"$DIR/logs/supervisor.log")" || REVIEW_TEXT="_(Claude review failed — see logs/supervisor.log)_"
-elif [ "${SUPERVISOR_USE_LOCAL:-0}" = "1" ]; then
+elif [ "${SUPERVISOR_USE_LOCAL:-0}" = "1" ] && [ ! -f "$STATE/PAUSED" ]; then
   # FREE review using the already-running local model via LiteLLM. No API cost;
   # competes with the queue for GPU only for this one bounded call every 3h.
+  # 2026-09-21: skip when paused (queue.sh pause, e.g. for dedicated GPU-testing
+  # sessions) — this branch is the only GPU-touching part of supervisor.sh, so the
+  # rest of the script (health digest, findings, push) still runs normally; only
+  # this one local-model call is held back.
   LITELLM_BASE="${LITELLM_BASE:-http://localhost:4000}"
   LITELLM_KEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
   MODEL="${OVERNIGHT_MODEL:-qwen-dflash-27B}"

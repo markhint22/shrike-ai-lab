@@ -22,6 +22,14 @@ PLAN_THRESHOLD="${OVN_PLAN_THRESHOLD:-10}"   # decompose a feature when backlog 
 LOG="logs/ovn_planner.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 
+# 2026-09-21: respect a manual/GPU-testing pause — this script hits the local LLM directly
+# (real GPU contention) and had no pause check, so `queue.sh pause` before a dedicated GPU
+# session did NOT actually stop this from firing on its own cron.
+if [ -f state/PAUSED ]; then
+  say "queue is paused (state/PAUSED exists) — skipping this run entirely"
+  exit 0
+fi
+
 # 2026-09-17: this state (roadmap fully [decomposed], zero [ready] features left to pull from) was
 # found sitting SILENT for hours on gitlark+billwatch during a live audit -- the script logged
 # 'needs Claude research?' every single cycle but never told a human, unlike queue_refill.sh's

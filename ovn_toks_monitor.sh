@@ -16,6 +16,15 @@ TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
 LITELLM="${LITELLM_BASE:-http://localhost:4000}"; LKEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
 FLOOR="${OVN_TOKS_FLOOR:-38}"   # true (solo) tok/s below this = a real regression to investigate
 
+# 2026-09-21: respect a manual/GPU-testing pause — this script actively PROBES the local
+# model (real GPU/inference contention, by design, to measure solo tok/s) and had no pause
+# check, so `queue.sh pause` before a dedicated GPU session did NOT actually stop it from
+# firing every 30 min and competing for the single-threaded llama-server.
+if [ -f state/PAUSED ]; then
+  echo "$(date '+%F %T') queue is paused (state/PAUSED exists) — skipping this probe entirely" >&2
+  exit 0
+fi
+
 _aiders(){ pgrep -c -f 'bin/aider ' 2>/dev/null || echo 0; }
 best=0; solo_best=0; any_solo=0
 for i in 1 2 3 4; do

@@ -29,6 +29,15 @@ MODEL="${OVERNIGHT_MODEL:-qwen-dflash-27B}"
 DATE="$(date +%Y%m%d)"
 mkdir -p "$STATE" "$REPORT_DIR"
 
+# 2026-09-21: respect a manual/GPU-testing pause the same way run_overnight.sh does — this
+# script hits the local LLM directly (real GPU contention), and had no pause check at all, so
+# `queue.sh pause` before a dedicated GPU session (e.g. image-gen testing) did NOT actually
+# stop this from firing on its own cron and contending for the GPU.
+if [ -f "$STATE/PAUSED" ]; then
+  echo "$(date '+%F %T') Queue is paused (${STATE}/PAUSED exists). Skipping this run entirely."
+  exit 0
+fi
+
 if ! curl -sf --max-time 8 "$LITELLM_BASE/health/liveliness" >/dev/null 2>&1; then
   echo "groom: LiteLLM unreachable — skipping"; exit 0
 fi
