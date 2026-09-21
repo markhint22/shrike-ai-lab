@@ -10,6 +10,13 @@
 set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 export PATH=/usr/local/bin:/usr/bin:/bin:${PATH:-}
+# Phase 2 (isolated worktree by default, 2026-09-21): the actual OVERNIGHT_PROGRESS.md
+# mutations below now happen in a throwaway worktree, not the shared repos/<name> clone
+# the fleet's own continuous loop keeps rewriting underneath scripts like this one — the
+# exact collision the phased-hardening plan's Phase 2 was written to close (hit twice the
+# night that plan was written: a fix silently wiped mid-edit by the fleet's own loop).
+# shellcheck source=./scripts/lib_worktree.sh
+source "$HOME/overnight-queue/scripts/lib_worktree.sh"
 LITELLM="${LITELLM_BASE:-http://localhost:4000}"; LITELLM_KEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
 MODEL="${OVN_MODEL:-qwen-dflash-27B}"
 MAX_PER_RUN="${OVN_RECOVER_MAX:-4}"      # decompose at most this many parked items per pass (cost control)
@@ -213,22 +220,36 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
     say "$r: 27B gave no usable recovery for this item — leaving parked, tagging so we don't retry it forever"
     # tag the parked line so the NEXT run picks a different parked item (avoids looping on one hard item)
     ./queue.sh hold "$r" >/dev/null 2>&1
-    ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
-    sed -i -E "${lnno}s/\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)/[\1 recovery:none/" "$f" 2>/dev/null
-    ( cd "$rd" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): mark $r parked item recovery-attempted (no decomposition)" && git push -q origin overnight/feature 2>/dev/null || true )
+    wt="$(wt_open "$rd" overnight/feature)"
+    if [ -n "$wt" ]; then
+      sed -i -E "${lnno}s/\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)/[\1 recovery:none/" "$wt/OVERNIGHT_PROGRESS.md" 2>/dev/null
+      ( cd "$wt" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): mark $r parked item recovery-attempted (no decomposition)" >/dev/null 2>&1 )
+      wt_push "$wt" overnight/feature >/dev/null 2>&1 || say "$r: recovery:none tag push failed (non-fatal — next run re-derives the same tag)"
+      wt_close "$rd" "$wt"
+    else
+      say "$r: worktree open failed — could not tag recovery:none this pass"
+    fi
     ./queue.sh release "$r" >/dev/null 2>&1
     continue
   fi
   # replace the stuck parked line with the recovered sub-items (hold-safe + push)
   ./queue.sh hold "$r" >/dev/null 2>&1
-  ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
-  # re-find the line (it may have shifted after the reset)
-  lnno2="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$f" | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | grep -viE 'route to claude' | grep -vE '\[CLAUDE\]' | head -1)"; lnno2="${lnno2%%:*}"
+  wt="$(wt_open "$rd" overnight/feature)"
+  if [ -z "$wt" ]; then
+    say "$r: worktree open failed — recovered sub-items NOT written this pass (retried next cron tick)"
+    ./queue.sh release "$r" >/dev/null 2>&1
+    continue
+  fi
+  wf="$wt/OVERNIGHT_PROGRESS.md"
+  # re-find the line (it may have shifted since the initial scan — the worktree is a fresh
+  # snapshot of origin/overnight/feature as of wt_open, same freshness the old
+  # fetch+reset-hard gave, just isolated instead of mutating the shared clone in place)
+  lnno2="$(grep -nE '^- \[ \] \[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)' "$wf" | grep -vE '\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)[^]]*recovery:' | grep -viE 'route to claude' | grep -vE '\[CLAUDE\]' | head -1)"; lnno2="${lnno2%%:*}"
   if [ -n "$lnno2" ]; then
     # pass items + header via FILES (never interpolate multi-line data into python source)
     items_file="$(mktemp)"; printf '%s\n' "$items" > "$items_file"
     hdr_file="$(mktemp)"; printf '# --- recovered from a parked item [%s]: %s (review) ---\n' "$(date '+%F')" "${task:0:70}" > "$hdr_file"
-    OVN_F="$f" OVN_LN="$lnno2" OVN_ITEMS="$items_file" OVN_HDR="$hdr_file" python3 - <<'PY'
+    OVN_F="$wf" OVN_LN="$lnno2" OVN_ITEMS="$items_file" OVN_HDR="$hdr_file" python3 - <<'PY'
 import os
 f, ln = os.environ["OVN_F"], int(os.environ["OVN_LN"])
 items = [l for l in open(os.environ["OVN_ITEMS"], encoding="utf-8").read().split("\n") if l.strip()]
@@ -241,10 +262,15 @@ lines[ln:ln] = [""] + [hdr] + items
 open(f, "w", encoding="utf-8").write("\n".join(lines))
 PY
     rm -f "$items_file" "$hdr_file"
-    ( cd "$rd" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "feat(queue): recover parked $r item -> ${cnt} smaller sub-item(s)" && { git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
-    say "$r: replaced parked item with ${cnt} recovered sub-item(s)"
-    did=$((did+1))
+    ( cd "$wt" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "feat(queue): recover parked $r item -> ${cnt} smaller sub-item(s)" >/dev/null 2>&1 )
+    if [ "$(wt_push "$wt" overnight/feature)" = ok ]; then
+      say "$r: replaced parked item with ${cnt} recovered sub-item(s)"
+      did=$((did+1))
+    else
+      say "$r: recovered sub-items built but push failed (retried next cron tick — origin unchanged)"
+    fi
   fi
+  wt_close "$rd" "$wt"
   ./queue.sh release "$r" >/dev/null 2>&1
 done
 say "recover-parked pass complete (recovered $did this run)"

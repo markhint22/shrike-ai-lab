@@ -14,8 +14,11 @@ ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FA
 tmp="$(mktemp -d)"
 SANDBOX_HOME="$tmp/home"
 OQ="$SANDBOX_HOME/overnight-queue"
-mkdir -p "$OQ/repos" "$OQ/state" "$OQ/logs"
+mkdir -p "$OQ/repos" "$OQ/state" "$OQ/logs" "$OQ/scripts"
 cp "$REAL/queue.sh" "$OQ/queue.sh"; chmod +x "$OQ/queue.sh"
+# Phase 2 (isolated worktree by default, 2026-09-21): ovn_recover_parked.sh now sources
+# scripts/lib_worktree.sh — provision it in the sandbox too, same as queue.sh above.
+cp "$REAL/scripts/lib_worktree.sh" "$OQ/scripts/lib_worktree.sh"; chmod +x "$OQ/scripts/lib_worktree.sh"
 
 # --- fake LiteLLM: serves whatever's currently in $RESP_FILE, logs one line per request ---
 PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
