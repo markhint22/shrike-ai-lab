@@ -142,3 +142,13 @@
 # --- 27B-decomposed from roadmap [2026-09-21]: The GDPR/CCPA "export my data" and "delete my account" endpoints are 100% fake — `app/serv (review + tweak) [feat:billwatch-20260921-the-gdpr-ccpa-export-my-data-and-delete-] ---
 
 # --- 27B-decomposed from roadmap [2026-09-21]: The GDPR/CCPA "export my data" and "delete my account" endpoints are 100% fake — `app/serv (review + tweak) [feat:billwatch-20260921-the-gdpr-ccpa-export-my-data-and-delete-] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Delete the entirely-orphaned billwatch-web/src/api/ directory (5 files, dead since it was  (review + tweak) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Delete the entirely-orphaned billwatch-web/src/api/ directory (5 files, dead since it was  (review + tweak) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w] ---
+- [ ] [T4] billwatch-web/src/api/admin.js — Delete the orphaned file that throws `api.create is not a function`. VERIFY: `test ! -f billwatch-web/src/api/admin.js && echo OK`. (cat:refactor; multifile:no) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w]
+- [ ] [T4] billwatch-web/src/api/client.js — Delete the orphaned JavaScript client file. VERIFY: `test ! -f billwatch-web/src/api/client.js && echo OK`. (cat:refactor; multifile:no) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w]
+- [ ] [T4] billwatch-web/src/api/client.ts — Delete the orphaned TypeScript client file superseded by DeleteAccountButton.vue. VERIFY: `test ! -f billwatch-web/src/api/client.ts && echo OK`. (cat:refactor; multifile:no) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w]
+- [ ] [T4] billwatch-web/src/api/__tests__/client.test.js — Delete the invisible test file (excluded by vitest config glob). VERIFY: `test ! -f billwatch-web/src/api/__tests__/client.test.js && echo OK`. (cat:test; multifile:no) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w]
+- [ ] [T4] billwatch-web/src/api/__tests__/client.test.ts — Delete the orphaned test file for the removed client. VERIFY: `test ! -f billwatch-web/src/api/__tests__/client.test.ts && echo OK`. (cat:test; multifile:no) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w]
+- [ ] [T4] billwatch-web/src/api — Remove the now-empty directory structure. VERIFY: `test ! -d billwatch-web/src/api && echo OK`. (cat:refactor; multifile:yes) [feat:billwatch-20260921-delete-the-entirely-orphaned-billwatch-w]
