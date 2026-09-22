@@ -138,3 +138,21 @@
 # --- 27B-decomposed from roadmap [2026-09-21]: Add missing unit tests for `get_template_rules()` in `backend/app/services/review_rule_tem (review + tweak) [feat:gitlark-20260921-add-missing-unit-tests-for-get-template-] ---
 
 # --- 27B-decomposed from roadmap [2026-09-21]: Add unit tests for the pure rendering paths of `ConversationExportService` in `backend/app (review + tweak) [feat:gitlark-20260921-add-unit-tests-for-the-pure-rendering-pa] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Harden `repo_slug()` in `backend/app/utils/repo_slug.py` (15 lines) against consecutive-se (review + tweak) [feat:gitlark-20260921-harden-repo-slug-in-backend-app-utils-re] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Delete a genuinely dead, zero-byte stray file: `web/src/src/stores/conversation.ts` — veri (review + tweak) [feat:gitlark-20260921-delete-a-genuinely-dead-zero-byte-stray-] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Add a unit test for `web/src/utils/apiError.ts` (43 lines, exports `getErrorMessage()`/`ge (review + tweak) [feat:gitlark-20260921-add-a-unit-test-for-web-src-utils-apierr] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Add a unit test for the `useApi()` composable in `web/src/composables/useApi.ts` (38 lines (review + tweak) [feat:gitlark-20260921-add-a-unit-test-for-the-useapi-composabl] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Add a unit test for the `useWorkspaceOptions()` composable in `web/src/composables/useWork (review + tweak) [feat:gitlark-20260921-add-a-unit-test-for-the-useworkspaceopti] ---
+
+# --- 27B-decomposed from roadmap [2026-09-21]: Add a unit test for `useFleetStatusStore` in `web/src/stores/fleetStatus.ts` (42 lines, it (review + tweak) [feat:gitlark-20260921-add-a-unit-test-for-usefleetstatusstore-] ---
+- [ ] [T1] web/src/stores/__tests__/fleetStatus.test.ts — Create new test file with `vi.mock('@/services/api')` and `setActivePinia(createPinia())` setup, importing `useFleetStatusStore`. VERIFY: `cd web && npx vitest run src/stores/__tests__/fleetStatus.test.ts --passWithNoTests` (cat:test; multifile:no) [feat:gitlark-20260921-add-a-unit-test-for-usefleetstatusstore-]
+- [ ] [T2] web/src/stores/__tests__/fleetStatus.test.ts — Add test case verifying `fetchStatus(workspaceId)` populates `status` when mocked `api.get` resolves `{data: FleetStatus}`. VERIFY: `cd web && npx vitest run src/stores/__tests__/fleetStatus.test.ts -t "populates status"` (cat:test; multifile:no) [feat:gitlark-20260921-add-a-unit-test-for-usefleetstatusstore-]
+- [ ] [T2] web/src/stores/__tests__/fleetStatus.test.ts — Add test case verifying mocked 422 rejection sets `notConfigured=true` and leaves `error` null. VERIFY: `cd web && npx vitest run src/stores/__tests__/fleetStatus.test.ts -t "422 rejection"` (cat:test; multifile:no) [feat:gitlark-20260921-add-a-unit-test-for-usefleetstatusstore-]
+- [ ] [T2] web/src/stores/__tests__/fleetStatus.test.ts — Add test case verifying non-422 rejection (e.g., 500) sets `error` from `e.response.data.detail` and leaves `notConfigured` false. VERIFY: `cd web && npx vitest run src/stores/__tests__/fleetStatus.test.ts -t "other rejection"` (cat:test; multifile:no) [feat:gitlark-20260921-add-a-unit-test-for-usefleetstatusstore-]
+- [ ] [T2] web/src/stores/__tests__/fleetStatus.test.ts — Add test case verifying `isLoading` toggles true then false during `fetchStatus` on success path. VERIFY: `cd web && npx vitest run src/stores/__tests__/fleetStatus.test.ts -t "isLoading success"` (cat:test; multifile:no) [feat:gitlark-20260921-add-a-unit-test-for-usefleetstatusstore-]
+- [ ] [T2] web/src/stores/__tests__/fleetStatus.test.ts — Add test case verifying `isLoading` toggles true then false during `fetchStatus` on failure path. VERIFY: `cd web && npx vitest run src/stores/__tests__/fleetStatus.test.ts -t "isLoading failure"` (cat:test; multifile:no) [feat:gitlark-20260921-add-a-unit-test-for-usefleetstatusstore-]
