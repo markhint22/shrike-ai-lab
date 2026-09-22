@@ -100,3 +100,19 @@
 # --- 27B-decomposed from roadmap [2026-09-20]: Extraction: percent of squad extracted (feeds the existing "full_squad_extraction" achieve (review + tweak) [feat:xlite-20260920-extraction-percent-of-squad-extracted-fe] ---
 
 # --- 27B-decomposed from roadmap [2026-09-20]: Grid: dedupe two identical Manhattan-distance implementations — scripts/grid/manhattan.gd  (review + tweak) [feat:xlite-20260920-grid-dedupe-two-identical-manhattan-dist] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: BossPhase: phases-remaining counter — scripts/battle/boss_phase.gd (verified via read,  (review + tweak) [feat:xlite-20260921-boss-phase-phases-remaining] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: Overkill: wasted-damage percentage — scripts/battle/overkill.gd (verified via read, 13  (review + tweak) [feat:xlite-20260921-overkill-wasted-percent] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: HealCalc: heal-percent-of-missing-HP — scripts/battle/heal_calc.gd (verified via read,  (review + tweak) [feat:xlite-20260921-heal-calc-percent-of-missing] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: PiercingLine: total damage across a full pierce — scripts/battle/piercing_line.gd (veri  (review + tweak) [feat:xlite-20260921-piercing-line-total-damage] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: Ammo: shots-remaining-before-reload counter — scripts/battle/ammo.gd (verified via read  (review + tweak) [feat:xlite-20260921-ammo-shots-remaining] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: RangeFalloff: remaining-range-to-max — scripts/battle/range_falloff.gd (verified via re  (review + tweak) [feat:xlite-20260921-range-falloff-remaining-range] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: ChainDamage: total damage across a full chain — scripts/battle/chain_damage.gd (verifi  (review + tweak) [feat:xlite-20260921-chain-damage-total-over-chain] ---
+
+# --- Claude-decomposed from roadmap [2026-09-21]: GridBounds: distance-to-nearest-edge — scripts/grid/grid_bounds.gd (verified via read,  (review + tweak) [feat:xlite-20260921-grid-bounds-distance-to-edge] ---
