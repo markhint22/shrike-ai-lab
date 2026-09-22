@@ -777,7 +777,9 @@ for i,ln in enumerate(lines):
     if ln.startswith("- [ ] ") and key and key in ln:
         if p>=n:  # fully done -> check it off
             lines[i]=ln.replace("- [ ] ","- [x] ",1)+f"  <!-- staged {p}/{n} DONE -->"
-        else:     # partial -> park the remainder so it isn't blindly redone identically
+        elif "AUTO-SKIP staged" not in ln:  # partial -> park the remainder, but only tag it ONCE -
+            # blindly re-prepending on every retry stacked duplicate tags without bound (found live:
+            # 4 on a test-automation-agent item, 15 on a shrike-monitor item, 2026-09-22).
             lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) blocked; recover/review] ".format(p,n,n-p),1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
@@ -802,7 +804,7 @@ import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; key=item[:55]
 lines=open(f,encoding="utf-8").read().split("\n")
 for i,ln in enumerate(lines):
-    if ln.startswith("- [ ] ") and key and key in ln and "[CLAUDE]" not in ln:
+    if ln.startswith("- [ ] ") and key and key in ln and "[CLAUDE]" not in ln and "AUTO-SKIP staged: 27B could not land this" not in ln:
         lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged: 27B could not land this (beyond it) — route to CLAUDE] ",1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
