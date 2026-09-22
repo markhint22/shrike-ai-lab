@@ -1226,14 +1226,6 @@ of exact syntax, unfamiliar with the language/framework, or not 100% certain you
 will work — a good-faith attempt that fails costs nothing (the gate reverts it automatically); a
 NEEDS-DECISION guarantees no progress at all.
 
-If this task is about DELETING a file: that is NOT a tooling blocker and NOT a decision - deleting
-a file is fully supported here via a commit-message trailer (DELETE: <path>), never by editing/
-emptying the file or by a diff/patch hunk. VERDICT should be PROCEED for a pure file-deletion item
-just like any other change (2026-09-22: found live across gitlark/iptv_apps - scout was reasoning
-'the patch tool can't delete files' and answering BLOCKED/NEEDS-DECISION for exactly this reason,
-even though the implement step already knows the working DELETE: mechanism and would have landed
-it - the scout just never learned that a solution exists here).
-
 Task: ${prompt}"
 
     # timeout wrapper (2026-08-08 hardening): if the inference server hangs
