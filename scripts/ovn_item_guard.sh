@@ -65,7 +65,27 @@ top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP
 [ -z "$top" ] && exit 0
 lineno="${top%%:*}"
 text="${top#*:}"
-h="$(printf '%s' "$text" | md5sum | cut -d' ' -f1)"
+# Feature-scoped streak key (2026-09-22): a multi-line feature (e.g. an impl file +
+# its paired test file, tagged with the same [feat:...] id) used to get a FRESH
+# fail/no-op streak budget every time the "top" unchecked line flipped between its
+# sibling sub-items - each sub-item hashes to different raw text, so CAP/NCAP reset
+# to 0 on every flip instead of accumulating. Root-caused live on shrike-notify's
+# [feat:shrike-notify-20260921-wire-check-message-field-duplicates] pair: the
+# backend/app/models.py line and the backend/tests/test_models.py line kept trading
+# off as "top" across 9+ cycles / 160k+ tokens (both ultimately blocked by the same
+# underlying bug - an `importlib.reload(app.models)` test call that poisons
+# isinstance-based FastAPI exception-handler matching for the rest of the pytest
+# session, confirmed by direct reproduction), and neither sub-item's streak alone
+# ever reached the existing CAP=3/NCAP=4 before the OTHER sub-item became "top" and
+# reset the clock. Hash the shared [feat:...] tag when present so all sub-items of
+# one feature draw from the SAME budget; fall back to the old whole-line hash for
+# untagged items (no behavior change there).
+featkey="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
+if [ -n "$featkey" ]; then
+  h="$(printf '%s' "$featkey" | md5sum | cut -d' ' -f1)"
+else
+  h="$(printf '%s' "$text" | md5sum | cut -d' ' -f1)"
+fi
 
 # --- Tier-3 grounded failure memory (2026-09-16) ------------------------------
 # Persist what THIS attempt actually did wrong (real log output, keyed to the
