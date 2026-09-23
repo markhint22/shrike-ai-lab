@@ -67,7 +67,16 @@ Write a markdown briefing with EXACTLY these sections:
 ## Risks / unknowns
 - anything you're unsure about that the engineer must decide"
 
-  local body; body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.read()}],'temperature':0.3,'max_tokens':1500}))" <<<"$prompt")"
+  # 2026-09-23 FIX: $ctx above is built from `head -c 2500` byte-slices of arbitrary
+  # source files - the same raw-byte-cut hazard already root-caused and fixed in
+  # run_overnight.sh's progress-tail generation on 2026-09-19 (ovn_progress_slice.py's
+  # errors='ignore' decode). Here it was NOT fixed: sys.stdin.read() decodes with the
+  # strict default codec, so a cut landing mid-multi-byte-sequence (confirmed live:
+  # 938 UnicodeDecodeError crashes in this log, ~1699 total failed attempts) aborted
+  # this python one-liner entirely, leaving $body empty and every such task silently
+  # skipped forever ("model returned too little (0 chars)") every time it was retried.
+  # Read raw bytes and decode leniently instead, exactly matching the proven fix.
+  local body; body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.buffer.read().decode('utf-8','ignore')}],'temperature':0.3,'max_tokens':1500}))" <<<"$prompt")"
   local _raw; _raw="$(curl -fsS --max-time 200 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' -H "Authorization: Bearer $LITELLM_KEY" -d "$body" 2>>"$LOG")"
   local resp; resp="$(printf '%s' "$_raw" | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
   # 2026-09-16: this call's real token spend was discarded entirely - log it.
