@@ -53,11 +53,26 @@ def _extract_verify(line):
     return m.group(1).strip() if m else None
 
 
+_ALWAYS_TRUE_RE = re.compile(r'\|\|\s*(echo|printf|true)\b')
+
+
 def already_satisfied(line, repo_root, timeout=8):
     """Best-effort: True only if the item's OWN verify command already passes against the
-    current repo. False (never block a pull) on any ambiguity, error, or unsupported shape."""
+    current repo. False (never block a pull) on any ambiguity, error, or unsupported shape.
+
+    2026-09-23: reject a `cmd && echo A || echo B` (or `|| printf`/`|| true`) shape outright,
+    without ever executing it - the final executed branch there is always the echo/printf/true
+    fallback, so its exit code is always 0 regardless of what cmd actually found. Confirmed live
+    on shrike-monitor and gitlark: this exact shape false-credited items as done with zero real
+    work having happened. ovn_verify_direction_check.sh (shadow-mode alert) has been running clean
+    against this pattern for hours with zero remaining open false positives, so promoting it here
+    to an actual gate - not just an alert - closes the root vulnerability instead of only
+    reporting it after the fact.
+    """
     cmd = _extract_verify(line)
     if not cmd:
+        return False
+    if _ALWAYS_TRUE_RE.search(cmd):
         return False
     if not (cmd.startswith("python -c") or cmd.startswith("python3 -c") or cmd.startswith("grep -")):
         return False
