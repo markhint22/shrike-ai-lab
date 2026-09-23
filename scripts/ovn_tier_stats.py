@@ -209,6 +209,24 @@ for t in TIER_ORDER:
     if n == 0:
         continue
     pct = 100 * landed // n
+    # Per-item land rate (2026-09-23): the per-ATTEMPT rate above conflates "this item
+    # is genuinely hard" with "this item got retried a lot before landing" - a single
+    # item that fails 4x then lands on try 5 (confirmed live: billwatch's
+    # test_priority_api_router.py, a137531) reads as 80% failure here even though it
+    # succeeded 100% of the time per-item. Group by item_hash (run_overnight.sh's
+    # record_outcome() hashes the same top-unchecked-item text ovn_item_guard.sh keys
+    # its streaks on, so repeat attempts of one item collapse to one hash) and report
+    # what fraction of DISTINCT items landed at least once. Rows written before this
+    # field existed simply lack item_hash and are excluded here, not miscounted as
+    # their own single-attempt items.
+    hashed = [r for r in attempted if r.get("item_hash")]
+    if hashed:
+        items = {}
+        for r in hashed:
+            items.setdefault(r["item_hash"], []).append(r)
+        n_items = len(items)
+        landed_items = sum(1 for rs in items.values() if any(r.get("class") == "landed" for r in rs))
+        item_pct = 100 * landed_items // n_items
     # 2026-09-17: "T?" looked like a data-quality gap (untagged/unknown work) but is
     # actually just the ongoing-* background lanes, which never carry a [T#] queue-item
     # tag by design (they are not sourced from OVERNIGHT_PROGRESS.md items). The denominator
@@ -217,6 +235,8 @@ for t in TIER_ORDER:
     # reader does not mistake it for a bug.
     label = f"T{t}" if t != "?" else "Ongoing-lane"
     bits = [f"{label}: {landed}/{n} ({pct}%)"]
+    if hashed:
+        bits.append(f"per-item: {landed_items}/{n_items} ({item_pct}%)")
     extra = []
     if noop:
         extra.append(f"{noop} no-op")

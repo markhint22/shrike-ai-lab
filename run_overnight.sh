@@ -116,9 +116,37 @@ STATE_DIR="$SCRIPT_DIR/state"
 
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
-record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s
-  local tier cat cls sev st attempt tl src dur
-  attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"
+record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s $9=repo_dir
+  local tier cat cls sev st attempt tl src dur repo_dir item_hash
+  attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"; repo_dir="${9:-}"
+  # Per-item identity (2026-09-23): outcomes.jsonl's `id` field is always the generic
+  # "ongoing-<repo>" task id, never the specific backlog item — so a T1/T2 item that
+  # gets retried across several cycles before landing (confirmed live: billwatch's
+  # test_priority_api_router.py failed 4x across a day before landing at a137531)
+  # shows up as 4 separate "failures" in a naive per-ATTEMPT land-rate, even though
+  # it succeeded 100% of the time per-ITEM. Root-caused chasing a "T1/T2 land worse
+  # than T3" report that turned out to be partly this metric artifact. Hash the SAME
+  # top-unchecked-item text ovn_item_guard.sh already keys its fail/no-op streaks on
+  # (same file, same selector, same [feat:...]-tag priority) so repeat attempts of one
+  # item collapse to one hash — reusing proven logic instead of inventing a second one.
+  # Read-only; must run BEFORE anything mutates OVERNIGHT_PROGRESS.md this cycle (it
+  # does, ovn_item_guard.sh's own call happens after this one) so both see the same
+  # "top" line. Empty for ongoing-lane background work with no backing queue item —
+  # that's already the correctly-labeled tier=? "Ongoing-lane" bucket, not a gap here.
+  item_hash=""
+  if [ -n "$repo_dir" ] && [ -f "$repo_dir/OVERNIGHT_PROGRESS.md" ]; then
+    local _top _text _featkey
+    _top="$(grep -nE '^- \[ \]' "$repo_dir/OVERNIGHT_PROGRESS.md" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+    if [ -n "$_top" ]; then
+      _text="${_top#*:}"
+      _featkey="$(printf '%s' "$_text" | grep -oE '\[feat:[^]]+\]' | head -1)"
+      if [ -n "$_featkey" ]; then
+        item_hash="$(printf '%s' "$_featkey" | md5sum 2>/dev/null | cut -d' ' -f1)"
+      else
+        item_hash="$(printf '%s' "$_text" | md5sum 2>/dev/null | cut -d' ' -f1)"
+      fi
+    fi
+  fi
   # tier + category from the ITEM the model actually saw (task_log has the item text +
   # the file paths it touched), falling back to the task prompt. 2026-09-10: was head -c 6000 -
   # a long AUTO-SKIP-after-N-cycles prefix (often 80-100+ chars) plus normal aider preamble
@@ -191,7 +219,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     toks_sent="$(grep -oiE '[0-9.]+k? +sent' "$tl" 2>/dev/null | grep -oiE '^[0-9.]+k?' | awk '/[kK]/{gsub(/[kK]/,"");s+=$1*1000;next}{s+=$1}END{print int(s)}')"; toks_sent="${toks_sent:-0}"
     toks_recv="$(grep -oiE '[0-9.]+k? +received' "$tl" 2>/dev/null | grep -oiE '^[0-9.]+k?' | awk '/[kK]/{gsub(/[kK]/,"");s+=$1*1000;next}{s+=$1}END{print int(s)}')"; toks_recv="${toks_recv:-0}"
   fi
-  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
+  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
 }
 FAIL_DIR="$STATE_DIR/failures"
 NOOP_DIR="$STATE_DIR/noops"
@@ -2404,7 +2432,7 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   _TASK_DURATION_S=$(( $(date +%s) - ${_TASK_START_TS:-$(date +%s)} ))
   log "Task ${ID}: ${STATUS} (${_TASK_DURATION_S}s)"
   echo "| ${ID} | ${TYPE} | ${STATUS} | ${VERSION_OR_BRANCH} | ${TASK_LOG} | ${_TASK_DURATION_S}s |" >> "$REPORT_FILE"
-  record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}"
+  record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}" "${REPO:-}"
   # Per-item fail cap runs FIRST (2026-08-30): if ONE bad item hits the cap it
   # parks itself AND resets the task-valve counter, so a single broken item can't
   # auto-disable the whole repo (the double-jeopardy that kept disabling shrike).
