@@ -117,8 +117,8 @@ STATE_DIR="$SCRIPT_DIR/state"
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
 record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s $9=repo_dir
-  local tier cat cls sev st attempt tl src dur repo_dir item_hash
-  attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"; repo_dir="${9:-}"
+  local tier cat cls sev st attempt tl src dur repo_dir item_hash feat_tag
+  attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"; repo_dir="${9:-}"; feat_tag=""
   # Per-item identity (2026-09-23): outcomes.jsonl's `id` field is always the generic
   # "ongoing-<repo>" task id, never the specific backlog item — so a T1/T2 item that
   # gets retried across several cycles before landing (confirmed live: billwatch's
@@ -142,6 +142,12 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
       _featkey="$(printf '%s' "$_text" | grep -oE '\[feat:[^]]+\]' | head -1)"
       if [ -n "$_featkey" ]; then
         item_hash="$(printf '%s' "$_featkey" | md5sum 2>/dev/null | cut -d' ' -f1)"
+        # Research-batch scorecard (2026-09-23): keep the RAW [feat:...] tag too, not
+        # just its hash - a batch scorecard grouping by an opaque md5 is useless to a
+        # human/Claude skimming it, and the tag already carries repo+date+slug (e.g.
+        # [feat:billwatch-20260922-finish-export-webhook-dead-code]), which is exactly
+        # the "which research batch was this" identity ovn_batch_scorecard.py groups by.
+        feat_tag="$(printf '%s' "$_featkey" | tr -d '[]' | sed 's/^feat://')"
       else
         item_hash="$(printf '%s' "$_text" | md5sum 2>/dev/null | cut -d' ' -f1)"
       fi
@@ -219,7 +225,11 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     toks_sent="$(grep -oiE '[0-9.]+k? +sent' "$tl" 2>/dev/null | grep -oiE '^[0-9.]+k?' | awk '/[kK]/{gsub(/[kK]/,"");s+=$1*1000;next}{s+=$1}END{print int(s)}')"; toks_sent="${toks_sent:-0}"
     toks_recv="$(grep -oiE '[0-9.]+k? +received' "$tl" 2>/dev/null | grep -oiE '^[0-9.]+k?' | awk '/[kK]/{gsub(/[kK]/,"");s+=$1*1000;next}{s+=$1}END{print int(s)}')"; toks_recv="${toks_recv:-0}"
   fi
-  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
+  # Defensive strip (same reasoning as $st above): feat_tag comes from a backlog line
+  # a research/decompose pass wrote, not a fixed constant - flatten anything that
+  # could break the JSON line before it ever reaches printf.
+  feat_tag="$(printf '%s' "${feat_tag:-}" | tr -d '"' | tr '\n\r\t' '   ')"
+  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
 }
 FAIL_DIR="$STATE_DIR/failures"
 NOOP_DIR="$STATE_DIR/noops"
