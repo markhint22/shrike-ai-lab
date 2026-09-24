@@ -938,57 +938,69 @@ STUB
       # attempt's fate.
       if grep -qE 'no doable T3\+ item found|another stage runner holds the lock' "$_STAGE_OUT"; then
         rm -f "$_STAGE_OUT"
-        echo "skip(exhausted) stage(higher-tier)"
+        # 2026-09-24 FIX: this used to `return` here unconditionally, ending the WHOLE cycle -
+        # even though the comment atop this block says "Lower-tier items fall through to the
+        # normal scout+implement below." That fall-through never actually happened once this
+        # branch was entered. Confirmed live: xlite's only T3+/T4 items all targeted a GUT test
+        # file (tests/test_burst_fire_hit_percent_needed.gd), which ovn_stage_runner.sh's own
+        # item-picker deliberately excludes (a separate, correct rule - decompose cannot author
+        # GUT tests, see that file's 2026-09-15 comment) - so this branch fired EVERY cycle and
+        # returned, even though a perfectly good, genuinely-doable T1 item
+        # (tests/test_manhattan.gd deletion) sat unclaimed in the same queue the whole time.
+        # 55 skip(exhausted) cycles on xlite in a single 24h window, confirmed via
+        # state/outcomes.jsonl, zero landed/noop/reverted activity that whole day. Now genuinely
+        # falls through to the scout+implement flow below instead of returning.
+        echo "--- higher-tier sub-flow found nothing doable — falling through to scout+implement for any remaining T1/T2 work ---" >> "$task_log"
+      else
+        rm -f "$_STAGE_OUT"
+        # 2026-09-16 FIX: every staged item's real token spend was being recorded as 0, success OR
+        # failure. Root cause: each step's aider call writes to its own per-step log file
+        # (state/stage_runs/<repo>-<run>-sN.log), never to the stdout this function captures into
+        # $task_log — so record_outcome()'s "Tokens: X sent, Y received" grep against $task_log had
+        # nothing to find for ANY staged attempt. The real per-step tokens were never lost, just
+        # never surfaced here: ovn_stage_runner.sh's own per-step jlog line already records
+        # tokens_sent/tokens_recv for every attempt (pass or fail) the moment it happens, well
+        # before the run's ultimate outcome is known — so summing them from the run's own jsonl
+        # (the same file $_STAGE_SUMMARY below already locates) gives the real total even for a
+        # run that failed, timed out, or was killed mid-step, not just a clean full pass. Appending
+        # in record_outcome's own expected "Tokens: X sent, Y received" text format means zero
+        # changes needed there — it already parses this out of $task_log.
+        _STAGE_JSONL="$(ls -t "$SCRIPT_DIR"/state/stage_runs/"$(basename "$repo")"-*.jsonl 2>/dev/null | head -1)"
+        if [ -n "$_STAGE_JSONL" ] && [ -f "$_STAGE_JSONL" ]; then
+          _stage_ts="$(jq -s '[.[].tokens_sent // 0] | add' "$_STAGE_JSONL" 2>/dev/null)"; _stage_ts="${_stage_ts:-0}"
+          _stage_tr="$(jq -s '[.[].tokens_recv // 0] | add' "$_STAGE_JSONL" 2>/dev/null)"; _stage_tr="${_stage_tr:-0}"
+          echo "Tokens: ${_stage_ts} sent, ${_stage_tr} received (summed across all per-step attempts in this staged run, including failed/timed-out steps)" >> "$task_log"
+        fi
+        _STAGE_SUMMARY="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep '"event":"summary"' | tail -1)"
+        _STAGE_PUSHED="$(printf '%s' "$_STAGE_SUMMARY" | grep -oE '"commits_pushed":[0-9]+' | grep -oE '[0-9]+$')"
+        # 2026-09-20 FIX: ovn_stats.py's by-language/type pass-rate breakdown reads
+        # state/task_stats.log, which cycle_notify.sh only ever populates for the BASIC
+        # scout+implement flow (it needs a matching state/cycle_summary.log line, which this
+        # higher-tier inline sub-flow never writes — it returns straight out of this function,
+        # well before the code further down in this file that appends to cycle_summary.log).
+        # Confirmed live: shrike-monitor/xlite showed "no queue activity recorded" in
+        # ovn_stats.py despite 100% of their real recent work going through THIS path (their
+        # raw digest counts were fine — cycle_notify.sh's np/nf/nr/nn/ne tally already reads the
+        # report table directly — only the classified per-language/type view was blind). The
+        # stage runner's own per-run jsonl already has everything needed (repo, tier, item text
+        # with an embedded target file + a cat: tag) without needing cycle_summary.log at all.
+        _stage_item="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep -m1 '"event":"decomposed"' | grep -oE '"item":"[^"]*"' | sed -E 's/^"item":"//; s/"$//')"
+        _stage_file="$(printf '%s' "$_stage_item" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | grep -vE '\.md$' | head -1)"
+        _stage_tag="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "${_stage_item:-$_stage_file}" 2>/dev/null || echo '{?}')"
+        if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
+          _stage_oc=pass
+        else
+          _stage_oc=noop:flail
+        fi
+        mkdir -p "$SCRIPT_DIR/state" 2>/dev/null
+        printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(basename "$repo")" "$_stage_oc" "$_stage_tag" "${_stage_file:-?}" >> "$SCRIPT_DIR/state/task_stats.log"
+        if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
+          echo "pushed(tests:pass) stage(higher-tier)"
+        else
+          echo "no-op(stage-unverified) stage(higher-tier)"
+        fi
         return
       fi
-      rm -f "$_STAGE_OUT"
-      # 2026-09-16 FIX: every staged item's real token spend was being recorded as 0, success OR
-      # failure. Root cause: each step's aider call writes to its own per-step log file
-      # (state/stage_runs/<repo>-<run>-sN.log), never to the stdout this function captures into
-      # $task_log — so record_outcome()'s "Tokens: X sent, Y received" grep against $task_log had
-      # nothing to find for ANY staged attempt. The real per-step tokens were never lost, just
-      # never surfaced here: ovn_stage_runner.sh's own per-step jlog line already records
-      # tokens_sent/tokens_recv for every attempt (pass or fail) the moment it happens, well
-      # before the run's ultimate outcome is known — so summing them from the run's own jsonl
-      # (the same file $_STAGE_SUMMARY below already locates) gives the real total even for a
-      # run that failed, timed out, or was killed mid-step, not just a clean full pass. Appending
-      # in record_outcome's own expected "Tokens: X sent, Y received" text format means zero
-      # changes needed there — it already parses this out of $task_log.
-      _STAGE_JSONL="$(ls -t "$SCRIPT_DIR"/state/stage_runs/"$(basename "$repo")"-*.jsonl 2>/dev/null | head -1)"
-      if [ -n "$_STAGE_JSONL" ] && [ -f "$_STAGE_JSONL" ]; then
-        _stage_ts="$(jq -s '[.[].tokens_sent // 0] | add' "$_STAGE_JSONL" 2>/dev/null)"; _stage_ts="${_stage_ts:-0}"
-        _stage_tr="$(jq -s '[.[].tokens_recv // 0] | add' "$_STAGE_JSONL" 2>/dev/null)"; _stage_tr="${_stage_tr:-0}"
-        echo "Tokens: ${_stage_ts} sent, ${_stage_tr} received (summed across all per-step attempts in this staged run, including failed/timed-out steps)" >> "$task_log"
-      fi
-      _STAGE_SUMMARY="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep '"event":"summary"' | tail -1)"
-      _STAGE_PUSHED="$(printf '%s' "$_STAGE_SUMMARY" | grep -oE '"commits_pushed":[0-9]+' | grep -oE '[0-9]+$')"
-      # 2026-09-20 FIX: ovn_stats.py's by-language/type pass-rate breakdown reads
-      # state/task_stats.log, which cycle_notify.sh only ever populates for the BASIC
-      # scout+implement flow (it needs a matching state/cycle_summary.log line, which this
-      # higher-tier inline sub-flow never writes — it returns straight out of this function,
-      # well before the code further down in this file that appends to cycle_summary.log).
-      # Confirmed live: shrike-monitor/xlite showed "no queue activity recorded" in
-      # ovn_stats.py despite 100% of their real recent work going through THIS path (their
-      # raw digest counts were fine — cycle_notify.sh's np/nf/nr/nn/ne tally already reads the
-      # report table directly — only the classified per-language/type view was blind). The
-      # stage runner's own per-run jsonl already has everything needed (repo, tier, item text
-      # with an embedded target file + a cat: tag) without needing cycle_summary.log at all.
-      _stage_item="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep -m1 '"event":"decomposed"' | grep -oE '"item":"[^"]*"' | sed -E 's/^"item":"//; s/"$//')"
-      _stage_file="$(printf '%s' "$_stage_item" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | grep -vE '\.md$' | head -1)"
-      _stage_tag="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "${_stage_item:-$_stage_file}" 2>/dev/null || echo '{?}')"
-      if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
-        _stage_oc=pass
-      else
-        _stage_oc=noop:flail
-      fi
-      mkdir -p "$SCRIPT_DIR/state" 2>/dev/null
-      printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(basename "$repo")" "$_stage_oc" "$_stage_tag" "${_stage_file:-?}" >> "$SCRIPT_DIR/state/task_stats.log"
-      if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
-        echo "pushed(tests:pass) stage(higher-tier)"
-      else
-        echo "no-op(stage-unverified) stage(higher-tier)"
-      fi
-      return
     fi
 
     # Re-capture BEFORE_SHA AFTER the sanitizer + self-gen maintenance commits
