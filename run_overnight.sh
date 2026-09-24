@@ -163,7 +163,19 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # problem but a truncated-read one. 40000 comfortably covers this class of log with headroom
   # while still bounding a pathological giant pytest-failure dump.
   src="$( { head -c 40000 "$tl" 2>/dev/null; printf ' %s' "${4:-}"; } | tr 'A-Z' 'a-z' )"
-  tier="$(printf '%s' "$src" | grep -oE '\[t[1-5]\]|·t[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"   # explicit tier TAG only (was: any loose t<digit> -> wrong tiers)
+  # Tier source priority (2026-09-24): try the LIVE backlog line ($_text, already read
+  # above for item_hash) FIRST, before scraping the task_log/prompt. Found live: 56 of
+  # 384 24h outcomes were real LANDED pushes recorded as tier=? - all traced to items
+  # that got retagged (e.g. "T1->T3, routes to staged pipeline") or ran through the
+  # staged/higher-tier sub-flow, where the completion log/prompt text describes the
+  # DECOMPOSED sub-step rather than repeating the original "[T#]" bracket, so the old
+  # task_log-only scrape found nothing even though the item's CURRENT tag was known and
+  # correct in OVERNIGHT_PROGRESS.md the whole time. $_text is read fresh from that file
+  # every call, so it reflects retags/staging correctly regardless of path taken.
+  tier="$(printf '%s' "${_text:-}" | tr 'A-Z' 'a-z' | grep -oE '\[t[1-5]\]|·t[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"
+  if [ -z "$tier" ]; then
+    tier="$(printf '%s' "$src" | grep -oE '\[t[1-5]\]|·t[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"   # explicit tier TAG only (was: any loose t<digit> -> wrong tiers)
+  fi
   case "$src" in
     *.gd*|*godot*|*gut*)                         cat=godot;;
     *.vue*)                                      cat=vue;;
