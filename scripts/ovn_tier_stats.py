@@ -192,6 +192,8 @@ lines = []
 total_sent = sum(r.get("tokens_sent", 0) or 0 for r in rows)
 total_recv = sum(r.get("tokens_recv", 0) or 0 for r in rows)
 total_timeouts = sum(1 for r in rows if r.get("fail_reason") == "timeout")
+total_reverted_class = sum(1 for r in rows if r.get("class") == "reverted")
+total_hidden_reverts = sum(1 for r in rows if str(r.get("status", "")).startswith("no-op(reverted"))
 
 for t in TIER_ORDER:
     sub = by_tier[t]
@@ -203,6 +205,17 @@ for t in TIER_ORDER:
     landed = sum(1 for r in attempted if r.get("class") == "landed")
     noop = sum(1 for r in attempted if r.get("class") == "noop")
     reverted = sum(1 for r in attempted if r.get("class") == "reverted")
+    # 2026-09-24: run_overnight.sh's NO-NEW-RED GUARD deliberately classifies a real
+    # `git reset --hard` (status "no-op(reverted-red)") as class=noop rather than
+    # class=reverted - intentional, so it does not trip the task-level consecutive-
+    # failure safety valve (only ovn_item_guard.sh's separate per-item streak sees it).
+    # But that means every noop count reported here silently includes real, code-
+    # committed-then-thrown-away reverts alongside genuine "nothing to do" no-ops -
+    # confirmed live: 56 of 138 noop rows fleet-wide in a 24h window (41%) were
+    # actually this shape. Anyone reading "N no-op" has no way to tell how much of
+    # it was wasted work vs. idle. Break it out without changing the underlying
+    # class (the safety-valve behavior stays exactly as designed).
+    hidden_reverts = sum(1 for r in attempted if str(r.get("status", "")).startswith("no-op(reverted"))
     other_bad = sum(1 for r in attempted if r.get("class") in ("error", "oversized", "unknown", "held"))
     timeouts = sum(1 for r in attempted if r.get("fail_reason") == "timeout")
     n = len(attempted)
@@ -239,7 +252,10 @@ for t in TIER_ORDER:
         bits.append(f"per-item: {landed_items}/{n_items} ({item_pct}%)")
     extra = []
     if noop:
-        extra.append(f"{noop} no-op")
+        noop_label = f"{noop} no-op"
+        if hidden_reverts:
+            noop_label += f" ({hidden_reverts} of which reverted code)"
+        extra.append(noop_label)
     if reverted:
         extra.append(f"{reverted} reverted")
     if timeouts:
@@ -260,6 +276,13 @@ window_label = "all-time" if all_time else "last %gh" % hours
 out = ["📊 By tier (%s):" % window_label] + lines if lines else []
 if total_timeouts:
     out.append(f"⏱ {total_timeouts} timeout(s) total this window")
+if total_hidden_reverts:
+    true_reverts = total_reverted_class + total_hidden_reverts
+    out.append(
+        f"↩️ {true_reverts} real revert(s) total this window "
+        f"({total_reverted_class} labeled reverted + {total_hidden_reverts} labeled no-op "
+        f"that actually rolled back code — see NO-NEW-RED GUARD)"
+    )
 if total_sent or total_recv:
     out.append(f"🔤 Tokens: {fmt_toks(total_sent)} sent / {fmt_toks(total_recv)} received")
     fail_rows = [r for r in rows if is_failure(r)]
