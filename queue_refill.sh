@@ -35,7 +35,13 @@ doable(){ # $1=repo -> doable count (open [ ] minus parked)
   local f="repos/$1/OVERNIGHT_PROGRESS.md"; [ -f "$f" ] || { echo 0; return; }
   local open parked
   open=$(grep -cE '^- \[ \] ' "$f" 2>/dev/null); open=${open:-0}   # NO `|| echo 0` — grep -c prints 0 itself; that fallback doubled it -> "0\n0" -> integer errors
-  parked=$(grep -E '^- \[ \] ' "$f" 2>/dev/null | grep -cE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED')  # grep -c already prints 0 on no-match; no `|| echo 0` (that doubled it -> "0\n0" -> integer errors)
+  parked=$(grep -E '^- \[ \] ' "$f" 2>/dev/null | grep -cE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED|^\- \[ \] \[CLAUDE\]')  # grep -c already prints 0 on no-match; no `|| echo 0` (that doubled it -> "0\n0" -> integer errors)
+  # [CLAUDE]-tagged lines are open but NOT 27B-doable (queue_refill.py header: only
+  # [T1..T5] items are pulled) - without this, a repo whose live queue is entirely
+  # [CLAUDE] escalation notes reads as healthy/doable and refill never fires, even
+  # with a deep backlog waiting. Found live 2026-09-24: xlite had 20 [CLAUDE] items
+  # and ZERO real [T1-5] items, yet logged "N doable (ok, no refill)" every cron
+  # tick while 175 real backlog items sat unpulled.
   echo $(( open - parked ))
 }
 
