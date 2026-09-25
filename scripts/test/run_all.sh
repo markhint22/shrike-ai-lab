@@ -75,5 +75,7 @@ echo; echo "===== BUILD-GATE Kotlin diagnostic grounding (kotlinc file:line:col 
 echo; echo "===== Android Gradle flavor-task disambiguation (ambiguous VERIFY command guard) ====="; bash test_gradle_flavor_guard.sh || rc=1
 echo; echo "===== Delete-hint prompt guidance (aider DELETE: trailer steering) ====="; bash test_delete_hint_prompt.sh || rc=1
 echo; echo "===== Research-batch scorecard (letter-grade distribution, D/F detail, no silent truncation) ====="; bash test_batch_scorecard.sh || rc=1
+echo; echo "===== Batch stragglers finder (chronically-F batch detection for open siblings) ====="; bash test_batch_stragglers.sh || rc=1
+echo; echo "===== Batch straggler parking (AUTO-SKIP low-grade handling, worktree-isolated) ====="; bash test_batch_park_stragglers.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
