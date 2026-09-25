@@ -17,9 +17,12 @@ ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FA
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 WD="$tmp/overnight-queue"
-mkdir -p "$WD/repos" "$WD/logs"
+mkdir -p "$WD/repos" "$WD/logs" "$WD/scripts"
 cp "$SCRIPT" "$WD/ovn_queue_health_sweep.sh"
 cp "$(dirname "$SCRIPT")/queue_refill.py" "$WD/queue_refill.py"
+# Phase 2 (2026-09-25): the script now sources scripts/lib_worktree.sh - stage it in the
+# sandbox too, matching the real ~/overnight-queue layout.
+cp "$(dirname "$SCRIPT")/scripts/lib_worktree.sh" "$WD/scripts/lib_worktree.sh"
 
 TRACE="$tmp/trace.log"; : > "$TRACE"
 cat > "$WD/ovn_recover_parked.sh" <<EOF
@@ -70,38 +73,51 @@ new_git_repo(){  # $1=name $2=progress-content
 
 # --- D: a real duplicate item is REMOVED (keeping the first occurrence) and the fix is
 # actually committed + pushed, not just logged - report-only would let the fleet keep
-# re-running the exact same duplicated work forever. ---
+# re-running the exact same duplicated work forever.
+#
+# Phase 2 (2026-09-25): the sweep now writes+commits+pushes from an ISOLATED WORKTREE, not
+# the local clone at $WD/repos/<name> directly - that local clone is EXPECTED to stay
+# untouched/stale after the sweep (the whole point of worktree isolation: nothing else reading
+# that clone mid-sweep sees a half-written state). The real fix lands on the REMOTE
+# (bare-dupey.git's overnight/feature), which is what these assertions check now, not the
+# local clone. ---
 new_git_repo dupey "## Next Steps
 - [ ] [T1] a/file.py — do the exact same thing here. VERIFY: pytest -k foo
 - [ ] [T2] a/file.py — do the exact same thing here. VERIFY: pytest -k foo
 - [ ] [T3] b/file.py — a genuinely different item, must survive untouched."
-before_head="$(cd "$WD/repos/dupey" && git rev-parse HEAD)"
+before_remote="$(cd "$tmp/bare-dupey.git" && git rev-parse overnight/feature)"
 HOME="$tmp" bash "$WD/ovn_queue_health_sweep.sh" dupey >/dev/null 2>&1
-after_content="$(cat "$WD/repos/dupey/OVERNIGHT_PROGRESS.md")"
+after_remote="$(cd "$tmp/bare-dupey.git" && git rev-parse overnight/feature)"
+after_content="$(cd "$tmp/bare-dupey.git" && git show overnight/feature:OVERNIGHT_PROGRESS.md)"
 ok "the duplicate is actually removed, only one copy of a/file.py remains" \
    "[ \$(echo \"\$after_content\" | grep -c 'a/file.py') -eq 1 ]"
 ok "the genuinely different item is untouched" "echo \"\$after_content\" | grep -q 'b/file.py'"
 ok "sweep log records the dedupe" "grep -q 'removed 1 duplicate' '$WD/logs/ovn_queue_health_sweep.log'"
-after_head="$(cd "$WD/repos/dupey" && git rev-parse HEAD)"
-ok "the fix was actually committed (HEAD moved)" "[ '$before_head' != '$after_head' ]"
-ok "the fix was actually PUSHED, not just committed locally" \
-   "[ \"\$(cd '$tmp/bare-dupey.git' && git rev-parse overnight/feature)\" = '$after_head' ]"
+ok "the fix was actually pushed to the remote (ref moved)" "[ '$before_remote' != '$after_remote' ]"
+ok "the local clone is untouched by design (worktree-isolated write)" \
+   "cat '$WD/repos/dupey/OVERNIGHT_PROGRESS.md' | grep -c 'a/file.py' | grep -q 2"
 
 # --- E: an already-satisfied item (its own VERIFY already passes) is checked off and
-# committed+pushed, not left active for the fleet to keep re-attempting. ---
+# committed+pushed, not left active for the fleet to keep re-attempting.
+#
+# Phase 2 (2026-09-25): the sweep's worktree is opened from origin/overnight/feature (the
+# REMOTE ref), so the seeded real files must actually be PUSHED for the isolated worktree to
+# see them - a locally-committed-but-unpushed seed (the old assumption, when the sweep read
+# the local clone directly) is invisible to it now. Same reasoning as scenario D: assertions
+# check the remote content, not the local clone. ---
 new_git_repo already "## Next Steps
 - [ ] [T1] real/thing.py — needs actual work still. VERIFY: \`grep -q NEVER_TRUE_MARKER real/thing.py\`
 - [ ] [T2] docs/readme.txt — already written. VERIFY: \`grep -q ALREADY_HERE docs/readme.txt\`"
 mkdir -p "$WD/repos/already/docs" "$WD/repos/already/real"
 echo "ALREADY_HERE - this file already has the content the item wanted" > "$WD/repos/already/docs/readme.txt"
 echo "no marker here" > "$WD/repos/already/real/thing.py"
-( cd "$WD/repos/already" && git add -A && git commit -q -m "seed real files" )
+( cd "$WD/repos/already" && git add -A && git commit -q -m "seed real files" && git push -q origin overnight/feature )
 HOME="$tmp" bash "$WD/ovn_queue_health_sweep.sh" already >/dev/null 2>&1
-after_content2="$(cat "$WD/repos/already/OVERNIGHT_PROGRESS.md")"
+after_content2="$(cd "$tmp/bare-already.git" && git show overnight/feature:OVERNIGHT_PROGRESS.md)"
 ok "the already-satisfied item is checked off" "echo \"\$after_content2\" | grep -q '\[x\].*docs/readme.txt.*pre-verified'"
 ok "the still-needed item stays unchecked" "echo \"\$after_content2\" | grep -q '\[ \].*real/thing.py'"
 ok "the credit was pushed to origin" \
-   "[ \"\$(cd '$tmp/bare-already.git' && git rev-parse overnight/feature)\" = \"\$(cd '$WD/repos/already' && git rev-parse HEAD)\" ]"
+   "cd '$tmp/bare-already.git' && git log --oneline overnight/feature | grep -q 'dedupe + credit'"
 
 echo "queue_health_sweep: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -28,6 +28,7 @@
 set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 export PATH=/usr/local/bin:/usr/bin:/bin:${PATH:-}
+source scripts/lib_worktree.sh
 LOG="logs/ovn_queue_health_sweep.log"; say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 REPOS="${*:-billwatch gitlark iptv_apps test-automation-agent xlite shrike-notify shrike-monitor}"
 RECOVER_PASSES="${OVN_HEALTH_RECOVER_PASSES:-3}"
@@ -52,14 +53,24 @@ for r in $REPOS; do
 done
 
 # ---- 2. fix duplicates + already-satisfied items among what's still active ----
-export REPOS
-CHANGED="$(python3 - <<'PYEOF' 2>>"$LOG"
+# Phase 2 (2026-09-25): each repo gets its own isolated worktree snapshot instead of the
+# live, continuously-mutating clone — this cron-driven pass (every 4h) and the fleet's own
+# loop touching the same repos/<name> checkout is exactly the read-while-write collision
+# Phase 2 targets. already_satisfied() only ever runs `python -c`/`grep -` VERIFY commands
+# (queue_refill.py's own allowlist), never a full test suite, so no .venv/node_modules
+# linking is needed here — a bare worktree checkout is sufficient.
+for r in $REPOS; do
+  rd="repos/$r"; [ -d "$rd/.git" ] || continue
+  wt="$(wt_open "$rd" overnight/feature)"
+  if [ -z "$wt" ]; then say "$r: worktree open failed — skipping dedupe/credit pass"; continue; fi
+  changed="$(REPO="$r" WT_ROOT="$wt" python3 - <<'PYEOF' 2>>"$LOG"
 import os, re, sys
 sys.path.insert(0, os.path.expanduser("~/overnight-queue"))
 from queue_refill import already_satisfied
 
-REPOS = os.environ["REPOS"].split()
-BASE = os.path.expanduser("~/overnight-queue/repos")
+repo = os.environ["REPO"]
+root = os.environ["WT_ROOT"]
+path = f"{root}/OVERNIGHT_PROGRESS.md"
 ts = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def normalize(text):
@@ -68,11 +79,7 @@ def normalize(text):
     text = re.sub(r"[`*_]", "", text)
     return re.sub(r"\s+", " ", text).strip().lower()
 
-for repo in REPOS:
-    path = f"{BASE}/{repo}/OVERNIGHT_PROGRESS.md"
-    if not os.path.exists(path):
-        continue
-    root = f"{BASE}/{repo}"
+if os.path.exists(path):
     lines = open(path).read().splitlines()
 
     seen = set()
@@ -97,18 +104,19 @@ for repo in REPOS:
     if dupe_count or already_done_count:
         open(path, "w").write("\n".join(out) + "\n")
         print(f"{ts} {repo}: removed {dupe_count} duplicate(s), credited {already_done_count} already-satisfied item(s)", file=sys.stderr)
-        print(repo)
+        print("CHANGED")
 PYEOF
 )"
-echo "$CHANGED" | grep -v '^$' >> "$LOG" 2>/dev/null || true
-
-for r in $CHANGED; do
-  rd="repos/$r"
-  ( cd "$rd" && git add OVERNIGHT_PROGRESS.md \
-    && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): dedupe + credit already-satisfied items (health sweep)" \
-    && { git push -q origin overnight/feature 2>/dev/null \
-         || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
-  say "$r: dedupe/credit changes committed and pushed"
+  if [ "$changed" = "CHANGED" ]; then
+    ( cd "$wt" && git add OVERNIGHT_PROGRESS.md \
+      && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): dedupe + credit already-satisfied items (health sweep)" )
+    if [ "$(wt_push "$wt" overnight/feature)" = ok ]; then
+      say "$r: dedupe/credit changes committed and pushed"
+    else
+      say "$r: dedupe/credit changes built but push failed (retried next cron tick)"
+    fi
+  fi
+  wt_close "$rd" "$wt"
 done
 
 say "queue health sweep complete"
