@@ -948,7 +948,20 @@ STUB
       # THIS-INVOCATION-ONLY output (not the stale cross-cycle file) for the early-exit phrases
       # first, and report the honest "nothing happened" status instead of borrowing an old
       # attempt's fate.
-      if grep -qE 'no doable T3\+ item found|another stage runner holds the lock' "$_STAGE_OUT"; then
+      # 2026-09-25 FIX: same bug family as the 2026-09-24 fallthrough fix above, a case that
+      # fix didn't cover - the stage runner CAN find a doable T3+ item (so it never prints
+      # "no doable") but then fail at decomposition itself ("decompose produced no steps -
+      # abort", jsonl event decompose_failed) before any real step/aider attempt happens.
+      # That still falls into the else branch below as a normal, cycle-consuming higher-tier
+      # attempt - so a repo whose T3-5 backlog is dominated by items too hard to even decompose
+      # (confirmed live: xlite, 5 different T5 item_hashes over 12h, ALL decompose_failed, 0
+      # landed of ANY tier that whole window despite 24 real doable T1-2 items sitting untouched
+      # in the same queue) has every cycle consumed by a guaranteed-unproductive attempt, exactly
+      # the "still-open gap" ovn_stage_runner.sh's own 2026-09-15 comment already flagged ("a
+      # general decompose_failed retry-limit... a separate, still-open gap for the non-godot
+      # case"). Treat a decompose failure the same as "no doable" - no real work happened this
+      # cycle either way, so fall through to scout+implement instead of ending the cycle on it.
+      if grep -qE 'no doable T3\+ item found|another stage runner holds the lock|decompose produced no steps' "$_STAGE_OUT"; then
         rm -f "$_STAGE_OUT"
         # 2026-09-24 FIX: this used to `return` here unconditionally, ending the WHOLE cycle -
         # even though the comment atop this block says "Lower-tier items fall through to the
