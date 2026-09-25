@@ -23,6 +23,19 @@
 # this purely observes, so we get real pass/fail data before deciding whether
 # to demote failing credits back to open (a Phase-3-style staged rollout, not
 # an immediate behavior flip - see the pipeline-hardening plan).
+#
+# CALIBRATION (2026-09-25, after the first overnight run of real shadow data):
+#   1. A bare `python`/`python3` VERIFY command (no .venv/ prefix) resolved to
+#      whatever interpreter is on PATH, which lacks this repo's installed deps
+#      (pytest etc) - a real FAIL was actually "No module named pytest", an
+#      environment mismatch, not a false credit. Same fix already proven in
+#      ovn_stage_runner.sh's try_regen: substitute the repo's own venv python
+#      when one exists nearby.
+#   2. The denylist's blanket `*">"*` match skipped `2>/dev/null` (a completely
+#      standard, safe stderr-suppression idiom used throughout this fleet's own
+#      VERIFY clauses) as if it were a real file write, throwing away signal on
+#      common, safe commands. Narrowed to only deny an actual non-/dev/null
+#      redirect target.
 set -uo pipefail
 LOG="${1:-}"; PROG="${2:-OVERNIGHT_PROGRESS.md}"
 [ -f "$LOG" ] || { echo "CREDITED=0"; exit 0; }
@@ -31,6 +44,35 @@ LOG="${1:-}"; PROG="${2:-OVERNIGHT_PROGRESS.md}"
 SHADOW_LOG="${OVN_VERIFY_SHADOW_LOG:-$HOME/overnight-queue/state/verify_gate_shadow.log}"
 mkdir -p "$(dirname "$SHADOW_LOG")" 2>/dev/null
 _REPO_LABEL="$(basename "$PWD")"
+
+# Substitute a nearby repo .venv's python for a bare `python`/`python3` token, so a
+# VERIFY clause that omits the .venv/ prefix (some do, some don't - an authoring
+# inconsistency, not something this shadow check should mistake for a false credit)
+# runs with the repo's actual installed deps instead of whatever's on PATH.
+_resolve_venv_cmd(){
+  local cmd="$1" vpy
+  case "$cmd" in
+    python\ *|python3\ *|*'&& python '*|*'&& python3 '*|*'; python '*|*'; python3 '*)
+      vpy="$(find . -maxdepth 4 \( -path '*/.venv/bin/python3' -o -path '*/.venv/bin/python' \) 2>/dev/null | head -1)"
+      if [ -n "$vpy" ]; then
+        cmd="$(printf '%s' "$cmd" | sed -E "s#(^|&& |; )python3? #\\1${vpy} #")"
+      fi
+      ;;
+  esac
+  printf '%s' "$cmd"
+}
+
+# True (0) if $1 contains a redirect to something other than /dev/null (a real
+# destructive write this shadow check should refuse to execute), false (1) if the
+# only redirects present are the standard `>/dev/null` / `2>/dev/null` idiom.
+_has_real_redirect(){
+  local stripped
+  stripped="$(printf '%s' "$1" | sed -E 's/[0-9]*>>?[[:space:]]*\/dev\/null//g')"
+  case "$stripped" in
+    *">"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 shadow_check(){  # $1 = line number in $PROG, about to be credited
   local ln="$1" line vcmd rc out tail_out ts
@@ -47,10 +89,15 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited
   # is read-only observation, not a mutation - skip anything destructive/networked rather
   # than risk it, same spirit as ovn_stage_runner.sh's try_regen allowlist.
   case "$vcmd" in
-    *"rm -rf"*|*"sudo "*|*"git push"*|*"git reset"*|*"curl "*|*"wget "*|*">"*)
+    *"rm -rf"*|*"sudo "*|*"git push"*|*"git reset"*|*"curl "*|*"wget "*)
       echo "$ts repo=$_REPO_LABEL line=$ln result=SKIPPED_DENYLIST cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
       return ;;
   esac
+  if _has_real_redirect "$vcmd"; then
+    echo "$ts repo=$_REPO_LABEL line=$ln result=SKIPPED_DENYLIST cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+    return
+  fi
+  vcmd="$(_resolve_venv_cmd "$vcmd")"
   out="$(timeout 60 bash -c "$vcmd" 2>&1)"; rc=$?
   tail_out="$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"
   if [ "$rc" -eq 0 ]; then
