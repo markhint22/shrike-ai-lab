@@ -93,6 +93,9 @@ def test_retire():
             "- [ ] [MED] A service module: add a helper, empty/zero result.\n"  # vague (no file) -> retire
             "- [ ] [LOW] `gone/missing.py` — fix a thing. One file.\n"          # dead-path -> retire
             "- [ ] [MED] `newpkg/parser.py` — Create a new pure parser module. One file.\n"  # create-intent, missing file -> KEEP
+            "- [ ] [T2] web/components/Banner.vue — Add a new minimal, dismissible banner component using useThing(). One file.\n"  # 2026-09-25: broadened "add a new X" -> KEEP
+            "- [ ] [T1] backend/models/event.py (NEW) — Add a new Event Pydantic model. One file.\n"  # 2026-09-25: explicit (NEW) marker -> KEEP
+            "- [ ] [T2] backend/routers/vod.py — NEW GET /api/vod endpoint returning a catalog page. One file.\n"  # 2026-09-25: leading NEW marker -> KEEP
             "- [ ] (human/Claude) do a big multi-file thing.\n"                 # human -> keep
         )
         v, dead = R.process(prog)
@@ -107,6 +110,14 @@ def test_retire():
         ok("retire keeps human item", "human/Claude" in body and "- [ ] (human/Claude)" in body)
         ok("retire tagged vague", "retired-vague" in body)
         ok("retire tagged dead-path", "retired-dead-path" in body)
+        # 2026-09-25 FIX: the old CREATE_INTENT vocabulary was too narrow and silently
+        # retired real creation items fleet-wide (confirmed live: gitlark's
+        # OtaUpdateBanner.vue, retired as dead-path, broke the production build once
+        # its sibling "mount" item landed and referenced a component that was never
+        # created - see project_research-pipeline-retire-regex-fix-2026-09-25).
+        ok("retire keeps 'add a new X component' item", "- [ ] [T2] web/components/Banner.vue" in body, body)
+        ok("retire keeps explicit '(NEW)' marker item", "- [ ] [T1] backend/models/event.py (NEW)" in body, body)
+        ok("retire keeps leading 'NEW <desc>' marker item", "- [ ] [T2] backend/routers/vod.py" in body, body)
         # the loose-path false-positive regression: "empty/zero" must NOT count as a file
         ok("retire empty/zero not a file", body.count("retired-vague) [MED] A service module") == 1)
     finally:

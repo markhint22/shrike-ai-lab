@@ -24,7 +24,38 @@ HAS_FILE  = re.compile(r"[A-Za-z0-9_./-]+\." + EXT + r"\b")
 SLASH_FILE = re.compile(r"[A-Za-z0-9_.-]*/[A-Za-z0-9_./-]*\." + EXT + r"\b")
 SKIP      = re.compile(r"human|HUMAN|AUTO-SKIP|decision|DELETE:|retired-", re.I)
 # A file-CREATION item legitimately names a path that does not exist yet.
-CREATE_INTENT = re.compile(r"\bcreate\b|does not exist yet|new pure|new module|new helper|add a new (pytest|vitest|test) file|write only a new", re.I)
+# 2026-09-25 FIX: this vocabulary was too narrow and silently ate real, correctly-
+# authored creation items across the fleet - confirmed live on gitlark: "Add a new
+# minimal, dismissible banner component using useOtaUpdate()..." matched NONE of the
+# old phrases (not "create", not "new pure/module/helper", not a pytest/vitest/test
+# file), got retired as (retired-dead-path), and the sibling item that mounted the
+# component (a separate, already-landed commit) shipped a production build error
+# (Could not resolve OtaUpdateBanner.vue) that blocked branch_hygiene entirely until
+# fixed by hand. A fleet-wide audit of the 653 existing (retired-dead-path) items
+# found ~7% (46) match an explicit creation-intent signal the old regex missed -
+# almost entirely the very common "Add a new <noun> <thing>" phrasing, or the
+# fleet's own "(NEW)"/"NEW <path>" convention (used across gitlark/iptv_apps/
+# billwatch/test-automation-agent as an explicit "this doesn't exist yet" marker,
+# never recognized here). Broadened to: any "add a/an/this new X" (not just
+# pytest/vitest/test files), "new <component|service|class|function|method|
+# endpoint|schema|model|util>", "write/implement a new", "scaffold", and the
+# explicit ALL-CAPS "NEW"/"(NEW)" marker (checked case-sensitively - deliberately
+# NOT matching everyday lowercase "new", which would be too broad and start
+# keeping genuinely dead-path items open on prose coincidence).
+CREATE_INTENT = re.compile(
+    r"\bcreate\b"
+    r"|does not exist yet"
+    r"|\badd (a|an|this) new\b"
+    r"|\bnew (pure|module|helper|component|service|class|function|method|endpoint|schema|model|utility|util)\b"
+    r"|\bwrite (only )?a new\b"
+    r"|\bimplement a new\b"
+    r"|\bscaffold\b",
+    re.I,
+)
+CREATE_INTENT_MARKER = re.compile(r"\(NEW\)|\bNEW\b")  # case-sensitive: the fleet's own deliberate ALL-CAPS "this is new" tag
+
+def _has_create_intent(body):
+    return bool(CREATE_INTENT.search(body) or CREATE_INTENT_MARKER.search(body))
 
 # 2026-09-17: many items (and, critically, RAW PYTEST OUTPUT quoted verbatim
 # into an item's text, e.g. "Failing: FAILED tests/test_broker.py::...") are
@@ -62,7 +93,7 @@ def classify(line):
         return "vague"
     slash_paths = set(m.group(0) for m in SLASH_FILE.finditer(body))
     if slash_paths:
-        if CREATE_INTENT.search(body):
+        if _has_create_intent(body):
             return None  # create-new-file item: missing path is expected, not dead
         if not any(_path_exists(p) for p in slash_paths):
             return "dead-path"
