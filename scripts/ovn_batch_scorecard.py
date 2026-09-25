@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Research-batch scorecard (2026-09-23).
+"""Research-batch scorecard (2026-09-23, letter-grade redesign 2026-09-25).
 
 Every research/decompose pass tags the items it writes with a shared [feat:<repo>-
 <date>-<slug>] tag in backlog/<repo>.md (already the established convention — see
@@ -21,7 +21,29 @@ items, and all pre-2026-09-23 history) are not part of any batch and are silentl
 excluded — this script answers "how are BATCHES doing," not "how is everything doing"
 (that's ovn_tier_stats.py's job).
 
-Usage: ovn_batch_scorecard.py [hours=all-time] [--min-age-hours=24] [--worst=10]
+2026-09-25: the original "worst 10, sorted worst-first" view made a healthy fleet
+look alarming — the ntfy title ("N struggling batches") only ever reflected how many
+of the shown top-10 were bad, not the true count or the overall shape of the
+distribution (a batch at 91% landed looks identical in the alert to one at 9% until
+you read every line). Real data pulled once found 22 total batches, 11 flagged, and
+several sitting at 90-100% — a materially better picture than "10 struggling
+batches" suggested standalone. Added a letter-grade distribution (computed over
+EVERY batch in scope, not just the ones shown in detail) so the top-line number
+answers "how healthy is the research pipeline as a whole," and the flagged-batch
+detail list is no longer artificially capped at 10 — every D/F batch is listed
+(the thing that needs a look), and only a genuinely large detail list gets an
+explicit "...and N more" footer instead of the previous silent `head -c 800` cutoff
+in the ntfy wrapper.
+
+Grade scale (of item land-rate within the batch): A >=90%, B >=75%, C >=50%,
+D >=25%, F <25%. C/D/F all used to trip the old "<50% = struggling" flag; kept D/F
+as the actionable "needs a look" bucket (below is-mostly-working) and split out C as
+"landing, but below half its stated items and worth a glance" — shown in the summary
+counts but not in the per-item detail list, to keep the alert focused on the batches
+that actually need attention.
+
+Usage: ovn_batch_scorecard.py [hours=all-time] [--min-age-hours=24] [--worst=N]
+`--worst` now bounds the D/F *detail* list only (default: no cap — show them all).
 Prints nothing if there are no feat-tagged rows old enough to report on.
 """
 import calendar
@@ -42,7 +64,7 @@ for a in sys.argv[1:]:
     m = re.match(r'--min-age-hours=([\d.]+)', a)
     if m:
         min_age_hours = float(m.group(1))
-worst_n = 10
+worst_n = None  # None = show every D/F batch, no cap
 for a in sys.argv[1:]:
     m = re.match(r'--worst=(\d+)', a)
     if m:
@@ -57,6 +79,26 @@ def parse_ts(ts):
     except Exception:
         return None
 
+
+def grade(pct):
+    if pct >= 90:
+        return "A"
+    if pct >= 75:
+        return "B"
+    if pct >= 50:
+        return "C"
+    if pct >= 25:
+        return "D"
+    return "F"
+
+
+GRADE_LABEL = {
+    "A": "A (90-100%)",
+    "B": "B (75-89%)",
+    "C": "C (50-74%)",
+    "D": "D (25-49%)",
+    "F": "F (0-24%)",
+}
 
 batches = {}
 try:
@@ -93,23 +135,52 @@ for tag, b in sorted(batches.items()):
     n = len(rows)
     pct = 100 * landed // n if n else 0
     toks = sum((r.get("tokens_sent", 0) or 0) + (r.get("tokens_recv", 0) or 0) for r in rows)
-    lines.append((pct, tag, b["repo"], landed, reverted, noop, n, toks, age_h))
+    g = grade(pct)
+    lines.append((pct, g, tag, b["repo"], landed, reverted, noop, n, toks, age_h))
 
 if not lines:
     sys.exit(0)
 
-# Worst land-rate first — a struggling batch is the actionable signal here, not a
-# clean one (a 100% batch needs no follow-up).
+total = len(lines)
+counts = {"A": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+for pct, g, *_ in lines:
+    counts[g] += 1
+
+# Worst land-rate first for the detail list — a struggling batch is the actionable
+# signal, a clean one needs no follow-up.
 lines.sort(key=lambda x: x[0])
 
-out = ["📋 Research-batch scorecard (batches >=%gh old):" % min_age_hours]
-for pct, tag, repo, landed, reverted, noop, n, toks, age_h in lines[:worst_n]:
-    flag = "⚠️ " if pct < 50 else ""
-    out.append(
-        f"  {flag}{repo}/{tag}: {landed}/{n} landed ({pct}%) · {reverted} reverted · "
-        f"{noop} no-op · {toks} tok · {age_h:.0f}h old"
-    )
-if len(lines) > worst_n:
-    out.append(f"  ...and {len(lines) - worst_n} more batch(es) not shown")
+out = ["📋 Research-batch scorecard: %d batch(es) >=%gh old" % (total, min_age_hours)]
+out.append("")
+out.append("Grade distribution:")
+for g in ("A", "B", "C", "D", "F"):
+    n = counts[g]
+    pct_of_total = round(100 * n / total) if total else 0
+    bar = "█" * round(pct_of_total / 5)
+    out.append(f"  {GRADE_LABEL[g]:<13} {n:>3} batch(es)  {pct_of_total:>3}%  {bar}")
+
+flagged = [l for l in lines if l[1] in ("D", "F")]
+out.append("")
+if flagged:
+    shown = flagged[:worst_n] if worst_n else flagged
+    out.append(f"⚠️  {len(flagged)} batch(es) graded D/F — worth a look:")
+    for pct, g, tag, repo, landed, reverted, noop, n, toks, age_h in shown:
+        out.append(
+            f"  {g} {repo}/{tag}: {landed}/{n} landed ({pct}%) · {reverted} reverted · "
+            f"{noop} no-op · {toks} tok · {age_h:.0f}h old"
+        )
+    if len(flagged) > len(shown):
+        out.append(f"  ...and {len(flagged) - len(shown)} more D/F batch(es) not shown")
+else:
+    out.append("No D/F batches — nothing needs a look right now.")
+
+# Machine-parseable summary line for the ntfy wrapper (avoids re-deriving counts by
+# grepping the human-readable text above, which is what made the old title
+# undercount whenever the detail list was capped or truncated).
+out.append("")
+out.append(
+    "#SUMMARY total=%d A=%d B=%d C=%d D=%d F=%d flagged=%d"
+    % (total, counts["A"], counts["B"], counts["C"], counts["D"], counts["F"], len(flagged))
+)
 
 print("\n".join(out))
