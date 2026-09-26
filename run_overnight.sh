@@ -1291,6 +1291,24 @@ IMPORTANT: your last attempt on this exact item was reverted or produced nothing
     }
 
     scan_for_new_files() {
+      # 2026-09-26 FIX: an item tagged (multifile:no) declares itself single-file, but this
+      # scan ran unconditionally regardless - it greps the ENTIRE cumulative $task_log (every
+      # attempt so far, which only grows on a retry) for ANY dotted-extension token and loads
+      # every real match up to max_files*2, with no regard for that declaration. Confirmed
+      # live on iptv_apps: a (multifile:no) Vue/TS accessibility-test item accumulated
+      # unrelated Android Kotlin + Python backend files this way across retries (each one
+      # mentioned incidentally somewhere in a prior attempt's aider output, e.g. an error
+      # message or repo-map excerpt, not actually requested), ballooning to 79,269 tokens and
+      # tripping litellm.ContextWindowExceededError (cap 65,536) - a NEW instance of the exact
+      # class of bug already fixed for OVERNIGHT_PROGRESS.md and the BUILD-GATE/Tier-2 fix-up
+      # paths, in a THIRD code path those fixes never covered. The staged (higher-tier)
+      # pipeline already enforces multifile:no via its own scope guard
+      # (ovn_stage_runner.sh's "REJECTED (scope): touched undeclared file(s)") - this brings
+      # the same discipline to the basic scout/implement flow. Purely additive for
+      # multifile:yes/untagged items - completely unaffected.
+      if printf '%s' "$prompt" | grep -qi 'multifile:no'; then
+        return 1
+      fi
       local found_new=0
       local cand
       while IFS= read -r cand; do
