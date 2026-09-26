@@ -1946,7 +1946,18 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
         _kotlinc_diag="$(grep -oE 'file://[^ ]+\.kt:[0-9]+:[0-9]+ .*' "$task_log" 2>/dev/null | sed "s#^file://$(pwd)/##" | sort -u | head -8 | tr '\n' ' ' | tr -s ' ' | cut -c1-400)"
         [ -n "$_kotlinc_diag" ] && _buildfix_summary="${_kotlinc_diag} ${_buildfix_summary}"
         if [ -n "$_buildfix_summary" ]; then
-          _buildfix_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$')"
+          # 2026-09-26 fix: this used to grep -v '^$' only, so it included EVERY
+          # touched file - including OVERNIGHT_PROGRESS.md, which the scout's own
+          # commit always checks off as a side effect of the SAME commit that broke
+          # the build. That file is append-only and can grow past 300KB; passed as
+          # --file (editable, full content, no cap), it alone exceeded the model's
+          # context window before the fix-up ever got to see the real error -
+          # confirmed live on iptv_apps: "Added OVERNIGHT_PROGRESS.md to the chat"
+          # immediately followed by ContextWindowExceededError (93152 > 65536
+          # tokens), 24 times in one overnight run. This fix-up is about a broken
+          # import/syntax in real SOURCE code; it never legitimately needs to edit
+          # the progress-tracking bookkeeping files, so exclude them outright.
+          _buildfix_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$' | grep -vE '^(OVERNIGHT_PROGRESS|OVERNIGHT_DONE)\.md$')"
           _buildfix_fileargs=()
           for _bf in $_buildfix_touched; do [ -f "$_bf" ] && _buildfix_fileargs+=(--file "$_bf"); done
           echo "--- BUILD-GATE fix-up: one bounded attempt at the structural break before reverting: ${_buildfix_summary:0:200}" >> "$task_log"
@@ -1989,7 +2000,10 @@ Fix this SPECIFIC structural error (syntax/import/parse) so the code loads again
       if [ "$VERIFY_RESULT" = "fail" ] && [ -x "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" ]; then
         _fixup_summary="$(bash "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" "$task_log" 2>/dev/null)"
         if [ -n "$_fixup_summary" ]; then
-          _fixup_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$')"
+          # 2026-09-26 fix: same exclusion as the BUILD-GATE fix-up above - see that
+          # comment for the full incident (iptv_apps ContextWindowExceededError from
+          # OVERNIGHT_PROGRESS.md being pulled in unbounded via --file).
+          _fixup_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$' | grep -vE '^(OVERNIGHT_PROGRESS|OVERNIGHT_DONE)\.md$')"
           _fixup_fileargs=()
           for _ff in $_fixup_touched; do [ -f "$_ff" ] && _fixup_fileargs+=(--file "$_ff"); done
           echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting: ${_fixup_summary:0:200}" >> "$task_log"

@@ -77,5 +77,6 @@ echo; echo "===== Delete-hint prompt guidance (aider DELETE: trailer steering) =
 echo; echo "===== Research-batch scorecard (letter-grade distribution, D/F detail, no silent truncation) ====="; bash test_batch_scorecard.sh || rc=1
 echo; echo "===== Batch stragglers finder (chronically-F batch detection for open siblings) ====="; bash test_batch_stragglers.sh || rc=1
 echo; echo "===== Batch straggler parking (AUTO-SKIP low-grade handling, worktree-isolated) ====="; bash test_batch_park_stragglers.sh || rc=1
+echo; echo "===== Build-fix/Tier-2 fix-up file exclusion (no unbounded OVERNIGHT_PROGRESS.md context blowup) ====="; bash test_buildfix_exclude_progress_files.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
