@@ -788,7 +788,47 @@ ${prompt}"
           echo "--- local ${branch} DIVERGED (origin != main); backed up to $bkp, resetting clone to origin ---" >> "$task_log"
           git reset --hard "origin/${branch}" --quiet
           rm -f "$DIVERGE_FLAG"
-          emit_alert warn "$id" "local ${branch} DIVERGED — auto-healed: local commits saved to branch $bkp, clone reset to origin so the fleet keeps moving. Review $bkp for any unlanded work to re-land."
+          # 2026-09-26 FIX: "review $bkp" never actually happened in practice - confirmed
+          # live, 14 orphaned backup-diverged branches accumulated across 3 repos over 3
+          # weeks with zero follow-up, silently dropping queue bookkeeping (auto-skip tags,
+          # vague-item retirements, refills) that directly feeds the fleet's own noop rate.
+          # Try to recover automatically instead of only alerting: every historical instance
+          # of this touched ONLY OVERNIGHT_PROGRESS.md (never real code) - if THIS one does
+          # too and cherry-picks cleanly onto the fresh reset clone, replay it forward and
+          # push immediately so nothing is lost and no human follow-up is needed. Anything
+          # riskier (touches other files, or a cherry-pick conflict) still falls back to the
+          # backup-branch-and-alert path, now with an actual diff summary in the alert body
+          # instead of a bare "go check $bkp" that nobody ever did.
+          # merge-base-relative, NOT a raw two-endpoint diff: a raw ORIGIN_HEAD..LOCAL_HEAD
+          # diff also picks up whatever origin changed in parallel (e.g. a different file
+          # entirely), which would wrongly disqualify a genuinely queue-only local commit
+          # just because origin ALSO moved elsewhere. This isolates only what the local-only
+          # (diverged) commits themselves touched - verified live against both a same-file
+          # conflict and a different-file-on-each-side case before trusting this.
+          divmb="$(git merge-base "$ORIGIN_HEAD" "$LOCAL_HEAD")"
+          divfiles="$(git diff --name-only "$divmb" "$LOCAL_HEAD" 2>/dev/null | sort -u | tr '
+' ' ' | sed 's/ $//')"
+          recovered=0
+          if [ "$divfiles" = "OVERNIGHT_PROGRESS.md" ]; then
+            if git cherry-pick --allow-empty -x "${ORIGIN_HEAD}..${LOCAL_HEAD}" >/dev/null 2>&1; then
+              if timeout 30 git push -q origin "HEAD:${branch}" 2>/dev/null || { git pull -q --rebase origin "$branch" >/dev/null 2>&1 && timeout 30 git push -q origin "HEAD:${branch}" 2>/dev/null; }; then
+                recovered=1
+                echo "--- diverged commit(s) on $bkp were OVERNIGHT_PROGRESS.md-only and replayed forward cleanly - no data loss ---" >> "$task_log"
+              else
+                git reset --hard "origin/${branch}" --quiet
+              fi
+            else
+              git cherry-pick --abort >/dev/null 2>&1
+              git reset --hard "origin/${branch}" --quiet
+            fi
+          fi
+          if [ "$recovered" = 1 ]; then
+            emit_alert warn "$id" "local ${branch} DIVERGED but auto-RECOVERED: the diverged commit(s) only touched OVERNIGHT_PROGRESS.md and replayed forward cleanly onto origin - no review needed (backup at $bkp kept for reference)."
+          else
+            subjects="$(git log --oneline "${ORIGIN_HEAD}..${LOCAL_HEAD}" 2>/dev/null | tr '\n' ';' | cut -c1-300)"
+            diffstat="$(git diff --stat "$ORIGIN_HEAD" "$LOCAL_HEAD" 2>/dev/null | tail -3 | tr '\n' ' ' | cut -c1-200)"
+            emit_alert warn "$id" "local ${branch} DIVERGED — auto-healed: local commits saved to branch $bkp, clone reset to origin so the fleet keeps moving. NOT auto-recovered (touches non-queue file(s) or didn't cherry-pick cleanly) - needs a human/Claude look. Commits: ${subjects} | Files: ${diffstat}"
+          fi
         fi
       else
         rm -f "$DIVERGE_FLAG"
