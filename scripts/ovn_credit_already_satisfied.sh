@@ -36,6 +36,33 @@
 #      VERIFY clauses) as if it were a real file write, throwing away signal on
 #      common, safe commands. Narrowed to only deny an actual non-/dev/null
 #      redirect target.
+#
+# CALIBRATION ROUND 2 (2026-09-26, after 105 more shadow data points - 44 FAIL,
+# but almost all environment noise, not real credit problems):
+#   3. Bare `pytest` (no "python"/"python3" token at all) was never substituted -
+#      only "python "/"python3 " prefixes were, so a VERIFY of plain
+#      `pytest tests/...` still resolved to whatever's on PATH (often nothing:
+#      "pytest: command not found", or the wrong interpreter's site-packages:
+#      "No module named pytest" on iptv_apps).
+#   4. Several items' own hardcoded VERIFY text has a duplicated path segment
+#      from a "cd backend && ./backend/.venv/bin/python3 ..." authoring
+#      mistake - after the cd, that resolves to backend/backend/.venv/..., which
+#      never exists. Confirmed on shrike-monitor and test-automation-agent.
+#   5. `godot` is never on PATH anywhere on this box (confirmed: no symlink, no
+#      alias, not found even in a login shell) - the REAL pipeline
+#      (run_overnight.sh's own GUT-test verification) always calls the full
+#      "$HOME/godot/godot4" path, but VERIFY clauses are authored with bare
+#      `godot`, which only ever works by accident if something else's PATH
+#      happens to include it. Every xlite VERIFY containing "godot" was a
+#      guaranteed FAIL here regardless of the actual credit's correctness.
+# Fix: replaced the narrow token-substitution with a small tool-path resolver
+# that (a) always substitutes bare `godot` for $HOME/godot/godot4, matching the
+# real pipeline's own convention exactly, and (b) re-resolves python/python3/
+# pytest against a FRESH `find` for the nearest real .venv - authoritatively
+# replacing the command's own path reference even when one is already present,
+# so an already-correct path is a no-op substitution and an already-wrong one
+# self-heals, instead of trying to detect and special-case every possible
+# wrong-path shape by hand.
 set -uo pipefail
 LOG="${1:-}"; PROG="${2:-OVERNIGHT_PROGRESS.md}"
 [ -f "$LOG" ] || { echo "CREDITED=0"; exit 0; }
@@ -49,16 +76,38 @@ _REPO_LABEL="$(basename "$PWD")"
 # VERIFY clause that omits the .venv/ prefix (some do, some don't - an authoring
 # inconsistency, not something this shadow check should mistake for a false credit)
 # runs with the repo's actual installed deps instead of whatever's on PATH.
-_resolve_venv_cmd(){
-  local cmd="$1" vpy
+_resolve_tool_paths(){
+  local cmd="$1" vpy vpytest cddir="."
+
+  # godot: never resolvable bare on this box (verified: no symlink/alias/PATH
+  # entry anywhere, including a login shell) - the real pipeline always uses
+  # $HOME/godot/godot4. Substitute unconditionally when present as a bare
+  # command word (start of string, or after && / ;).
+  cmd="$(printf '%s' "$cmd" | sed -E "s#(^|&& |; )godot #\1${HOME}/godot/godot4 #g")"
+
+  # If the command starts with "cd <dir> && ...", resolve venv search from
+  # THAT directory - it's where the rest of the command actually runs, and
+  # it's also where a "cd backend && ./backend/.venv/..." double-prefix
+  # mistake needs to be searched from to self-heal (searching from repo root
+  # would just re-find the same non-existent nested path).
   case "$cmd" in
-    python\ *|python3\ *|*'&& python '*|*'&& python3 '*|*'; python '*|*'; python3 '*)
-      vpy="$(find . -maxdepth 4 \( -path '*/.venv/bin/python3' -o -path '*/.venv/bin/python' \) 2>/dev/null | head -1)"
-      if [ -n "$vpy" ]; then
-        cmd="$(printf '%s' "$cmd" | sed -E "s#(^|&& |; )python3? #\\1${vpy} #")"
-      fi
-      ;;
+    "cd "*" && "*) cddir="$(printf '%s' "$cmd" | sed -E 's#^cd ([^ ]+) && .*#\1#')" ;;
   esac
+
+  vpy="$(find "$cddir" -maxdepth 4 \( -path '*/.venv/bin/python3' -o -path '*/.venv/bin/python' \) 2>/dev/null | head -1)"
+  if [ -n "$vpy" ]; then
+    # Authoritatively replace ANY existing venv-python path reference (correct
+    # or not) plus any bare python/python3 token with the one just verified to
+    # actually exist - a no-op if the text was already right, a self-heal if
+    # it wasn't (e.g. a duplicated "backend/backend/.venv" segment).
+    cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/python3?#${vpy}#g; s#(^|&& |; )python3? #\1${vpy} #g")"
+  fi
+
+  vpytest="$(find "$cddir" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  if [ -n "$vpytest" ]; then
+    cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/pytest#${vpytest}#g; s#(^|&& |; )pytest #\1${vpytest} #g")"
+  fi
+
   printf '%s' "$cmd"
 }
 
@@ -97,7 +146,7 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited
     echo "$ts repo=$_REPO_LABEL line=$ln result=SKIPPED_DENYLIST cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
     return
   fi
-  vcmd="$(_resolve_venv_cmd "$vcmd")"
+  vcmd="$(_resolve_tool_paths "$vcmd")"
   out="$(timeout 60 bash -c "$vcmd" 2>&1)"; rc=$?
   tail_out="$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"
   if [ "$rc" -eq 0 ]; then
