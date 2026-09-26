@@ -140,6 +140,62 @@ fi
 tier="$(printf '%s' "$item" | grep -oE '\[T[1-5]\]|·T[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"; tier="${tier:-3}"
 say "ITEM (T$tier): ${item:0:100}"
 
+# ---- FAST PATH: templated "run the full suite once to confirm no regressions" capstone item ----
+# 2026-09-26 FIX: every feature batch's LAST item is auto-generated in this exact shape — a pure
+# re-verification with NO file to add/modify (cat:test; multifile:no; no source path in the
+# description). decompose()'s schema requires every step to name a "files" target, so this can
+# NEVER produce a valid step and decompose_failed's exit 1 has no parking/backoff (see the
+# 2026-09-15 note above for the sibling godot-test-target case) — confirmed live on xlite: the
+# SAME item ("index_from_label caused zero regressions") looped decompose_failed 22+ times over
+# 7 hours (state/stage_runs/xlite-*.jsonl), NEVER reaching ovn_item_guard.sh's no-op-streak
+# AUTO-SKIP because ovn_stage_sweep.sh invokes this script per-REPO, not per-item, so no $ID ever
+# reaches the guard for whatever item the internal auto-pick above actually lands on. At least 4
+# other features hit the exact same shape historically (level_for_xp, bonus_needed_for_
+# guaranteed, hit_percent_needed, the Upkeep dedupe) and only escaped via ad hoc manual
+# intervention each time. Since the item's true job — confirm the full suite is still green — is
+# EXACTLY what every sibling step in the same batch already re-verifies via full_verify() before
+# it's allowed to land, this never needed decompose() or an aider edit at all: extract the
+# item's own VERIFY command and just run it directly. A pass means the regression-check claim is
+# true (nothing to add/modify — clean-count as done); a genuine failure is real, valuable signal
+# that must NOT be papered over by looping forever, so it's logged distinctly and left OPEN for a
+# human/Claude to investigate instead of being silently retried.
+if printf '%s' "$item" | grep -qiE 'run the (full |whole )?.*(suite|tests) (once )?to confirm .*(caused )?(zero|no) regressions'; then
+  vcmd="$(printf '%s' "$item" | grep -oE 'VERIFY: `[^`]+`' | sed -E 's/^VERIFY: `//; s/`$//')"
+  # bare `godot` is never resolvable on this box (see ovn_credit_already_satisfied.sh's
+  # _resolve_tool_paths — same fix, applied here too): VERIFY clauses are authored with the
+  # bare command name but the real pipeline always uses $HOME/godot/godot4.
+  vcmd="$(printf '%s' "$vcmd" | sed -E "s#(^|&& |; )godot #\1${HOME}/godot/godot4 #g")"
+  if [ -n "$vcmd" ]; then
+    say "regression-check capstone item — running its own VERIFY directly (no decompose needed): $vcmd"
+    git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
+    git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null
+    # Godot needs its asset/class_name cache imported before a headless GUT run will see the
+    # project correctly (same warm-then-run pattern used everywhere else this repo runs GUT —
+    # see run_overnight.sh/branch_hygiene.sh/ovn_stage_runner.sh's own full_verify() below).
+    if [ -f "$rd/project.godot" ] && [ -x "$HOME/godot/godot4" ]; then
+      ( cd "$rd" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >/dev/null 2>&1
+    fi
+    if ( cd "$rd" && eval "$vcmd" ) >/tmp/stage-capstone-verify.log 2>&1; then
+      say "regression-check PASSED — marking item done, no code change needed"
+      lineno="$(grep -nF -- "- [ ] ${item}" "$rd/OVERNIGHT_PROGRESS.md" | head -1 | cut -d: -f1)"
+      if [ -n "$lineno" ]; then
+        sed -i "${lineno}s#^- \[ \] #- [x] (auto-verified via direct VERIFY run — regression-check item, no code edit needed) #" "$rd/OVERNIGHT_PROGRESS.md"
+        if ! git -C "$rd" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+          git -C "$rd" add OVERNIGHT_PROGRESS.md
+          git -C "$rd" commit -q -m "chore(queue): auto-verify regression-check capstone item (direct VERIFY run, no decompose)"
+          git -C "$rd" push -q origin overnight/feature 2>/dev/null || { git -C "$rd" pull -q --rebase origin overnight/feature && git -C "$rd" push -q origin overnight/feature; }
+        fi
+      fi
+      jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"capstone_verified\"}"
+      exit 0
+    else
+      say "regression-check FAILED — a real regression, NOT auto-retrying (see /tmp/stage-capstone-verify.log): $(tail -3 /tmp/stage-capstone-verify.log | tr '\n' ' ')"
+      jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"capstone_regression_detected\"}"
+      exit 1
+    fi
+  fi
+fi
+
 # ---- worktree (all steps build on each other) ----
 git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
 wt="$(mktemp -d "/tmp/stage-${repo}.XXXX")"
