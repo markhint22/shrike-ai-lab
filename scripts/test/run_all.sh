@@ -47,7 +47,7 @@ echo; echo "===== groom (backlog grooming proposals, stale-item detection) =====
 echo; echo "===== Park-sweep wrapper (hold/commit/push around the python sweep) ====="; bash test_park_sweep_wrapper.sh || rc=1
 echo; echo "===== Recover-parked (decompose retry, recovery-tag dedup) ====="; bash test_recover_parked.sh || rc=1
 echo; echo "===== T3 report (land-rate windows, fail-cause tally) ====="; bash test_t3_report.sh || rc=1
-echo; echo "===== Toks monitor (contention-aware slow-sample alerting) ====="; bash test_toks_monitor.sh || rc=1
+echo; echo "===== Toks monitor: RETIRED 2026-09-26 (superseded by test_toks_monitor_regression.sh - the solo/contended design this tested never once fired a real solo sample in 3 weeks of production; see ovn_toks_monitor.sh header) ====="
 echo; echo "===== Test-watch emergency enqueue (dedup, lock respect) ====="; bash test_test_watch.sh || rc=1
 echo; echo "===== Cycle notify (digest bucketing, qualified-status fallthrough) ====="; bash test_cycle_notify.sh || rc=1
 echo; echo "===== Provision test envs (per-target status, real exit code) ====="; bash test_provision_test_envs.sh || rc=1
@@ -81,5 +81,6 @@ echo; echo "===== Build-fix/Tier-2 fix-up file exclusion (no unbounded OVERNIGHT
 echo; echo "===== Credit-verify shadow-check tool-path resolution (godot/pytest/venv self-heal) ====="; bash test_credit_verify_tool_paths.sh || rc=1
 echo; echo "===== Backup-branch sweep (orphaned backup-diverged-* branch cleanup + escalating alert) ====="; bash test_backup_branch_sweep.sh || rc=1
 echo; echo "===== Multifile scope guard (multifile:no items never accumulate extra files, run_overnight.sh) ====="; bash test_multifile_scope_guard.sh || rc=1
+echo; echo "===== Toks-monitor rolling baseline (sustained-regression detection, not an unreachable solo gate) ====="; bash test_toks_monitor_regression.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
