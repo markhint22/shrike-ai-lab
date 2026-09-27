@@ -184,4 +184,5 @@
 # --- 27B-decomposed from roadmap [2026-09-26]: Email verification on registration — `iptv-backend/app/models/user.py`'s `User` model has  (review + tweak) [feat:iptv_apps-20260926-email-verification-on-registration-iptv-] ---
 
 # --- 27B-decomposed from roadmap [2026-09-26]: Self-service change-email — `iptv-backend/app/routers/settings.py`'s `GET`/`PUT /api/setti (review + tweak) [feat:iptv_apps-20260926-self-service-change-email-iptv-backend-a] ---
-- [ ] [T5] iptv-backend/app/routers/auth.py — Modify `PATCH /api/auth/email` to call `send_email_verification_link` after updating the email if the user is not already verified, and set `is_verified` to False. VERIFY: python -m pytest iptv-backend/tests/test_auth_router.py::test_patch_email_triggers_verification -v (cat:endpoint; multifile:no) [feat:iptv_apps-20260926-self-service-change-email-iptv-backend-a]
+
+# --- 27B-decomposed from roadmap [2026-09-27]: [NEEDS HUMAN/CLAUDE PRODUCT DESIGN — do not decompose to 27B as-is] Referral / invite-a-fr (review + tweak) [feat:iptv_apps-20260927-needs-human-claude-product-design-do-not] ---
