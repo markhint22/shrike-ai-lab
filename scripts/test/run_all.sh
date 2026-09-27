@@ -48,6 +48,7 @@ echo; echo "===== Park-sweep wrapper (hold/commit/push around the python sweep) 
 echo; echo "===== Recover-parked (decompose retry, recovery-tag dedup) ====="; bash test_recover_parked.sh || rc=1
 echo; echo "===== T3 report (land-rate windows, fail-cause tally) ====="; bash test_t3_report.sh || rc=1
 echo; echo "===== Toks monitor: RETIRED 2026-09-26 (superseded by test_toks_monitor_regression.sh - the solo/contended design this tested never once fired a real solo sample in 3 weeks of production; see ovn_toks_monitor.sh header) ====="
+echo; echo "===== Legacy-log derivation (Phase 5 step 1: task_stats/cycle_summary derived FROM outcomes.jsonl, run alongside the real writers) ====="; bash test_derive_legacy_logs.sh || rc=1
 echo; echo "===== Test-watch emergency enqueue (dedup, lock respect) ====="; bash test_test_watch.sh || rc=1
 echo; echo "===== Cycle notify (digest bucketing, qualified-status fallthrough) ====="; bash test_cycle_notify.sh || rc=1
 echo; echo "===== Provision test envs (per-target status, real exit code) ====="; bash test_provision_test_envs.sh || rc=1
