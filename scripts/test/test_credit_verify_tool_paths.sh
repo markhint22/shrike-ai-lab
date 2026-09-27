@@ -62,5 +62,52 @@ mkdir -p "$tmp/no_venv_repo"
 ok "with no .venv found, the command is left as-is (still says bare python3)" \
    "grep -qx 'python3 -m pytest tests/test_x.py -v' '$tmp/out6.txt'"
 
+
+# ---- 7 (round 3, 2026-09-27): a SYMLINKED .venv is still found (find needs -L) ----
+mkdir -p "$tmp/symlink_repo/real_venv/bin"
+touch "$tmp/symlink_repo/real_venv/bin/python3"
+chmod +x "$tmp/symlink_repo/real_venv/bin/python3"
+ln -s "$tmp/symlink_repo/real_venv" "$tmp/symlink_repo/.venv"
+( cd "$tmp/symlink_repo" && out="$(_resolve_tool_paths 'python3 -m pytest tests/test_x.py -v')"
+  echo "$out" > "$tmp/out7.txt" )
+ok "a symlinked .venv (not a real directory) is still found and resolved" \
+   "grep -q '.venv/bin/python3' '$tmp/out7.txt'"
+
+# ---- 8 (round 3): a genuinely BROKEN (self-referential) symlinked .venv still correctly finds nothing ----
+mkdir -p "$tmp/broken_symlink_repo"
+ln -s "$tmp/broken_symlink_repo/.venv" "$tmp/broken_symlink_repo/.venv"
+( cd "$tmp/broken_symlink_repo" && out="$(_resolve_tool_paths 'python3 -m pytest tests/test_x.py -v')"
+  echo "$out" > "$tmp/out8.txt" )
+ok "a broken self-referential .venv symlink does not crash and leaves the command unresolved (correctly - out of scope, tracked separately)" \
+   "grep -qx 'python3 -m pytest tests/test_x.py -v' '$tmp/out8.txt'"
+
+# ---- 9 (round 3): the double-prefix self-heal now produces an ABSOLUTE path (not just a
+# no-double-prefix string) - the actual fix, since a relative "backend/.venv/..." path
+# substituted back into a "cd backend && ..." command still resolves wrong even without
+# a literal "backend/backend" duplication in the text ----
+( cd "$tmp/repo" && out="$(_resolve_tool_paths 'cd backend && backend/.venv/bin/python3 -m pytest tests/test_x.py -v')"
+  echo "$out" > "$tmp/out9.txt" )
+ok "the resolved venv path is absolute (starts with /), immune to any 'cd X &&' prefix" \
+   "grep -oE '[^ ]*\.venv/bin/python3?' '$tmp/out9.txt' | head -1 | grep -q '^/'"
+ok "running the resolved command for real actually finds the interpreter (not a phantom double-prefixed path)" \
+   "cmd=\$(cat '$tmp/out9.txt'); bash -c \"\$cmd\" >/dev/null 2>&1; [ \$? -ne 127 ]"
+
+# ---- 10 (round 3): a ./gradlew VERIFY clause resolves to the real gradlew AND runs from
+# gradlew's own directory (a bare absolute-path substitution isn't enough - gradle looks
+# for settings.gradle relative to $PWD, not relative to the script's own location) ----
+mkdir -p "$tmp/repo/android_app"
+cat > "$tmp/repo/android_app/gradlew" <<'EOF'
+#!/usr/bin/env bash
+if [ -f settings.gradle ]; then echo GRADLE_RAN_IN_RIGHT_DIR; else echo GRADLE_WRONG_DIR; fi
+EOF
+chmod +x "$tmp/repo/android_app/gradlew"
+touch "$tmp/repo/android_app/settings.gradle"
+( cd "$tmp/repo" && out="$(_resolve_tool_paths './gradlew :app:testDebugUnitTest')"
+  echo "$out" > "$tmp/out10.txt" )
+ok "gradlew resolves to an absolute path prefixed with a cd into its own directory" \
+   "grep -qE '^cd .*android_app && \./gradlew' '$tmp/out10.txt'"
+ok "running the resolved gradlew command actually finds settings.gradle (runs from the right cwd)" \
+   "cmd=\$(cat '$tmp/out10.txt'); [ \"\$(bash -c \"\$cmd\" 2>/dev/null)\" = 'GRADLE_RAN_IN_RIGHT_DIR' ]"
+
 echo "credit-verify tool-path resolution: $P passed, $F failed"
 [ "$F" -eq 0 ]

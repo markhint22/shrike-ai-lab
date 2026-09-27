@@ -77,7 +77,7 @@ _REPO_LABEL="$(basename "$PWD")"
 # inconsistency, not something this shadow check should mistake for a false credit)
 # runs with the repo's actual installed deps instead of whatever's on PATH.
 _resolve_tool_paths(){
-  local cmd="$1" vpy vpytest cddir="."
+  local cmd="$1" vpy vpytest vgradlew cddir="."
 
   # godot: never resolvable bare on this box (verified: no symlink/alias/PATH
   # entry anywhere, including a login shell) - the real pipeline always uses
@@ -94,8 +94,29 @@ _resolve_tool_paths(){
     "cd "*" && "*) cddir="$(printf '%s' "$cmd" | sed -E 's#^cd ([^ ]+) && .*#\1#')" ;;
   esac
 
-  vpy="$(find "$cddir" -maxdepth 4 \( -path '*/.venv/bin/python3' -o -path '*/.venv/bin/python' \) 2>/dev/null | head -1)"
+  # 2026-09-27 FIX (round 3): two real gaps found in live shadow data even
+  # after round 2's fix.
+  #   (1) `find` without `-L` cannot descend into a SYMLINKED .venv at all -
+  #       it never even attempts to read what the link points to, so a repo
+  #       whose .venv is (correctly, by design) a symlink got zero matches
+  #       here regardless of whether the symlink target was actually healthy.
+  #       Confirmed live on iptv_apps: `.venv -> .../.venv` is a symlink even
+  #       in its intended-healthy shape, not just when self-corrupted. `-L`
+  #       fixes the general case; a genuinely BROKEN symlink still correctly
+  #       yields no match either way (out of scope here - that corruption bug
+  #       is tracked separately, not something this checker should paper over).
+  #   (2) $vpy was being substituted back into the command as the SAME
+  #       relative-to-repo-root path `find` returned (e.g. "backend/.venv/bin/
+  #       python3") even when the command already had a "cd backend && "
+  #       prefix - after that cd, that path is interpreted relative to
+  #       backend/, silently doubling to a nonexistent "backend/backend/.venv/
+  #       ...". Converting to an ABSOLUTE path once, right after finding it,
+  #       makes the substitution correct regardless of any cd prefix already
+  #       in the command - the actual root fix, not another special case for
+  #       one more path shape.
+  vpy="$(find -L "$cddir" -maxdepth 4 \( -path '*/.venv/bin/python3' -o -path '*/.venv/bin/python' \) 2>/dev/null | head -1)"
   if [ -n "$vpy" ]; then
+    vpy="$(cd "$(dirname "$vpy")" 2>/dev/null && pwd)/$(basename "$vpy")"
     # Authoritatively replace ANY existing venv-python path reference (correct
     # or not) plus any bare python/python3 token with the one just verified to
     # actually exist - a no-op if the text was already right, a self-heal if
@@ -103,10 +124,37 @@ _resolve_tool_paths(){
     cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/python3?#${vpy}#g; s#(^|&& |; )python3? #\1${vpy} #g")"
   fi
 
-  vpytest="$(find "$cddir" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  vpytest="$(find -L "$cddir" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
   if [ -n "$vpytest" ]; then
+    vpytest="$(cd "$(dirname "$vpytest")" 2>/dev/null && pwd)/$(basename "$vpytest")"
     cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/pytest#${vpytest}#g; s#(^|&& |; )pytest #\1${vpytest} #g")"
   fi
+
+  # (3) `./gradlew` VERIFY clauses are authored assuming the repo root as cwd,
+  # but this checker's own cwd is wherever it was invoked from and may not be
+  # the actual repo root, or a "cd <subdir> &&" prefix may have moved it
+  # elsewhere first - confirmed live on billwatch (3 distinct FAILs, "No such
+  # file or directory"). Find the real gradlew and always substitute an
+  # absolute path, same self-healing approach as the python/pytest case above.
+  case "$cmd" in
+    *gradlew*)
+      vgradlew="$(find . -maxdepth 3 -name gradlew -type f 2>/dev/null | head -1)"
+      if [ -n "$vgradlew" ]; then
+        local vgdir gargs
+        vgdir="$(cd "$(dirname "$vgradlew")" 2>/dev/null && pwd)"
+        # gradlew must run with ITS OWN project directory as $PWD (it looks for
+        # settings.gradle/build.gradle relative to the CURRENT directory, not
+        # relative to the script's own location on disk) - unlike the python/
+        # pytest case above, substituting an absolute path in place isn't
+        # enough (confirmed live: BUILD FAILED, missing settings.gradle,
+        # because it ran from the repo root instead of the android subdir).
+        # Extract everything after the LAST gradlew token (the real args,
+        # dropping any existing likely-wrong "cd ... &&" prefix) and rebuild.
+        gargs="$(printf '%s' "$cmd" | sed -E 's#^.*gradlew##')"
+        cmd="cd ${vgdir} && ./gradlew${gargs}"
+      fi
+      ;;
+  esac
 
   printf '%s' "$cmd"
 }
