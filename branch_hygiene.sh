@@ -42,6 +42,8 @@ TEST_TIMEOUT="${TEST_TIMEOUT:-900}"               # seconds for the test/build g
 STATE_DIR="${STATE_DIR:-$SCRIPT_DIR/state}"
 REPORT_FILE="${REPORT_FILE:-}"                    # optional markdown report to append to
 DRY_RUN="${DRY_RUN:-0}"                           # 1 = log mutations instead of running them
+# shellcheck source=./scripts/lib_lock.sh
+source "$SCRIPT_DIR/scripts/lib_lock.sh"
 FEAT="${HYGIENE_FEATURE_BRANCH:-overnight/feature}"  # land which agent branch: overnight/feature (27B) | claude/feature (Claude)
 NOW_EPOCH="$(date +%s)"
 
@@ -168,6 +170,19 @@ run_gate() {
     wt_pkg="$dir${pkg_rel:+/$pkg_rel}"
     if [ -d "$wt_pkg" ]; then
       log "  gate: pytest (reusing provisioned venv) in $wt_pkg"
+      # 2026-09-28 FIX: this reuses the MAIN CLONE's shared .venv by absolute path (same
+      # resource .ovn-verify.sh's own self-heal touches) with zero mutual exclusion -
+      # confirmed live as the cause of a full iptv_apps gate failure today (mass
+      # "OSError: Too many levels of symbolic links" mid-run, the exact self-referential-
+      # symlink corruption signature from the earlier-fixed concurrency race, just via
+      # this SEPARATE unprotected code path instead of .ovn-verify.sh's). Same shared
+      # lock file per repo so both paths serialize against each other, not just
+      # themselves.
+      _repo_name="$(basename "$repo")"
+      if ! acquire_lock "$STATE_DIR/${_repo_name}_verify.lock" 223 300 "${_repo_name}-branch-hygiene" log; then
+        log "  gate: pytest SKIPPED - venv lock contended past 300s wait (another verify pass is using it)"
+        return 1
+      fi
       # 2026-09-10: was `2>/dev/null` — silently discarded stderr, so a crash/traceback/hang
       # (as opposed to an ordinary assertion failure, which prints to stdout and was already
       # visible) left zero diagnostic trail beyond "gate FAILED (build/tests red)". Merged into
@@ -185,6 +200,7 @@ run_gate() {
       # code change. See the retry-once wrapper below instead of flagging on the
       # very first contention-caused timeout.
       ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q -o addopts="" -p no:cacheprovider 2>&1 ) ; rc=$?
+      flock -u 223
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       [ "$rc" -ne 0 ] && return 1
       ran=1
