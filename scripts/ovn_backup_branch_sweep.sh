@@ -63,10 +63,48 @@ for repo_dir in repos/*/; do
     # "Landed" = an ancestor of ANY currently-tracked branch, not just the one it
     # diverged from — content can reach the mainline via auto-recovery, a manual
     # cherry-pick, or a completely different resolution path.
+    #
+    # 2026-09-28 FIX: the ancestor check alone misses the MOST COMMON resolution path -
+    # run_overnight.sh's own auto-recovery uses `git cherry-pick -x`, which creates a
+    # NEW commit (different hash, different parent) carrying a standard
+    # "(cherry picked from commit $tip)" trailer. Confirmed live: a billwatch backup
+    # branch was successfully auto-recovered and even auto-retired downstream, yet this
+    # script still alerted "never auto-recovered" an hour later, because is-ancestor can
+    # never match a cherry-picked commit by construction - it has a different hash. Check
+    # every commit unique to the backup branch (not just its tip - a multi-commit
+    # divergence needs every one of its commits accounted for, not just the last) against
+    # both detection paths before concluding it is genuinely unresolved.
     landed=0
+    origin_base=""
+    for probe in origin/overnight/feature origin/claude/feature origin/develop; do
+      git -C "$repo" rev-parse --verify --quiet "$probe" >/dev/null 2>&1 && { origin_base="$probe"; break; }
+    done
+    if [ -n "$origin_base" ]; then
+      div_mb="$(git -C "$repo" merge-base "$origin_base" "$b" 2>/dev/null)"
+      div_commits="$(git -C "$repo" log --format=%H "${div_mb}..${b}" 2>/dev/null)"
+    else
+      div_commits="$tip"
+    fi
+    [ -n "$div_commits" ] || div_commits="$tip"
     for target in origin/overnight/feature origin/claude/feature origin/develop; do
       git -C "$repo" rev-parse --verify --quiet "$target" >/dev/null 2>&1 || continue
-      git -C "$repo" merge-base --is-ancestor "$tip" "$target" 2>/dev/null && { landed=1; break; }
+      all_landed=1
+      # Only scan commits target gained SINCE this backup diverged - a cherry-picked
+      # replay can only ever land after that point, and this keeps the scan bounded
+      # instead of walking the target's entire history on every sweep.
+      target_new="$(git -C "$repo" log --format=%B "${div_mb}..${target}" 2>/dev/null)"
+      while IFS= read -r c; do
+        [ -n "$c" ] || continue
+        if git -C "$repo" merge-base --is-ancestor "$c" "$target" 2>/dev/null; then
+          continue
+        fi
+        if printf '%s' "$target_new" | grep -qF "cherry picked from commit $c"; then
+          continue
+        fi
+        all_landed=0
+        break
+      done <<< "$div_commits"
+      [ "$all_landed" = 1 ] && { landed=1; break; }
     done
 
     if [ "$landed" = 1 ]; then

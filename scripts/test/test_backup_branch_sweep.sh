@@ -37,16 +37,25 @@ git clone -q "$tmp/origin.git" "$root/repos/testrepo" 2>/dev/null
   git checkout -q -b tmpC overnight/feature
   echo unresolved-fresh >> f.txt; git commit -q -am "chore(queue): fresh unresolved item"
   git branch -f "backup-diverged-testC-$(date +%Y%m%d-%H%M%S)" tmpC
-  git checkout -q overnight/feature; git branch -D tmpC )
+  git checkout -q overnight/feature; git branch -D tmpC
+  # D: content landed via CHERRY-PICK (new hash, same content) - the 2026-09-28 gap.
+  # run_overnight.sh's real auto-recovery path (`git cherry-pick -x`) always lands
+  # this way, never as a direct ancestor of the backup branch's own tip.
+  git checkout -q -b tmpD overnight/feature
+  echo cherry-picked >> f.txt; git commit -q -am "chore(queue): cherry-pick-landed item"
+  git branch -f backup-diverged-testD-20260901-100000 tmpD
+  git checkout -q overnight/feature; git cherry-pick -x tmpD >/dev/null; git push -q origin overnight/feature
+  git branch -D tmpD )
 
 out=$(cd "$root" && bash scripts/ovn_backup_branch_sweep.sh state 2>&1)
-echo "$out" | grep -q "cleaned up 1 already-landed" && ok "cleans up the landed branch" || fail "didn't report cleanup: $out"
+echo "$out" | grep -q "cleaned up 2 already-landed" && ok "cleans up the landed branch" || fail "didn't report cleanup: $out"
 echo "$out" | grep -q "flagged 1 unresolved" && ok "flags exactly the old unresolved branch" || fail "didn't report a flag: $out"
 
 branches="$(git -C "$root/repos/testrepo" branch)"
 echo "$branches" | grep -q "backup-diverged-testA" && fail "landed branch A still exists" || ok "landed branch A was deleted"
 echo "$branches" | grep -q "backup-diverged-testB" && ok "old unresolved branch B survives (needs human/Claude review)" || fail "branch B was wrongly deleted"
 echo "$branches" | grep -q "backup-diverged-testC" && ok "fresh unresolved branch C survives (grace period)" || fail "branch C was wrongly deleted"
+echo "$branches" | grep -q "backup-diverged-testD" && fail "cherry-picked branch D still exists (2026-09-28 regression)" || ok "cherry-picked branch D was correctly recognized as landed and deleted"
 
 grep -q "backup-diverged-testC" "$root/state/alerts.log" 2>/dev/null && fail "fresh branch C was wrongly alerted (grace period bypassed)" || ok "fresh branch C did NOT get alerted (grace period respected)"
 grep -q "chore(queue): stale unresolved item" "$root/state/alerts.log" 2>/dev/null && ok "alert body includes the real commit subject" || fail "alert missing commit subject"
