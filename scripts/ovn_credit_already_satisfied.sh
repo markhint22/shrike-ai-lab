@@ -68,6 +68,16 @@ LOG="${1:-}"; PROG="${2:-OVERNIGHT_PROGRESS.md}"
 [ -f "$LOG" ] || { echo "CREDITED=0"; exit 0; }
 [ -f "$PROG" ] || { echo "CREDITED=0"; exit 0; }
 
+# PROMOTED 2026-09-28: after 3 rounds of tool-path calibration (2026-09-25/26/27),
+# post-round-3 shadow data (deployed 2026-09-27 09:23 CDT) shows 27 PASS vs 5 FAIL,
+# with EVERY post-fix FAIL a genuine content signal (an item whose VERIFY clause no
+# longer matches reality - already-flagged/already-resolved-differently in each
+# case checked), zero remaining tooling-noise false negatives. Meets the plan's own
+# "promote independently once proven" bar. OVN_VERIFY_GATE_MODE=shadow reverts
+# instantly to the old observe-only behavior with no code change if this needs
+# rolling back.
+VERIFY_GATE_MODE="${OVN_VERIFY_GATE_MODE:-enforce}"
+
 SHADOW_LOG="${OVN_VERIFY_SHADOW_LOG:-$HOME/overnight-queue/state/verify_gate_shadow.log}"
 mkdir -p "$(dirname "$SHADOW_LOG")" 2>/dev/null
 _REPO_LABEL="$(basename "$PWD")"
@@ -171,14 +181,17 @@ _has_real_redirect(){
   esac
 }
 
-shadow_check(){  # $1 = line number in $PROG, about to be credited
+_LAST_VERIFY_RESULT=""
+shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_VERIFY_RESULT.
   local ln="$1" line vcmd rc out tail_out ts
   ts="$(date -u +%FT%TZ)"
+  _LAST_VERIFY_RESULT=""
   line="$(sed -n "${ln}p" "$PROG" 2>/dev/null)"
   # VERIFY clause convention across this fleet: VERIFY: `<cmd>`. (backtick-delimited)
   vcmd="$(printf '%s' "$line" | grep -oE 'VERIFY:[[:space:]]*`[^`]+`' | head -1 | sed -E 's/^VERIFY:[[:space:]]*`//; s/`$//')"
   if [ -z "$vcmd" ]; then
     echo "$ts repo=$_REPO_LABEL line=$ln result=NO_VERIFY_CLAUSE" >> "$SHADOW_LOG"
+    _LAST_VERIFY_RESULT="NO_VERIFY_CLAUSE"
     return
   fi
   # Defense in depth: this is trusted-origin text (the fleet's own research/decomposition
@@ -188,10 +201,12 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited
   case "$vcmd" in
     *"rm -rf"*|*"sudo "*|*"git push"*|*"git reset"*|*"curl "*|*"wget "*)
       echo "$ts repo=$_REPO_LABEL line=$ln result=SKIPPED_DENYLIST cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+      _LAST_VERIFY_RESULT="SKIPPED_DENYLIST"
       return ;;
   esac
   if _has_real_redirect "$vcmd"; then
     echo "$ts repo=$_REPO_LABEL line=$ln result=SKIPPED_DENYLIST cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+    _LAST_VERIFY_RESULT="SKIPPED_DENYLIST"
     return
   fi
   vcmd="$(_resolve_tool_paths "$vcmd")"
@@ -199,8 +214,10 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited
   tail_out="$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"
   if [ "$rc" -eq 0 ]; then
     echo "$ts repo=$_REPO_LABEL line=$ln result=PASS cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+    _LAST_VERIFY_RESULT="PASS"
   else
     echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
+    _LAST_VERIFY_RESULT="FAIL"
   fi
 }
 
@@ -216,9 +233,19 @@ for f in $FILES; do
   ln="$(grep -nE '^- \[ \]' "$PROG" | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED ITEM' | grep -F "$b" | head -1 | cut -d: -f1)"
   if [ -n "$ln" ]; then
     shadow_check "$ln"
-    sed -i "${ln}s/^- \[ \] /- [x] (already-satisfied in code, implement-verified) /" "$PROG"
-    credited=$((credited+1))
-    echo "credited line ${ln} (matched ${b})"
+    # ENFORCE: a FAIL means the item's own VERIFY clause does not hold - refuse
+    # the credit and leave it open rather than propagate a false "done" (the
+    # exact data-integrity gap this whole mechanism was built to close). PASS/
+    # NO_VERIFY_CLAUSE/SKIPPED_DENYLIST all credit as before - none of those are
+    # evidence the credit is wrong, just cases this check can (or chooses not
+    # to) verify one way or the other.
+    if [ "$VERIFY_GATE_MODE" = "enforce" ] && [ "$_LAST_VERIFY_RESULT" = "FAIL" ]; then
+      echo "REFUSED credit at line ${ln} (matched ${b}) - VERIFY clause failed, left open for review"
+    else
+      sed -i "${ln}s/^- \[ \] /- [x] (already-satisfied in code, implement-verified) /" "$PROG"
+      credited=$((credited+1))
+      echo "credited line ${ln} (matched ${b})"
+    fi
   fi
 done
 echo "CREDITED=${credited}"
