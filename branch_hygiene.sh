@@ -181,6 +181,11 @@ run_gate() {
       _repo_name="$(basename "$repo")"
       if ! acquire_lock "$STATE_DIR/${_repo_name}_verify.lock" 223 300 "${_repo_name}-branch-hygiene" log; then
         log "  gate: pytest SKIPPED - venv lock contended past 300s wait (another verify pass is using it)"
+        # Contention, not a red test - route through the SAME retry-once-on-infra-flake
+        # path as a Gradle-daemon-crash/timeout (line ~419) rather than a hard fail, so
+        # a repo that just lost a race this cycle isn't flagged NOT-merging on parity
+        # with an actual broken commit.
+        _GATE_TIMEOUT_HIT=1
         return 1
       fi
       # 2026-09-10: was `2>/dev/null` — silently discarded stderr, so a crash/traceback/hang
