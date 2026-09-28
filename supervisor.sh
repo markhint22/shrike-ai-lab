@@ -283,8 +283,18 @@ $WORK_SUMMARY}"
     BODY="All clear, no issues.
 ${WORK_SUMMARY:-（no outcomes recorded in the last 24h）}"
   fi
-  curl -fsS -H "Title: $PUSH_TITLE" -H "Priority: default" -H "Tags: $PUSH_TAGS" \
-    -d "$BODY" "${NTFY_SERVER}/${NTFY_TOPIC}" >/dev/null 2>&1 \
-    && { echo "pushed to ntfy topic"; [ "$want_daily" = 1 ] && echo "$today" > "$DAILY_MARK"; } \
-    || echo "ntfy push failed (check NTFY_TOPIC/network)"
+  # NOTE: must be if/then/else, not `curl && { ... } || echo failed`. With the
+  # old && / || chaining, the exit status of the { ... } group was the exit status
+  # of its LAST command, i.e. `[ "$want_daily" = 1 ] && echo ... > "$DAILY_MARK"`.
+  # On every non-daily run (want_daily=0, i.e. most 3-hourly cycles) that inner test
+  # short-circuits to exit 1, which made the OUTER && group look like it failed too
+  # -- so bash also ran the || branch and logged a false "ntfy push failed" even
+  # though the curl had just succeeded and the push was actually delivered.
+  if curl -fsS -H "Title: $PUSH_TITLE" -H "Priority: default" -H "Tags: $PUSH_TAGS" \
+      -d "$BODY" "${NTFY_SERVER}/${NTFY_TOPIC}" >/dev/null 2>&1; then
+    echo "pushed to ntfy topic"
+    [ "$want_daily" = 1 ] && echo "$today" > "$DAILY_MARK"
+  else
+    echo "ntfy push failed (check NTFY_TOPIC/network)"
+  fi
 fi
