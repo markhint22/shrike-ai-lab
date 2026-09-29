@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# ovn_verify_direction_check.sh — shadow-mode check for VERIFY commands that can never fail, or
-# whose direction contradicts a delete/remove item's own intent (2026-09-22, revised 2026-09-23).
+# ovn_verify_direction_check.sh — shadow-mode check for VERIFY commands that can never fail,
+# whose direction contradicts a delete/remove item's own intent, or (for schema/endpoint work)
+# that only proves a symbol exists rather than that it behaves correctly
+# (2026-09-22, revised 2026-09-23, existence-only check added 2026-09-29).
 #
 # Root cause this closes: queue_refill.py's already_satisfied() credits an item as done purely by
 # the exit code of its own VERIFY: command. A VERIFY shaped like `grep -q X && echo OK || echo NO`
@@ -18,20 +20,37 @@
 # keyed by a hash of the line) so the alert only fires on genuinely NEW findings, not the same
 # handful of open items every hour until someone acts on them.
 #
-# Two independent checks:
+# 2026-09-29 ADDITION: two of the costliest bugs found this week were both cat:schema/cat:endpoint
+# items whose VERIFY only proved a symbol exists, never that it behaves right - a "referral" model
+# got marked done and credited despite the file never being created (VERIFY was just an import
+# check), and an Alembic migration item's VERIFY was a bare `hasattr()` that could never catch a
+# broken migration. Check 3 below flags that shape going forward, same shadow-mode-first treatment
+# as checks 1 and 2.
+#
+# Three independent checks:
 #   1. always-true shape (HIGH confidence, purely mechanical - any `|| echo`/`|| printf`/`|| true`
 #      fallback destroys the exit-code signal no matter what precedes it). If this is still open,
 #      it means the item COULD get falsely auto-credited as done the next time the fleet picks it
 #      up, even if it never actually landed real work.
 #   2. delete/remove direction heuristic (LOWER confidence - only flags a RAW shell grep/test/ls
 #      referencing the target without visible negation; deliberately skips any VERIFY that
-#      delegates to a real test runner - pytest/godot/cargo/npm/vitest - since correctness there
-#      lives in the test file, invisible to a static line check). If open, it MIGHT be checking the
-#      wrong direction (e.g. checking a deleted thing still exists instead of confirming it's
-#      gone) - worth a human/Claude glance, not a certain bug.
+#      delegates to a real test runner - pytest/godot/gradlew/cargo/npm/vitest - since correctness
+#      there lives in the test file, invisible to a static line check). If open, it MIGHT be
+#      checking the wrong direction (e.g. checking a deleted thing still exists instead of
+#      confirming it's gone) - worth a human/Claude glance, not a certain bug.
+#   3. existence-only VERIFY on schema/endpoint work (LOWER confidence, schema/endpoint-scoped
+#      only - not every VERIFY in the fleet). Flags a still-open `cat:schema`/`cat:endpoint` item
+#      whose VERIFY is a bare `hasattr(...)`, a bare `assert ... is not None`, or a plain
+#      import/instantiation with no real assertion of behavior, and that does NOT delegate to a
+#      real test runner (same runner list as check 2). Schema/API changes are exactly the class of
+#      work where "the symbol exists" and "the change actually works" are two different things, so
+#      this is worth a look before the item gets picked up and false-credited the same way the
+#      referral model and the Alembic migration were.
 set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 export PATH=/usr/local/bin:/usr/bin:/bin:${PATH:-}
+# shellcheck source=scripts/lib_item_select.sh
+source scripts/lib_item_select.sh 2>/dev/null || true   # provides ovn_item_hash()
 LOG="logs/ovn_verify_direction_check.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
@@ -41,8 +60,13 @@ NTFY_TOPIC_RESOLVED="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
 alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
 
 REPOS="${1:-billwatch gitlark iptv_apps test-automation-agent xlite shrike-notify shrike-monitor}"
+# Shared "this VERIFY delegates to a real test runner, so a static line check can't (and
+# shouldn't try to) judge it" pattern - correctness there lives in the test file itself. Used by
+# both check 2 (direction heuristic) and check 3 (existence-only heuristic).
+TEST_RUNNER_RE='pytest|godot|gradlew|cargo test|npm test|yarn test|vitest|go test'
 NEW_ALWAYS_TRUE=0
 NEW_DIRECTION=0
+NEW_EXISTENCE_ONLY=0
 REPORT=""
 
 for r in $REPOS; do
@@ -57,7 +81,18 @@ for r in $REPOS; do
       case "$line" in *VERIFY:*) ;; *) continue ;; esac
       echo "$line" | grep -qiE 'HUMAN-ONLY|AUTO-SKIP|BLOCKED ITEM|retired-|\[CLAUDE\]' && continue
 
-      line_hash="$(printf '%s' "$line" | md5 2>/dev/null || printf '%s' "$line" | md5sum | cut -d' ' -f1)"
+      # 2026-09-29 FIX: was a bare md5/md5sum of the raw line, independently reimplementing the
+      # same "hash this roadmap line for identity" job scripts/lib_item_select.sh's ovn_item_hash()
+      # already owns (checkbox-strip - a no-op here since $line is always "- [ ] " by the filter
+      # above - and [feat:...] date-strip). A schema/endpoint item regenerated with a new
+      # date-stamped feat-tag but the SAME underlying VERIFY problem would otherwise look like a
+      # brand-new finding here and re-alert forever instead of being recognized as already-seen.
+      # Falls back to the old inline md5/md5sum only if sourcing the shared lib somehow failed.
+      if command -v ovn_item_hash >/dev/null 2>&1; then
+        line_hash="$(ovn_item_hash "$line")"
+      else
+        line_hash="$(printf '%s' "$line" | md5 2>/dev/null || printf '%s' "$line" | md5sum | cut -d' ' -f1)"
+      fi
 
       # Check 1: a `CMD && echo A || echo B` (or `|| printf`/`|| true`) shape whose final executed
       # branch always succeeds, making the whole line's exit code always 0.
@@ -78,7 +113,7 @@ for r in $REPOS; do
       # absence" direction bug. Skipped entirely when VERIFY hands off to pytest/godot/cargo/npm/
       # vitest, since correctness there is the test file's own job, invisible here.
       if echo "$line" | grep -qiE '\b(delete|remove|orphan(ed)?|dead code)\b' \
-         && ! echo "$line" | grep -qiE 'VERIFY:.*(pytest|godot|cargo test|npm test|yarn test|vitest|go test)'; then
+         && ! echo "$line" | grep -qiE "VERIFY:.*($TEST_RUNNER_RE)"; then
         verify_part="$(echo "$line" | grep -oE 'VERIFY:.*$')"
         if echo "$verify_part" | grep -qE '\b(grep|test|ls|find)\b' \
            && ! echo "$verify_part" | grep -qE '(! |test !|-z |grep -qv|grep -vq|! grep|! \[|!\[|! test|! ls|! find)'; then
@@ -92,18 +127,53 @@ for r in $REPOS; do
           fi
         fi
       fi
+
+      # Check 3 (narrow, schema/endpoint-scoped only): a cat:schema or cat:endpoint item whose
+      # VERIFY only proves a symbol exists, not that it behaves correctly. Skipped entirely when
+      # VERIFY delegates to a real test runner (same list as check 2) - correctness there is the
+      # test file's job, invisible here. Scope is deliberately narrow: this is NOT "every shallow
+      # VERIFY in the fleet", only schema/API changes, which is exactly where "it exists" and "it
+      # works" turned out to be two different things (the referral model and the Alembic migration
+      # bugs that prompted this check).
+      if echo "$line" | grep -qE 'cat:(schema|endpoint)' \
+         && ! echo "$line" | grep -qiE "VERIFY:.*($TEST_RUNNER_RE)"; then
+        verify_part="$(echo "$line" | grep -oE 'VERIFY:.*$')"
+        existence_only=0
+        # (a) a bare hasattr(...) - proves the attribute name exists, nothing about its value,
+        #     type, or behavior.
+        if echo "$verify_part" | grep -qE 'hasattr\('; then
+          existence_only=1
+        # (b) a bare "assert X is (not) None" - proves nullness, not correctness.
+        elif echo "$verify_part" | grep -qE 'assert\b[^&|;]*\bis[[:space:]]+(not[[:space:]]+)?None\b'; then
+          existence_only=1
+        # (c) a plain import/instantiation with no assert/raises/comparison anywhere - proves the
+        #     module/class can be imported, nothing about what it does.
+        elif echo "$verify_part" | grep -qE '\b(import|from)\b' \
+             && ! echo "$verify_part" | grep -qE '\bassert\b|raises|==|!=|\.called'; then
+          existence_only=1
+        fi
+        if [ "$existence_only" -eq 1 ] && ! grep -qF "e:$line_hash" "$SEEN_FILE"; then
+          echo "e:$line_hash" >> "$SEEN_FILE"
+          NEW_EXISTENCE_ONLY=$((NEW_EXISTENCE_ONLY+1))
+          msg="$f: $(echo "$line" | cut -c1-160)"
+          say "NEW existence-only VERIFY on schema/endpoint item (proves it exists, not that it works): $msg"
+          REPORT="${REPORT}[existence-only] ${msg}
+"
+        fi
+      fi
     done < "$f"
   done
 done
 
-if [ "$NEW_ALWAYS_TRUE" -gt 0 ] || [ "$NEW_DIRECTION" -gt 0 ]; then
-  say "=== $NEW_ALWAYS_TRUE new always-true + $NEW_DIRECTION new direction-review item(s) this run (only counting still-open items, not historical/checked ones) ==="
-  alert "Fleet: $NEW_ALWAYS_TRUE item(s) at risk of a false credit, $NEW_DIRECTION worth a glance" \
+if [ "$NEW_ALWAYS_TRUE" -gt 0 ] || [ "$NEW_DIRECTION" -gt 0 ] || [ "$NEW_EXISTENCE_ONLY" -gt 0 ]; then
+  say "=== $NEW_ALWAYS_TRUE new always-true + $NEW_DIRECTION new direction-review + $NEW_EXISTENCE_ONLY new existence-only item(s) this run (only counting still-open items, not historical/checked ones) ==="
+  alert "Fleet: $NEW_ALWAYS_TRUE item(s) at risk of a false credit, $NEW_DIRECTION worth a glance, $NEW_EXISTENCE_ONLY existence-only" \
     "warning" \
 "These are NEW open backlog items found since the last check (already-checked/historical items are never re-reported):
 
 - always-true ($NEW_ALWAYS_TRUE): this item's VERIFY command can never fail, so if the fleet picks it up it may get marked done without any real work happening. Worth fixing the VERIFY text before it's attempted.
 - direction-review ($NEW_DIRECTION): this is a delete/remove item whose VERIFY checks for the thing's presence, not its absence - possibly backwards, but this is a guess, not certain. Worth a quick look.
+- existence-only ($NEW_EXISTENCE_ONLY): this is a schema/endpoint item whose VERIFY only proves something exists (a bare hasattr, a bare not-None check, or a plain import with no real assertion), not that it actually works. Same class of bug as the referral model and the Alembic migration that got falsely credited this week - worth tightening the VERIFY before it's attempted.
 
 $(printf '%s' "$REPORT" | head -c 600)"
 else
