@@ -9,6 +9,7 @@ echo; echo "===== Recover-parked lineage normalization (path-phrasing no longer 
 echo; echo "===== Recover-parked already-satisfied filter (decomposed sub-items no longer resurface checked-off work) ====="; bash test_recover_parked_already_satisfied_filter.sh || rc=1
 echo; echo "===== Queue-refill roadmap-aware dry check (backlog-drained-but-roadmap-has-fuel is not genuine dry) ====="; bash test_queue_refill_roadmap_aware_dry.sh || rc=1
 echo; echo "===== Implement-time ALREADY-DONE classification (no-change-needed mid-implement is benign, not a flail) ====="; bash test_implement_time_already_done.sh || rc=1
+echo; echo "===== Residue-guard salvage check (timeout-truncated but passing work is re-verified before discard) ====="; bash test_residue_guard_salvage.sh || rc=1
 echo; echo "===== Python helpers ====="; python3 test_helpers.py || rc=1
 echo; echo "===== Bash helpers ====="; bash test_bash_helpers.sh || rc=1
 echo; echo "===== Runner invariants ====="; bash test_runner_invariants.sh || rc=1

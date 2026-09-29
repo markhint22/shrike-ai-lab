@@ -1725,11 +1725,49 @@ ${full_prompt}"
     # staged-then-modified after a no-op cycle. Since nothing here was ever
     # committed, none of it is "real" progress by this script's own
     # definition - safe to discard unconditionally.
+    #
+    # 2026-09-28 SALVAGE CHECK: "unconditionally" above was too strong in one confirmed
+    # shape. aider is invoked with --auto-test (edit -> run the test command -> commit
+    # only if it passes), wrapped in `timeout "$aider_timeout" aider ...`. When the test
+    # step itself is slow, the outer timeout can fire AFTER the test genuinely passed but
+    # BEFORE aider's own commit step runs, leaving a real, currently-passing change sitting
+    # uncommitted - which this guard then silently threw away and scored as a bad no-op.
+    # Confirmed live on billwatch (logs/20260923-121347/ongoing-billwatch.log): a vitest
+    # run showed a clean "2 passed (2)" result, then the log ended immediately - no
+    # aider "Commit ..." line, no error, no further turn, unlike every OTHER
+    # successful flow (which always continues with aider's own commit line + downstream
+    # checks). Historical base rate is low (~2% of discards fleet-wide showed this exact
+    # fingerprint vs genuine errors/stalls/crashes in the rest), so this stays a narrow,
+    # cheap-gated check, not a general "trust the log" mechanism: a loose, fast grep for
+    # any test-runner "passed" signal decides whether it's even worth the cost of
+    # re-verifying (skips the common case - genuine junk - for free); the actual
+    # commit-or-discard decision NEVER trusts that log text alone (it could be stale or
+    # misleading) - it always independently re-runs the SAME verification the post-commit
+    # path uses (run_repo_verification) against the CURRENT working tree, right now, and
+    # only salvages on an explicit fresh "pass".
     if [ "$AFTER_SHA" = "$BEFORE_SHA" ] && [ -n "$(git status --porcelain)" ]; then
-      echo "--- discarding uncommitted working-tree residue from an incomplete attempt ---" >> "$task_log"
-      git status --porcelain >> "$task_log"
-      git reset --hard "$BEFORE_SHA" --quiet
-      git clean -fd --quiet
+      _RESIDUE_SALVAGED=0
+      if grep -qiE 'passed|[0-9]+ ok\b' "$task_log" 2>/dev/null; then
+        _RESIDUE_VERIFY="$(run_repo_verification)"
+        if [ "$_RESIDUE_VERIFY" = "pass" ]; then
+          echo "--- working-tree residue independently re-verified as PASSING - salvaging instead of discarding ---" >> "$task_log"
+          git add -A
+          if git commit -q -m "chore(queue): salvage working-tree residue independently verified as passing (likely cut off by a timeout before its own commit)" 2>>"$task_log"; then
+            AFTER_SHA="$(git rev-parse HEAD)"
+            _RESIDUE_SALVAGED=1
+          else
+            echo "--- salvage commit failed - falling back to discard ---" >> "$task_log"
+          fi
+        else
+          echo "--- residue re-verify came back '${_RESIDUE_VERIFY:-no signal}', not a clean pass - discarding ---" >> "$task_log"
+        fi
+      fi
+      if [ "$_RESIDUE_SALVAGED" -eq 0 ]; then
+        echo "--- discarding uncommitted working-tree residue from an incomplete attempt ---" >> "$task_log"
+        git status --porcelain >> "$task_log"
+        git reset --hard "$BEFORE_SHA" --quiet
+        git clean -fd --quiet
+      fi
     fi
 
     # Implement-pass already-satisfied crediting (2026-08-30): THE #1 remaining
