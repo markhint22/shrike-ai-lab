@@ -4,6 +4,7 @@ cd "$(dirname "$0")"
 rc=0
 echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
 echo; echo "===== lib_item_select (real-item resolver — scout-file match over blind top-of-file) ====="; bash test_lib_item_select.sh || rc=1
+echo; echo "===== BUILD-GATE Variant-type grounding (Dictionary/Array runtime errors stay tests:FAIL) ====="; bash test_buildgate_variant_type_grounding.sh || rc=1
 echo; echo "===== Python helpers ====="; python3 test_helpers.py || rc=1
 echo; echo "===== Bash helpers ====="; bash test_bash_helpers.sh || rc=1
 echo; echo "===== Runner invariants ====="; bash test_runner_invariants.sh || rc=1

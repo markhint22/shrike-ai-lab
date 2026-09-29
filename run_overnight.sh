@@ -2007,7 +2007,23 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
       # in progress or a pre-existing flake. Grep the verification output (already
       # in $task_log) for unambiguous structural-break signals across py/gd/js.
       _BUILD_BREAK_POS_RE="SyntaxError|IndentationError|invalid syntax|ImportError while loading|cannot import name|ERROR collecting|errors during collection|SCRIPT ERROR|Parse Error|ERROR: Failed to load|Cannot find module|error TS[0-9]|Build failed|Compilation error|compile[A-Za-z]*Kotlin FAILED|compile[A-Za-z]*JavaWithJavac FAILED"
-      _BUILD_BREAK_NEG_RE="has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null"
+      # 2026-09-28 FIX: "base object of type 'Nil'" only excluded the ONE Godot Variant type
+      # (Nil) this exclusion list happened to have been written against. Godot's identical
+      # runtime "invalid property/key access" error shape fires for EVERY Variant type a
+      # script can hold a reference to (Dictionary, Array, Object, String, ...), not just
+      # Nil — it's a plain test-assertion-time runtime error (the test's own logic reached a
+      # bad access), never a structural "code no longer loads" break, regardless of which
+      # type is named. Confirmed live: a real GDScript "SCRIPT ERROR: Invalid access to
+      # property or key of type 'StringName' on a base object of type 'Dictionary'" — a
+      # plain test-logic bug that should have stayed tests:FAIL — tripped the harsher
+      # BUILD-GATE revert path solely because 'Dictionary' wasn't 'Nil'. Generalize the type
+      # name to any identifier instead of enumerating individual Variant types one at a time
+      # (the prior fix-one-instance shape that produced this gap in the first place) — the
+      # "Invalid access to property or key ... on a base object of type '<X>'" phrase is
+      # Godot-engine-specific runtime-call terminology that never appears in a genuine
+      # syntax/import/parse/structural error, so widening <X> carries no risk of masking a
+      # real build break.
+      _BUILD_BREAK_NEG_RE="has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type '[A-Za-z_][A-Za-z0-9_]*'|Attempted to free a RefCounted|Parameter .* is null"
       if [ "$VERIFY_RESULT" = "fail" ] && { grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | grep -q .; }; then
         # BUILD-GATE grounded fix-up (2026-09-20): plain aider_fix items (T1/T2, and the
         # ongoing-* background lanes, which run this exact same path) used to get ZERO
