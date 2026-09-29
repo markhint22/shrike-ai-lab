@@ -227,6 +227,43 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
     [ -s "$_guard_log" ] && say "$r: $(cat "$_guard_log")"
     rm -f "$_guard_log"
   fi
+  # ALREADY-SATISFIED FILTER (2026-09-28): a decomposed sub-item can resurface work that's
+  # ALREADY checked off elsewhere in OVERNIGHT_PROGRESS.md - the LLM decomposing this stuck
+  # item only sees the target file's current content (the CURRENT CONTENT note above) and
+  # the stuck item's own text, never the REST of the file, so it can genuinely re-propose
+  # something a DIFFERENT already-landed item already covers. Confirmed live on
+  # shrike-monitor: an already-[x]-checked "already-satisfied" item's near-duplicate
+  # re-appeared as a fresh unchecked item in the same file, forcing a pointless re-attempt -
+  # the repo's own backlog notes independently flagged this same pattern twice. Drop any
+  # [T1-3]-tagged sub-item (never a [CLAUDE] escalation note - that's a meta hand-off, not
+  # decomposed work to de-dup against) whose target file, once normalized against the
+  # repo's real tracked tree (the same scripts/lib_path_normalize.sh helper
+  # RECOVERY_LINEAGE_CAP's own path-phrasing fix uses, so checked-off lines phrased
+  # differently than this decomposition still match), already appears in a CHECKED-OFF
+  # (`- [x]`) line - concrete evidence that target was already handled, whatever fresh
+  # wording this decomposition invents for it.
+  if [ -n "$items" ] && [ -f "$f" ]; then
+    _checked_files="$(grep -E '^- \[x\]' "$f" 2>/dev/null | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | while IFS= read -r _cf; do ovn_normalize_path "$rd" "$_cf"; done | sort -u)"
+    if [ -n "$_checked_files" ]; then
+      _kept=""
+      while IFS= read -r _it; do
+        [ -z "$_it" ] && continue
+        case "$_it" in
+          *'[CLAUDE]'*) _kept="${_kept}${_kept:+$'\n'}${_it}"; continue ;;
+        esac
+        _itf="$(printf '%s' "$_it" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+        if [ -n "$_itf" ]; then
+          _itf_norm="$(ovn_normalize_path "$rd" "$_itf")"
+          if printf '%s\n' "$_checked_files" | grep -qxF "$_itf_norm"; then
+            say "$r: dropping recovered sub-item already checked off elsewhere: ${_it:0:80}"
+            continue
+          fi
+        fi
+        _kept="${_kept}${_kept:+$'\n'}${_it}"
+      done <<< "$items"
+      items="$_kept"
+    fi
+  fi
   cnt=$(printf '%s' "$items" | grep -c '^- \[ \]')
   fi
   if [ "${cnt:-0}" -lt 1 ]; then

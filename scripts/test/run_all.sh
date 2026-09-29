@@ -6,6 +6,7 @@ echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-inte
 echo; echo "===== lib_item_select (real-item resolver — scout-file match over blind top-of-file) ====="; bash test_lib_item_select.sh || rc=1
 echo; echo "===== BUILD-GATE Variant-type grounding (Dictionary/Array runtime errors stay tests:FAIL) ====="; bash test_buildgate_variant_type_grounding.sh || rc=1
 echo; echo "===== Recover-parked lineage normalization (path-phrasing no longer bypasses RECOVERY_LINEAGE_CAP) ====="; bash test_recover_parked_lineage_normalization.sh || rc=1
+echo; echo "===== Recover-parked already-satisfied filter (decomposed sub-items no longer resurface checked-off work) ====="; bash test_recover_parked_already_satisfied_filter.sh || rc=1
 echo; echo "===== Queue-refill roadmap-aware dry check (backlog-drained-but-roadmap-has-fuel is not genuine dry) ====="; bash test_queue_refill_roadmap_aware_dry.sh || rc=1
 echo; echo "===== Implement-time ALREADY-DONE classification (no-change-needed mid-implement is benign, not a flail) ====="; bash test_implement_time_already_done.sh || rc=1
 echo; echo "===== Python helpers ====="; python3 test_helpers.py || rc=1
