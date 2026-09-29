@@ -459,7 +459,26 @@ run_repo_verification() {
     # this alone. The other repos on this same override path (gitlark: smartly scoped; test-automation-
     # agent/shrike-monitor/shrike-notify: all sub-second full suites) have real headroom under 600s too.
     echo "--- verify: $_ovnv (repo-owned, 600s cap) ---" >> "$task_log"
-    if ( cd "$(dirname "$_ovnv")" && OVN_CHANGED_FILES="$_OVN_CHANGED" timeout 600 bash "$(basename "$_ovnv")" ) >> "$task_log" 2>&1; then
+    # 2026-09-29 FIX: this used to fold the venv-lock-contention SKIP path (iptv_apps,
+    # shrike-monitor, shrike-notify's .ovn-verify.sh all exit 0 with a "SKIPPED - venv
+    # lock contended... not treating as a failure" line when they can't get the shared
+    # venv lock - see that 2026-09-28 comment inside .ovn-verify.sh) into a plain "pass",
+    # because exit 0 was the only signal checked here. That's correct for NOT reverting
+    # (a verify that never ran must not be conflated with one that ran and found real
+    # red - the original intent), but it ALSO let a commit whose tests never actually
+    # ran get auto-credited and pushed as "pushed(tests:pass)" as if fully verified.
+    # Confirmed live on iptv_apps 2026-09-28 21:38 CDT: 0bc57b0 (adding an import of a
+    # model file that was never created) landed this way while its lock was contended,
+    # then poisoned the shared conftest/import chain for FOUR later, unrelated, actually-
+    # correct items across the next ~2h, each one build-gate-reverted for a break it
+    # didn't cause. Capture the script's own output and check for that literal SKIPPED
+    # marker so a lock-contention skip is now its own "skip" outcome, never "pass".
+    _ovnv_out="$( ( cd "$(dirname "$_ovnv")" && OVN_CHANGED_FILES="$_OVN_CHANGED" timeout 600 bash "$(basename "$_ovnv")" ) 2>&1)"
+    _ovnv_rc=$?
+    printf '%s\n' "$_ovnv_out" >> "$task_log"
+    if printf '%s' "$_ovnv_out" | grep -q 'SKIPPED — venv lock contended'; then
+      echo "skip"
+    elif [ "$_ovnv_rc" -eq 0 ]; then
       echo "pass"
     else
       echo "fail"
@@ -1960,6 +1979,27 @@ ${full_prompt}"
       # just surfacing it for you to glance at in the report.
       VERIFY_RESULT="$(run_repo_verification)"
 
+      # VERIFY-SKIP GUARD (2026-09-29): a lock-contended .ovn-verify.sh (iptv_apps,
+      # shrike-monitor, shrike-notify) returns "skip", not "pass" or "fail" - tests
+      # genuinely never ran this cycle. Do NOT revert (same reasoning as always: a
+      # verify that couldn't run must never be conflated with one that ran and found
+      # real red - reverting on a mere skip would be exactly the false-revert failure
+      # mode the 2026-09-28 lock fix was written to avoid). But also do NOT fall through
+      # to the ordinary push path below, which used to treat any non-"fail" result as
+      # good enough to auto-credit and push as "pushed(tests:pass)" - that is what let
+      # an untested commit (iptv_apps 0bc57b0, 2026-09-28 21:38 CDT: exported a model
+      # import whose file was never created) land on the shared branch and then
+      # build-gate-revert four later, unrelated, actually-correct cycles that happened
+      # to run while the broken import sat unverified in history. Leave HEAD as this
+      # cycle's local, unpushed commit - the next cycle (lock usually free by then)
+      # will either verify it for real before anything reaches origin, or build on top
+      # of it and catch the break via its own verify run either way.
+      if [ "$VERIFY_RESULT" = "skip" ]; then
+        echo "--- VERIFY-SKIP GUARD: verification could not run (lock contention) — holding this cycle's commit unpushed instead of landing it unverified ---" >> "$task_log"
+        echo "error(verify-skipped - lock contended, retry next cycle)"
+        return
+      fi
+
       # TS-RATCHET (2026-09-04): type-check web on TS-touching commits and REVERT if this
       # commit raised the tsc error count above the repo baseline (ratchet: only holds or
       # improves). Real type feedback WITHOUT reverting the pre-existing type-error backlog
@@ -2191,6 +2231,22 @@ Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your c
         git clean -fd --quiet 2>/dev/null
         emit_alert warn "$id" "reverted a commit that left tests red (${_redkind}); feature kept green for hygiene"
         echo "no-op(reverted-red)"
+        return
+      fi
+
+      # VERIFY-SKIP GUARD, second checkpoint (2026-09-29): a BUILD-GATE or Tier-2
+      # fix-up above may have re-run verification and landed on "skip" (lock
+      # contention) rather than "pass"/"fail" - the initial guard right after the
+      # first run_repo_verification call only covers the common case where the
+      # very first verify hit the skip. Without this second check, a "skip" here
+      # would fall through the NO-NEW-RED GUARD above unnoticed (it only matches
+      # "fail") straight into the auto-credit/push path below, which historically
+      # treated anything that wasn't literally "fail" as landable. Same fix, same
+      # reasoning: hold this cycle's commit unpushed rather than credit/push code
+      # that was never actually re-verified after the fix-up attempt.
+      if [ "$VERIFY_RESULT" = "skip" ]; then
+        echo "--- VERIFY-SKIP GUARD (post-fixup): re-verification could not run (lock contention) — holding this cycle's commit unpushed instead of landing it unverified ---" >> "$task_log"
+        echo "error(verify-skipped - lock contended, retry next cycle)"
         return
       fi
 

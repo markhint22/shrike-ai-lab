@@ -97,5 +97,6 @@ echo; echo "===== Backup-branch sweep (orphaned backup-diverged-* branch cleanup
 echo; echo "===== Multifile scope guard (multifile:no items never accumulate extra files, run_overnight.sh) ====="; bash test_multifile_scope_guard.sh || rc=1
 echo; echo "===== Toks-monitor rolling baseline (sustained-regression detection, not an unreachable solo gate) ====="; bash test_toks_monitor_regression.sh || rc=1
 echo; echo "===== Stale top item check (persisted first-seen clock, not git-blame-on-bulk-edit) ====="; bash test_stale_top_item_check.sh || rc=1
+echo; echo "===== Verify-skip guard (lock-contended .ovn-verify.sh no longer lands as an unverified pass) ====="; bash test_verify_skip_guard.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
