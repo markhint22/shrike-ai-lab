@@ -57,13 +57,22 @@ ok "fail streak trips on token spend before the cycle cap" \
    "grep -q 'AUTO-SKIP after 220000 tokens with no landing' '$r/OVERNIGHT_PROGRESS.md'"
 
 # --- D: a landing clears the new token counter files, not just the old hash/count ones ---
+# 2026-09-29: state files are now keyed by (id, item_hash) — see ovn_item_guard.sh's header
+# comment — so the exact filename includes a hash; glob for it instead of a fixed name. A
+# landing is now identified via an "item-hash <md5>" marker in $task_log (written by
+# run_overnight.sh at the moment it checks an item off — see that file's 2026-09-29 comment
+# at the marker-emission site), not a blind clear-everything-for-this-id, so the "landing"
+# call here must carry that marker for the item that actually landed (itemD itself).
+_lib="$(dirname "$G")/lib_item_select.sh"; [ -f "$_lib" ] && . "$_lib"
 r="$(new_repo repoD '- [ ] [T3] scripts/x.gd — thing. VERIFY: pass')"
 st="$tmp/stateD"; mkdir -p "$st"
 l="$(mklog 50 D 1)"
 bash "$G" "$r" "no-op" "$st" itemD "$l" >/dev/null
-ok "a no-op writes a nooptoks counter file" "[ -f '$st/item_fails/itemD.nooptoks' ]"
-bash "$G" "$r" "pushed(tests:pass)" "$st" itemD "$l" >/dev/null
-ok "landing clears the nooptoks counter file too" "[ ! -f '$st/item_fails/itemD.nooptoks' ]"
+ok "a no-op writes a nooptoks counter file" "ls '$st'/item_fails/itemD.*.nooptoks >/dev/null 2>&1"
+h_d="$(ovn_item_hash '- [ ] [T3] scripts/x.gd — thing. VERIFY: pass')"
+landing_l="$tmp/landing_D.log"; printf -- '--- auto-credit: item-hash %s ---\n' "$h_d" > "$landing_l"
+bash "$G" "$r" "pushed(tests:pass)" "$st" itemD "$landing_l" >/dev/null
+ok "landing clears the nooptoks counter file too" "! ls '$st'/item_fails/itemD.*.nooptoks >/dev/null 2>&1"
 
 rm -rf "$tmp"
 echo "Item-guard token cap: $P passed, $F failed"

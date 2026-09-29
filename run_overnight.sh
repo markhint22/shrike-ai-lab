@@ -1293,9 +1293,20 @@ STUB
       else
         _lf_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' | head -1)"
       fi
-      _lf_file="$STATE_DIR/item_fails/${id}.lastfail"
-      if [ -n "$_lf_top" ] && [ -f "$_lf_file" ]; then
+      # 2026-09-29: lastfail is now stored per (id, item_hash) — see ovn_item_guard.sh's
+      # 2026-09-29 header comment — so this lookup must use the SAME hash (and the SAME
+      # shared ovn_item_hash(), not an independent raw-text md5) to find the right file.
+      # This also fixes a latent mismatch: this lookup used to hash the raw top-line text
+      # even for a [feat:...]-tagged item, while ovn_item_guard.sh hashed the (date-stripped)
+      # feat-tag — the two could never agree for a feat-tagged item, so grounded-failure
+      # memory silently never injected for exactly the multi-line-feature case it targets.
+      if command -v ovn_item_hash >/dev/null 2>&1; then
+        _lf_hash="$(ovn_item_hash "${_lf_top#*:}")"
+      else
         _lf_hash="$(printf '%s' "${_lf_top#*:}" | md5sum | cut -d' ' -f1)"
+      fi
+      _lf_file="$STATE_DIR/item_fails/${id}.${_lf_hash}.lastfail"
+      if [ -n "$_lf_top" ] && [ -f "$_lf_file" ]; then
         _lf_saved="$(cat "$_lf_file" 2>/dev/null)"
         _lf_savedhash="${_lf_saved%%|*}"
         _lf_savedsummary="${_lf_saved#*|}"
@@ -2422,6 +2433,22 @@ Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your c
         LINT_ISSUES="$(run_lint_check "$BEFORE_SHA" "$AFTER_SHA")"
         [ "${LINT_ISSUES:-0}" -gt 0 ] && PUSH_STATUS="${PUSH_STATUS} [lint:${LINT_ISSUES}]"
         [ "$(run_coverage_check "$BEFORE_SHA" "$AFTER_SHA")" = "untested" ] && PUSH_STATUS="${PUSH_STATUS} [untested-change]"
+        # Per-item landed-hash marker (2026-09-29): ovn_item_guard.sh's per-(id,item_hash)
+        # streak files (see its own header comment for the root-cause writeup) need to know
+        # EXACTLY which item(s) this cycle checked off to clear only their own streak, never
+        # an unrelated stuck item's — the checkbox is already flipped to "- [x] " by the
+        # progress-bookkeeping/auto-credit blocks above by the time that guard runs, so it
+        # can no longer identify "the landed item" from a fresh top-of-file read itself.
+        # Diff OVERNIGHT_PROGRESS.md across this cycle's whole commit range (covers BOTH the
+        # per-file auto-credit path and the DONE:-trailer bookkeeping path — whichever one
+        # actually flipped a line) and hash every newly-checked-off line the same way this
+        # guard does, via the shared ovn_item_hash() (scripts/lib_item_select.sh).
+        if [ "$VERIFY_RESULT" = "pass" ] && command -v ovn_item_hash >/dev/null 2>&1; then
+          while IFS= read -r _landed_line; do
+            [ -z "$_landed_line" ] && continue
+            echo "--- auto-credit: item-hash $(ovn_item_hash "$_landed_line") ---" >> "$task_log"
+          done < <(git diff "$BEFORE_SHA" "$AFTER_SHA" -- OVERNIGHT_PROGRESS.md 2>/dev/null | grep -E '^\+- \[[xX]\] ' | sed -E 's/^\+//')
+        fi
         echo "$PUSH_STATUS"
       else
         # Push rejected (usually non-fast-forward: origin advanced from a

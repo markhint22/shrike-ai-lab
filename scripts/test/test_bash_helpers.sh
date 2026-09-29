@@ -4,6 +4,8 @@ set -uo pipefail
 SCRIPTS="${OVN_SCRIPTS:-$HOME/overnight-queue/scripts}"
 P=0; F=0
 ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# shellcheck source=scripts/lib_item_select.sh
+[ -f "$SCRIPTS/lib_item_select.sh" ] && . "$SCRIPTS/lib_item_select.sh"
 
 # ---- ovn_credit_already_satisfied.sh ----
 d=$(mktemp -d); ( cd "$d"
@@ -55,12 +57,25 @@ ok "item-guard: no-op park is NOT tagged HUMAN-ONLY"   "! grep -q 'HUMAN-ONLY' $
 rm -rf "$d"
 
 # A real landing between no-ops resets the streak, so a merely-flaky item is not parked.
+# 2026-09-29: a landing is identified via an "item-hash <md5>" marker in $task_log (written
+# by run_overnight.sh at the moment it checks an item off — see that file's 2026-09-29
+# comment at the marker-emission site), not a blind clear-everything-for-this-id, because by
+# the time this guard runs on a real landing, OVERNIGHT_PROGRESS.md's checkbox for the landed
+# item is already flipped and a fresh re-read can no longer identify it (see
+# ovn_item_guard.sh's own header comment). Build that marker for THIS item explicitly so the
+# "landing" call below actually lands the SAME item the no-ops were accumulating against.
+w_line='- [ ] [HIGH] `app/w.py` — occasionally no-ops. One file.'
 d=$(mktemp -d); ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
   mkdir -p state/failures
-  printf '## Next Steps\n- [ ] [HIGH] `app/w.py` — occasionally no-ops. One file.\n' > OVERNIGHT_PROGRESS.md
+  printf '## Next Steps\n%s\n' "$w_line" > OVERNIGHT_PROGRESS.md
   git add -A; git commit -qm init
   for i in 1 2 3; do bash "$SCRIPTS/ovn_item_guard.sh" "$d" "no-op(BLOCKED)" "$d/state" "ongoing-reset" >/dev/null 2>&1; done
-  bash "$SCRIPTS/ovn_item_guard.sh" "$d" "pushed(tests:pass)" "$d/state" "ongoing-reset" >/dev/null 2>&1  # landing clears the streak
+  if command -v ovn_item_hash >/dev/null 2>&1; then
+    printf -- '--- auto-credit: item-hash %s ---\n' "$(ovn_item_hash "$w_line")" > landed.log
+  else
+    : > landed.log
+  fi
+  bash "$SCRIPTS/ovn_item_guard.sh" "$d" "pushed(tests:pass)" "$d/state" "ongoing-reset" landed.log >/dev/null 2>&1  # landing clears the streak
   bash "$SCRIPTS/ovn_item_guard.sh" "$d" "no-op(BLOCKED)" "$d/state" "ongoing-reset" >/dev/null 2>&1      # back to 1, not 4
 )
 ok "item-guard: a landing resets the no-op streak"     "! grep -q 'AUTO-SKIP' $d/OVERNIGHT_PROGRESS.md"

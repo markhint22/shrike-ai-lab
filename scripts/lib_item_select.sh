@@ -56,3 +56,35 @@ ovn_resolve_top_item() {
   top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
   printf '%s' "$top"
 }
+
+# ovn_item_hash — shared "identity" hash for an item's line text (2026-09-29).
+#
+# Both ovn_item_guard.sh (fail/no-op streak keys) and run_overnight.sh (record_outcome's
+# item_hash + the lastfail-memory lookup) need to answer "is this the SAME item as last
+# time" from a line's text. Before this, each independently re-implemented the featkey
+# extraction/date-strip, and drifted: ovn_item_guard.sh picked up the 2026-09-28 date-strip
+# fix (a [feat:...] tag's embedded YYYYMMDD/MMDDYY stamp changes every roadmap regeneration
+# of the SAME underlying feature, so stripping it before hashing collapses regenerations onto
+# one streak) but run_overnight.sh's lastfail lookup never did, so it hashed the RAW top-line
+# text while the producer hashed the (stripped) feat-tag — the two could never agree for any
+# feat-tagged item, silently disabling the grounded-failure-memory injection for exactly the
+# multi-line-feature case it was built for. One function, one algorithm, sourced by both.
+#
+# Normalizes away a leading "- [ ] "/"- [x] "/"- [X] " checkbox marker first (a no-op for
+# text that never had one), so a caller with the raw "grep -n" line (checkbox included, e.g.
+# ovn_item_guard.sh's own $text) and a caller with just the bare item text (e.g. a "+- [x] "
+# diff line, or ovn_stage_runner.sh's checkbox-stripped $item) hash to the SAME value for the
+# same underlying item regardless of which checkbox state or calling convention was used.
+#
+# Usage: h="$(ovn_item_hash "$text")"   # $text = the line text, e.g. "${top#*:}"
+ovn_item_hash() {
+  local text featkey
+  text="$(printf '%s' "${1:-}" | sed -E 's/^- \[[ xX]\] //')"
+  featkey="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
+  if [ -n "$featkey" ]; then
+    featkey="$(printf '%s' "$featkey" | sed -E 's/-[0-9]{8}-/-/; s/-[0-9]{6}-/-/')"
+    printf '%s' "$featkey" | md5sum | cut -d' ' -f1
+  else
+    printf '%s' "$text" | md5sum | cut -d' ' -f1
+  fi
+}

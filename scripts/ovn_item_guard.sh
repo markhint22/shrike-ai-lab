@@ -21,6 +21,20 @@
 # alongside the existing cycle count and trips FIRST on whichever limit is hit, so an expensive
 # item gets caught by spend, not just by attempt count. Same streak-reset semantics as the
 # cycle counters (a new item hash starts the token tally over; a landing clears it).
+#
+# Per-ITEM state keying (2026-09-29 FIX): every streak file used to be keyed ONLY by the
+# generic repo-task-id (e.g. "ongoing-billwatch"), a SINGLE SLOT shared by every item that
+# ever passes through this guard for that id/repo — not by which specific item is actually
+# stuck. Confirmed live on billwatch: a stuck feature (3 sub-items sharing one [feat:...] tag)
+# burned 7 reverts over ~3.5h and ~660k tokens before hitting the expensive TOKCAP, because 6
+# unrelated, successful landings elsewhere in the SAME repo each hit the old unconditional
+# `rm -f` in the tests:pass case below and wiped the id's single slot — resetting whatever
+# stuck item happened to be "top" at that moment back to a 0-streak, so the cheap CAP=3/NCAP=4
+# cycle-count caps never got a real chance to fire. Every state file is now keyed by
+# (id, item_hash) instead of just id, so a repeated failure of the SAME item accrues on its
+# OWN file regardless of what else happens in the repo, and a landing only ever touches the
+# file(s) for the item hash(es) that ACTUALLY landed this cycle (see the tests:pass case below
+# for how that identity is established) — never a different item's counter.
 # args: <repo_dir> <status> <state_dir> <id> [<task_log>]
 set -uo pipefail
 repo="${1:-}"; status="${2:-}"; state="${3:-}"; id="${4:-}"; task_log="${5:-}"
@@ -31,9 +45,6 @@ CAP="${OVN_ITEM_FAIL_CAP:-3}"
 NCAP="${OVN_ITEM_NOOP_CAP:-4}"
 TOKCAP="${OVN_ITEM_TOKEN_CAP:-200000}"
 mkdir -p "$state/item_fails" 2>/dev/null || exit 0
-hashf="$state/item_fails/${id}.hash"; countf="$state/item_fails/${id}.count"; toksf="$state/item_fails/${id}.toks"
-nhashf="$state/item_fails/${id}.noophash"; ncountf="$state/item_fails/${id}.noopcount"; ntoksf="$state/item_fails/${id}.nooptoks"
-lastfailf="$state/item_fails/${id}.lastfail"
 
 cur_toks=0
 if [ -n "$task_log" ] && [ -f "$task_log" ]; then
@@ -41,9 +52,40 @@ if [ -n "$task_log" ] && [ -f "$task_log" ]; then
   cur_toks="${cur_toks:-0}"
 fi
 
-# A clean landing clears BOTH streaks (fail and no-op) plus any grounded failure memory.
+_lib="$(dirname "$0")/lib_item_select.sh"
+[ -f "$_lib" ] && . "$_lib"   # shellcheck source=scripts/lib_item_select.sh
+
+# A clean landing clears the fail/no-op streaks (+ grounded failure memory) for whichever
+# item(s) actually landed THIS cycle — identified via "item-hash <md5>" marker line(s) that
+# run_overnight.sh writes into $task_log at the exact moment(s) it checks an item off in
+# OVERNIGHT_PROGRESS.md (both the per-file auto-credit path and the DONE:-trailer bookkeeping
+# path; see run_overnight.sh's 2026-09-29 comment at the marker-emission site).
+#
+# Why not just re-resolve "the top item" here like the fail/no-op paths do below? Because by
+# the time this guard runs on a landing, the item that just landed has ALREADY been flipped
+# from "- [ ] " to "- [x] " in OVERNIGHT_PROGRESS.md (the credit happens earlier in the same
+# cycle, before this script is ever invoked) — so a fresh top-of-file/scout-match re-read can
+# only ever find a DIFFERENT, still-open item, never the one that landed. Blindly clearing
+# THAT item's counter is exactly the cross-item bug this fix targets, just with a narrower
+# blast radius. Only ever clear a hash this cycle's task_log positively names as landed.
+#
+# KNOWN GAP: the higher-tier staged sub-flow (ovn_stage_runner.sh) checks its own items off
+# directly (a separate worktree/branch) and does not yet emit this marker, so a staged item's
+# OWN prior fail-streak (if any) is not cleared on its own staged landing — a narrower,
+# self-only limitation (it never touches ANOTHER item's counter) left as a documented
+# follow-up rather than risking a same-pass edit to that larger, separately-gated script.
 case "$status" in
-  *"tests:pass"*) rm -f "$hashf" "$countf" "$toksf" "$nhashf" "$ncountf" "$ntoksf" "$lastfailf" 2>/dev/null; exit 0 ;;
+  *"tests:pass"*)
+    if [ -n "$task_log" ] && [ -f "$task_log" ]; then
+      while IFS= read -r _lh; do
+        [ -z "$_lh" ] && continue
+        rm -f "$state/item_fails/${id}.${_lh}.count" "$state/item_fails/${id}.${_lh}.toks" \
+              "$state/item_fails/${id}.${_lh}.noopcount" "$state/item_fails/${id}.${_lh}.nooptoks" \
+              "$state/item_fails/${id}.${_lh}.lastfail" 2>/dev/null
+      done < <(grep -ohE 'item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
+    fi
+    exit 0
+    ;;
 esac
 
 # The top unchecked item that is NOT already tagged blocked/skipped.
@@ -73,10 +115,11 @@ esac
 # when one is available; see scripts/lib_item_select.sh for the full root-cause writeup and
 # the exact fallback semantics (identical to the old top-of-file-only behavior when there is
 # no usable scout signal).
-_lib="$(dirname "$0")/lib_item_select.sh"
-if [ -f "$_lib" ]; then
-  # shellcheck source=scripts/lib_item_select.sh
-  . "$_lib"
+#
+# (lib_item_select.sh, sourced above, provides both ovn_resolve_top_item() and the shared
+# ovn_item_hash() this fix uses — the fail/no-op path below is unaffected by OVERNIGHT_PROGRESS.md
+# mutation timing, since a fail/no-op cycle never checks anything off before this guard runs.)
+if command -v ovn_resolve_top_item >/dev/null 2>&1; then
   top="$(ovn_resolve_top_item "$repo" "$task_log")"
 else
   top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
@@ -84,41 +127,29 @@ fi
 [ -z "$top" ] && exit 0
 lineno="${top%%:*}"
 text="${top#*:}"
-# Feature-scoped streak key (2026-09-22): a multi-line feature (e.g. an impl file +
-# its paired test file, tagged with the same [feat:...] id) used to get a FRESH
-# fail/no-op streak budget every time the "top" unchecked line flipped between its
-# sibling sub-items - each sub-item hashes to different raw text, so CAP/NCAP reset
-# to 0 on every flip instead of accumulating. Root-caused live on shrike-notify's
-# [feat:shrike-notify-20260921-wire-check-message-field-duplicates] pair: the
-# backend/app/models.py line and the backend/tests/test_models.py line kept trading
-# off as "top" across 9+ cycles / 160k+ tokens (both ultimately blocked by the same
-# underlying bug - an `importlib.reload(app.models)` test call that poisons
-# isinstance-based FastAPI exception-handler matching for the rest of the pytest
-# session, confirmed by direct reproduction), and neither sub-item's streak alone
-# ever reached the existing CAP=3/NCAP=4 before the OTHER sub-item became "top" and
-# reset the clock. Hash the shared [feat:...] tag when present so all sub-items of
-# one feature draw from the SAME budget; fall back to the old whole-line hash for
-# untagged items (no behavior change there).
-#
-# 2026-09-28 FIX: the feat-tag itself churns across regenerations of the SAME underlying
-# stuck target - ovn_planner.sh mints it as [feat:<repo>-<YYYYMMDD>-<slug>], and when the
-# roadmap re-decomposes the same feature idea later, it gets a FRESH date (and often
-# slightly reworded slug), so the "same" stuck work is treated as a brand-new item with a
-# reset streak instead of a continuation. Confirmed live on shrike-notify: one file got 3
-# different feat-tags across repeated regeneration, turning a single design ambiguity into
-# 5-20 wasted cycles instead of being capped at CAP=3/NCAP=4 on the first regeneration.
-# Strip the embedded date token before hashing so same-slug regenerations collapse onto
-# the SAME budget regardless of when they were minted - this is strictly more robust than
-# the raw featkey hash (every feat-tag observed in this fleet follows the
-# <repo>-<YYYYMMDD>-<slug> shape), and a no-op for a feat-tag that happens not to contain
-# a date-shaped token (falls through to hashing the tag unchanged).
-featkey="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
-if [ -n "$featkey" ]; then
-  featkey="$(printf '%s' "$featkey" | sed -E 's/-[0-9]{8}-/-/; s/-[0-9]{6}-/-/')"
-  h="$(printf '%s' "$featkey" | md5sum | cut -d' ' -f1)"
+# Feature-scoped streak key (2026-09-22, date-strip hardened 2026-09-28): a multi-line
+# feature (e.g. an impl file + its paired test file, tagged with the same [feat:...] id)
+# used to get a FRESH fail/no-op streak budget every time the "top" unchecked line flipped
+# between its sibling sub-items, and a feat-tag regenerated with a new date used to reset
+# the same underlying feature's streak too — see lib_item_select.sh's ovn_item_hash() for
+# the full history; both fixes now live in that one shared function so every caller
+# (this guard, run_overnight.sh's record_outcome()/lastfail lookup) agrees on identity.
+if command -v ovn_item_hash >/dev/null 2>&1; then
+  h="$(ovn_item_hash "$text")"
 else
-  h="$(printf '%s' "$text" | md5sum | cut -d' ' -f1)"
+  featkey="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
+  if [ -n "$featkey" ]; then
+    featkey="$(printf '%s' "$featkey" | sed -E 's/-[0-9]{8}-/-/; s/-[0-9]{6}-/-/')"
+    h="$(printf '%s' "$featkey" | md5sum | cut -d' ' -f1)"
+  else
+    h="$(printf '%s' "$text" | md5sum | cut -d' ' -f1)"
+  fi
 fi
+
+# Per-item state files (2026-09-29: keyed by (id, item_hash), not just id — see header note).
+countf="$state/item_fails/${id}.${h}.count"; toksf="$state/item_fails/${id}.${h}.toks"
+ncountf="$state/item_fails/${id}.${h}.noopcount"; ntoksf="$state/item_fails/${id}.${h}.nooptoks"
+lastfailf="$state/item_fails/${id}.${h}.lastfail"
 
 # --- Tier-3 grounded failure memory (2026-09-16) ------------------------------
 # Persist what THIS attempt actually did wrong (real log output, keyed to the
@@ -146,14 +177,8 @@ esac
 # no-op(ALREADY-DONE), a bare <none>, or an empty status (a PROCEED that emitted
 # no diff). Reverts/errors deliberately fall through to the fail streak below.
 if [[ "$status" == no-op* || "$status" == "<none>"* || -z "$status" ]]; then
-  nprev="$(cat "$nhashf" 2>/dev/null || echo '')"
-  if [ "$h" = "$nprev" ]; then
-    nc=$(( $(cat "$ncountf" 2>/dev/null || echo 0) + 1 ))
-    ntoks=$(( $(cat "$ntoksf" 2>/dev/null || echo 0) + cur_toks ))
-  else
-    nc=1; printf '%s' "$h" > "$nhashf"
-    ntoks="$cur_toks"
-  fi
+  nc=$(( $(cat "$ncountf" 2>/dev/null || echo 0) + 1 ))
+  ntoks=$(( $(cat "$ntoksf" 2>/dev/null || echo 0) + cur_toks ))
   printf '%s' "$nc" > "$ncountf"
   printf '%s' "$ntoks" > "$ntoksf"
   if [ "$nc" -ge "$NCAP" ] || [ "$ntoks" -ge "$TOKCAP" ]; then
@@ -170,20 +195,14 @@ if [[ "$status" == no-op* || "$status" == "<none>"* || -z "$status" ]]; then
       echo "AUTO-SKIPPED no-op item after ${trigger}: ${text:0:70}"
     fi
     # parked -> reset the task-valve too so this streak doesn't also disable the task
-    rm -f "$state/failures/${id}.count" "$nhashf" "$ncountf" "$ntoksf" 2>/dev/null
+    rm -f "$state/failures/${id}.count" "$ncountf" "$ntoksf" 2>/dev/null
   fi
   exit 0
 fi
 
 # --- Fail streak: park an item that keeps failing to land --------------------
-prev="$(cat "$hashf" 2>/dev/null || echo '')"
-if [ "$h" = "$prev" ]; then
-  c=$(( $(cat "$countf" 2>/dev/null || echo 0) + 1 ))
-  toks=$(( $(cat "$toksf" 2>/dev/null || echo 0) + cur_toks ))
-else
-  c=1; printf '%s' "$h" > "$hashf"
-  toks="$cur_toks"
-fi
+c=$(( $(cat "$countf" 2>/dev/null || echo 0) + 1 ))
+toks=$(( $(cat "$toksf" 2>/dev/null || echo 0) + cur_toks ))
 printf '%s' "$c" > "$countf"
 printf '%s' "$toks" > "$toksf"
 
@@ -201,6 +220,6 @@ if [ "$c" -ge "$CAP" ] || [ "$toks" -ge "$TOKCAP" ]; then
   # bad item now parked -> give the REPO a fresh start: reset the task-valve
   # counter so this same streak doesn't also auto-disable the whole task.
   rm -f "$state/failures/${id}.count" 2>/dev/null
-  rm -f "$hashf" "$countf" "$toksf" 2>/dev/null
+  rm -f "$countf" "$toksf" 2>/dev/null
 fi
 exit 0
