@@ -25,6 +25,52 @@ SLOG="state/stage_runs/${repo}-${RUNID}.jsonl"
 LOG="logs/ovn_stage_runner.log"; say(){ echo "$(date '+%F %T') [$repo] $*" | tee -a "$LOG"; }
 jlog(){ echo "$1" >> "$SLOG"; }   # $1 = a json object string
 
+# capstone_escalate_on_failure — escalation cap for a stuck "confirm zero regressions"
+# capstone item (2026-09-28).
+#
+# The regression-check fast-path below is a single run-and-report, not a retry loop, so a
+# capstone item correctly never gets hammered in a tight loop when its VERIFY fails — but
+# nothing ever advanced PAST it either. The picker (head -1 of doable T3-5, after the
+# python-preference filter) re-selects this EXACT same item on every subsequent invocation
+# forever, permanently starving every other doable T3-5 item behind it — ovn_stage_sweep.sh
+# invokes this script per-REPO, not per-item, so there is no $ID here for
+# ovn_item_guard.sh's own no-op-streak AUTO-SKIP to ever see and act on. Confirmed live on
+# xlite: an "index_from_label caused zero regressions" item looped
+# capstone_regression_detected 22+ times over 7 hours, starving the whole T3-5 lane.
+#
+# Cap consecutive detections per item (hash-keyed on the item text so re-picking the
+# identical line accumulates, same OVN_RECOVER_LINEAGE_CAP=2 house style
+# ovn_recover_parked.sh already uses for its own escalation) and hand off to [CLAUDE] once
+# hit — a real regression is genuine signal that needs a human/Claude diagnosis, not
+# endless unattended re-verification. The picker's own doable-item exclusion (extended
+# below to also skip [CLAUDE]) then moves past it automatically.
+#
+# Args: $1=repo_dir (the "$rd" clone path) $2=item text (no leading "- [ ] ") $3=repo basename
+#       $4=tier $5=run id (for jlog) $6=state dir (default "state", override in tests)
+# Emits jlog-shaped JSON on stdout when it escalates (caller decides whether/where to log it).
+capstone_escalate_on_failure() {
+  local rd="$1" item="$2" repo="$3" tier="$4" runid="$5" state_dir="${6:-state}"
+  local cap countf n lineno
+  cap="${OVN_STAGE_CAPSTONE_CAP:-2}"
+  mkdir -p "$state_dir/stage_runs/capstone_fails" 2>/dev/null
+  countf="$state_dir/stage_runs/capstone_fails/${repo}__$(printf '%s' "$item" | md5sum | cut -d' ' -f1).count"
+  n=$(( $(cat "$countf" 2>/dev/null || echo 0) + 1 ))
+  printf '%s' "$n" > "$countf"
+  [ "$n" -ge "$cap" ] || return 1
+  lineno="$(grep -nF -- "- [ ] ${item}" "$rd/OVERNIGHT_PROGRESS.md" | head -1 | cut -d: -f1)"
+  if [ -n "$lineno" ]; then
+    sed -i "${lineno}s#^- \[ \] #- [ ] [CLAUDE] #" "$rd/OVERNIGHT_PROGRESS.md"
+    if ! git -C "$rd" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+      git -C "$rd" add OVERNIGHT_PROGRESS.md
+      git -C "$rd" commit -q -m "chore(queue): escalate capstone regression-check item after ${n} consecutive real-regression detections"
+      git -C "$rd" push -q origin overnight/feature 2>/dev/null || { git -C "$rd" pull -q --rebase origin overnight/feature && git -C "$rd" push -q origin overnight/feature; }
+    fi
+  fi
+  rm -f "$countf" 2>/dev/null
+  echo "{\"run\":\"$runid\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"capstone_escalated\",\"n\":$n}"
+  return 0
+}
+
 # ONLY ONE stage runner at a time. Concurrent stage runners (a manual run + the cron sweep + the loop)
 # each spawn an aider that contends on the SINGLE-THREADED llama-server, collapsing tok/s (60 solo ->
 # ~4 under 4-way load) and timing steps out. Serialize them so each gets the GPU to itself.
@@ -131,7 +177,13 @@ else
   # decompose will deterministically reject any godot item whose PRIMARY target is a test file,
   # exclude those from auto-pick entirely rather than let them loop — this is prevention, not a
   # general decompose_failed retry-limit (a separate, still-open gap for the non-godot case).
-  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -E '\[T[345]\]|·T[345]·' \
+  # \[CLAUDE\] exclusion (2026-09-28): without this, an item this script itself just
+  # escalated to [CLAUDE] (see the capstone-cap fix above) — or one ovn_recover_parked.sh
+  # escalated — gets re-picked right back up here (it's still an unchecked `- [ ] ` line),
+  # defeating the whole point of escalating it. Matches the exclusion every other
+  # "find the real doable item" selector in this codebase already carries (run_overnight.sh,
+  # ovn_item_guard.sh, ovn_recover_parked.sh — see their own 2026-09-17 fix comments).
+  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED|\[CLAUDE\]' | grep -E '\[T[345]\]|·T[345]·' \
               | grep -vE '\btests?/[A-Za-z0-9_./-]*\.gd\b|\btest_[A-Za-z0-9_]*\.gd\b')"
   item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
   [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
@@ -191,6 +243,13 @@ if printf '%s' "$item" | grep -qiE 'run the (full |whole )?.*(suite|tests) (once
     else
       say "regression-check FAILED — a real regression, NOT auto-retrying (see /tmp/stage-capstone-verify.log): $(tail -3 /tmp/stage-capstone-verify.log | tr '\n' ' ')"
       jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"capstone_regression_detected\"}"
+      # Escalation cap (2026-09-28): see capstone_escalate_on_failure()'s header comment above
+      # for the full root-cause writeup — this fast-path never advanced past a capstone item
+      # whose VERIFY keeps genuinely failing, permanently starving the T3-5 lane behind it.
+      _esc_evt="$(capstone_escalate_on_failure "$rd" "$item" "$repo" "$tier" "$RUNID")" && {
+        say "capstone item hit the ${OVN_STAGE_CAPSTONE_CAP:-2}-detection cap — escalated to [CLAUDE] so the picker moves past it"
+        jlog "$_esc_evt"
+      }
       exit 1
     fi
   fi

@@ -34,6 +34,7 @@ echo; echo "===== Digest idle-message accuracy (no ambiguous idle-or-paused hedg
 echo; echo "===== Classify-fail model-api-error (no test-red mislabel) ====="; bash test_classify_fail.sh || rc=1
 echo; echo "===== Hygiene-stuck check (escalate persistent gate failures) ====="; bash test_hygiene_stuck_check.sh || rc=1
 echo; echo "===== Item-guard token cap (escalate on spend, not just cycle count) ====="; bash test_item_guard_token_cap.sh || rc=1
+echo; echo "===== Capstone escalation cap (stuck regression-check item no longer starves the T3-5 lane) ====="; bash test_capstone_escalation_cap.sh || rc=1
 echo; echo "===== Queue-refill pre-check (credit already-satisfied items) ====="; bash test_queue_refill_precheck.sh || rc=1
 echo; echo "===== Pipeline audit false-positive regressions (lock multi-PID, LiteLLM 401) ====="; bash test_pipeline_audit.sh || rc=1
 echo; echo "===== Pause-guard (stale deploy/stage-pause self-heal, manual-pause dedup) ====="; bash test_pause_guard.sh || rc=1
