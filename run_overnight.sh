@@ -925,6 +925,38 @@ STUB
       git commit -m "chore: stub OVERNIGHT_PROGRESS.md" --quiet
     fi
 
+    # 2026-09-29 FIX: generalize the OVERNIGHT_PROGRESS.md stub trick above to ANY
+    # brand-new Alembic migration file. Same root cause documented just above (this
+    # model's udiff is unreliable synthesizing a whole new file from scratch - it
+    # sometimes emits a hunk with no leading '+' on any body line, which aider parses
+    # as an empty/no-op diff: no error text, no "Applied edit to ...", just silence;
+    # the implement loop then sees AFTER_SHA==BEFORE_SHA and, if the model didn't also
+    # ask for a new file to justify another attempt, gives up right there). Confirmed
+    # live: iptv_apps item_hash 2c43352a (iptv-backend/alembic/versions/
+    # 0007_active_stream_sessions.py, a T2 recovered sub-item) hit this exact silent
+    # no-op 4 times in a row (2026-09-29 10:48-11:36 CDT, ~50-90s each, fail_reason
+    # comes back "unknown" because no explicit aider error string exists to classify
+    # it against) - one attempt even correctly loaded stream_session.py and matched
+    # the real ActiveStreamSession model's columns, and still never landed because the
+    # diff body had no '+' prefixes. Same fix as OVERNIGHT_PROGRESS.md above: stub the
+    # target file first (a syntactically-valid placeholder that the implement step
+    # immediately overwrites - never the final content) so aider only ever has to EDIT
+    # an existing file, which it does reliably. Scoped tight: only fires when the path
+    # doesn't already exist on disk, so it can never clobber a real migration; reuses
+    # the $_ovn_top_progress_item peek the delete-hint fix above already established
+    # for ongoing-lane visibility (their $prompt is a fixed generic wrapper that never
+    # names the file itself, so the plain $prompt text alone would miss this exact
+    # case the same way the delete-hint blind spot did).
+    _ovn_new_migration_file="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}" | grep -oE '[A-Za-z0-9_./-]*alembic/versions/[A-Za-z0-9_]+\.py' | head -1)"
+    if [ -n "$_ovn_new_migration_file" ] && [ ! -f "$_ovn_new_migration_file" ]; then
+      mkdir -p "$(dirname "$_ovn_new_migration_file")"
+      cat > "$_ovn_new_migration_file" <<'STUB'
+"""Placeholder - the implement step fills in revision/down_revision/upgrade/downgrade."""
+STUB
+      git add "$_ovn_new_migration_file"
+      git commit -m "chore: stub new Alembic migration file before implement (new-file udiff is unreliable)" --quiet
+    fi
+
     BEFORE_SHA="$(git rev-parse HEAD)"
 
     # OVERNIGHT_PROGRESS.md is always pre-loaded, not counted against
