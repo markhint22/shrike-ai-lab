@@ -107,5 +107,7 @@ echo; echo "===== Recover-parked alembic-migration-dropped guard (decomposition 
 echo; echo "===== New-source-file stub (Alembic-only fix generalized: any brand-new gd/py/ts/tsx/vue/kt/swift file, not just Alembic migrations) ====="; bash test_new_source_file_stub.sh || rc=1
 echo; echo "===== Verify-direction existence-only check (cat:schema/cat:endpoint bare hasattr/is-not-None/import-only VERIFY, shadow-mode) ====="; bash test_verify_direction_existence_check.sh || rc=1
 echo; echo "===== Ungrounded-plan guard (PROCEED verdict with zero real file-shaped tokens skips implement instead of forcing a blind attempt) ====="; bash test_ungrounded_plan_guard.sh || rc=1
+echo; echo "===== Failure triage (cluster BAD outcomes by error signature; new-vs-fixed-then-regressed registry, --ack, --digest) ====="; python3 test_failure_triage.py || rc=1
+echo; echo "===== Failure-triage notifications (capped new-pattern digest section; exactly-once high-priority regression push; failed push kept pending) ====="; bash test_failure_triage_notify.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

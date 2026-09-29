@@ -293,6 +293,28 @@ if [ -x "$DIR/scripts/ovn_planning_stats.py" ]; then
 $_PLANNING"
 fi
 
+# 2026-09-29 (Phase 6c): failure patterns seen for the FIRST time this window, from
+# scripts/ovn_failure_triage.py --digest (read-only; the hourly ovn_failure_triage_cron.sh owns
+# the detection pass). Capped at 5 lines so a burst of unfamiliar failures can't turn one digest
+# into a wall of text. Only NEW patterns belong here — a pattern we already fixed coming BACK is
+# pushed separately (high priority, hourly) by ovn_failure_triage_cron.sh, so its REGRESSION
+# lines are intentionally ignored here rather than reported twice. Deliberately not its own
+# alerter script: the 2026-09-28 notification redesign consolidated four scripts that each
+# alerted on the same fact into one, and this must not undo that.
+if [ -x "$DIR/scripts/ovn_failure_triage.py" ]; then
+  _TRIAGE="$(python3 "$DIR/scripts/ovn_failure_triage.py" "$STATE_DIR" "$DIR/logs" --digest "$DIGEST_HOURS" 2>/dev/null)"
+  _TRI_N="$(printf '%s\n' "$_TRIAGE" | grep -c '^NEW: ')"
+  if [ "${_TRI_N:-0}" -gt 0 ]; then
+    _TRI_LINES="$(printf '%s\n' "$_TRIAGE" | grep '^NEW: ' | head -5 | sed 's/^NEW: /  • /; s/ :: /: /')"
+    [ "$_TRI_N" -gt 5 ] && _TRI_LINES="$_TRI_LINES
+  …and $((_TRI_N - 5)) more"
+    body="$body
+
+🆕 ${_TRI_N} failure pattern(s) seen for the first time this window (never seen before — worth a look):
+$_TRI_LINES"
+  fi
+fi
+
 # 2026-09-19 FIX: only rotate/clear the buffer if the digest actually delivered. Previously
 # this ran unconditionally, so a failed send (see send() above) still wiped the accumulated
 # stats — the next cycle would report a falsely-quiet window and the failed window's data
