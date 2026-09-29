@@ -104,5 +104,6 @@ echo; echo "===== BUILD-GATE test-assertion exclusion (plain Gradle AssertionErr
 echo; echo "===== Ongoing-lane deletion-hint fix (background lane top-item peek catches delete-shaped items the generic wrapper prompt hides) ====="; bash test_deletehint_ongoing_lane.sh || rc=1
 echo; echo "===== Alembic new-file stub (brand-new migration file no longer hits the silent unreliable-new-file-udiff no-op) ====="; bash test_alembic_new_file_stub.sh || rc=1
 echo; echo "===== Recover-parked alembic-migration-dropped guard (decomposition can't silently drop a schema item's migration step) ====="; bash test_alembic_migration_dropped_guard.sh || rc=1
+echo; echo "===== New-source-file stub (Alembic-only fix generalized: any brand-new gd/py/ts/tsx/vue/kt/swift file, not just Alembic migrations) ====="; bash test_new_source_file_stub.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

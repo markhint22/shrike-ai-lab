@@ -957,6 +957,41 @@ STUB
       git commit -m "chore: stub new Alembic migration file before implement (new-file udiff is unreliable)" --quiet
     fi
 
+    # 2026-09-29 FOLLOW-UP FIX (gap in the Alembic-only stub above): the SAME
+    # root-cause udiff weakness (a brand-new file's hunk body comes back with
+    # no leading '+' on any line - sometimes bulleted prose instead of a real
+    # diff - so aider silently no-ops: no error text, no "Applied edit to
+    # ...", fail_reason "unknown") is not migration-specific. It's inherent
+    # to this model synthesizing ANY whole new file from scratch. Confirmed
+    # live on xlite just 19 minutes after the Alembic fix above shipped
+    # (2026-09-29 12:07:59 CDT -> 12:26:51 CDT): item_hash 25c1a4b2 asked for
+    # a brand-new scripts/mission/mission_directive.gd and hit the identical
+    # signature (bulleted hunk body, zero '+' prefixes, CREDITED=0, 45s, 316
+    # tokens received) - a different repo AND a different file type than the
+    # Alembic case, proving the narrow alembic/versions/ scope was a real gap
+    # in the fix, not a fix for the underlying weakness. Generalizes the same
+    # stub-before-implement trick to this fleet's other common source
+    # extensions (mirrors the set ovn_recover_parked.sh's own layout scan
+    # already treats as "real source": gd/py/ts/tsx/vue, plus kt/swift for
+    # the mobile repos). Still gated on the file NOT already existing, so it
+    # can never clobber real content - identical safety property to the two
+    # stubs above. Runs after the Alembic-specific block so an Alembic path
+    # already stubbed by it is simply skipped here (file now exists).
+    _ovn_new_source_file="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue|kt|swift)' | head -1)"
+    if [ -n "$_ovn_new_source_file" ] && [ ! -f "$_ovn_new_source_file" ]; then
+      mkdir -p "$(dirname "$_ovn_new_source_file")"
+      case "$_ovn_new_source_file" in
+        *.py) _ovn_stub_comment='"""Placeholder - the implement step fills this in."""' ;;
+        *.gd) _ovn_stub_comment='# Placeholder - the implement step fills this in.' ;;
+        *.kt|*.swift|*.ts|*.tsx) _ovn_stub_comment='// Placeholder - the implement step fills this in.' ;;
+        *.vue) _ovn_stub_comment='<!-- Placeholder - the implement step fills this in. -->' ;;
+        *) _ovn_stub_comment='' ;;
+      esac
+      printf '%s\n' "$_ovn_stub_comment" > "$_ovn_new_source_file"
+      git add "$_ovn_new_source_file"
+      git commit -m "chore: stub new source file before implement (new-file udiff is unreliable)" --quiet
+    fi
+
     BEFORE_SHA="$(git rev-parse HEAD)"
 
     # OVERNIGHT_PROGRESS.md is always pre-loaded, not counted against
