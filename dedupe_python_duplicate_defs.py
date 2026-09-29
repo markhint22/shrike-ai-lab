@@ -50,12 +50,42 @@ def find_units(lines):
         adj_start = raw_start
         while adj_start - 1 > prev_raw_start and DECORATOR_RE.match(lines[adj_start - 1]):
             adj_start -= 1
-        starts.append((adj_start, kind, name))
+        starts.append((adj_start, raw_start, kind, name))
         prev_raw_start = raw_start
 
     units = []
-    for idx, (start, kind, name) in enumerate(starts):
-        end = starts[idx + 1][0] if idx + 1 < len(starts) else len(lines)
+    for idx, (start, raw_start, kind, name) in enumerate(starts):
+        # 2026-09-28 FIX: this used to be `starts[idx + 1][0]` - "everything up to the next
+        # DETECTED unit's start" - so when a duplicate isn't immediately adjacent to its
+        # earlier occurrence (e.g. a repeated import preamble sits between two
+        # `class Referral(Base):` blocks), that gap content got folded into the FIRST
+        # occurrence's comparison body only (the second occurrence's end is still its own
+        # next-unit-or-EOF boundary, which doesn't have that same gap prepended). The two
+        # occurrences' trimmed() bodies then no longer compare byte-equal and a real
+        # duplicate silently ships. Confirmed live on iptv_apps: a fully duplicated
+        # `class Referral(Base):` (two complete copies of the same class body) shipped to a
+        # commit this way, causing "Table 'referrals' is already defined for this MetaData
+        # instance". Find this unit's own NATURAL end instead: the next non-blank, column-0
+        # line after its OWN header (scanning from raw_start + 1, i.e. right after the actual
+        # `class`/`def` line - NOT `start + 1`, which for a decorated unit is still the
+        # header line itself and would truncate the body to just the decorator). In properly
+        # indented Python, nothing genuinely part of a top-level def/class body sits at
+        # column 0, so this is exactly where the unit's real body stops, independent of how
+        # far away the next DETECTED unit happens to start. Any true gap between one unit's
+        # real end and the next unit's start (blank lines, comments, a repeated import
+        # block, an unrelated module-level statement, ...) is still fully preserved by
+        # dedupe()'s own gap-walk below - it's just no longer misattributed into either
+        # unit's comparison body. For an already-adjacent pair (the common case), this finds
+        # the exact same line as before (the next unit's own start, decorator included) - a
+        # strict generalization, not a behavior change there.
+        end = len(lines)
+        for j in range(raw_start + 1, len(lines)):
+            candidate = lines[j]
+            if candidate.strip() == "":
+                continue
+            if candidate[0] not in (" ", "\t"):
+                end = j
+                break
         units.append((kind, name, start, end))
     return units
 

@@ -187,6 +187,61 @@ def test_decorated_duplicate_does_not_orphan_decorator():
         shutil.rmtree(d)
 
 
+def test_non_adjacent_duplicate_with_gap_content_is_detected():
+    """Regression guard (2026-09-28 fix): when the duplicate isn't immediately
+    adjacent to the earlier occurrence - e.g. a repeated import preamble sits
+    between two `class Referral(Base):` blocks - the old find_units() used
+    `end = starts[idx + 1][0]` ("everything up to the next DETECTED unit's
+    start"), which folded that gap content into the FIRST occurrence's
+    comparison body only (the second occurrence's own end is still its own
+    next-unit-or-EOF boundary, with no such gap prepended). The two bodies no
+    longer compared byte-equal and a real duplicate silently shipped.
+    Confirmed live on iptv_apps: a fully duplicated `class Referral(Base):`
+    (two complete copies of the same class body) shipped to a commit this
+    way, causing "Table 'referrals' is already defined for this MetaData
+    instance". find_units() now finds each unit's own natural end (the next
+    non-blank, column-0 line), independent of how far away the next detected
+    unit starts - the gap is still preserved (dedupe() never drops gap
+    content), just no longer misattributed into either unit's compared body.
+    """
+    d = tempfile.mkdtemp()
+    try:
+        path = os.path.join(d, "referral.py")
+        original = (
+            "from sqlalchemy import Column, Integer\n"
+            "from .base import Base\n"
+            "\n"
+            "\n"
+            "class Referral(Base):\n"
+            "    __tablename__ = \"referrals\"\n"
+            "    id = Column(Integer, primary_key=True)\n"
+            "\n"
+            "\n"
+            "# a second, redundant import preamble sits between the two class copies -\n"
+            "# this is the non-adjacent \"gap content\" that used to get misattributed\n"
+            "from sqlalchemy import Column, Integer\n"
+            "from .base import Base\n"
+            "\n"
+            "\n"
+            "class Referral(Base):\n"
+            "    __tablename__ = \"referrals\"\n"
+            "    id = Column(Integer, primary_key=True)\n"
+        )
+        with open(path, "w") as f:
+            f.write(original)
+        res = run(path)
+        ok("reports removed duplicate class (was silently missed before the fix)",
+           "removed duplicate(s): Referral" in res.stdout, res.stdout)
+        result = open(path).read()
+        ok("only one copy of the class remains",
+           result.count("class Referral(Base):") == 1, result)
+        ok("the non-adjacent gap content (redundant import preamble) is still preserved",
+           result.count("from sqlalchemy import Column, Integer") == 2, result)
+        ok("result parses as valid Python", _parses(result), result)
+    finally:
+        shutil.rmtree(d)
+
+
 def _parses(src):
     import ast
     try:
@@ -201,7 +256,8 @@ if __name__ == "__main__":
               test_no_duplicates_file_untouched,
               test_same_name_different_body_left_alone,
               test_indented_duplicate_methods_are_out_of_scope,
-              test_decorated_duplicate_does_not_orphan_decorator):
+              test_decorated_duplicate_does_not_orphan_decorator,
+              test_non_adjacent_duplicate_with_gap_content_is_detected):
         print("== %s ==" % t.__name__)
         t()
     print("\ndedupe_python_duplicate_defs: %d passed, %d failed" % (P, F))
