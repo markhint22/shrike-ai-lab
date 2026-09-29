@@ -227,6 +227,30 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
     [ -s "$_guard_log" ] && say "$r: $(cat "$_guard_log")"
     rm -f "$_guard_log"
   fi
+  # ALEMBIC-MIGRATION-DROPPED GUARD (2026-09-29): a decomposed schema-change sub-item
+  # that drops the original item's Alembic migration step is unlandable no matter how
+  # well the 27B implements it - backend/tests/test_migration_drift.py::
+  # test_alembic_head_matches_models (run by the normal per-cycle test suite, separate
+  # from check_migrations.py's chain-fork check elsewhere in run_overnight.sh) fails
+  # the instant a model gains a column with no matching migration, and the decomposer
+  # above only ever sees ONE tiny "add columns to X + assert hasattr" step at a time -
+  # it has no visibility into the fact that dropping the original `alembic revision
+  # --autogenerate ...` VERIFY guarantees every sub-item reverts forever on the same
+  # gate. Confirmed live on test-automation-agent: item_hash e10cebb4
+  # (ScheduledRun.plan_source/plan_upload_id) reverted 3x the same day (2026-09-29
+  # 08:11/08:58/09:11 CDT), same NO-NEW-RED GUARD failure on the same test every time,
+  # after recovery decomposed the original item (VERIFY: `alembic revision
+  # --autogenerate -m "add plan source fields" && alembic upgrade head`) into a bare
+  # `hasattr(...)` check that never touches Alembic at all. If the ORIGINAL stuck item
+  # names an Alembic command but NONE of the decomposed sub-items do, the decomposition
+  # silently dropped required work - escalate instead of handing the fleet a spec that
+  # can never pass.
+  if [ -n "$items" ] && printf '%s' "$task" | grep -qiE 'alembic (revision|upgrade)'; then
+    if ! printf '%s' "$items" | grep -qi 'alembic'; then
+      say "$r: recovery decomposition dropped the original item's Alembic migration step — escalating instead of handing the fleet an unlandable sub-item"
+      items="- [ ] [CLAUDE] recovery decomposition dropped the required Alembic migration step from a schema-change item (would leave test_alembic_head_matches_models permanently red) - needs a human/Claude session to decompose this WITH the migration preserved (recovery:escalated)"
+    fi
+  fi
   # ALREADY-SATISFIED FILTER (2026-09-28): a decomposed sub-item can resurface work that's
   # ALREADY checked off elsewhere in OVERNIGHT_PROGRESS.md - the LLM decomposing this stuck
   # item only sees the target file's current content (the CURRENT CONTENT note above) and

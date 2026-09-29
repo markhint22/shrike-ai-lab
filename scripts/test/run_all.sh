@@ -103,5 +103,6 @@ echo; echo "===== Scout file-fallback (empty FILE_ARGS resolves a named function
 echo; echo "===== BUILD-GATE test-assertion exclusion (plain Gradle AssertionError no longer misclassified as a structural break) ====="; bash test_buildgate_test_assertion_exclusion.sh || rc=1
 echo; echo "===== Ongoing-lane deletion-hint fix (background lane top-item peek catches delete-shaped items the generic wrapper prompt hides) ====="; bash test_deletehint_ongoing_lane.sh || rc=1
 echo; echo "===== Alembic new-file stub (brand-new migration file no longer hits the silent unreliable-new-file-udiff no-op) ====="; bash test_alembic_new_file_stub.sh || rc=1
+echo; echo "===== Recover-parked alembic-migration-dropped guard (decomposition can't silently drop a schema item's migration step) ====="; bash test_alembic_migration_dropped_guard.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
