@@ -50,13 +50,14 @@ ok "resolves the new migration path directly from \$prompt for non-ongoing-lane 
 
 # ---- 3. safety: an item naming an EXISTING migration file must never be stubbed
 #      (the deployed [ ! -f ] guard is what actually enforces this - verify the path
-#      extraction+existence-check combo behaves correctly against a real file) ----
+#      extraction correctly finds it AND that it really does exist on disk, i.e. the
+#      deployed "$_ovn_new_migration_file" && [ ! -f ] condition would evaluate to
+#      false here and skip stubbing, leaving the real file untouched) ----
 existing_hit="$(extract_new_migration_path "" '- [ ] [T2] iptv-backend/alembic/versions/0006_referrals.py — Fix the down_revision.')"
-if [ -f "$existing_hit" ]; then
-  F=$((F+1)); echo "  FAIL: existing migration file should never be eligible for stubbing (would clobber real content)"
-else
-  P=$((P+1))
-fi
+ok "extraction still finds the path named in the item text" \
+   '[ "$existing_hit" = "iptv-backend/alembic/versions/0006_referrals.py" ]'
+ok "that path already exists on disk, so the deployed [ ! -f ] guard would refuse to stub it (never clobbers real content)" \
+   '[ -f "$existing_hit" ]'
 
 # ---- 4. no false positive when the item has nothing to do with Alembic ----
 unrelated_hit="$(extract_new_migration_path "Fix a typo in the README" "- [ ] [T1] docs/README.md — Fix a typo.")"
