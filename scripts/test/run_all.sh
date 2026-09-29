@@ -99,5 +99,7 @@ echo; echo "===== Toks-monitor rolling baseline (sustained-regression detection,
 echo; echo "===== Stale top item check (persisted first-seen clock, not git-blame-on-bulk-edit) ====="; bash test_stale_top_item_check.sh || rc=1
 echo; echo "===== Verify-skip guard (lock-contended .ovn-verify.sh no longer lands as an unverified pass) ====="; bash test_verify_skip_guard.sh || rc=1
 echo; echo "===== Scout file-fallback (empty FILE_ARGS resolves a named function to its real defining file) ====="; bash test_scout_file_fallback.sh || rc=1
+echo; echo "===== BUILD-GATE test-assertion exclusion (plain Gradle AssertionError no longer misclassified as a structural break) ====="; bash test_buildgate_test_assertion_exclusion.sh || rc=1
+echo; echo "===== Ongoing-lane deletion-hint fix (background lane top-item peek catches delete-shaped items the generic wrapper prompt hides) ====="; bash test_deletehint_ongoing_lane.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

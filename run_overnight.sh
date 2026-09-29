@@ -751,7 +751,27 @@ run_aider_fix_task() {
   # that should cost one short commit. When the item text itself names deleting/removing
   # a file, prepend a loud, item-specific reminder ahead of everything else in the
   # prompt. Purely additive: an item whose text doesn't match is completely unaffected.
-  if printf '%s' "$prompt" | grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b'; then
+  # 2026-09-29 FIX: the check above only sees the literal $prompt argument, which is
+  # fine for regular queued items (their $prompt IS the item's own text) but is BLIND
+  # for the "ongoing-*" background lanes, whose $prompt in tasks.json is a fixed
+  # generic wrapper ("Work the single top not-yet-done item in the overnight progress
+  # log...") that never itself names deleting/removing a file - the actual "delete the
+  # dead X" instruction only surfaces once the model reads OVERNIGHT_PROGRESS.md itself
+  # and writes its own VERDICT/plan, by which point this bash-level check has already
+  # run and missed it. Confirmed live: gitlark's ongoing-gitlark lane burned 8 separate
+  # cycles (2026-09-28 21:00 - 2026-09-29 08:00 CDT, 60k-172k tokens each) repeatedly
+  # hitting the exact "'/dev/null' is not in the subpath of ..." error on two different
+  # "delete the dead X" items, because this injection never fired for either - the
+  # generic wrapper prompt doesn't mention "delete" or "file" at all. Peek at the SAME
+  # top-of-progress-log line the ongoing lane is actually about to work (same exclusion
+  # filter already used elsewhere in this file for top-item lookups) and fold it into
+  # the same check - purely additive, never changes behavior for items whose $prompt
+  # already matched.
+  _ovn_top_progress_item=""
+  if [ -f "$repo/OVERNIGHT_PROGRESS.md" ]; then
+    _ovn_top_progress_item="$(grep -E '^- \[ \]' "$repo/OVERNIGHT_PROGRESS.md" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+  fi
+  if printf '%s\n%s' "$prompt" "$_ovn_top_progress_item" | grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b'; then
     prompt="IMPORTANT: this task deletes/removes a file. Do NOT try to delete it via a diff/patch (a \"--- x\" / \"+++ /dev/null\" hunk always fails here with \"'/dev/null' is not in the subpath of ...\" — that path is never valid in this environment, don't retry it or argue with the error). Instead, just end your commit message with this trailer: DELETE: <path> — that is the ONLY mechanism that works here to remove a file.
 
 ${prompt}"
@@ -2132,7 +2152,31 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
       # syntax/import/parse/structural error, so widening <X> carries no risk of masking a
       # real build break.
       _BUILD_BREAK_NEG_RE="has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type '[A-Za-z_][A-Za-z0-9_]*'|Attempted to free a RefCounted|Parameter .* is null"
-      if [ "$VERIFY_RESULT" = "fail" ] && { grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | grep -q .; }; then
+      # 2026-09-29 FIX: Gradle prints its generic "FAILURE: Build failed with an
+      # exception." banner for EVERY failing `gradlew test` invocation, whether the
+      # cause is a real compile break OR a plain test-assertion failure - the two
+      # POS-regex tokens meant to catch generic build-tool failures ("Build failed",
+      # "Compilation error") can't tell those apart, so a Kotlin unit test that
+      # compiled fine and merely asserted wrong (java.lang.AssertionError, "N tests
+      # completed, M failed") was getting swept into this harsher BUILD-GATE revert
+      # path in violation of the documented policy just above ("A plain test-
+      # ASSERTION failure is NOT reverted"). Confirmed live 2026-09-28 22:45 CDT:
+      # billwatch's LegislatorsViewModelTest.kt AssertionError at line 147 - the log
+      # had ZERO compile-specific signal (no "e: file...kt" diagnostic, no
+      # "compileDebugUnitTestKotlin FAILED") - only the generic banner - yet got
+      # reverted, and the blind fix-up round wasted a full aider call hunting for a
+      # "structural" issue that never existed (model correctly reported back "I
+      # don't see a structural/syntax/import error" and made no change). Gradle only
+      # ever prints "N tests completed" once the JVM test task actually ran, which
+      # is impossible after a genuine compile break (compileDebugUnitTestKotlin
+      # FAILED aborts before any test executes) - so treating that line as proof
+      # the code loaded is safe and can never mask a real structural break.
+      if grep -qE '[0-9]+ tests? completed,' "$task_log"; then
+        _buildgate_tests_ran=1
+      else
+        _buildgate_tests_ran=0
+      fi
+      if [ "$VERIFY_RESULT" = "fail" ] && [ "$_buildgate_tests_ran" != "1" ] && { grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | grep -q .; }; then
         # BUILD-GATE grounded fix-up (2026-09-20): plain aider_fix items (T1/T2, and the
         # ongoing-* background lanes, which run this exact same path) used to get ZERO
         # repair attempts on a structural break — straight to revert, no matter how trivial
