@@ -21,15 +21,31 @@
 #
 # Usage: source this file, then:
 #   real="$(ovn_normalize_path "$repo_dir" "$extracted_path")"
+#
+# 2026-09-29 FIX: every return path used `printf '%s'` with NO trailing newline. A direct
+# command-substitution caller ($(ovn_normalize_path ...)) is unaffected (bash strips
+# trailing newlines from $() regardless), but the OTHER documented call shape - collecting
+# results from a loop before deduplicating, e.g.
+#   while IFS= read -r f; do ovn_normalize_path "$rd" "$f"; done | sort -u
+# (exactly what ovn_recover_parked.sh's 2026-09-28 ALREADY-SATISFIED FILTER does to build
+# its _checked_files list) - concatenates every call's output into ONE unbroken string with
+# no separators, since nothing ever emits a newline between them. `sort -u` then sees a
+# single "line", and the later `grep -qxF "$_itf_norm"` exact-line match against that one
+# giant blob can never succeed for a repo with more than one checked-off file. Confirmed
+# live: a gitlark recovery-decomposed duplicate of an already-[x]-checked TemporalNavigation
+# item was NOT dropped despite the checked-off duplicate being present in the same file at
+# generation time - this is why. Every return path now terminates with \n; safe for the
+# direct-substitution callers (still stripped by $()) and now correct for the loop+sort
+# caller too.
 ovn_normalize_path() {
   local repo_dir="$1" extracted="$2" tracked real base cand
   if [ -z "$extracted" ]; then
-    printf '%s' "$extracted"
+    printf '%s\n' "$extracted"
     return
   fi
   tracked="$(git -C "$repo_dir" ls-files 2>/dev/null)"
   if [ -z "$tracked" ] || printf '%s\n' "$tracked" | grep -qxF "$extracted"; then
-    printf '%s' "$extracted"
+    printf '%s\n' "$extracted"
     return
   fi
   real=""
@@ -48,5 +64,5 @@ ovn_normalize_path() {
       esac
     done <<< "$tracked"
   fi
-  printf '%s' "${real:-$extracted}"
+  printf '%s\n' "${real:-$extracted}"
 }
