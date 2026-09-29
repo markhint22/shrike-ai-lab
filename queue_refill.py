@@ -97,7 +97,19 @@ def main():
         return
     # 27B-eligible open items only (skip CLAUDE-tagged and already-parked lines)
     is_item = re.compile(r"^- \[ \] \[T[1-5]\]")
-    parked = re.compile(r"AUTO-SKIP|HUMAN-ONLY|BLOCKED", re.I)
+    # 2026-09-29 fix: added "HUMAN/" (catches roadmap's own "[HUMAN/design]" tag on
+    # items that need a real design call before they're decomposable — see
+    # roadmap/README.md convention). Confirmed live on test-automation-agent: a
+    # [HUMAN/design]-tagged feature got auto-decomposed anyway (this regex only
+    # matched "HUMAN-ONLY", not "HUMAN/"), then its mechanical sub-items thrashed
+    # for 3 days (12+ reverts, ~450K tokens) because they conflicted with an
+    # unrelated, correct, already-existing migration-drift safety-net test that
+    # aider has no shell access to satisfy. run_overnight.sh's own OVERNIGHT_PROGRESS.md
+    # skip-greps already use the broader "human/" pattern in several call sites
+    # (see e.g. its DOABLE-count checks) - this brings queue_refill.py's backlog-pull
+    # gate up to the same standard so a [HUMAN/design] item is excluded at BOTH the
+    # decomposition-output stage and the live-queue-pull stage, not just one.
+    parked = re.compile(r"AUTO-SKIP|HUMAN-ONLY|HUMAN/|BLOCKED", re.I)
     # Dedup guard: never pull an item whose content already exists in the live queue
     # (open OR done) — prevents duplicates when a backlog is re-shipped/overlaps progress.
     def _norm(line):

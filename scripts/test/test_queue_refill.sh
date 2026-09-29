@@ -59,5 +59,22 @@ echo "$OUT" | grep -q "REFILL=1" && ok "dedup: only the non-duplicate item pulle
 xc=$(grep -c "app/x.py" "$prog2")
 if [ "$xc" -eq 1 ] && grep -q "app/y.py" "$prog2"; then ok "dedup: existing item not duplicated, new item added"; else fail "dedup wrong (x count=$xc)"; fi
 
+
+# 2026-09-29 regression: a roadmap "[HUMAN/design]" item that got mistakenly
+# auto-decomposed into a live backlog line must still be excluded from pull -
+# confirmed live on test-automation-agent, where this exact tag slipped through
+# the old "AUTO-SKIP|HUMAN-ONLY|BLOCKED" regex (no match on "HUMAN/") and
+# thrashed for 3 days / ~450K tokens against an unrelated safety-net test.
+prog3="$tmp/prog3.md"; bl3="$tmp/bl3.md"
+printf '# progress\n- [ ] [T1] pre-existing item\n' > "$prog3"
+cat > "$bl3" <<'EOF2'
+# backlog
+- [ ] [T1] repo/f.py — spec F. VERIFY: f. (polish:validation)
+- [ ] [T2] repo/g.py — **[HUMAN/design]** needs a real design call, see roadmap — spec G. VERIFY: g. (polish:validation), must NOT be pulled
+EOF2
+OUT="$(python3 "$RF" "$prog3" "$bl3" 5)"
+echo "$OUT" | grep -q "REFILL=1" && ok "[HUMAN/design]-tagged item excluded, only spec F pulled" || fail "expected REFILL=1 (HUMAN/ exclusion): $OUT"
+grep -q "spec G" "$bl3" && ok "[HUMAN/design] item retained in backlog, never pulled" || fail "[HUMAN/design] item should stay parked"
+
 [ $rc -eq 0 ] && echo "  test_queue_refill: PASS" || echo "  test_queue_refill: FAIL"
 exit $rc
