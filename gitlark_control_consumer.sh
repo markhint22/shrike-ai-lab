@@ -55,11 +55,11 @@ for a in "$@"; do case "$a" in
 # shellcheck source=./shrike_notify_lib.sh
 [ -f "$HERE/shrike_notify_lib.sh" ] && source "$HERE/shrike_notify_lib.sh"
 
-# alert <title> <tags> <body> <repo>
+# alert <title> <tags> <body> <repo> [priority]
 alert(){
-  local title="$1" tags="$2" body="$3" repo_name="$4"
+  local title="$1" tags="$2" body="$3" repo_name="$4" prio="${5:-default}"
   [ "$DRY" -eq 1 ] && { echo "  [ntfy-dry-run] $title :: $body"; return 0; }
-  curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -d "$body" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+  curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -H "Priority: $prio" -d "$body" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
   command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${repo_name}_control" "$title" "$tags" "$body"
 }
 

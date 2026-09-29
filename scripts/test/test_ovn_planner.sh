@@ -146,26 +146,30 @@ ok "E: too-few-valid-items response is NOT appended to backlog" "diff -q '$WD/ba
 ok "E: roadmap feature stays [ready] (NOT falsely marked [decomposed])" "grep -q '\[ready\] A feature that gets a bad decomposition' '$WD/roadmap/repoE.md'"
 ok "E: log records why it was rejected" "grep -q 'NOT appending' '$WD/logs/ovn_planner.log'"
 
-# ============ F: needs-research alert -- fires once on newly-dry, dedups on repeat, clears on recovery ============
+# ============ F: needs-research detection -- logs once on newly-dry, dedups on repeat, clears on recovery ============
 # 2026-09-17: this state (roadmap fully [decomposed], no [ready] feature) used to be logged every
 # cycle with zero human-facing signal (found live on gitlark+billwatch during an audit -- both sat
 # starved for hours with nothing alerting anyone). NTFY_TOPIC is intentionally unset in this test's
-# run() (no state/ntfy_topic file in the sandbox either), so alert()'s curl is a guaranteed no-op --
-# this only exercises the marker file + log side, which is what matters for dedup correctness.
+# run() (no state/ntfy_topic file in the sandbox either); this only exercises the marker file + log
+# side, which is what matters for dedup correctness.
+# 2026-09-28: this no longer pushes its own ntfy at all (was one of four scripts separately
+# alerting on the same "repo is out of work" fact — see ovn_fleet_health.sh, now the sole
+# canonical alerter). It still detects + logs + maintains the marker for dedup bookkeeping.
 mk_repo_files repoF
 printf '# backlog\n- [ ] [T1] scripts/x.py - a. VERIFY: t\n' > "$WD/backlog/repoF.md"
 printf '# roadmap\n- [ ] [P2] [decomposed] Already handled feature\n' > "$WD/roadmap/repoF.md"
 run repoF
 ok "F: newly-dry creates the needs-research marker" "[ -f '$WD/state/ovn_needs_research_repoF' ]"
-ok "F: newly-dry logs exactly one new-alert line" "[ \$(grep -c 'repoF: sent needs-research alert (new)' '$WD/logs/ovn_planner.log') -eq 1 ]"
+ok "F: newly-dry logs exactly one newly-detected line" "[ \$(grep -c 'repoF: needs-research condition newly detected' '$WD/logs/ovn_planner.log') -eq 1 ]"
+ok "F: newly-dry never pushes an ntfy (consolidated into ovn_fleet_health.sh)" "! grep -q 'sent needs-research' '$WD/logs/ovn_planner.log'"
 
 run repoF
-ok "F: still-dry does not re-log a new alert" "[ \$(grep -c 'repoF: sent needs-research alert (new)' '$WD/logs/ovn_planner.log') -eq 1 ]"
-ok "F: still-dry does not log a reminder before the cooldown elapses" "! grep -q 'repoF: sent needs-research reminder' '$WD/logs/ovn_planner.log'"
+ok "F: still-dry does not re-log a newly-detected line" "[ \$(grep -c 'repoF: needs-research condition newly detected' '$WD/logs/ovn_planner.log') -eq 1 ]"
+ok "F: still-dry does not log a reminder before the cooldown elapses" "! grep -q 'repoF: needs-research condition still open' '$WD/logs/ovn_planner.log'"
 
 echo $(( $(date +%s) - 90000 )) > "$WD/state/ovn_needs_research_repoF"   # simulate marker aged past 24h
 run repoF
-ok "F: aged-dry logs exactly one reminder" "[ \$(grep -c 'repoF: sent needs-research reminder' '$WD/logs/ovn_planner.log') -eq 1 ]"
+ok "F: aged-dry logs exactly one still-open reminder line" "[ \$(grep -c 'repoF: needs-research condition still open' '$WD/logs/ovn_planner.log') -eq 1 ]"
 
 # now give repoF a [ready] feature + a healthy mocked decomposition -> the marker must clear
 printf '# roadmap\n- [ ] [P2] [ready] Newly promoted feature\n' > "$WD/roadmap/repoF.md"

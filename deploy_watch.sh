@@ -39,15 +39,19 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./shrike_notify_lib.sh
 [ -f "$LIB_DIR/shrike_notify_lib.sh" ] && source "$LIB_DIR/shrike_notify_lib.sh"
 
-# alert <title> <tags> <body> [repo-for-topic]
+# alert <title> <tags> <body> [repo-for-topic] [priority]
 # $repo (the main sweep's loop variable, set by `read` below and in scope for every
 # call site inside that loop) is used to build the "fleet_<repo>_deploy" shrike-notify
 # topic unless an explicit 4th arg is given — used by the shrike-monitor supplementary
 # check below, which runs outside the per-surface loop and has no single $repo.
+# 2026-09-28: priority (5th arg, default "default") differentiates genuinely broken/
+# decision-needed deploy events (high/urgent) from routine recovery pings (low) — see
+# call sites below for the actual tiering.
 alert(){
   local topic_repo="${4:-${repo:-queue}}"
+  local prio="${5:-default}"
   [ "$DRYRUN" = 1 ] && { echo "  [ntfy] $1 :: $3" ; return 0; }
-  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
   command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${topic_repo}_deploy" "$1" "$2" "$3"
 }
 log(){ echo "$(date '+%F %T') $*"; }
@@ -133,7 +137,7 @@ while IFS='|' read -r key repo label provider target health fleet; do
       atts="$(cat "$atf" 2>/dev/null || echo 0)"; rm -f "$idf" "$atf"
       code="$(hc "$health")"
       if [ "$code" = 200 ] || [ "$code" = 307 ]; then
-        alert "✅ Deploy recovered: $label" "white_check_mark" "$label recovered — deploy is healthy and /health returns HTTP $code (after $atts fix attempt(s)). Auto-heal worked."
+        alert "✅ Deploy recovered: $label" "white_check_mark" "$label recovered — deploy is healthy and /health returns HTTP $code (after $atts fix attempt(s)). Auto-heal worked." "" "low"
       else
         alert "⚠️ $label deployed but /health=$code" "warning" "$label's deploy is healthy again but /health returns HTTP $code (not 200/307) — built but maybe not serving right. Check it."
       fi
@@ -153,7 +157,7 @@ while IFS='|' read -r key repo label provider target health fleet; do
   if [ "$atts" -ge "$MAX_ATTEMPTS" ]; then
     # auto-fix exhausted -> deeper-dive snapshot + human escalation, stop churning
     { echo "=== $(date '+%F %T') ESCALATION $key ($label) after $atts attempts ==="; echo "deploy: $did"; echo "error: $err"; } >> "$STATE/escalations.log"
-    alert "🆘 $label deploy STILL failing (${atts}x)" "sos" "$label has failed $atts deploys in a row — the auto-fix isn't recovering it. Backing off (no more auto-queue) — this needs a human / deeper dive. Latest error: ${err:0:200} — snapshot in ~/.deploy_watch/escalations.log"
+    alert "🆘 $label deploy STILL failing (${atts}x)" "sos" "$label has failed $atts deploys in a row — the auto-fix isn't recovering it. Backing off (no more auto-queue) — this needs a human / deeper dive. Latest error: ${err:0:200} — snapshot in ~/.deploy_watch/escalations.log" "" "urgent"
     log "$key: ESCALATED after $atts attempts"
     continue
   fi
@@ -167,18 +171,18 @@ while IFS='|' read -r key repo label provider target health fleet; do
     fi
     if [ "$DRYRUN" = 1 ]; then
       log "$key: FAILED ($did) attempt $atts -> WOULD enqueue fix into $repo"
-      alert "🚨 Deploy failed: $label" "rotating_light" "$label deploy FAILED — auto-fix queued (attempt $atts/$MAX_ATTEMPTS). ${err:0:180}"
+      alert "🚨 Deploy failed: $label" "rotating_light" "$label deploy FAILED — auto-fix queued (attempt $atts/$MAX_ATTEMPTS). ${err:0:180}" "" "high"
     elif enqueue_fix "$repo" "$key" "$item"; then
       log "$key: FAILED ($did) -> enqueued fix (attempt $atts)"
-      alert "🚨 Deploy failed: $label" "rotating_light" "$label deploy FAILED — auto-fix queued into the overnight queue (attempt $atts/$MAX_ATTEMPTS). ${err:0:180}"
+      alert "🚨 Deploy failed: $label" "rotating_light" "$label deploy FAILED — auto-fix queued into the overnight queue (attempt $atts/$MAX_ATTEMPTS). ${err:0:180}" "" "high"
     else
       log "$key: FAILED but enqueue errored"
-      alert "⚠️ deploy_watch couldn't enqueue $label" "warning" "$label deploy FAILED and the auto-fix couldn't be injected (ssh/git). Check /tmp/deploy_watch.log."
+      alert "⚠️ deploy_watch couldn't enqueue $label" "warning" "$label deploy FAILED and the auto-fix couldn't be injected (ssh/git). Check /tmp/deploy_watch.log." "" "high"
     fi
   else
     # not fleet-managed -> the 27B can't fix it; ntfy as a human task
     log "$key: FAILED ($did) — non-fleet, human-escalated"
-    alert "🚨 Deploy failed: $label (human)" "rotating_light" "$label deploy FAILED and this repo isn't 27B-managed — needs you. ${err:0:200}"
+    alert "🚨 Deploy failed: $label (human)" "rotating_light" "$label deploy FAILED and this repo isn't 27B-managed — needs you. ${err:0:200}" "" "urgent"
   fi
 done <<< "$SURFACES"
 

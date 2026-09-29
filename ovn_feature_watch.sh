@@ -15,7 +15,7 @@ TOPIC="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
 SERVER="${NTFY_SERVER:-https://ntfy.sh}"
 [ -n "$TOPIC" ] || exit 0
 
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "$SERVER/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "$SERVER/$TOPIC" >/dev/null 2>&1 || true; }
 
 for repo_path in "$DIR"/repos/*/; do
   repo="$(basename "$repo_path")"

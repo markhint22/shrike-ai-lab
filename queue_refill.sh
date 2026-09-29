@@ -96,20 +96,22 @@ for r in $repos; do
   ./queue.sh release "$r" >/dev/null 2>&1 || true
 done
 
+# 2026-09-28: newly_dry/reminder_dry used to each push their own "out of queued items" ntfy —
+# one of FOUR scripts independently alerting on the same underlying "this repo is running out
+# of work" fact (confirmed live: state/qr_dry_shrike-monitor and state/ovn_needs_research_
+# shrike-monitor existed simultaneously for the same repo). ovn_fleet_health.sh is now the
+# single canonical alerter for that fact (richest context, sensible daily cadence) — this still
+# does its OWN detection + the qr_dry_<repo> marker bookkeeping (dedup/reminder timing), it just
+# logs instead of pushing a redundant phone notification. The "recovered" note below is a
+# DIFFERENT fact (repo unstuck, not out of work) that nothing else surfaces, so it still pushes.
 if [ -n "$newly_dry" ]; then
-  curl -fsS --max-time 8 -H "Title: A few repos are out of queued items" -H "Tags: battery" \
-    -d "These repos just ran out of doable items and their backlog is empty:${newly_dry}. Everything else keeps running — no rush. Whenever it's convenient, add items to backlog/<repo>.md or ask Claude to refill. (silent while still dry — a reminder repeats at most every ${DRY_REMIND_HOURS}h)" \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
-  log "backlog-dry alert (new) sent for:${newly_dry}"
+  log "backlog-dry (new) — ntfy suppressed, see ovn_fleet_health.sh for the consolidated low-runway push, for:${newly_dry}"
 fi
 if [ -n "$reminder_dry" ]; then
-  curl -fsS --max-time 8 -H "Title: Still out of queued items (reminder)" -H "Tags: battery" \
-    -d "Still dry after ${DRY_REMIND_HOURS}h+, unresolved:${reminder_dry}. No rush — just a periodic nudge." \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
-  log "backlog-dry reminder sent for:${reminder_dry}"
+  log "backlog-dry reminder — ntfy suppressed, see ovn_fleet_health.sh, unresolved:${reminder_dry}"
 fi
 if [ -n "$recovered" ]; then
-  curl -fsS --max-time 8 -H "Title: Backlog refilled" -H "Tags: white_check_mark" \
+  curl -fsS --max-time 8 -H "Title: Backlog refilled" -H "Tags: white_check_mark" -H "Priority: low" \
     -d "These repos have doable items again:${recovered}." \
     "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
   log "backlog-recovered note sent for:${recovered}"

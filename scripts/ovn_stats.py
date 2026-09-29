@@ -67,13 +67,18 @@ def c(sub):
     return landed, failed, noop, err
 
 
-# Human-readable label + one-line meaning for each no-op cause, so the digest
+# Human-readable label + short gloss + one-line meaning for each no-op cause, so the digest
 # tells you WHICH problem to fix: exhausted (refill/features), or a real bug.
+# 2026-09-28: added the short `gloss` field (no bare "flailed"/"gate-rev" jargon — see
+# CLAUDE.md-adjacent digest plain-language fix) printed as "<label> <count> (<gloss>)"
+# everywhere these are shown (the compact "No-op causes: ..." line included), so it reads as
+# plain language, not internal shorthand — while keeping "<label> <count>" adjacent for any
+# caller (or test) parsing/matching on that exact substring.
 NOOP_CAUSES = [
-    ('noop:flail',   'flailed',  'too hard for the 27B — route to Claude or simplify the item'),
-    ('noop:done',    'done',     'already satisfied in code — mis-targeted item, retarget or credit it'),
-    ('noop:blocked', 'blocked',  'model wants a human decision — the item is under-specified'),
-    ('noop:gate',    'gate-rev', 'model changed code but a safety gate reverted it'),
+    ('noop:flail',   'flailed',  'too hard for the model',        'too hard for the 27B — route to Claude or simplify the item'),
+    ('noop:done',    'done',     'already satisfied in code',     'already satisfied in code — mis-targeted item, retarget or credit it'),
+    ('noop:blocked', 'blocked',  'needs a human decision',        'model wants a human decision — the item is under-specified'),
+    ('noop:gate',    'gate-rev', 'safety-check reverted it',      'model changed code but a safety gate reverted it'),
 ]
 
 def noop_breakdown(sub):
@@ -204,13 +209,13 @@ if noop_headline:
     if total_noop == 0:
         print("")
         sys.exit(0)
-    ok_bits = ["%d %s" % (nb[k], l) for k, l, _ in NOOP_CAUSES if k in CHEAP_NOOP_KEYS and nb.get(k)]
-    bad_bits = ["%d %s" % (nb[k], l) for k, l, _ in NOOP_CAUSES if k in BURNED_NOOP_KEYS and nb.get(k)]
+    ok_bits = ["%d %s (%s)" % (nb[k], l, g) for k, l, g, _ in NOOP_CAUSES if k in CHEAP_NOOP_KEYS and nb.get(k)]
+    bad_bits = ["%d %s (%s)" % (nb[k], l, g) for k, l, g, _ in NOOP_CAUSES if k in BURNED_NOOP_KEYS and nb.get(k)]
     line = "%d no-op" % total_noop
     if ok_bits:
-        line += " -- %d OK/cheap (%s)" % (cheap, ", ".join(ok_bits))
+        line += " -- %d cheap, no real attempt made (%s)" % (cheap, ", ".join(ok_bits))
     if bad_bits:
-        line += ("; " if ok_bits else " -- ") + "%d WORTH A LOOK, burned a real attempt (%s)" % (burned, ", ".join(bad_bits))
+        line += ("; " if ok_bits else " -- ") + "%d worth investigating, a real attempt was burned (%s)" % (burned, ", ".join(bad_bits))
     print(line)
     sys.exit(0)
 
@@ -232,7 +237,8 @@ if ntfy:
     # noop:gate/noop:flail moved into F (the canonical BAD bucket) as of the
     # 2026-09-28 pass-rate fix, so "no-op" and "failed" no longer double-count the
     # same events the way they briefly would have if this label had stayed generic.
-    head = "✅ %d landed   ➖ %d benign no-op (excluded)   ❌ %d failed (%d revert, %d gate-rev, %d flailed)" % (
+    head = ("✅ %d landed   ➖ %d benign no-op (skipped, not counted against the rate)   "
+            "❌ %d wasted (%d reverted, %d gate-rev [safety-check reverted it], %d flailed [too hard for the model])") % (
         L, N, F, _revert_n, _gate_n, _flail_n)
     if E:
         # recency: how long since the last error? a stale spike shouldn't look ongoing.
@@ -257,20 +263,25 @@ if ntfy:
     # real bug at a glance. flail/done are the ones worth acting on.
     nb = noop_breakdown(rows)
     if nb:
-        bits = ["%s %d" % (lbl, nb[key]) for key, lbl, _ in NOOP_CAUSES if nb.get(key)]
+        # "<label> <count> (<gloss>)" — keeps "<label> <count>" adjacent (e.g. "flailed 1")
+        # for any caller/test matching on that exact substring, while still glossing the
+        # jargon term inline rather than leaving it bare.
+        bits = ["%s %d (%s)" % (lbl, nb[key], gloss) for key, lbl, gloss, _ in NOOP_CAUSES if nb.get(key)]
         lines.append("No-op causes: " + " · ".join(bits))
-        # point at the single biggest actionable cause
+        # point at the single biggest actionable cause. Uses the bare cause key here (not
+        # the glossed label above) since `meaning` already spells the same thing out in
+        # full — showing both would just repeat the gloss twice in two adjacent lines.
         top_key = max(nb, key=nb.get)
-        meaning = next((m for k, _l, m in NOOP_CAUSES if k == top_key), "")
+        meaning = next((m for k, _l, _g, m in NOOP_CAUSES if k == top_key), "")
         if meaning and nb[top_key] >= 3:
-            lines.append("→ mostly %s: %s" % (dict((k, l) for k, l, _ in NOOP_CAUSES).get(top_key, top_key), meaning))
+            lines.append("→ mostly %s: %s" % (top_key.split(":", 1)[-1], meaning))
     # Repeat offenders (2026-09-16): the same (repo, item) burning flail/gate-rev cycles
     # over and over - this is the real signal "no-op" was hiding. A single stuck item
     # can rack up a dozen+ expensive cycles while looking like ordinary digest noise
     # (shrike-notify's revoke_token(): 18 in ~7.5h before finally landing).
     ro = repeat_offenders(rows)
     if ro:
-        lines.append("🔁 Stuck (repeated flail/gate-rev): " +
+        lines.append("🔁 Stuck (same item retried and thrown away repeatedly): " +
                       " · ".join("%s/%s x%d" % (repo, fname, n) for (repo, fname), n in ro[:5]))
     # 2026-09-09: the per-tier line that used to live here is now ovn_tier_stats.py's
     # job — it reads outcomes.jsonl (tier is explicit there, not inferred via the 'cx'
@@ -287,7 +298,8 @@ if ntfy:
         lines.append("Idle (nothing to do): " + ", ".join(k for k, _ in spun[:5]) + tail)
     fails = failing('cx') + failing('lang')
     if fails:
-        lines.append("⚠ Weak: " + " · ".join("%s %d%%" % (k, r) for k, r in fails[:4]))
+        lines.append("⚠ Weak spots (below-average pass-rate, by category): " +
+                      " · ".join("%s %d%%" % (k, r) for k, r in fails[:4]))
     # 2026-09-09: "Exhausted repos" used to live here (idle_repos(): a same-instant doable-count
     # snapshot). Removed in favor of ovn_planning_stats.py's "Stuck dry" line in the digest, which
     # checks the SAME underlying condition (no doable work) but more precisely - it requires BOTH

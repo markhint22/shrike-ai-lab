@@ -272,14 +272,16 @@ echo "supervisor: ${#findings[@]} finding(s)${REVIEW_NOTE} -> $REPORT_FILE"
 DAILY_MARK="$STATE/last_daily_digest"; today="$(date +%F)"
 want_daily=0; [ "$(cat "$DAILY_MARK" 2>/dev/null)" != "$today" ] && want_daily=1
 if [ -n "$NTFY_TOPIC" ] && { [ "${#findings[@]}" -gt 0 ] || [ "$want_daily" = 1 ]; }; then
+  # 2026-09-28: an all-clear daily summary is a pure heartbeat (nothing to act on) — "low"
+  # priority, distinct from an actual findings push ("default", a real signal worth a look).
   if [ "${#findings[@]}" -gt 0 ]; then
-    PUSH_TITLE="Overnight queue: ${#findings[@]} item(s) need attention"; PUSH_TAGS="warning"
+    PUSH_TITLE="Overnight queue: ${#findings[@]} item(s) need attention"; PUSH_TAGS="warning"; PUSH_PRIO="default"
     BODY="$(printf '%s\n' "${findings[@]}")
 ${WORK_SUMMARY:+
 — what landed —
 $WORK_SUMMARY}"
   else
-    PUSH_TITLE="Overnight fleet — daily work summary"; PUSH_TAGS="bar_chart"
+    PUSH_TITLE="Overnight fleet — daily work summary"; PUSH_TAGS="bar_chart"; PUSH_PRIO="low"
     BODY="All clear, no issues.
 ${WORK_SUMMARY:-（no outcomes recorded in the last 24h）}"
   fi
@@ -290,7 +292,7 @@ ${WORK_SUMMARY:-（no outcomes recorded in the last 24h）}"
   # short-circuits to exit 1, which made the OUTER && group look like it failed too
   # -- so bash also ran the || branch and logged a false "ntfy push failed" even
   # though the curl had just succeeded and the push was actually delivered.
-  if curl -fsS -H "Title: $PUSH_TITLE" -H "Priority: default" -H "Tags: $PUSH_TAGS" \
+  if curl -fsS -H "Title: $PUSH_TITLE" -H "Priority: $PUSH_PRIO" -H "Tags: $PUSH_TAGS" \
       -d "$BODY" "${NTFY_SERVER}/${NTFY_TOPIC}" >/dev/null 2>&1; then
     echo "pushed to ntfy topic"
     [ "$want_daily" = 1 ] && echo "$today" > "$DAILY_MARK"

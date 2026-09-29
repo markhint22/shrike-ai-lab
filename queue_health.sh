@@ -11,7 +11,7 @@ STATE_DIR="$DIR/state"
 TOPIC="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
 SERVER="${NTFY_SERVER:-https://ntfy.sh}"
 MIN_DOABLE="${MIN_DOABLE:-5}"
-alert() { [ -n "$TOPIC" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "$SERVER/$TOPIC" >/dev/null 2>&1 || true; }
+alert() { [ -n "$TOPIC" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "$SERVER/$TOPIC" >/dev/null 2>&1 || true; }
 
 # ---- 1. queue-depth monitor ----
 low=""
@@ -29,7 +29,7 @@ if [ -n "$low" ]; then
   if [ $(( _now - _last )) -ge 86400 ]; then
     echo "$_now" > "$_cd"
     alert "Queue running low on a few repos" "battery" "Under ${MIN_DOABLE} doable items: ${low}
-No urgency — a Claude refill (shared/scripts/CLAUDE_REFILL_RUNBOOK.md) tops them back up whenever it's convenient. (This FYI is throttled to once/day.)"
+No urgency — a Claude refill (shared/scripts/CLAUDE_REFILL_RUNBOOK.md) tops them back up whenever it's convenient. (This FYI is throttled to once/day.)" "default"
   fi
 fi
 
@@ -59,7 +59,7 @@ for r in $active; do
 done
 if [ -n "$stalled" ]; then
   alert "Hygiene stalled — gate red on a feature branch" "warning" "branch_hygiene TRIED to land feature->develop and the GATE FAILED (red tests / conflict / push fail): ${stalled}
-This is a real stall (a review flag is set), not normal fleet churn. Check branch_hygiene.log + state/branch_hygiene_review_*."
+This is a real stall (a review flag is set), not normal fleet churn. Check branch_hygiene.log + state/branch_hygiene_review_*." "high"
 fi
 
 # ---- 2. deploy health check ----
@@ -98,6 +98,6 @@ for c in "${CHECKS[@]}"; do
   fi
 done
 [ -n "$newly_bad" ] && alert "Deploy health check FAILED" "rotating_light" "$newly_bad
-New failure(s) — checked after the merge-to-main wave. Will stay quiet on repeat checks while still down; you'll get one more ntfy when it recovers."
-[ -n "$recovered" ] && alert "Deploy health check recovered" "white_check_mark" "Back to healthy: ${recovered}"
+New failure(s) — checked after the merge-to-main wave. Will stay quiet on repeat checks while still down; you'll get one more ntfy when it recovers." "high"
+[ -n "$recovered" ] && alert "Deploy health check recovered" "white_check_mark" "Back to healthy: ${recovered}" "low"
 exit 0

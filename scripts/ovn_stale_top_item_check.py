@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stale-top-item detector (2026-09-23).
+"""Stale-top-item detector (2026-09-23, age-source fixed 2026-09-28).
 
 Root cause this closes: every cycle's prompt tells the model to "pick the single top
 not-yet-done item", and run_overnight.sh's own context-budget logic (2026-09-19 fix)
@@ -15,14 +15,35 @@ blind to an item that is simply never picked at all.
 Detection: for each repo, find the top doable item (same selector ovn_item_guard.sh
 and run_overnight.sh's record_outcome() both already use) and its own target file
 (the first path-looking token right after the tier tag — the file the item is about).
-`git blame` that exact line to find when it FIRST became the top item. If that is
-older than STALE_HOURS (default 12 — deliberately higher than the 2h research-trigger
-threshold, since a hard item legitimately taking a few hours of real attempts is a
-DIFFERENT, already-covered problem, not "never touched"), check whether the target
-file has been committed to at all in that same window (`git log --since`). Zero
-commits to the file it is supposedly the top priority for, across that whole window,
-is the signal — a file WITH commits in the window is presumably being actively
-iterated on even if not yet landed, and is intentionally not flagged here.
+If that item has been sitting at the top of the backlog for longer than STALE_HOURS
+(default 12 — deliberately higher than the 2h research-trigger threshold, since a hard
+item legitimately taking a few hours of real attempts is a DIFFERENT, already-covered
+problem, not "never touched"), check whether the target file has been committed to at
+all in that same window (`git log --since`). Zero commits to the file it is supposedly
+the top priority for, across that whole window, is the signal — a file WITH commits in
+the window is presumably being actively iterated on even if not yet landed, and is
+intentionally not flagged here.
+
+**2026-09-28 bug fix**: staleness used to be measured via `git blame` on the roadmap
+line in OVERNIGHT_PROGRESS.md — i.e. "when was this exact line last edited" — as a
+proxy for "how long has this been the #1 pick". That proxy breaks the instant a bulk
+edit (a backlog reformat/refill pass) touches many lines at once: every item that
+LATER rotates into the #1 slot inherits that old shared blame timestamp and gets
+reported as already "stale 100+ hours" the moment it first becomes #1, even though it
+may have become #1 minutes earlier. Confirmed live: iptv_apps showed alerts for 7
+different items across ~30 hours, several already claiming 107-113h of staleness on
+their FIRST appearance, tracing back to a shared bulk-edit commit days earlier — not
+to when each item actually became #1.
+
+Fix: persist an actual "first observed as #1" timestamp per repo in
+state/stale_top_item_first_seen_<repo>, keyed on the same "<line>:<text prefix>"
+identity the sibling re-alert marker (state/stale_top_item_alerted_<repo>) already
+uses. Each run: if the current #1 item's key matches the stored key, age = now minus
+the stored first-seen time. If it does NOT match (a different item just rotated to
+#1, or this is the first run ever), the clock resets to now — that item is not
+alerted on this run (age 0), regardless of what git blame says about the line it
+happens to occupy. This makes the metric mean what its own alert text claims
+("ignoring its #1 item for N hours"), immune to unrelated bulk edits.
 
 Never checks a DELETE item that has already been deleted (VERIFY would trivially
 pass — that is a queue-hygiene gap for something else, not this).
@@ -69,18 +90,38 @@ def find_top_item(repo_dir):
     return None
 
 
-def blame_time(repo_dir, lineno):
-    out = run(["git", "blame", "-L", f"{lineno},{lineno}", "--porcelain", "OVERNIGHT_PROGRESS.md"],
-               cwd=repo_dir)
-    if not out or out.returncode != 0:
-        return None
-    for ln in out.stdout.splitlines():
-        if ln.startswith("author-time "):
-            try:
-                return int(ln.split()[1])
-            except (IndexError, ValueError):
-                return None
-    return None
+def item_key(lineno, text):
+    # same identity shape ovn_stale_top_item_check.sh's re-alert marker already uses:
+    # "<line>:<first-60-chars-of-text>" — stable across runs as long as the SAME item
+    # holds the #1 slot, and guaranteed to change the moment a different item rotates in.
+    return f"{lineno}:{text[:60]}"
+
+
+def first_seen_age_hours(repo, key, now, state_dir):
+    """Persisted 'how long has THIS item been #1' clock — replaces the old git-blame
+    proxy. Returns age in hours since this exact key was first observed as #1. If the
+    key doesn't match what's stored (new item rotated in, or no prior state), resets
+    the clock to now and returns 0 — never alerts a freshly-rotated-in item just
+    because it happens to sit on an old, previously-bulk-edited line."""
+    path = os.path.join(state_dir, f"stale_top_item_first_seen_{repo}")
+    stored_key = None
+    stored_ts = None
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.read().strip()
+        if "|" in raw:
+            k, ts_str = raw.rsplit("|", 1)
+            stored_key, stored_ts = k, float(ts_str)
+    except (FileNotFoundError, ValueError, OSError):
+        pass
+    if stored_key != key or stored_ts is None:
+        stored_ts = now
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"{key}|{now}")
+        except OSError:
+            pass
+    return (now - stored_ts) / 3600.0
 
 
 def file_touched_since(repo_dir, target, since_hours):
@@ -95,6 +136,11 @@ def file_touched_since(repo_dir, target, since_hours):
 
 def main():
     now = time.time()
+    state_dir = os.path.join(QUEUE_ROOT, "state")
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+    except OSError:
+        pass
     for repo in REPOS:
         repo_dir = os.path.join(QUEUE_ROOT, "repos", repo)
         if not os.path.isdir(repo_dir):
@@ -103,10 +149,8 @@ def main():
         if not top:
             continue
         lineno, text = top
-        ts = blame_time(repo_dir, lineno)
-        if ts is None:
-            continue
-        age_h = (now - ts) / 3600.0
+        key = item_key(lineno, text)
+        age_h = first_seen_age_hours(repo, key, now, state_dir)
         if age_h < STALE_HOURS:
             continue
         m = PATH_RE.search(text)

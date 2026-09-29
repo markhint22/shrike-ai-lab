@@ -55,7 +55,7 @@ PY
     git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "fix(queue): [EMERGENCY] ${area} suite red — triage+fix queued by test-watch"
     git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
   ) && log "$repo/$area: EMERGENCY fix item queued + pushed"
-  curl -fsS --max-time 8 -H "Title: ${repo} ${area} tests are red" -H "Tags: rotating_light" \
+  curl -fsS --max-time 8 -H "Title: ${repo} ${area} tests are red" -H "Tags: rotating_light" -H "Priority: high" \
     -d "The full-suite watchdog found ${area} failing in ${repo}. An [EMERGENCY] triage+fix item was queued at the top of its Next Steps — the fleet will work it first next cycle. Failing: ${detail:0:300}" \
     "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
 }

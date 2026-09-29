@@ -6,12 +6,16 @@ fail_reason, tokens_sent, tokens_recv — all written by run_overnight.sh's
 record_outcome()) and produces a compact, ntfy-ready summary broken out by
 tier T1-T5 (+ "?" for items with no explicit [T#] tag in their text).
 
-Usage: ovn_tier_stats.py [hours=3] [--tokens-only] [--all-time] [--oneline]
+Usage: ovn_tier_stats.py [hours=3] [--tokens-only] [--all-time] [--oneline] [--headline]
 --oneline (2026-09-20) prints a single terse "✅ N landed, N no-op, N reverted[, N failed]"
 line for a digest's top-of-message summary, using outcomes.jsonl's own `class` field —
 the same field the per-tier breakdown below already groups by — so this can never
 disagree with the tier table it sits next to the way digest_notify.sh's old header total
 (a separate, independently-computed count) used to disagree with ITS OWN detail section.
+--headline (2026-09-28) prints the PLAIN-LANGUAGE, corrected-pass-rate lead line for
+digest_notify.sh/hourly_notify.sh: "last <window>: N of ~M real attempts landed (P%)", plus a
+glossed wasted-attempt line and a glossed benign-excluded line — see the block below for why
+this replaced the digest's old jargon-heavy per-cycle tally.
 --tokens-only prints just a one-line token-spend summary for the window (used to show a
 rolling 24h total alongside the regular 3h tier breakdown, without duplicating the whole
 tier table twice in one digest).
@@ -55,6 +59,7 @@ _args = [a for a in sys.argv[1:] if not a.startswith("--")]
 tokens_only = "--tokens-only" in sys.argv[1:]
 all_time = "--all-time" in sys.argv[1:]
 oneline = "--oneline" in sys.argv[1:]
+headline = "--headline" in sys.argv[1:]
 hours = float(_args[0]) if _args else 3.0
 cutoff = 0.0 if all_time else time.time() - hours * 3600
 
@@ -139,6 +144,50 @@ def ledger_summary():
         bs[1] += r.get("tokens_recv", 0) or 0
         bs[2] += 1
     return total_sent, total_recv, by_source
+
+
+if headline:
+    # 2026-09-28: plain-language lead line for digest_notify.sh/hourly_notify.sh, using the
+    # SAME canonical GOOD/BAD/BENIGN split (bucket_from_outcome_row) as the "By tier" aggregate
+    # further down this script — this can never disagree with that detail section. Exists
+    # because the digest used to LEAD with an entirely different, independently-computed
+    # per-cycle tally (cycle_notify.sh's own P/F/R/N/E counts, sourced from state/
+    # digest_buffer.log, not outcomes.jsonl) that could disagree with the corrected rate and
+    # was jargon-heavy ("✅ 11 landed ➖ 40 no-op (9 cheap-skip, 31 burned-a-real-attempt)").
+    # This prints ONE honest, glossed sentence instead: "Last <window>: N of ~M real attempts
+    # landed (P%)", plus a wasted-attempt line and a benign-excluded line, each with a short
+    # plain-language gloss the first time a term like "reverted" or "gate-reverted" appears —
+    # no bare jargon.
+    _good = sum(1 for r in rows if bucket_from_outcome_row(r) == "good")
+    _bad = sum(1 for r in rows if bucket_from_outcome_row(r) == "bad")
+    _benign_noop = sum(1 for r in rows if bucket_from_outcome_row(r) == "benign" and r.get("class") == "noop")
+    _attempted = _good + _bad
+    if _attempted == 0 and not _benign_noop:
+        print("")
+        sys.exit(0)
+    _window = "All-time" if all_time else f"Last {hours:g}h"
+    _lines = []
+    if _attempted > 0:
+        _pct = 100 * _good // _attempted
+        _lines.append(f"{_window}: {_good} of ~{_attempted} real attempts landed ({_pct}%)")
+    else:
+        _lines.append(f"{_window}: no real attempts yet")
+    if _bad:
+        _reverted = sum(1 for r in rows if bucket_from_outcome_row(r) == "bad" and r.get("class") == "reverted")
+        _gate_reverted = sum(1 for r in rows if str(r.get("status", "")).startswith("no-op(reverted"))
+        _flailed = max(_bad - _reverted - _gate_reverted, 0)
+        _lines.append(
+            f"{_bad} wasted attempt(s) — work the fleet threw away: {_reverted} reverted (code was rolled "
+            f"back), {_gate_reverted} gate-reverted (rolled back after failing the safety check), "
+            f"{_flailed} flailed (a full attempt that produced nothing usable)"
+        )
+    if _benign_noop:
+        _lines.append(
+            f"{_benign_noop} skipped with no attempt made (already done, blocked, or needs a human "
+            f"decision) — not counted against the rate above, tracked separately"
+        )
+    print("\n".join(_lines))
+    sys.exit(0)
 
 
 if tokens_only:
@@ -319,7 +368,7 @@ if total_hidden_reverts:
     out.append(
         f"↩️ {true_reverts} real revert(s) total this window "
         f"({total_reverted_class} labeled reverted + {total_hidden_reverts} labeled no-op "
-        f"that actually rolled back code — see NO-NEW-RED GUARD)"
+        f"that actually rolled back code via the safety check that undoes code failing its own tests)"
     )
 if total_sent or total_recv:
     out.append(f"🔤 Tokens: {fmt_toks(total_sent)} sent / {fmt_toks(total_recv)} received")

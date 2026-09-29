@@ -21,8 +21,6 @@ export PATH=/usr/local/bin:/usr/bin:/bin:${PATH:-}
 LOG="logs/ovn_research_trigger_check.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
-NTFY_TOPIC_RESOLVED="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
-alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
 STARVE_HOURS="${OVN_STARVE_HOURS:-2}"
 
 OUT="$(python3 scripts/ovn_research_trigger_check.py "$STARVE_HOURS" logs/ovn_planner.log 2>>"$LOG")"
@@ -58,8 +56,16 @@ for r in new_alerts:
 PYEOF
 )"
 
+# 2026-09-28: this used to push its own "Research trigger" ntfy — one of four scripts
+# independently alerting on the same "this repo is out of work" fact as ovn_planner.sh's
+# needs-research alert, queue_refill.sh's backlog-dry alert, and ovn_fleet_health.sh's
+# low-runway alert (confirmed live: multiple of these state markers existed simultaneously
+# for the same repo). ovn_fleet_health.sh is now the sole canonical alerter for that fact.
+# This still writes state/research_trigger_starving.json (a session-side CronCreate poller
+# may act on it while a Claude Code session is open — that consumer is unaffected) and still
+# maintains the per-repo alerted marker for streak-dedup bookkeeping; it just logs instead of
+# pushing a redundant phone notification.
 if [ -n "$NEW" ]; then
   n="$(printf '%s\n' "$NEW" | grep -c .)"
-  say "=== $n repo(s) newly confirmed starving — alerting ==="
-  alert "Research trigger: $n repo(s) need research" "warning" "$(printf '%s' "$NEW" | head -c 800)"
+  say "=== $n repo(s) newly confirmed starving — ntfy suppressed (see ovn_fleet_health.sh), detail: $(printf '%s' "$NEW" | tr '\n' '; ')"
 fi

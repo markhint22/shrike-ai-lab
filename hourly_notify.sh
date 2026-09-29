@@ -10,8 +10,12 @@
 # "what just happened." It also carries NO idle/paused/not-running heartbeat: digest_notify.sh
 # already owns "is the box alive" (it fires unconditionally every 3h even when quiet), so an
 # hourly heartbeat on top of that would just double the noise during a quiet stretch without
-# adding any new information. If nothing landed in the last hour this script sends NOTHING —
-# silence here is unambiguous (the 3h digest is the one guaranteed to explain a quiet box).
+# adding any new information.
+#
+# 2026-09-28: this sends ONLY when the hour is genuinely notable (see
+# scripts/ovn_hourly_notable.py) — a normal hour of clean landings, or an hour with nothing
+# at all, sends NOTHING. Silence here is unambiguous (the 3h digest is the one guaranteed to
+# explain a quiet — or routine — box regardless of notability).
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="$DIR/state"
@@ -23,7 +27,7 @@ HOURS=1
 send() {
   local title="$1" tags="$2" body="$3" attempt rc=0
   for attempt in 1 2 3; do
-    if curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -d "$body" "$SERVER/$TOPIC" >/dev/null 2>&1; then
+    if curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -H "Priority: default" -d "$body" "$SERVER/$TOPIC" >/dev/null 2>&1; then
       return 0
     fi
     rc=$?
@@ -32,6 +36,19 @@ send() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') send() FAILED after 3 attempts (curl rc=$rc): title='hourly digest'" >&2
   return 1
 }
+
+# 2026-09-28 NOISE FIX: this used to push for EVERY hour with ANY activity at all — on a
+# continuously-running fleet that's nearly every hour, so in practice it tallied every
+# single hour regardless of content (one of two scripts, with digest_notify.sh, responsible
+# for the bulk of daily message volume). Now gated on genuine notability: a fully-wasted
+# hour (0 landed, >=1 wasted attempt) or a wasted-attempt rate spiking meaningfully above
+# the trailing baseline — see scripts/ovn_hourly_notable.py for the exact rule. A normal
+# hour of clean landings (the common case) sends NOTHING now; digest_notify.sh's 3h rollup
+# is still the reliable "here's what happened" summary regardless of notability.
+_NOTABLE="$(python3 "$DIR/scripts/ovn_hourly_notable.py" "$HOURS" 2>/dev/null)"
+if [ -z "$_NOTABLE" ]; then
+  exit 0
+fi
 
 # 2026-09-20: a terse one-liner ($_ONE), sourced from the SAME outcomes.jsonl rows the tier
 # breakdown below already groups by (ovn_tier_stats.py's own --oneline mode) — so this can
@@ -42,15 +59,11 @@ _TIERS="$(python3 "$DIR/scripts/ovn_tier_stats.py" "$HOURS" 2>/dev/null)"
 _LANDED_DETAIL="$(python3 "$DIR/scripts/ovn_landed_detail.py" "$HOURS" --max-per-repo 2 --max-total 8 2>/dev/null)"
 _FEAT="$(OVN_QUEUE_DIR="$DIR" python3 "$DIR/scripts/ovn_feature_groups.py" --digest "$HOURS" --max-total 4 2>/dev/null)"
 
-# nothing at all happened this hour -> send nothing (see header: this is fine, not ambiguous)
-if [ -z "$_TIERS" ] && [ -z "$_LANDED_DETAIL" ] && [ -z "$_FEAT" ]; then
-  exit 0
-fi
-
 # 2026-09-20: terse summary line goes FIRST (was previously implicit only in the tier table
 # further down) — someone should be able to read just the title + this line and get the
 # gist; the tier/detail/feature sections below are for digging in.
-body="Overnight queue · last ~${HOURS}h ($(date '+%a %H:%M'))"
+body="Overnight queue · last ~${HOURS}h ($(date '+%a %H:%M'))
+${_NOTABLE#NOTABLE: }"
 [ -n "$_ONE" ] && body="$body
 
 $_ONE"

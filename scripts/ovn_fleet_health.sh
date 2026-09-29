@@ -18,7 +18,12 @@ LOG="logs/ovn_fleet_health.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
 NTFY_TOPIC_RESOLVED="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
-alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
+# 2026-09-28: this is now the SOLE canonical alerter for "a repo is running out of
+# work" (see ovn_planner.sh/queue_refill.sh/ovn_research_trigger_check.sh, which used
+# to each push their own redundant ntfy for the same fact and now just log). A
+# real-signal-but-not-urgent alert -> explicit "default" priority (not urgent/broken,
+# but worth a look — distinct from a pure heartbeat).
+alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: default" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
 
 RUNWAY_ALERT_DAYS="${OVN_RUNWAY_ALERT_DAYS:-2}"
 ACTIVE="$(jq -r 'map(select(.enabled != false)) | .[].repo' tasks.json 2>/dev/null | xargs -n1 basename 2>/dev/null | sort -u | tr '\n' ' ')"

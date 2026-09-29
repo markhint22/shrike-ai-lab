@@ -19,7 +19,7 @@ LOG="$HOME/overnight-queue/logs/gpu_autoswap.log"
 STATE="$HOME/overnight-queue/state"
 ts(){ date "+%F %T"; }
 say(){ echo "$(ts) $*" >> "$LOG"; }
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
 
 healthy(){ docker exec "$C" curl -sf --max-time 5 http://localhost:8080/health >/dev/null 2>&1; }
 
@@ -59,7 +59,7 @@ if [ "$free" -lt "$NEED_FREE_MIB" ]; then
      && [ "${top_secs:-0}" -ge "$STARVE_SECS" ] && [ ! -f "$STATE/gpu_holder_alerted_$top_pid" ]; then
     touch "$STATE/gpu_holder_alerted_$top_pid"
     alert "GPU held ${top_et} — 27B fleet paused" "warning" \
-      "A non-27B process has held the GPU for ${top_et} (pid ${top_pid}), so the code fleet is paused: ${top_cmd}. It resumes automatically when this frees. If unexpected, check it."
+      "A non-27B process has held the GPU for ${top_et} (pid ${top_pid}), so the code fleet is paused: ${top_cmd}. It resumes automatically when this frees. If unexpected, check it." "default"
   fi
   exit 0
 fi
@@ -73,10 +73,10 @@ for i in $(seq 1 24); do
   sleep 5
   if healthy; then
     say "RESTORED: llama healthy after $((i*5))s"
-    alert "27B restored (auto-swap)" "white_check_mark" "GPU freed (${free}MiB); llama-server back up. Overnight fleet resumes."
+    alert "27B restored (auto-swap)" "white_check_mark" "GPU freed (${free}MiB); llama-server back up. Overnight fleet resumes." "low"
     exit 0
   fi
 done
 say "FAILED: llama did not health-check within 120s"
-alert "27B auto-restart FAILED" "rotating_light" "GPU free=${free}MiB but llama did not become healthy in 2min. Run: docker start $C ; docker logs $C"
+alert "27B auto-restart FAILED" "rotating_light" "GPU free=${free}MiB but llama did not become healthy in 2min. Run: docker start $C ; docker logs $C" "high"
 exit 1

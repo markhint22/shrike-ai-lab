@@ -24,7 +24,7 @@ REMIND_HOURS="${HYGIENE_STUCK_REMIND_HOURS:-6}"  # repeat reminder cadence while
 STUCK_SECS=$(( STUCK_HOURS * 3600 ))
 REMIND_SECS=$(( REMIND_HOURS * 3600 ))
 log(){ echo "$(date '+%F %T') $*"; }
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
 
 now=$(date +%s)
 seen_repos=""
@@ -51,12 +51,12 @@ for flag in "$STATE_DIR"/branch_hygiene_review_*; do
     last_alert="$(cat "$alerted_marker" 2>/dev/null || echo 0)"
     if [ "$last_alert" -eq 0 ]; then
       alert "Branch hygiene STUCK: $name" "rotating_light" \
-        "$name has not merged to develop/main in ~${elapsed_h}h. Reason: $reason. This blocks EVERY fleet item for $name from ever landing until fixed — worth a look now, not at the next digest."
+        "$name has not merged to develop/main in ~${elapsed_h}h. Reason: $reason. This blocks EVERY fleet item for $name from ever landing until fixed — worth a look now, not at the next digest." "high"
       echo "$now" > "$alerted_marker"
       log "$name: stuck ${elapsed_h}h — ALERTED (first)"
     elif [ $(( now - last_alert )) -ge "$REMIND_SECS" ]; then
       alert "Branch hygiene STILL STUCK: $name" "rotating_light" \
-        "$name has not merged in ~${elapsed_h}h (unresolved since the first alert). Reason: $reason."
+        "$name has not merged in ~${elapsed_h}h (unresolved since the first alert). Reason: $reason." "high"
       echo "$now" > "$alerted_marker"
       log "$name: stuck ${elapsed_h}h — ALERTED (reminder)"
     else
@@ -79,7 +79,7 @@ for since_marker in "$STATE_DIR"/hygiene_stuck_since_*; do
   alerted_marker="$STATE_DIR/hygiene_stuck_alerted_$name"
   if [ -f "$alerted_marker" ]; then
     alert "Branch hygiene recovered: $name" "white_check_mark" \
-      "$name merged successfully after being stuck ~${elapsed_h}h."
+      "$name merged successfully after being stuck ~${elapsed_h}h." "low"
     log "$name: recovered after ${elapsed_h}h — sent recovery note"
   else
     log "$name: recovered after ${elapsed_h}h (never crossed the alert threshold, no note needed)"

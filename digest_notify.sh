@@ -33,12 +33,12 @@ DIGEST_HOURS=3
 [ -f "$DIR/shrike_notify_lib.sh" ] && source "$DIR/shrike_notify_lib.sh"
 
 send() {
-  local title="$1" tags="$2" body="$3" attempt rc=0
+  local title="$1" tags="$2" body="$3" prio="${4:-default}" attempt rc=0
   # Independent parallel sink — doesn't participate in the ntfy retry/rc logic above,
   # fires once per call regardless of ntfy's own success/failure.
   command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_queue_task" "$title" "$tags" "$body"
   for attempt in 1 2 3; do
-    if curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -d "$body" "$SERVER/$TOPIC" >/dev/null 2>&1; then
+    if curl -fsS --max-time 8 -H "Title: $title" -H "Tags: $tags" -H "Priority: $prio" -d "$body" "$SERVER/$TOPIC" >/dev/null 2>&1; then
       return 0
     fi
     rc=$?
@@ -55,11 +55,11 @@ send() {
 # REAL state instead of guessing.
 if [ ! -s "$BUF" ]; then
   if [ -f "$STATE_DIR/PAUSED" ]; then
-    send "Overnight queue — PAUSED" "pause_button" "$(date '+%a %H:%M') · The queue IS paused (queue.sh resume to continue). Nothing ran since the last digest."
+    send "Overnight queue — PAUSED" "pause_button" "$(date '+%a %H:%M') · The queue IS paused (queue.sh resume to continue). Nothing ran since the last digest." "default"
   elif systemctl is-active --quiet overnight-queue 2>/dev/null; then
-    send "Overnight queue — quiet" "zzz" "$(date '+%a %H:%M') · Running normally — just nothing new since the last digest. NOT paused."
+    send "Overnight queue — quiet" "zzz" "$(date '+%a %H:%M') · Running normally — just nothing new since the last digest. NOT paused." "low"
   else
-    send "Overnight queue — NOT RUNNING" "rotating_light" "$(date '+%a %H:%M') · The systemd service is not active and nothing ran since the last digest. Check: systemctl status overnight-queue"
+    send "Overnight queue — NOT RUNNING" "rotating_light" "$(date '+%a %H:%M') · The systemd service is not active and nothing ran since the last digest. Check: systemctl status overnight-queue" "high"
   fi
   exit 0
 fi
@@ -81,38 +81,59 @@ uniq_csv() { echo "$1" | tr ',' '\n' | grep -vE '^$' | sort -u | paste -sd', ' -
 Praw="$(uniq_csv "$pass")"; Fraw="$(uniq_csv "$fail")"; Rraw="$(uniq_csv "$rev")"; Eraw="$(uniq_csv "$err")"
 allrepos="$(uniq_csv "$pass,$fail,$rev,$err")"
 
-# 2026-09-20 FIX (math-mismatch bug): $items below now ALWAYS equals the sum of every
-# ✅/⚠️/↩️/⛔/➖ count shown further down, because both are the SAME $NP/$NF/$NR/$NN/$NE
-# variables (previously the ➖ line below substituted a DIFFERENT, independently-sourced
-# count from ovn_stats.py's task_stats.log-based classification, which - even before
-# cycle_notify.sh's own classification bugs above were fixed - only ever covers a subset
-# of real no-op cycles; the two numbers had no reason to agree and, confirmed live,
-# regularly didn't: a real 3h window with $items=67 and $NN=48 displayed "➖ 10 no-op",
-# so the visible lines summed to 34 while the header claimed 67 "work items done").
-items=$((NP+NF+NR+NN+NE))
+# 2026-09-20 FIX (math-mismatch bug): every ✅/⚠️/↩️/⛔/➖ count shown further down comes from
+# the SAME $NP/$NF/$NR/$NN/$NE variables computed above, so they can never disagree with each
+# other the way a "$items work items done" header total once could (previously the ➖ line
+# substituted a DIFFERENT, independently-sourced count from ovn_stats.py's task_stats.log-based
+# classification — confirmed live to disagree: a real window showed a header total of 67 while
+# the visible per-category lines summed to only 34). 2026-09-28: that header total is gone
+# entirely now — the digest leads with the canonical outcomes.jsonl-based rate instead (below),
+# so there is no second, cycle-buffer-derived total left to disagree with it.
 
-# 2026-09-20: terse one-line, at-a-glance summary - MUST be the first thing in the body
-# (previously the digest led with the "$items work items done..." line and buried the
-# short version among/after the detailed sections; someone should be able to read just
-# this line and get the gist). Real ✅/➖/↩️/⚠️/⛔ counts only (idle rows and the header's
-# own "work items" total are supporting detail below, not repeated here).
-SUMMARY="✅ ${NP} landed, ${NN} no-op, ${NR} reverted"
-[ "$NF" -gt 0 ] && SUMMARY="${SUMMARY}, ${NF} failed"
-[ "$NE" -gt 0 ] && SUMMARY="${SUMMARY}, ${NE} errored"
+# 2026-09-28 REWRITE (plain-language + corrected-metric fix): this digest used to LEAD with
+# a jargon-heavy tally sourced from cycle_notify.sh's own per-cycle classification
+# (state/digest_buffer.log's PASS=/FAIL=/REV=/ERR= counts) — a SEPARATE, independently
+# computed number from the canonical GOOD/BAD/BENIGN split (ovn_outcome_buckets.py, via
+# outcomes.jsonl) used elsewhere in this same message. Those two counting methods have
+# disagreed before (the exact "three disagreeing formulas" bug: 91% on the dashboard, 45-58%
+# on phone notifications, ~50% honest) — leading with the OLD one while a corrected one
+# exists lower in the message is the last place that discrepancy could still surface. Now
+# leads with the single canonical, honest number (scripts/ovn_tier_stats.py --headline),
+# stated in plain words ("Last 3h: 11 of ~16 real attempts landed (69%)"), with wasted vs.
+# benign explicitly separated and glossed — matching exactly what the user asked for.
+_HEADLINE=""
+if [ -x "$DIR/scripts/ovn_tier_stats.py" ]; then
+  _HEADLINE="$(python3 "$DIR/scripts/ovn_tier_stats.py" "$DIGEST_HOURS" --headline 2>/dev/null)"
+fi
 _READY=0
 if [ -x "$DIR/scripts/ovn_feature_groups.py" ]; then
   _READY="$(OVN_QUEUE_DIR="$DIR" python3 "$DIR/scripts/ovn_feature_groups.py" --ready-count "$DIGEST_HOURS" 2>/dev/null)"
   case "$_READY" in ''|*[!0-9]*) _READY=0 ;; esac
 fi
+_READY_NOTE=""
 if [ "$_READY" -gt 0 ]; then
   _READY_WORD="feature"; [ "$_READY" -gt 1 ] && _READY_WORD="features"
-  SUMMARY="${SUMMARY} — ${_READY} ${_READY_WORD} ready to test"
+  _READY_NOTE=" — ${_READY} ${_READY_WORD} ready to test"
 fi
 
-body="Overnight queue · last ~${DIGEST_HOURS}h ($(date '+%a %H:%M'))
-${SUMMARY}
+if [ -n "$_HEADLINE" ]; then
+  body="Overnight queue · last ~${DIGEST_HOURS}h ($(date '+%a %H:%M'))
+${_HEADLINE}${_READY_NOTE}"
+else
+  # no good/bad attempts recorded this window (e.g. everything was a benign skip, or the
+  # canonical source has no data yet) — fall back to the cycle-count line below so the
+  # digest still says something concrete rather than an empty headline.
+  body="Overnight queue · last ~${DIGEST_HOURS}h ($(date '+%a %H:%M'))${_READY_NOTE}"
+fi
 
-$items work items done across $cycles run(s), on: ${allrepos:-–}$( [ "$NI" -gt 0 ] && echo " (+${NI} idle check(s) with nothing to do, not counted above)")"
+# 2026-09-28: this section is now explicitly labeled as CYCLE-level detail — which repos
+# hit which outcome, this run — distinct from (and may not exactly match) the canonical
+# per-ATTEMPT headline above, since the two are sourced from different logs (digest_buffer.log's
+# own per-cycle classification vs. outcomes.jsonl's canonical bucketing). Saying so plainly
+# beats a false appearance of one single number.
+body="$body
+
+Cycle detail ($cycles run this window, touching: ${allrepos:-–}$( [ "$NI" -gt 0 ] && echo ", +${NI} idle check(s) with nothing to do")):"
 # 2026-09-09 FIX: this used to say "landed on main" - wrong since the staging-flow change (see
 # CLAUDE.md "Staging flow restored"). Every landed item here pushes to overnight/feature; it only
 # reaches develop via the next hourly branch_hygiene merge, and only reaches main/prod via the
@@ -126,10 +147,10 @@ $items work items done across $cycles run(s), on: ${allrepos:-–}$( [ "$NI" -gt
 ⚠️ $NF had a failing test — still being fixed, held off the feature branch, nothing broke  [$Fraw]"
 [ "$NR" -gt 0 ] && body="$body
 
-↩️ $NR auto-reverted (didn't compile) — safety gate, no action  [$Rraw]"
+↩️ $NR auto-reverted (the code didn't compile — an automatic safety check undid it, no action needed)  [$Rraw]"
 [ "$NE" -gt 0 ] && body="$body
 
-⛔ $NE errored (network/timeout)  [$Eraw]"
+⛔ $NE errored (an infrastructure problem — network or timeout — not a code quality issue)  [$Eraw]"
 if [ "$NN" -gt 0 ]; then
   # 2026-09-18 FIX: this used to just print the flat $NN count with no breakdown, so
   # "the fleet correctly declined 4 already-done items" (fine, cheap) and "the fleet
@@ -137,8 +158,8 @@ if [ "$NN" -gt 0 ]; then
   # looked identical. Reuse ovn_stats.py's existing cheap/burned + per-cause split.
   #
   # 2026-09-20 FIX: this used to let that breakdown REPLACE $NN outright with a smaller,
-  # independently-sourced number (see the $items comment above) - the displayed count
-  # could disagree with the header math. Always show the real, header-consistent $NN;
+  # independently-sourced number - the displayed count could disagree with the header math.
+  # Always show the real, header-consistent $NN;
   # append the cause breakdown as supplementary detail on however many of those $NN
   # cycles got a cause logged, worded so it can never read as a second, competing total.
   _NOOP_LINE=""

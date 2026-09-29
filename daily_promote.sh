@@ -52,8 +52,15 @@ done
 body="Daily prod promote $(date '+%a %H:%M')
 Promoted:${promoted:- none}
 No change:${nothing:- none}"
-[ -n "$blocked" ] && body="$body
+# 2026-09-28: a promote-BLOCKED repo (gate/conflict) is decision-needed — it stayed on its
+# last-good build and needs a human look — so it gets "high", not the same "default" tier
+# as a routine day where everything promoted cleanly or had nothing to do.
+PROMOTE_PRIO="default"
+if [ -n "$blocked" ]; then
+  body="$body
 ⚠ BLOCKED (gate/conflict — stayed on last-good):$blocked"
-curl -fsS --max-time 8 -H "Title: Daily prod promote" -H "Tags: rocket" -d "$body" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+  PROMOTE_PRIO="high"
+fi
+curl -fsS --max-time 8 -H "Title: Daily prod promote" -H "Tags: rocket" -H "Priority: $PROMOTE_PRIO" -d "$body" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
 command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_queue_promote" "Daily prod promote" "rocket" "$body"
 echo "$body"

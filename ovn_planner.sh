@@ -40,24 +40,28 @@ fi
 # THIS specific terminal state (not general backlog-low, which queue_refill already covers).
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
 RESEARCH_REMIND_HOURS="${OVN_RESEARCH_REMIND_HOURS:-24}"
-# same TOPIC-resolution pattern as queue_health.sh: explicit NTFY_TOPIC env (how cron invokes this
-# script) or a persisted state/ntfy_topic, else empty -> alert() no-ops. Keeps a fresh test sandbox
-# (no env var, no state file) from ever making a real network call.
-NTFY_TOPIC_RESOLVED="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
-alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
+# 2026-09-28: this used to push its own "Roadmap exhausted" ntfy on top of queue_refill.sh's
+# "out of queued items", ovn_research_trigger_check.sh's "needs research", AND
+# ovn_fleet_health.sh's "low runway" — four separate pushes for the same underlying fact
+# (confirmed live: state/ovn_needs_research_shrike-monitor and state/qr_dry_shrike-monitor
+# existed simultaneously for the same repo/fact). ovn_fleet_health.sh is now the single
+# canonical alerter for "this repo is running out of work" (richest context: doable count,
+# burn rate, days-of-runway; sensible once-daily cadence). This still does its OWN
+# detection + the ovn_needs_research_<repo> marker bookkeeping (nothing else reads that
+# marker today, confirmed by grep, but keeping it costs nothing and preserves the dedup
+# behavior if that changes) — it just no longer pushes a redundant phone notification, so
+# the NTFY_TOPIC-resolving alert() helper this used to call was removed as dead weight.
 needs_research_alert(){ # $1=repo $2=backlog-count
   local r="$1" bc="$2" marker="$STATE_DIR/ovn_needs_research_${r}" now remind_secs last
   now=$(date +%s); remind_secs=$(( RESEARCH_REMIND_HOURS * 3600 ))
   if [ ! -f "$marker" ]; then
     echo "$now" > "$marker"
-    alert "Roadmap exhausted: $r needs a Claude research pass" "books" "$r's roadmap/${r}.md has NO [ready] features left (all [decomposed]) and backlog/${r}.md is down to ${bc} item(s) -- the auto-planner can't make more work on its own. Promote a [needs-research] feature to [ready] (or add a new one) in roadmap/${r}.md to unstick it. (silent while still dry -- reminder repeats at most every ${RESEARCH_REMIND_HOURS}h)"
-    say "$r: sent needs-research alert (new)"
+    say "$r: needs-research condition newly detected (backlog=${bc}, no [ready] feature) — ntfy suppressed, see ovn_fleet_health.sh for the consolidated low-runway push"
   else
     last=$(cat "$marker" 2>/dev/null || echo "$now")
     if [ $(( now - last )) -ge "$remind_secs" ]; then
       echo "$now" > "$marker"
-      alert "Still needs a Claude research pass: $r" "books" "Still no [ready] roadmap feature for $r after ${RESEARCH_REMIND_HOURS}h+. No rush -- periodic nudge."
-      say "$r: sent needs-research reminder"
+      say "$r: needs-research condition still open after ${RESEARCH_REMIND_HOURS}h+ — ntfy suppressed, see ovn_fleet_health.sh"
     fi
   fi
 }

@@ -86,7 +86,7 @@ acquire_lock() {
         if [ "$notify" = "ntfy" ]; then
           local topic="${NTFY_TOPIC:-$(cat "$_state_dir/ntfy_topic" 2>/dev/null)}"
           if [ -n "$topic" ]; then
-            curl -fsS --max-time 8 -H "Title: $label lock contention" -H "Tags: warning" \
+            curl -fsS --max-time 8 -H "Title: $label lock contention" -H "Tags: warning" -H "Priority: default" \
               -d "$label waited ${wait_seconds}s for $(basename "$lock_file") and gave up — another pass is still holding it. If this repeats, either the holder is stuck or the wait window is too short. (silent on immediate repeats — reminder repeats at most every $((LOCK_ALERT_COOLDOWN_SECS/60))min while it stays stuck)" \
               "https://ntfy.sh/$topic" >/dev/null 2>&1 || true
           fi

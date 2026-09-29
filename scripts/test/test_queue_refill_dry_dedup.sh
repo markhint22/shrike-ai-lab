@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Regression test: queue_refill.sh's "backlog DRY" alert must NOT re-fire every run for as long
-# as a repo stays dry (2026-09-09). queue_refill.sh runs both on its own hourly cron AND at the
-# end of every fleet cycle (~20-40min) — before this fix, a persistently-dry repo re-alerted on
-# EVERY one of those runs with zero dedup, producing dozens of identical "out of queued items"
+# Regression test: queue_refill.sh's "backlog DRY" bookkeeping must NOT re-fire every run for as
+# long as a repo stays dry (2026-09-09). queue_refill.sh runs both on its own hourly cron AND at
+# the end of every fleet cycle (~20-40min) — before this fix, a persistently-dry repo re-alerted
+# on EVERY one of those runs with zero dedup, producing dozens of identical "out of queued items"
 # pushes per day. Fixed with the same state/qr_dry_<repo> marker pattern as queue_health.sh's
-# qh_bad_<name>: one alert on newly-dry, silence while still dry, one reminder per
+# qh_bad_<name>: one detection on newly-dry, silence while still dry, one reminder per
 # DRY_REMIND_HOURS, one quiet recovery note when the repo gets doable items again.
+#
+# 2026-09-28: the newly-dry/reminder-dry ntfy PUSHES were removed entirely — one of four scripts
+# independently alerting on the same "this repo is out of work" fact (confirmed live:
+# state/qr_dry_shrike-monitor and state/ovn_needs_research_shrike-monitor existed simultaneously
+# for the same repo/fact). ovn_fleet_health.sh is now the sole canonical alerter for that fact.
+# This test now verifies the marker/dedup bookkeeping still works exactly as before AND that no
+# ntfy Title fires for the dry/reminder cases — only the unrelated "Backlog refilled" recovery
+# note (a different fact this script uniquely surfaces) still pushes.
 set -uo pipefail
 Q="${OVN_QUEUE_REFILL:-$HOME/overnight-queue/queue_refill.sh}"
 [ -f "$Q" ] || { echo "  SKIP: $Q not found on this host"; exit 0; }
@@ -43,18 +51,20 @@ echo "" > "$wd/backlog/foo.md"
 : > "$wd/repos/foo/OVERNIGHT_PROGRESS.md"
 
 run_refill
-ok "newly-dry fires exactly one out-of-items alert" \
-   "[ \$(grep -c 'A few repos are out of queued items' '$ALERT_LOG') -eq 1 ]"
-ok "newly-dry creates the qr_dry marker" "[ -f '$wd/state/qr_dry_foo' ]"
+ok "newly-dry never pushes the (now-consolidated) out-of-items ntfy" \
+   "! grep -q 'A few repos are out of queued items' '$ALERT_LOG'"
+ok "newly-dry still creates the qr_dry marker (bookkeeping preserved)" "[ -f '$wd/state/qr_dry_foo' ]"
 
 : > "$ALERT_LOG"
 run_refill; run_refill
-ok "still-dry: no repeat alert across 2 more runs" "[ ! -s '$ALERT_LOG' ]"
+ok "still-dry: no alert of any kind across 2 more runs" "[ ! -s '$ALERT_LOG' ]"
 
 echo $(( $(date +%s) - 90000 )) > "$wd/state/qr_dry_foo"   # simulate marker aged past 24h
 run_refill
-ok "aged-dry fires exactly one reminder alert" \
-   "[ \$(grep -c 'Still out of queued items' '$ALERT_LOG') -eq 1 ]"
+ok "aged-dry still updates the marker (reminder bookkeeping preserved)" \
+   "[ \$(( \$(date +%s) - \$(cat "$wd/state/qr_dry_foo") )) -lt 60 ]"
+ok "aged-dry never pushes the (now-consolidated) reminder ntfy" \
+   "! grep -q 'Still out of queued items' '$ALERT_LOG'"
 
 : > "$ALERT_LOG"
 printf -- '- [ ] [T1] a\n- [ ] [T1] b\n' > "$wd/repos/foo/OVERNIGHT_PROGRESS.md"

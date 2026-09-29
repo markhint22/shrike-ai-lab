@@ -33,7 +33,7 @@ say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
 DEDUP="$STATE_DIR/batch_stragglers_parked.txt"; touch "$DEDUP"
 NTFY_TOPIC_RESOLVED="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
-alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
+alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
 
 OUT="$(python3 scripts/ovn_batch_stragglers.py 2>>"$LOG")"
 if [ -z "$OUT" ]; then
