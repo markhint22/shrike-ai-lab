@@ -197,7 +197,14 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   case "$sl" in
     reverted*)                     cls=reverted;  sev=bad;;
     *oversized*)                   cls=oversized; sev=fixable;;
-    *blocked*|*needs-decision*|*needs_decision*) cls=noop; sev=neutral;;
+    # 2026-09-28 FIX: *already-done* (a read-only scout verdicting the item as
+    # "already satisfied in code", zero implement attempts - same shape as
+    # blocked/needs-decision below) used to fall through to the generic
+    # `no-op*|noop*` catch-all and get sev=bad, wrongly counting a benign,
+    # near-zero-cost non-event as a real failure in every severity-based pass
+    # rate (see scripts/ovn_tier_stats.py). Must be checked before the generic
+    # no-op* pattern below, same as blocked/needs-decision are.
+    *blocked*|*needs-decision*|*needs_decision*|*already-done*) cls=noop; sev=neutral;;
     no-op*|noop*)                  cls=noop;      sev=bad;;
     skip*exhausted*|skip*none*|skip*empty*) cls=skipped; sev=expected;;
     skip*)                         cls=skipped;   sev=neutral;;

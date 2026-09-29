@@ -13,6 +13,9 @@ Usage: ovn_stats.py [hours=24] [--ntfy]
 import os, re, sys, time
 from collections import defaultdict
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ovn_outcome_buckets import bucket, oc_bad_breakdown, oc_benign_breakdown, oc_pass_rate  # canonical GOOD/BAD/BENIGN split
+
 P = os.path.expanduser("~/overnight-queue/state/task_stats.log")
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 ntfy = '--ntfy' in sys.argv
@@ -45,12 +48,21 @@ if not rows:
     sys.exit(0)
 
 def c(sub):
-    """-> (landed, failed, noop, errored). 'skip' (an exhausted repo skipped
-    before the model ran) is deliberately NOT counted as a no-op — it's idle,
-    not wasted work — and is surfaced separately as an 'Idle' line."""
-    landed = sum(1 for r in sub if r['oc'] == 'pass')
-    failed = sum(1 for r in sub if r['oc'] in ('fail', 'revert'))
-    noop = sum(1 for r in sub if r['oc'].startswith('noop'))
+    """-> (landed, failed, noop, errored), using the canonical GOOD/BAD/BENIGN
+    split (ovn_outcome_buckets.py). 2026-09-28 FIX: 'failed' used to be just
+    oc in ('fail','revert'), which silently excluded noop:gate (a revert wearing
+    a noop: prefix) and noop:flail (a full attempt that produced zero diff) from
+    every failure count downstream of this helper (the headline pass-rate line,
+    the per-axis failing()/spinning() breakdowns). Those are now correctly
+    'failed' (the canonical BAD bucket), and 'noop' below is only the BENIGN
+    scout-verdict no-ops (noop:done/noop:blocked) — a cell that only ever
+    flailed/gate-reverted is no longer mislabeled as merely 'idle'. 'skip' (an
+    exhausted repo skipped before the model ran) stays deliberately excluded
+    entirely — it's idle, not wasted work — and is surfaced separately as an
+    'Idle' line."""
+    landed = sum(1 for r in sub if bucket(r['oc']) == 'good')
+    failed = sum(1 for r in sub if bucket(r['oc']) == 'bad')
+    noop = sum(1 for r in sub if r['oc'] in ('noop:done', 'noop:blocked'))
     err = sum(1 for r in sub if r['oc'] == 'error')
     return landed, failed, noop, err
 
@@ -202,10 +214,26 @@ if noop_headline:
     print(line)
     sys.exit(0)
 
+# 2026-09-28: wasted-attempt-by-subtype + benign-excluded-by-subtype companion
+# metrics, computed once and used by both report modes below, so the headline
+# pass-rate number is never shown without "why" right next to it.
+_bad_bd = oc_bad_breakdown(rows)
+_revert_n = _bad_bd.get('revert', 0)
+_gate_n = _bad_bd.get('noop:gate', 0)
+_flail_n = _bad_bd.get('noop:flail', 0) + _bad_bd.get('noop', 0)  # legacy bare noop folds into flail
+_benign_bd = oc_benign_breakdown(rows)
+_skip_n = sum(1 for r in rows if r['oc'] == 'skip')
+_benign_total = sum(_benign_bd.values()) + _skip_n
+
 if ntfy:
     lines = ["Overnight · %gh · %d cycles" % (hours, total)]
     _cheap_n, _burned_n = noop_cost_split(rows)
-    head = "✅ %d landed   ➖ %d no-op (%d cheap-skip, %d burned-a-real-attempt)   ❌ %d failed" % (L, N, _cheap_n, _burned_n, F)
+    # NOTE: N here is now the BENIGN no-op count only (noop:done/noop:blocked) -
+    # noop:gate/noop:flail moved into F (the canonical BAD bucket) as of the
+    # 2026-09-28 pass-rate fix, so "no-op" and "failed" no longer double-count the
+    # same events the way they briefly would have if this label had stayed generic.
+    head = "✅ %d landed   ➖ %d benign no-op (excluded)   ❌ %d failed (%d revert, %d gate-rev, %d flailed)" % (
+        L, N, F, _revert_n, _gate_n, _flail_n)
     if E:
         # recency: how long since the last error? a stale spike shouldn't look ongoing.
         last_err_ts = max((r.get('ts', 0) for r in rows if r['oc'] == 'error'), default=0)
@@ -215,6 +243,11 @@ if ntfy:
         else:
             head += "   ⚠ %d errored (ONGOING — last %dm ago)" % (E, mins)
     lines.append(head)
+    if L + F:
+        lines.append("pass-rate: %s%%  (%d good / %d good+bad)" % (oc_pass_rate(rows), L, L + F))
+    if _benign_total:
+        lines.append("ℹ️ %d benign, not counted (%d already-done, %d blocked, %d skip, %d error)" % (
+            _benign_total, _benign_bd.get('noop:done', 0), _benign_bd.get('noop:blocked', 0), _skip_n, _benign_bd.get('error', 0)))
     # always show the most-recent 30 min so current health is unambiguous
     r30 = [r for r in rows if r.get('ts', 0) >= time.time() - 1800]
     if r30:
@@ -267,13 +300,20 @@ if ntfy:
     print("\n".join(lines))
 else:
     print("Overnight throughput, last %gh — %d cycles" % (hours, total))
-    _cheap_n, _burned_n = noop_cost_split(rows)
-    line = "  ✅ %d landed   ➖ %d no-op (%d cheap-skip, %d burned-a-real-attempt)   ❌ %d failed" % (L, N, _cheap_n, _burned_n, F)
+    # 2026-09-28: N is now the BENIGN no-op count only (noop:done/noop:blocked) -
+    # noop:gate/noop:flail count as 'failed' (the canonical BAD bucket) instead,
+    # broken out below the pass-rate line so "why is it bad" is never hidden.
+    line = "  ✅ %d landed   ➖ %d benign no-op (excluded)   ❌ %d failed" % (L, N, F)
     if E:
         line += "   ⚠ %d errored" % E
     print(line)
     if L + F:
-        print("  pass-rate (of attempts that changed code): %d%%" % (100 * L // (L + F)))
+        print("  pass-rate (of GOOD-or-BAD attempts): %s%%" % oc_pass_rate(rows))
+        print("  wasted attempts: %d (%d revert, %d gate-reverted, %d flailed)" % (
+            F, _revert_n, _gate_n, _flail_n))
+    if _benign_total:
+        print("  excluded, not counted (benign): %d (%d already-done, %d blocked, %d skip, %d error)" % (
+            _benign_total, _benign_bd.get('noop:done', 0), _benign_bd.get('noop:blocked', 0), _skip_n, _benign_bd.get('error', 0)))
     ro = repeat_offenders(rows)
     if ro:
         print("  🔁 Stuck (repeated flail/gate-rev): " +

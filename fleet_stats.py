@@ -43,6 +43,9 @@ import time
 from collections import defaultdict
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(SCRIPT_DIR, "scripts"))
+from ovn_outcome_buckets import bucket, summarize  # noqa: E402 - canonical GOOD/BAD/BENIGN split, see scripts/ovn_outcome_buckets.py
+
 STATE_DIR = os.path.join(SCRIPT_DIR, "state")
 REPOS_DIR = os.path.join(SCRIPT_DIR, "repos")
 TASKS_FILE = os.path.join(SCRIPT_DIR, "tasks.json")
@@ -168,30 +171,34 @@ def load_task_stats(cutoff_1d, cutoff_7d):
     return by_repo_7d, by_repo_1d
 
 
+# 2026-09-28 FIX: pass_rate() used to be landed / (landed + revert), which excluded
+# noop:gate (a revert wearing a noop: prefix - see scripts/ovn_outcome_buckets.py's
+# module docstring) and noop:flail (a full attempt that produced zero diff) from the
+# denominator entirely. That made this dashboard's "official" pass rate (~91% over a
+# recent 7d window) disagree with the honest canonical number (~50%) by ~250
+# mislabeled events/week. Now a thin wrapper around the shared classifier so this
+# can never drift from scripts/ovn_stats.py's number again.
 def pass_rate(rows):
-    """% of PROCEED attempts (pass or revert - the model tried and either
-    landed or got reverted by a gate) that actually landed. noop/skip/error
-    are excluded from the denominator - they're not "the model tried and
-    failed", they're "there was nothing to try" or an infra hiccup."""
-    landed = sum(1 for r in rows if r["oc"] == "pass")
-    reverted = sum(1 for r in rows if r["oc"] == "revert")
-    attempted = landed + reverted
-    if attempted == 0:
-        return None
-    return round(100.0 * landed / attempted, 1)
+    """% of GOOD-or-BAD attempts (the model tried and either landed or got the
+    attempt thrown away) that actually landed. BENIGN rows (noop:done/noop:blocked/
+    skip/error) are excluded from the denominator - see ovn_outcome_buckets.py."""
+    return summarize(rows)["pass_rate"]
 
 
 def by_category(rows):
     """{category: {landed, attempted, pass_rate}} - confirms/updates which
     item categories (vue/py/godot/typescript/...) the fleet's model actually
-    succeeds at, per §19's 'what the LLM succeeds/fails at' goal."""
+    succeeds at, per §19's 'what the LLM succeeds/fails at' goal. 'attempted' uses
+    the same canonical GOOD/BAD split as pass_rate() (2026-09-28 fix) so a
+    noop:gate/noop:flail row counts as a failed attempt here too, not just a revert."""
     cats = defaultdict(lambda: {"landed": 0, "attempted": 0})
     for r in rows:
-        if r["oc"] not in ("pass", "revert"):
+        b = bucket(r["oc"])
+        if b == "benign":
             continue
         c = cats[r["lang"]]
         c["attempted"] += 1
-        if r["oc"] == "pass":
+        if b == "good":
             c["landed"] += 1
     return {
         k: {**v, "pass_rate": round(100.0 * v["landed"] / v["attempted"], 1) if v["attempted"] else None}
@@ -240,6 +247,11 @@ def main():
         landed_7d = sum(1 for r in rows_7d if r["oc"] == "pass")
         landed_1d = sum(1 for r in rows_1d if r["oc"] == "pass")
         runway_days = round(doable / (landed_7d / 7.0), 1) if doable is not None and landed_7d > 0 else None
+        # 2026-09-28: one summarize() call gets pass_rate + both companion
+        # breakdowns (wasted-attempt-by-subtype, benign-excluded-by-subtype) in a
+        # single pass over rows_7d, so the dashboard can show WHY the rate is what
+        # it is, not just the headline number.
+        summary_7d = summarize(rows_7d)
         repos_out[dirname] = {
             "task_id": task_id,
             "done": done,
@@ -248,7 +260,11 @@ def main():
             "landed_7d": landed_7d,
             "runway_days": runway_days,
             "unpromoted": git_unpromoted(repo_dir),
-            "pass_rate_7d": pass_rate(rows_7d),
+            "pass_rate_7d": summary_7d["pass_rate"],
+            "wasted_attempts_7d": summary_7d["bad"],
+            "wasted_attempts_7d_breakdown": summary_7d["bad_breakdown"],
+            "benign_excluded_7d": summary_7d["benign"],
+            "benign_excluded_7d_breakdown": summary_7d["benign_breakdown"],
             "by_category_7d": by_category(rows_7d),
         }
 

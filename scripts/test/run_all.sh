@@ -2,7 +2,8 @@
 # Run the full overnight-queue regression suite. Exit 0 = all green.
 cd "$(dirname "$0")"
 rc=0
-echo "===== Python helpers ====="; python3 test_helpers.py || rc=1
+echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
+echo; echo "===== Python helpers ====="; python3 test_helpers.py || rc=1
 echo; echo "===== Bash helpers ====="; bash test_bash_helpers.sh || rc=1
 echo; echo "===== Runner invariants ====="; bash test_runner_invariants.sh || rc=1
 echo; echo "===== Hygiene invariants ====="; bash test_hygiene_invariants.sh || rc=1

@@ -33,6 +33,11 @@ class_of(){ # $1=status $2=id(unique per call so lines don't collide)
   record_outcome "$2" repo "$1" "" aider_fix 1 /dev/null
   grep -o '"class":"[a-z]*"' "$STATE_DIR/outcomes.jsonl" | head -1 | sed -E 's/.*"([a-z]+)".*/\1/'
 }
+sev_of(){ # $1=status $2=id(unique per call so lines don't collide)
+  : > "$STATE_DIR/outcomes.jsonl"
+  record_outcome "$2" repo "$1" "" aider_fix 1 /dev/null
+  grep -o '"severity":"[a-z]*"' "$STATE_DIR/outcomes.jsonl" | head -1 | sed -E 's/.*"([a-z]+)".*/\1/'
+}
 
 # ---- 1. the exact statuses involved in the 2026-09-09 incident ----
 ok "FIXED success status classifies as landed"  "[ \"\$(class_of 'pushed(tests:pass) stage(higher-tier)' t1)\" = landed ]"
@@ -70,6 +75,28 @@ ok "error-transient(...) -> error"         "[ \"\$(class_of 'error-transient(API
 # in THIS invocation's own output, before ever consulting the stale-file fallback.
 ok "skip(exhausted) stage(higher-tier) -> skipped (not a false godot failure)" \
    "[ \"\$(class_of 'skip(exhausted) stage(higher-tier)' t12b)\" = skipped ]"
+
+# ---- 6c. 2026-09-28 FIX: ALREADY-DONE (a read-only scout verdict, zero implement attempts -
+# same shape as BLOCKED/NEEDS-DECISION) used to fall through to the generic no-op*|noop* pattern
+# and get sev=bad, wrongly counting a benign near-zero-cost non-event as a real failure in every
+# severity-based pass rate (scripts/ovn_tier_stats.py's per-tier denominator, the hourly/3-hourly
+# push notifications it feeds). class stays 'noop' either way (unchanged) - only severity flips.
+ok "no-op(ALREADY-DONE) -> class noop (unchanged)"    "[ \"\$(class_of 'no-op(ALREADY-DONE)' t-ad1)\" = noop ]"
+ok "no-op(ALREADY-DONE) -> severity neutral (FIXED, was bad)" \
+   "[ \"\$(sev_of 'no-op(ALREADY-DONE)' t-ad2)\" = neutral ]"
+ok "no-op(BLOCKED) -> severity neutral (no regression from the ALREADY-DONE fix)" \
+   "[ \"\$(sev_of 'no-op(BLOCKED)' t-ad3)\" = neutral ]"
+ok "no-op(NEEDS-DECISION) -> severity neutral (no regression from the ALREADY-DONE fix)" \
+   "[ \"\$(sev_of 'no-op(NEEDS-DECISION)' t-ad4)\" = neutral ]"
+# a genuine thrown-away attempt (bare no-op / gate-reverted) must still be sev=bad - the fix must
+# not accidentally widen the neutral case to swallow real failures too.
+ok "bare no-op (flailed) -> severity bad (unaffected by the ALREADY-DONE fix)" \
+   "[ \"\$(sev_of 'no-op' t-ad5)\" = bad ]"
+ok "no-op(reverted-red) (gate-reverted) -> severity bad (unaffected by the ALREADY-DONE fix)" \
+   "[ \"\$(sev_of 'no-op(reverted-red)' t-ad6)\" = bad ]"
+ok "reverted(build-break) -> severity bad" "[ \"\$(sev_of 'reverted(build-break)' t-ad7)\" = bad ]"
+ok "pushed(tests:pass) -> severity good"   "[ \"\$(sev_of 'pushed(tests:pass)' t-ad8)\" = good ]"
+ok "skip(exhausted) -> severity expected"  "[ \"\$(sev_of 'skip(exhausted)' t-ad9)\" = expected ]"
 
 # ---- 7. structural backstop: the dangerous bare catch-all pattern must not come back verbatim ----
 ok "no bare '*) cls=landed' catch-all remains in record_outcome" \

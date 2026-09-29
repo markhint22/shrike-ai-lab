@@ -15,7 +15,10 @@ set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 OUT="state/godot_report.txt"
 python3 - <<'PY' | tee "$OUT"
-import json, time, datetime, collections
+import json, os, sys, time, datetime, collections
+
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts"))
+from ovn_outcome_buckets import bucket_from_outcome_row  # canonical GOOD/BAD/BENIGN split
 
 def is_noise(o):
     st = (o.get("status") or "").lower()
@@ -54,12 +57,24 @@ for label, hrs in (("last 6h", 6), ("last 24h", 24), ("last 72h", 72)):
     if not real:
         print(f"[{label}] no genuine godot attempts (raw={len(rows)}, noise-filtered={noise_n})")
         continue
+    # 2026-09-28 FIX: this used to keep EVERY row (landed + reverted + ALL noop,
+    # including benign already-done/blocked scout verdicts) in the denominator -
+    # the harshest of the four disagreeing pass-rate formulas in this pipeline.
+    # Now uses the same canonical GOOD/BAD/BENIGN split as the other three
+    # (scripts/ovn_outcome_buckets.py), via outcomes.jsonl's `severity` field
+    # (falling back to class+status for rows written before severity existed).
+    buckets = [bucket_from_outcome_row(o) for o in real]
     cls = collections.Counter(o.get("class") for o in real)
-    landed = cls.get("landed", 0)
-    total = len(real)
-    fr = collections.Counter(o.get("fail_reason") for o in real if o.get("class") != "landed" and o.get("fail_reason"))
-    print(f"[{label}] genuine attempts={total} (raw={len(rows)}, filtered-noise={noise_n}) "
-          f"landed={landed} ({100*landed//total}%) reverted={cls.get('reverted',0)} noop={cls.get('noop',0)}")
+    landed = buckets.count("good")
+    bad_n = buckets.count("bad")
+    benign_n = buckets.count("benign")
+    total = landed + bad_n
+    if total == 0:
+        print(f"[{label}] {benign_n} benign event(s) only, no good/bad attempts (raw={len(rows)}, filtered-noise={noise_n})")
+        continue
+    fr = collections.Counter(o.get("fail_reason") for o, b in zip(real, buckets) if b == "bad" and o.get("fail_reason"))
+    print(f"[{label}] attempts={total} (raw={len(rows)}, filtered-noise={noise_n}, {benign_n} benign excluded) "
+          f"landed={landed} ({100*landed//total}%) reverted={cls.get('reverted',0)} bad-noop(gate/flail)={bad_n - cls.get('reverted',0)}")
     if fr:
         print("         fail causes: " + ", ".join(f"{k}:{v}" for k, v in fr.most_common()))
 print()

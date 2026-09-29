@@ -151,10 +151,19 @@ def test_stats():
         out = subprocess.run([sys.executable, os.path.join(SCRIPTS, "ovn_stats.py"), "24"],
                              capture_output=True, text=True, env=env).stdout
         ok("stats landed=2", "2 landed" in out, out.splitlines()[1] if len(out.splitlines())>1 else out)
-        ok("stats failed=1", "1 failed" in out)
-        ok("stats noop=2 (both cause-tagged)", "2 no-op" in out)
+        # 2026-09-28 FIX: noop:flail is canonically BAD (a full attempt that produced zero
+        # diff), same as revert - it used to be lumped into the benign "no-op" bucket, which
+        # silently excluded it from the failure count entirely. Fixture has revert + noop:flail
+        # = 2 failed (was wrongly "1 failed", counting only revert); noop:blocked is the only
+        # remaining BENIGN no-op = 1 (was wrongly "2 no-op", including noop:flail).
+        ok("stats failed=2 (revert + noop:flail, canonical BAD bucket)", "2 failed" in out, out)
+        ok("stats noop=1 (only noop:blocked, the BENIGN bucket)", "1 benign no-op" in out, out)
         ok("stats errored=1", "1 errored" in out)
-        ok("stats pass-rate 66%", "66%" in out, [l for l in out.splitlines() if 'pass-rate' in l])
+        # pass-rate = 2 good / (2 good + 2 bad) = 50.0%, not the old (wrong) 66% that came from
+        # excluding noop:flail from the denominator entirely.
+        ok("stats pass-rate 50.0%", "50.0%" in out, [l for l in out.splitlines() if 'pass-rate' in l])
+        ok("stats surfaces the wasted-attempt breakdown by subtype",
+           any('wasted attempts' in l and '1 revert' in l and '1 flailed' in l for l in out.splitlines()), out)
         # 2026-09-09: the per-tier breakdown moved to ovn_tier_stats.py (reads
         # outcomes.jsonl, has explicit tiers + no-op/timeout/token detail this
         # script's 'cx'-tag inference couldn't show) - see test_ntfy_stats.sh.
@@ -170,9 +179,11 @@ def test_stats():
         ok("ntfy shows No-op causes line", cause_line != "", ntfy_out)
         ok("ntfy causes count flailed", "flailed 1" in cause_line, cause_line)
         ok("ntfy causes count blocked", "blocked 1" in cause_line, cause_line)
-        # an exhausted-repo 'skip' row must NOT inflate the no-op count (the whole
-        # point: idle != wasted). Fixture has 2 noop + 1 skip -> still "2 no-op".
-        ok("skip is not counted as a no-op", "2 no-op" in out)
+        # an exhausted-repo 'skip' row must NOT inflate the benign no-op count (the whole
+        # point: idle != wasted). Fixture has 1 BENIGN noop (noop:blocked) + 1 skip -> still
+        # "1 benign no-op" (noop:flail moved to 'failed' as of the 2026-09-28 canonical fix,
+        # so this is no longer "2 noop" either way - see the pass-rate assertions above).
+        ok("skip is not counted as a no-op", "1 benign no-op" in out)
         # 2026-09-09: idle_repos()/"Exhausted repos" was removed from the ntfy output - superseded
         # by ovn_planning_stats.py's "Stuck dry" line in the digest (see test_ntfy_stats.sh), which
         # checks the same condition more precisely (requires planner AND refill to both agree a

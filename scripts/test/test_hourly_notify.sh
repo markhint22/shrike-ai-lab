@@ -19,7 +19,7 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 # that resolves to a fixture state dir, never the real production one.
 mkdir -p "$tmp/state" "$tmp/scripts" "$tmp/repos"
 cp "$SCRIPT" "$tmp/hourly_notify.sh"
-for f in ovn_tier_stats.py ovn_landed_detail.py ovn_feature_groups.py; do
+for f in ovn_tier_stats.py ovn_landed_detail.py ovn_feature_groups.py ovn_outcome_buckets.py; do
   [ -f "$OQ/scripts/$f" ] && cp "$OQ/scripts/$f" "$tmp/scripts/$f"
 done
 echo "faketopic" > "$tmp/state/ntfy_topic"

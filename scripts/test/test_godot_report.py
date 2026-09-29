@@ -37,7 +37,14 @@ def _mk_home(outcome_lines):
     ovn = os.path.join(home, "overnight-queue")
     os.makedirs(os.path.join(ovn, "state"), exist_ok=True)
     os.makedirs(os.path.join(ovn, "logs"), exist_ok=True)
+    os.makedirs(os.path.join(ovn, "scripts"), exist_ok=True)
     shutil.copy(SCRIPT, os.path.join(ovn, "ovn_godot_report.sh"))
+    # 2026-09-28: ovn_godot_report.sh now imports the canonical GOOD/BAD/BENIGN
+    # classifier from scripts/ovn_outcome_buckets.py - must be present alongside it
+    # in the fixture $HOME or the heredoc's import crashes.
+    buckets_src = os.path.join(ROOT, "scripts", "ovn_outcome_buckets.py")
+    if os.path.isfile(buckets_src):
+        shutil.copy(buckets_src, os.path.join(ovn, "scripts", "ovn_outcome_buckets.py"))
     with open(os.path.join(ovn, "state", "outcomes.jsonl"), "w") as f:
         f.write("\n".join(outcome_lines) + "\n")
     return home, ovn
@@ -49,12 +56,18 @@ def _run(home):
                            capture_output=True, text=True, env=env)
 
 
-def _row(ts_hours_ago, category="godot", cls="landed", status="pushed(tests:pass)", fail_reason=""):
+def _row(ts_hours_ago, category="godot", cls="landed", status="pushed(tests:pass)", fail_reason="", severity=None):
     import json
-    return json.dumps({
+    d = {
         "ts": _iso(ts_hours_ago), "repo": "xlite", "type": "aider_fix",
         "category": category, "class": cls, "status": status, "fail_reason": fail_reason,
-    })
+    }
+    # severity is optional here on purpose: real historical outcomes.jsonl rows (and these
+    # fixtures, which predate the 2026-09-28 severity-based rework) can lack it entirely -
+    # ovn_outcome_buckets.bucket_from_outcome_row() must fall back to class+status for those.
+    if severity is not None:
+        d["severity"] = severity
+    return json.dumps(d)
 
 
 def test_genuine_landed_and_reverted_are_counted_and_percentage_computed():
@@ -64,11 +77,11 @@ def test_genuine_landed_and_reverted_are_counted_and_percentage_computed():
         res = _run(home)
         ok("script exits 0", res.returncode == 0, res.stderr)
         six_h_line = next((l for l in res.stdout.splitlines() if l.startswith("[last 6h]")), "")
-        ok("6h window shows 4 genuine attempts", "genuine attempts=4" in six_h_line, six_h_line)
+        ok("6h window shows 4 genuine attempts", "attempts=4" in six_h_line, six_h_line)
         ok("6h window shows 2 landed", "landed=2" in six_h_line, six_h_line)
         ok("6h window computes 50% land rate", "(50%)" in six_h_line, six_h_line)
         ok("6h window shows 1 reverted", "reverted=1" in six_h_line, six_h_line)
-        ok("6h window shows 1 noop", "noop=1" in six_h_line, six_h_line)
+        ok("6h window shows 1 noop", "bad-noop(gate/flail)=1" in six_h_line, six_h_line)
     finally:
         shutil.rmtree(home)
 
@@ -85,7 +98,7 @@ def test_model_api_error_and_timeout_and_exhausted_are_filtered_as_noise():
         res = _run(home)
         six_h_line = next((l for l in res.stdout.splitlines() if l.startswith("[last 6h]")), "")
         ok("noise entries excluded from genuine attempts (only the 1 landed counts)",
-           "genuine attempts=1" in six_h_line, six_h_line)
+           "attempts=1" in six_h_line, six_h_line)
         ok("raw count still shows all 4", "raw=4" in six_h_line, six_h_line)
         ok("noise-filtered count shows 3", "filtered-noise=3" in six_h_line, six_h_line)
     finally:
@@ -113,7 +126,33 @@ def test_non_godot_category_entries_are_excluded_entirely():
         res = _run(home)
         six_h_line = next((l for l in res.stdout.splitlines() if l.startswith("[last 6h]")), "")
         ok("only the godot-category row is counted, not the vue one",
-           "genuine attempts=1" in six_h_line, six_h_line)
+           "attempts=1" in six_h_line, six_h_line)
+    finally:
+        shutil.rmtree(home)
+
+
+def test_benign_scout_noops_are_excluded_not_counted_as_failures():
+    # 2026-09-28 FIX: this used to keep EVERY row (including benign scout-only
+    # verdicts that never touched code) in the denominator - the harshest of the
+    # four disagreeing pass-rate formulas fixed this session. A no-op(ALREADY-DONE)
+    # and a no-op(BLOCKED) must now be excluded entirely, not counted as failures.
+    rows = [
+        _row(1, cls="landed"),
+        _row(1, cls="noop", status="no-op(ALREADY-DONE)"),
+        _row(1, cls="noop", status="no-op(BLOCKED)"),
+        _row(1, cls="reverted"),
+    ]
+    home, ovn = _mk_home(rows)
+    try:
+        res = _run(home)
+        ok("script exits 0", res.returncode == 0, res.stderr)
+        six_h_line = next((l for l in res.stdout.splitlines() if l.startswith("[last 6h]")), "")
+        ok("benign scout no-ops are excluded from the denominator (2 good+bad, not 4)",
+           "attempts=2" in six_h_line, six_h_line)
+        ok("the 2 benign rows are surfaced, not silently dropped",
+           "2 benign excluded" in six_h_line, six_h_line)
+        ok("land rate is computed over good+bad only (1/2 = 50%), not diluted by benign rows",
+           "landed=1 (50%)" in six_h_line, six_h_line)
     finally:
         shutil.rmtree(home)
 
@@ -124,12 +163,12 @@ def test_entries_outside_the_time_window_are_excluded():
     try:
         res = _run(home)
         six_h_line = next((l for l in res.stdout.splitlines() if l.startswith("[last 6h]")), "")
-        ok("6h window only counts the recent row", "genuine attempts=1" in six_h_line, six_h_line)
+        ok("6h window only counts the recent row", "attempts=1" in six_h_line, six_h_line)
         day_line = next((l for l in res.stdout.splitlines() if l.startswith("[last 24h]")), "")
         ok("24h window still only counts the recent row (the other is 48h old)",
-           "genuine attempts=1" in day_line, day_line)
+           "attempts=1" in day_line, day_line)
         three_day_line = next((l for l in res.stdout.splitlines() if l.startswith("[last 72h]")), "")
-        ok("72h window counts both rows", "genuine attempts=2" in three_day_line, three_day_line)
+        ok("72h window counts both rows", "attempts=2" in three_day_line, three_day_line)
     finally:
         shutil.rmtree(home)
 
@@ -158,6 +197,7 @@ if __name__ == "__main__":
               test_model_api_error_and_timeout_and_exhausted_are_filtered_as_noise,
               test_zero_genuine_attempts_reports_explicitly_rather_than_dividing_by_zero,
               test_non_godot_category_entries_are_excluded_entirely,
+              test_benign_scout_noops_are_excluded_not_counted_as_failures,
               test_entries_outside_the_time_window_are_excluded,
               test_output_is_written_to_state_file_as_well_as_stdout):
         print("== %s ==" % t.__name__)

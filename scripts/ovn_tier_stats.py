@@ -46,6 +46,9 @@ import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ovn_outcome_buckets import bucket_from_outcome_row  # canonical GOOD/BAD/BENIGN split for outcomes.jsonl rows
+
 P = os.path.expanduser("~/overnight-queue/state/outcomes.jsonl")
 LEDGER = os.path.expanduser("~/overnight-queue/state/token_ledger.jsonl")
 _args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -199,9 +202,16 @@ for t in TIER_ORDER:
     sub = by_tier[t]
     if not sub:
         continue
-    # rate denominator excludes 'skipped' (an exhausted/empty repo never attempted
-    # anything) so an idle repo doesn't drag down the tier's real success rate.
-    attempted = [r for r in sub if r.get("class") != "skipped"]
+    # 2026-09-28 FIX: the rate denominator used to be "everything except
+    # class=='skipped'" - which wrongly folded in BENIGN scout-only verdicts
+    # (no-op(ALREADY-DONE)/no-op(BLOCKED)/no-op(NEEDS-DECISION), and class=='error')
+    # as if they were failures, dragging this exact number (the one hourly_notify.sh
+    # and digest_notify.sh push to a phone) down to ~45-58% when the honest rate was
+    # ~50%. Now uses the same canonical GOOD/BAD/BENIGN split as task_stats.log's
+    # pass-rate (ovn_outcome_buckets.py), via outcomes.jsonl's own `severity` field -
+    # see that module's bucket_from_severity() docstring for why the two line up.
+    attempted = [r for r in sub if bucket_from_outcome_row(r) in ("good", "bad")]
+    benign_noop = [r for r in sub if bucket_from_outcome_row(r) == "benign" and r.get("class") == "noop"]
     landed = sum(1 for r in attempted if r.get("class") == "landed")
     noop = sum(1 for r in attempted if r.get("class") == "noop")
     reverted = sum(1 for r in attempted if r.get("class") == "reverted")
@@ -214,12 +224,16 @@ for t in TIER_ORDER:
     # confirmed live: 56 of 138 noop rows fleet-wide in a 24h window (41%) were
     # actually this shape. Anyone reading "N no-op" has no way to tell how much of
     # it was wasted work vs. idle. Break it out without changing the underlying
-    # class (the safety-valve behavior stays exactly as designed).
+    # class (the safety-valve behavior stays exactly as designed). 'noop' here is
+    # already BAD-only post-2026-09-28 fix (benign_noop above is excluded from
+    # `attempted`), so this is purely wasted-attempt detail, not a mix of both.
     hidden_reverts = sum(1 for r in attempted if str(r.get("status", "")).startswith("no-op(reverted"))
     other_bad = sum(1 for r in attempted if r.get("class") in ("error", "oversized", "unknown", "held"))
     timeouts = sum(1 for r in attempted if r.get("fail_reason") == "timeout")
     n = len(attempted)
     if n == 0:
+        if benign_noop:
+            lines.append(f"  {('T'+t) if t != '?' else 'Ongoing-lane'}: {len(benign_noop)} benign no-op(s) only (already-done/blocked), no good/bad attempts")
         continue
     pct = 100 * landed // n
     # Per-item land rate (2026-09-23): the per-ATTEMPT rate above conflates "this item
@@ -262,6 +276,8 @@ for t in TIER_ORDER:
         extra.append(f"{timeouts} timeout")
     if other_bad:
         extra.append(f"{other_bad} other")
+    if benign_noop:
+        extra.append(f"{len(benign_noop)} excluded (already-done/blocked, not counted)")
     if extra:
         bits.append(" · ".join(extra))
     lines.append("  " + "  ·  ".join(bits))
@@ -274,6 +290,28 @@ if not lines and not (ledger_sent or ledger_recv):
 
 window_label = "all-time" if all_time else "last %gh" % hours
 out = ["📊 By tier (%s):" % window_label] + lines if lines else []
+# 2026-09-28: fleet-wide canonical pass-rate + companion wasted-attempt/benign-
+# excluded metrics, computed the SAME way the per-tier lines above are (via
+# bucket_from_severity()) so this headline number can never disagree with its own
+# detail section, or with task_stats.log's independently-derived pass rate.
+_total_good = sum(1 for r in rows if bucket_from_outcome_row(r) == "good")
+_total_bad = sum(1 for r in rows if bucket_from_outcome_row(r) == "bad")
+_total_bad_noop = sum(1 for r in rows if bucket_from_outcome_row(r) == "bad" and r.get("class") == "noop")
+_total_flailed = max(_total_bad_noop - total_hidden_reverts, 0)
+_total_benign_noop = sum(1 for r in rows if bucket_from_outcome_row(r) == "benign" and r.get("class") == "noop")
+if _total_good or _total_bad:
+    _pct = 100 * _total_good // (_total_good + _total_bad)
+    out.append(f"✅ pass-rate this window: {_pct}% ({_total_good} good / {_total_good + _total_bad} good+bad)")
+if _total_bad:
+    out.append(
+        f"💥 {_total_bad} wasted attempt(s) this window "
+        f"({total_reverted_class} reverted, {total_hidden_reverts} gate-reverted, {_total_flailed} flailed/unverified)"
+    )
+if _total_benign_noop:
+    out.append(
+        f"ℹ️ {_total_benign_noop} benign no-op(s) excluded from the rate "
+        f"(already-done/blocked/needs-decision — not counted as failures)"
+    )
 if total_timeouts:
     out.append(f"⏱ {total_timeouts} timeout(s) total this window")
 if total_hidden_reverts:

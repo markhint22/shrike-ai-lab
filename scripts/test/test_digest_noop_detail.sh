@@ -15,7 +15,7 @@ ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FA
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/state" "$tmp/scripts" "$tmp/bin"
 cp "$D" "$tmp/digest_notify.sh"
-for f in ovn_landed_detail.py ovn_noop_detail.py ovn_tier_stats.py ovn_stats.py ovn_planning_stats.py ovn_feature_groups.py; do
+for f in ovn_landed_detail.py ovn_noop_detail.py ovn_tier_stats.py ovn_stats.py ovn_planning_stats.py ovn_feature_groups.py ovn_outcome_buckets.py; do
   [ -f "$OQ/scripts/$f" ] && cp "$OQ/scripts/$f" "$tmp/scripts/$f"
 done
 echo "faketopic" > "$tmp/state/ntfy_topic"
