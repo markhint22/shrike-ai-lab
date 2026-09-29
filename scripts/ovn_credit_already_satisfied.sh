@@ -221,10 +221,37 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   fi
 }
 
+# UNDER-CREDITING FIX (2026-09-28): both patterns below were exact-phrase matches with zero
+# tolerance for ordinary sentence variation, so a correctly-completed item whose model
+# response phrased "nothing to change" even slightly differently was scored as a flail
+# (no FILES match -> no credit -> re-served every cycle) instead of neutral. Confirmed live
+# on billwatch: a stuck item that was ALREADY correctly fixed in code kept getting re-served
+# and re-failing for 4+ days, burning ~450K tokens, because its "already done" responses
+# were phrased in ways like "This item appears to already be satisfied" that this regex
+# could not see. Calibrated against 350+ real recent model responses (grep across
+# logs/*billwatch*.log), not guessed - every addition below is a phrasing that actually
+# appeared and was NOT matched by the old pattern:
+#   "already be satisfied"       - the old pattern required "already <word>" adjacency;
+#                                   a "be" (or "fully"/"correctly"/"completely") between
+#                                   "already" and the verb broke the match every time.
+#   "already fully implemented", "already correctly defined" - same adjacency gap.
+#   "already contains", "already defined", "already handles", "already satisfies" - present-
+#                                   tense/3rd-person verb forms the old list never had (it only
+#                                   had "handled"/"satisfied" past tense, no "contains"/"defined").
+#   "already fine"                - a common casual completion phrase, not in the old list at all.
+#   "No further changes are needed.", "No code changes needed." - the old "No changes? needed"
+#                                   pattern required strict adjacency; "further"/"code" in
+#                                   between broke it.
+#   "does not need any changes."  - an entirely different sentence shape the old pattern
+#                                   had no alternative for at all.
+# This is purely a RECALL fix (catching more true already-done responses) - it does NOT
+# weaken the enforce-mode VERIFY gate below, which independently confirms (and can still
+# REFUSE) every credit this produces, so a broader match that happens to be wrong still
+# cannot silently over-credit - see that gate's own 2026-09-24/25/26/27 header notes.
 FILES="$(awk '
   { if (match($0, /[A-Za-z0-9_\/.-]+\.[A-Za-z0-9]{1,8}/)) { lastf=substr($0,RSTART,RLENGTH) } }
-  /[Aa]lready (done|implemented|imported|present|in place|use|uses|has|have|correct|handled|satisfied|been|exists|covers?|tests?|validates?|guards?)/ { if (lastf!="") print lastf }
-  /[Nn]o changes? (needed|required|necessary)|[Nn]othing to (change|do|add)|is already (there|the case)|already (passes|passing)/ { if (lastf!="") print lastf }
+  /[Aa]lready (fully |correctly |completely |essentially |be )*(done|implemented|imported|present|in place|use|uses|has|have|correct|handled|handles|satisfied|satisfies|been|exists?|contains?|defined|defines|covers?|tests?|validates?|guards?|fine|good|complete)/ { if (lastf!="") print lastf }
+  /[Nn]o (code |further |additional )*changes? (are |is )?(needed|required|necessary)|[Nn]othing to (change|do|add)|is already (there|the case)|already (passes|passing)|does not (need|require) (any )?changes?/ { if (lastf!="") print lastf }
 ' "$LOG" | sort -u)"
 credited=0
 for f in $FILES; do

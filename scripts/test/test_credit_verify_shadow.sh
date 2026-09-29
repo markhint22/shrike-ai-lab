@@ -14,6 +14,18 @@
 #     substituted in, when one exists (2026-09-25 calibration: a bare
 #     interpreter from PATH lacks the repo's deps, producing a spurious FAIL
 #     that looks like a false credit but is really an environment mismatch)
+#
+# 2026-09-28 FIX: this test's whole premise ("crediting behavior is UNCHANGED, shadow mode
+# never blocks/demotes") describes SHADOW mode specifically, but it never actually set
+# OVN_VERIFY_GATE_MODE=shadow - it just invoked the script bare, so once enforce became the
+# DEFAULT (the 2026-09-28 shadow->enforce promotion in ovn_credit_already_satisfied.sh
+# itself), this test started running in enforce mode by accident and its own
+# fake_thing.py case (a VERIFY that deliberately, correctly FAILs) got REFUSED instead of
+# credited - exactly the enforce-mode behavior working as designed, just not what this
+# specific shadow-mode test was set up to exercise. Pin it to shadow mode explicitly so it
+# tests what its own header says it tests; test_credit_already_satisfied_enforce.sh is the
+# dedicated test for enforce-mode's refuse-on-FAIL behavior. Also: this file was never wired
+# into run_all.sh, so this drift shipped silently - added below.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../ovn_credit_already_satisfied.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/../../scripts/ovn_credit_already_satisfied.sh"
@@ -62,7 +74,7 @@ Checking venv_check.py — already present, no changes needed.
 EOF
 
 shadow_log="$tmp/state/verify_gate_shadow.log"
-OVN_VERIFY_SHADOW_LOG="$shadow_log" bash "$SCRIPT" "$task_log" "$prog" > /tmp/credit_out.$$ 2>&1
+OVN_VERIFY_SHADOW_LOG="$shadow_log" OVN_VERIFY_GATE_MODE=shadow bash "$SCRIPT" "$task_log" "$prog" > /tmp/credit_out.$$ 2>&1
 out="$(cat /tmp/credit_out.$$)"; rm -f /tmp/credit_out.$$
 
 # --- crediting behavior unchanged: all 7 items should still get credited ---

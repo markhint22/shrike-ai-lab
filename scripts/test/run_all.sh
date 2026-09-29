@@ -87,6 +87,8 @@ echo; echo "===== Batch straggler parking (AUTO-SKIP low-grade handling, worktre
 echo; echo "===== Build-fix/Tier-2 fix-up file exclusion (no unbounded OVERNIGHT_PROGRESS.md context blowup) ====="; bash test_buildfix_exclude_progress_files.sh || rc=1
 echo; echo "===== Credit-verify shadow-check tool-path resolution (godot/pytest/venv self-heal) ====="; bash test_credit_verify_tool_paths.sh || rc=1
 echo; echo "===== Credit-verify enforce promotion (FAIL refuses credit, shadow-mode rollback preserved) ====="; bash test_credit_already_satisfied_enforce.sh || rc=1
+echo; echo "===== Credit-verify shadow-mode gate (pinned to shadow mode explicitly, was silently running in enforce) ====="; bash test_credit_verify_shadow.sh || rc=1
+echo; echo "===== Credit-already-satisfied recall fix (real missed already-done phrasings now credited) ====="; bash test_credit_already_satisfied_recall.sh || rc=1
 echo; echo "===== Backup-branch sweep (orphaned backup-diverged-* branch cleanup + escalating alert) ====="; bash test_backup_branch_sweep.sh || rc=1
 echo; echo "===== Multifile scope guard (multifile:no items never accumulate extra files, run_overnight.sh) ====="; bash test_multifile_scope_guard.sh || rc=1
 echo; echo "===== Toks-monitor rolling baseline (sustained-regression detection, not an unreachable solo gate) ====="; bash test_toks_monitor_regression.sh || rc=1
