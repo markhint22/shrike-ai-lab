@@ -114,6 +114,12 @@ TRAINING_DIR="$HOME/shrike-ai-lab-training"
 TASKS_FILE="$SCRIPT_DIR/tasks.json"
 STATE_DIR="$SCRIPT_DIR/state"
 
+# 2026-09-28: shared "which item did this cycle actually work on" resolver — see
+# scripts/lib_item_select.sh for the full root-cause writeup. record_outcome() below uses
+# this instead of its own independent top-of-file re-grep.
+# shellcheck source=scripts/lib_item_select.sh
+source "$SCRIPT_DIR/scripts/lib_item_select.sh" 2>/dev/null || true
+
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
 record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s $9=repo_dir
@@ -133,10 +139,26 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # does, ovn_item_guard.sh's own call happens after this one) so both see the same
   # "top" line. Empty for ongoing-lane background work with no backing queue item —
   # that's already the correctly-labeled tier=? "Ongoing-lane" bucket, not a gap here.
+  #
+  # 2026-09-28 FIX: "the SAME top-unchecked-item text ovn_item_guard.sh already keys its
+  # streaks on" was true of the SELECTOR, but the selector itself was wrong — a fresh
+  # top-of-file grep is only a proxy for "the item this cycle worked on", and the two can
+  # genuinely diverge. Confirmed live on test-automation-agent: an item failed 8 times
+  # across 2 hours while state/item_fails/ongoing-<repo>.count stayed at 1 the whole time,
+  # because this hash (and ovn_item_guard.sh's own, independently) kept tracking whatever
+  # unrelated item happened to be topmost that cycle. Both now go through
+  # ovn_resolve_top_item() (scripts/lib_item_select.sh) — same underlying scout-file-match
+  # logic, same fallback to the old top-of-file behavior when there's no usable scout
+  # signal — so this metric and ovn_item_guard.sh's cap-tracking stay in agreement AND
+  # actually reflect the item that got worked on.
   item_hash=""
   if [ -n "$repo_dir" ] && [ -f "$repo_dir/OVERNIGHT_PROGRESS.md" ]; then
     local _top _text _featkey
-    _top="$(grep -nE '^- \[ \]' "$repo_dir/OVERNIGHT_PROGRESS.md" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+    if command -v ovn_resolve_top_item >/dev/null 2>&1; then
+      _top="$(ovn_resolve_top_item "$repo_dir" "$tl")"
+    else
+      _top="$(grep -nE '^- \[ \]' "$repo_dir/OVERNIGHT_PROGRESS.md" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+    fi
     if [ -n "$_top" ]; then
       _text="${_top#*:}"
       _featkey="$(printf '%s' "$_text" | grep -oE '\[feat:[^]]+\]' | head -1)"
@@ -1222,7 +1244,16 @@ STUB
       # recovered/decomposed 8 times (cap 2) over 3 weeks without ever landing;
       # gitlark and iptv_apps had 2 more items stuck the same way (lineage count 4
       # each). Now excluded everywhere doable items are selected.
-      _lf_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' | head -1)"
+      # 2026-09-28: routed through the shared ovn_resolve_top_item() (scripts/lib_item_select.sh)
+      # for consistency with record_outcome()/ovn_item_guard.sh's now-fixed selectors — this call
+      # site has no task_log for the CURRENT cycle yet (it hasn't run), so it falls back to the
+      # same plain top-of-file behavior as before; no behavior change here, just one fewer
+      # independently-drifting copy of the exclusion list to keep in sync.
+      if command -v ovn_resolve_top_item >/dev/null 2>&1; then
+        _lf_top="$(ovn_resolve_top_item ".")"
+      else
+        _lf_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' | head -1)"
+      fi
       _lf_file="$STATE_DIR/item_fails/${id}.lastfail"
       if [ -n "$_lf_top" ] && [ -f "$_lf_file" ]; then
         _lf_hash="$(printf '%s' "${_lf_top#*:}" | md5sum | cut -d' ' -f1)"

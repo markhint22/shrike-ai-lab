@@ -61,7 +61,26 @@ esac
 # 2026-09-17 17:24 (commit 28ca19a), 3.5h after the "fix". Apply the same
 # exclusion here so cap-tracking follows the item the fleet is actually
 # working on, not a stale terminal escalation note.
-top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+#
+# 2026-09-28 FIX: "the item the fleet is actually working on" was still a LIE even after the
+# above fix - a fresh top-of-file grep is only a PROXY for that, and the two can genuinely
+# diverge (a line above flips done/skip mid-cycle, wording drifts, etc). Confirmed live on
+# test-automation-agent: one item failed 8 times across 2 hours while this guard's own
+# consecutive-fail counter stayed at 1 the whole time, because it kept hashing whatever
+# unrelated item happened to be topmost that cycle instead of the one actually retried. Use
+# the scout's own FILES: answer (recorded in $task_log, the same proven signal
+# run_overnight.sh's OVN_SCOUT_FILES/cycle_summary.log already use) to find the REAL line
+# when one is available; see scripts/lib_item_select.sh for the full root-cause writeup and
+# the exact fallback semantics (identical to the old top-of-file-only behavior when there is
+# no usable scout signal).
+_lib="$(dirname "$0")/lib_item_select.sh"
+if [ -f "$_lib" ]; then
+  # shellcheck source=scripts/lib_item_select.sh
+  . "$_lib"
+  top="$(ovn_resolve_top_item "$repo" "$task_log")"
+else
+  top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+fi
 [ -z "$top" ] && exit 0
 lineno="${top%%:*}"
 text="${top#*:}"
