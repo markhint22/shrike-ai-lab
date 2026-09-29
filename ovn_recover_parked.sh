@@ -80,6 +80,42 @@ for r in $REPOS; do
   # (capping recoveries per-REPO instead of per-FILE, more aggressive than
   # intended). Search anywhere in the string instead of anchoring to start.
   lineage_file="$(printf '%s' "$task" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+  # PATH-PHRASING NORMALIZATION (2026-09-28): raw extracted text is taken verbatim, so the
+  # SAME file phrased two different ways across two recovery rounds (e.g. a re-decomposed
+  # item wording it "backend/tests/test_x.py" one time and "tests/test_x.py" the next -
+  # both legitimate ways to refer to one real file) hashes to two different lineage keys,
+  # silently bypassing the cap above by wording alone. Confirmed live on gitlark: one file
+  # got two separate "cap hit" escalations instead of being capped after the first. Resolve
+  # the extracted text against the repo's actual tracked file list before hashing: an exact
+  # tracked-path match wins outright; otherwise prefer a tracked path ending in the
+  # extracted text (keeps directory context when it's present and correct - e.g. a
+  # "tests/test_x.py" phrasing correctly resolves to "backend/tests/test_x.py" if that's
+  # the one real file ending in that suffix); otherwise fall back to a basename-only match
+  # (handles the directory-prefix-differs case the task description calls out). Leaves
+  # lineage_file untouched (old behavior) when nothing in the tree matches at all - e.g. an
+  # item describing a file that doesn't exist yet.
+  if [ -n "$lineage_file" ]; then
+    _lf_tracked="$(git -C "$rd" ls-files 2>/dev/null)"
+    if [ -n "$_lf_tracked" ] && ! printf '%s\n' "$_lf_tracked" | grep -qxF "$lineage_file"; then
+      _lf_real=""
+      while IFS= read -r _lf_cand; do
+        [ -z "$_lf_cand" ] && continue
+        case "$_lf_cand" in
+          */"$lineage_file") _lf_real="$_lf_cand"; break ;;
+        esac
+      done <<< "$_lf_tracked"
+      if [ -z "$_lf_real" ]; then
+        _lf_base="$(basename "$lineage_file")"
+        while IFS= read -r _lf_cand; do
+          [ -z "$_lf_cand" ] && continue
+          case "$_lf_cand" in
+            "$_lf_base"|*"/$_lf_base") _lf_real="$_lf_cand"; break ;;
+          esac
+        done <<< "$_lf_tracked"
+      fi
+      [ -n "$_lf_real" ] && lineage_file="$_lf_real"
+    fi
+  fi
   lineage_key="$(printf '%s' "${r}__${lineage_file:-unknown}" | tr '/' '_')"
   mkdir -p state/recovery_lineage 2>/dev/null
   lineage_countf="state/recovery_lineage/${lineage_key}.count"
