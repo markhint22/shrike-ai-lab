@@ -2281,7 +2281,31 @@ Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your c
       # count toward the valve.
       error_status "$task_log" "error(model/API error - see log)"
     else
-      echo "no-op"
+      # IMPLEMENT-TIME ALREADY-DONE (2026-09-28): the scout's strict VERDICT: line already
+      # gets ALREADY-DONE short-circuited to no-op(ALREADY-DONE) (benign - see the scout
+      # block above and ovn_outcome_buckets.py's canonical classifier). But when the scout
+      # says PROCEED and the IMPLEMENT pass then independently concludes mid-attempt that
+      # the target is already correct/passing and makes no change, that fell through to a
+      # bare "no-op" - bucketed BAD (a real flail) even though it's the exact same benign
+      # situation, just discovered one step later. Confirmed live on iptv_apps: this exact
+      # shape happened and was wrongly counted as a failure. Look for the SAME real-world
+      # already-done phrasing calibrated for ovn_credit_already_satisfied.sh's crediting
+      # fix (see that script's own 2026-09-28 header for the full phrase list + evidence)
+      # in the tail of this attempt's own log - a lighter-touch heuristic than the scout's
+      # strict VERDICT format (there is no equivalent structured field mid-implement), but
+      # scoped to the LAST ~4000 chars (the model's final concluding remarks) rather than
+      # the whole log, so a phrase quoted deep in an earlier file dump/repo-map can't cause
+      # a false benign classification. Conservative by construction: this only reduces a
+      # bare no-op (already the "nothing landed" case) to a milder bucket when there is a
+      # concrete positive signal the model concluded no change was needed - it can never
+      # cause a genuine flail (no such language) to be misclassified as benign, and it can
+      # never cause a real code change to be discarded (AFTER_SHA already equals BEFORE_SHA
+      # to even reach this branch).
+      if tail -c 4000 "$task_log" 2>/dev/null | grep -qiE "already (fully |correctly |completely |essentially |be )*(done|implemented|imported|present|in place|use|uses|has|have|correct|handled|handles|satisfied|satisfies|been|exists?|contains?|defined|defines|covers?|tests?|validates?|guards?|fine|good|complete)|no (code |further |additional )*changes? (are |is )?(needed|required|necessary)|nothing to (change|do|add)|is already (there|the case)|already (passes|passing)|does not (need|require) (any )?changes?"; then
+        echo "no-op(ALREADY-DONE)"
+      else
+        echo "no-op"
+      fi
     fi
   )
 }
