@@ -1644,6 +1644,36 @@ Task: ${prompt}"
         echo "--- force-loaded PLAN target file: $_pf ---" >> "$task_log"
       done
     fi
+    # 2026-09-29 FIX: when the scout/plan-named file doesn't exist on disk, the loop
+    # above (correctly) skips force-loading it rather than crashing - but that leaves
+    # FILE_ARGS empty with no ground truth, and the model is then told "execute NOW,
+    # do not ask to see more files" against a plan that names a real function by name
+    # (e.g. `validate_cast_device_info`) living in a file the scout guessed wrong
+    # (e.g. it said iptv-backend/app/services/cast_service.py; the function actually
+    # lives in iptv-backend/app/models/stream.py). Confirmed live: iptv_apps burned 5
+    # separate cycles (2026-09-29 01:32-02:23 CDT, ~14k tokens sent each) hallucinating
+    # test content against a nonexistent cast_service.py before a differently-routed
+    # decomposition pass landed the real implementation elsewhere. Recover by grepping
+    # the actual repo for a definition of any backtick-quoted identifier named in the
+    # original item text ($prompt) - a real source-code search, not another guess -
+    # and force-loading the first genuine match. Only fires when the loop above found
+    # NOTHING to load; never overrides a legitimate scout/plan file.
+    if [ "${#FILE_ARGS[@]}" -eq 0 ] && [ -n "$prompt" ]; then
+      for _ident in $(printf '%s' "$prompt" | grep -oE '`[A-Za-z_][A-Za-z0-9_]*`' | tr -d '`' | sort -u); do
+        _def_hit="$(grep -rlE "(^|[^.[:alnum:]_])(def|function|const|class) +${_ident}([[:space:](]|=)" \
+          --include='*.py' --include='*.ts' --include='*.js' --include='*.vue' --include='*.gd' . 2>/dev/null \
+          | grep -vE '/(tests?|__pycache__|node_modules|\.venv|\.git)/' \
+          | grep -vE '(^|/)test_[^/]+$|_test\.[a-z]+$|\.test\.[a-z]+$' \
+          | head -1)"
+        if [ -n "$_def_hit" ] && [ -f "$_def_hit" ]; then
+          _def_hit="${_def_hit#./}"
+          case " ${FILE_ARGS[*]} " in *" $_def_hit "*) continue;; esac
+          if [ -n "$protected_files" ]; then case " $protected_files " in *" $_def_hit "*) continue;; esac; fi
+          FILE_ARGS+=(--file "$_def_hit")
+          echo "--- force-loaded real definition of \`${_ident}\` (scout's guessed file didn't exist): $_def_hit ---" >> "$task_log"
+        fi
+      done
+    fi
     if [ -n "$OVN_PLAN" ]; then
       full_prompt="You already analyzed this task and chose a plan and the files you need. Execute it NOW and produce the actual code diff. Do NOT re-plan, do NOT re-explore, do NOT ask to see more files. If the plan proves wrong mid-edit, correct it, but this pass MUST end in a concrete change.
 
