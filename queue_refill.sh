@@ -57,7 +57,30 @@ for r in $repos; do
   fi
   avail=0; [ -f "$bl" ] && avail=$(grep -cE '^- \[ \] \[T[1-5]\]' "$bl" 2>/dev/null)  # no `|| echo 0`: grep -c prints 0 itself; the [ -f ] guard covers a missing file
   if [ "$avail" -eq 0 ]; then
-    log "$r: $d doable — backlog DRY"
+    # ROADMAP-AWARE dry check (2026-09-28): backlog/<repo>.md being at 0 right now does NOT
+    # mean this repo is actually stuck — ovn_planner.sh replenishes backlog/<repo>.md from a
+    # [ready] roadmap/<repo>.md feature on its own cadence (hourly cron + inline at cycle-end,
+    # see run_overnight.sh's roadmap-refill note), and a repo whose backlog naturally drains
+    # faster than that cadence (confirmed live: shrike-monitor/test-automation-agent/
+    # shrike-notify sit at 0/184, 0/237, 1/169 conforming backlog lines far more often than a
+    # repo like gitlark, which currently has 17/217) used to register as "backlog DRY" every
+    # single time it dipped to 0, indistinguishable from a repo that is GENUINELY out of both
+    # backlog AND roadmap fuel. That false-equivalence is exactly what correlated these 3
+    # specific repos with the ones ovn_fleet_health.sh flagged as starved — the escalating
+    # dry-marker/reminder treatment (and everything downstream that trusts it) fired for a
+    # transient, self-resolving gap the same way it fires for a genuine dead end. Check
+    # roadmap/<repo>.md for a [ready] feature (same selector ovn_planner.sh itself uses)
+    # before committing to "dry": if one exists, the planner will refill this repo's backlog
+    # soon on its own — log it distinctly and do NOT set/escalate the dry marker (clearing it
+    # if a previous genuine-dry episode had set it, since "has fuel again" is a real recovery).
+    # Only the true "nothing left anywhere" case (no roadmap fuel either) gets the escalating
+    # dry treatment queue_refill.sh's marker/reminder machinery exists for.
+    if [ -f "roadmap/$r.md" ] && grep -qE '^- \[ \] \[P[1-4]\] \[ready\]' "roadmap/$r.md" 2>/dev/null; then
+      log "$r: $d doable — backlog empty but roadmap has a [ready] feature (planner will refill; not marking dry)"
+      [ -f "$marker" ] && { rm -f "$marker"; recovered="$recovered $r"; }
+      continue
+    fi
+    log "$r: $d doable — backlog DRY (roadmap also has no [ready] feature)"
     if [ "$FORCE_PULL" -eq 0 ]; then
       dry="$dry $r"
       if [ ! -f "$marker" ]; then
