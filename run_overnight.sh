@@ -1732,6 +1732,26 @@ Task: ${prompt}"
     # was dropping the planned target (e.g. it planned ImportView.vue but loaded the
     # alphabetically-earlier test_auth.py from the item list, so the implement had the
     # wrong file open and no-oped). The PLAN's target always wins now.
+    #
+    # UNGROUNDED-PLAN GUARD prep (2026-09-29): capture whether the scout named ANY
+    # file-shaped token at all (existing or not-yet-created) BEFORE the "-f" existence
+    # filter below drops it - a brand-new-file task legitimately names a path that
+    # doesn't exist yet (aider will create it), so "FILE_ARGS ends up empty" alone
+    # can't distinguish that valid case from a scout that named NO file whatsoever.
+    # See the empty-check right after both force-load attempts, below.
+    #
+    # Filtered stricter than the raw "word.word"-shaped regex the force-load loop
+    # itself uses just below (deliberately NOT changing that loop's own extraction -
+    # this is a separate, guard-only signal): requires either a real path separator
+    # or a recognized code/doc file extension. Confirmed necessary live: the
+    # fabricated billwatch is_prime plan's own text ("a call to sympy.isprime") would
+    # otherwise itself match the loose regex as a false-positive "candidate" (dot +
+    # 1-8 alnum chars matches "sympy.isprime" same as it matches a real
+    # "foo/bar.py"), silently defeating this exact guard for the exact case it exists
+    # to catch.
+    _ovn_candidate_tokens="$( { echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}"; echo "$OVN_SCOUT_FILES"; } \
+      | grep -E '/|\.(py|ts|tsx|js|jsx|vue|gd|kt|java|go|rb|rs|c|cpp|h|hpp|md|ya?ml|json|toml|cfg|ini|sh|txt|xml|gradle|properties|env)$' \
+      | sort -u)"
     if [ -n "$OVN_PLAN" ] || [ -n "$OVN_SCOUT_FILES" ]; then
       for _pf in $( { echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}"; echo "$OVN_SCOUT_FILES"; } | sort -u); do
         [ -f "$_pf" ] || continue
@@ -1771,6 +1791,37 @@ Task: ${prompt}"
           echo "--- force-loaded real definition of \`${_ident}\` (scout's guessed file didn't exist): $_def_hit ---" >> "$task_log"
         fi
       done
+    fi
+    # UNGROUNDED-PLAN GUARD (2026-09-29): a PROCEED verdict where the scout named NO
+    # file-shaped token AT ALL (not even a not-yet-created one - see _ovn_candidate_tokens
+    # above, captured before the existence filter) AND both force-load attempts still leave
+    # FILE_ARGS empty is not a real, executable plan - it's a scout that invented a plan
+    # with nothing behind it. Deliberately does NOT fire just because FILE_ARGS is empty -
+    # a legitimate brand-new-file task names its target path (which fails the "-f" check
+    # but is a real candidate token), so that case is correctly excluded here and still
+    # reaches implement as before.
+    #
+    # Confirmed live on billwatch, TWICE in one hour (17:30 and 18:30 CDT): the scout
+    # answered "VERDICT: PROCEED PLAN: Replace the custom is_prime function with a call to
+    # sympy.isprime and add sympy to requirements. FILES: NONE" - this is aider's own
+    # built-in udiff-format few-shot example (mathweb/flask/app.py's is_prime ->
+    # sympy.isprime demo), which the 27B reproduced verbatim as if it were the real task,
+    # with no actual grounding in this repo's real backlog item and no file-shaped token
+    # anywhere in its own PLAN/FILES text. This always reached the implement stage with
+    # FILE_ARGS empty and OVN_PLAN set to the fabricated text, wrapped in "Execute it
+    # NOW... do NOT re-plan, do NOT re-explore, do NOT ask to see more files" - the model's
+    # own transcript shows it correctly recognizing the plan didn't match anything real
+    # ("I genuinely cannot produce a correct diff without knowing which file contains
+    # is_prime... the previous context was from a completely different codebase") and
+    # refusing to fabricate a fake diff, but only after burning a full implement-stage call
+    # (13-28k tokens) it never had a chance of completing. A PROCEED verdict with no named
+    # file at all is functionally the same dead end as BLOCKED/NEEDS-DECISION (see that
+    # short-circuit above) - short-circuit here too instead of forcing a blind implement
+    # attempt against an ungrounded plan.
+    if [ "$OVN_VERDICT" = "PROCEED" ] && [ -z "$_ovn_candidate_tokens" ] && [ "${#FILE_ARGS[@]}" -eq 0 ]; then
+      echo "--- scout verdict=PROCEED but named zero file-shaped tokens anywhere in PLAN/FILES (plan may be fabricated/ungrounded); skipping implement this cycle ---" >> "$task_log"
+      echo "no-op(ungrounded-plan)"
+      return
     fi
     if [ -n "$OVN_PLAN" ]; then
       full_prompt="You already analyzed this task and chose a plan and the files you need. Execute it NOW and produce the actual code diff. Do NOT re-plan, do NOT re-explore, do NOT ask to see more files. If the plan proves wrong mid-edit, correct it, but this pass MUST end in a concrete change.
