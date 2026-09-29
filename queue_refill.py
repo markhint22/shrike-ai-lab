@@ -112,9 +112,28 @@ def main():
     parked = re.compile(r"AUTO-SKIP|HUMAN-ONLY|HUMAN/|BLOCKED", re.I)
     # Dedup guard: never pull an item whose content already exists in the live queue
     # (open OR done) — prevents duplicates when a backlog is re-shipped/overlaps progress.
+    #
+    # 2026-09-29 (Phase 6b, PREVENTIVE — no live miss observed on this exact path yet): strip the
+    # embedded date stamp out of any [feat:<slug>] tag before comparing. A roadmap regeneration
+    # mints a fresh YYYYMMDD/MMDDYY stamp on the SAME feat slug when it re-decomposes a stuck
+    # feature, so a backlog line identical except for that one date used to look like brand-new
+    # work and get pulled again. The bash side already collapses this (ovn_item_hash() in
+    # scripts/lib_item_select.sh, same two sed rules: "-NNNNNNNN-" then "-NNNNNN-", first
+    # occurrence each) — this keeps the Python and bash sides agreeing on what "the same item"
+    # means (the exact cross-boundary mismatch class already found once between record_outcome()
+    # and ovn_item_guard.sh). Deliberately strips ONLY the date inside the tag and keeps the rest
+    # of the line: ovn_item_hash() hashes the tag alone because it answers "same FEATURE" for
+    # streak tracking, but two sibling sub-items sharing one live feat tag are genuinely different
+    # content here and must NOT dedup against each other.
+    def _strip_feat_date(text):
+        def _one(m):
+            tag = re.sub(r"-\d{8}-", "-", m.group(0), count=1)
+            return re.sub(r"-\d{6}-", "-", tag, count=1)
+        return re.sub(r"\[feat:[^\]]+\]", _one, text)
     def _norm(line):
         m = re.search(r"\]\s*(.*)$", line)  # content after the last tag bracket
-        return re.sub(r"\s+", " ", (m.group(1) if m else line).strip().lower())
+        content = _strip_feat_date((m.group(1) if m else line).strip())
+        return re.sub(r"\s+", " ", content.lower())
     done_path = os.path.join(repo_root, "OVERNIGHT_DONE.md")
     existing = set()
     # dedup against the live queue AND the completed-items archive (OVERNIGHT_DONE.md), so an

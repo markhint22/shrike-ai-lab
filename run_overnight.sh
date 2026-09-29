@@ -162,16 +162,32 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     if [ -n "$_top" ]; then
       _text="${_top#*:}"
       _featkey="$(printf '%s' "$_text" | grep -oE '\[feat:[^]]+\]' | head -1)"
-      if [ -n "$_featkey" ]; then
+      # 2026-09-29 (Phase 6b straggler fix): this used to md5 the RAW feat tag (date stamp
+      # included) or the raw line (leading "- [ ] " checkbox included) INLINE, while
+      # ovn_item_guard.sh and the lastfail lookup below both go through the shared
+      # ovn_item_hash() (scripts/lib_item_select.sh), which strips the date stamp and the
+      # checkbox first. So the item_hash recorded in outcomes.jsonl could NEVER equal the
+      # key of the same item's state/item_fails/ files — confirmed against real data for
+      # iptv_apps' concurrent-stream-limit-enforcement feature (recorded 8f632a43..., the
+      # guard's key 4d313914...). It is why "the recorded hash has no matching state file"
+      # showed up as an unexplained anomaly in this morning's iptv_apps investigation.
+      # Same function now, so all three agree. (Recorded hashes change once at deploy for
+      # feat-tagged/checkbox lines; nothing joins across that boundary.) The inline md5 is
+      # kept only as the fallback for a session where the lib somehow failed to source.
+      if command -v ovn_item_hash >/dev/null 2>&1; then
+        item_hash="$(ovn_item_hash "$_text")"
+      elif [ -n "$_featkey" ]; then
         item_hash="$(printf '%s' "$_featkey" | md5sum 2>/dev/null | cut -d' ' -f1)"
+      else
+        item_hash="$(printf '%s' "$_text" | md5sum 2>/dev/null | cut -d' ' -f1)"
+      fi
+      if [ -n "$_featkey" ]; then
         # Research-batch scorecard (2026-09-23): keep the RAW [feat:...] tag too, not
         # just its hash - a batch scorecard grouping by an opaque md5 is useless to a
         # human/Claude skimming it, and the tag already carries repo+date+slug (e.g.
         # [feat:billwatch-20260922-finish-export-webhook-dead-code]), which is exactly
         # the "which research batch was this" identity ovn_batch_scorecard.py groups by.
         feat_tag="$(printf '%s' "$_featkey" | tr -d '[]' | sed 's/^feat://')"
-      else
-        item_hash="$(printf '%s' "$_text" | md5sum 2>/dev/null | cut -d' ' -f1)"
       fi
     fi
   fi

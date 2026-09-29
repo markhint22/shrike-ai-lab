@@ -109,5 +109,7 @@ echo; echo "===== Verify-direction existence-only check (cat:schema/cat:endpoint
 echo; echo "===== Ungrounded-plan guard (PROCEED verdict with zero real file-shaped tokens skips implement instead of forcing a blind attempt) ====="; bash test_ungrounded_plan_guard.sh || rc=1
 echo; echo "===== Failure triage (cluster BAD outcomes by error signature; new-vs-fixed-then-regressed registry, --ack, --digest) ====="; python3 test_failure_triage.py || rc=1
 echo; echo "===== Failure-triage notifications (capped new-pattern digest section; exactly-once high-priority regression push; failed push kept pending) ====="; bash test_failure_triage_notify.sh || rc=1
+echo; echo "===== queue_refill dedup date-strip (regenerated [feat:] tag collapses onto its queued twin; siblings sharing a tag stay distinct) ====="; bash test_queue_refill_feattag_norm.sh || rc=1
+echo; echo "===== record_outcome item_hash agrees with the shared ovn_item_hash (outcomes.jsonl hash joins the guard state-file key; date-bump regeneration keeps one identity) ====="; bash test_record_outcome_item_hash_agrees.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
