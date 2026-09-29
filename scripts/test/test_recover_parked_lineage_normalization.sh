@@ -15,11 +15,15 @@
 set -uo pipefail
 RP="${OVN_RECOVER_PARKED:-$HOME/overnight-queue/ovn_recover_parked.sh}"
 [ -f "$RP" ] || { echo "  SKIP: $RP not found on this host"; exit 0; }
+LIB="${OVN_LIB_PATH_NORMALIZE:-$HOME/overnight-queue/scripts/lib_path_normalize.sh}"
+[ -f "$LIB" ] || { echo "  SKIP: lib_path_normalize.sh not found"; exit 0; }
+# shellcheck source=/dev/null
+source "$LIB"
 
 BLOCK="$(sed -n '/^  lineage_file="\$(printf/,/^  lineage_key="\$(printf/p' "$RP")"
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the lineage normalization block from $RP"; exit 1; }
 case "$BLOCK" in
-  *'PATH-PHRASING NORMALIZATION'*'ls-files'*) : ;;
+  *'PATH-PHRASING NORMALIZATION'*'ovn_normalize_path'*) : ;;
   *) echo "  FAIL: extracted block doesn't look like the expected normalization fix:"; printf '%s\n' "$BLOCK"; exit 1 ;;
 esac
 

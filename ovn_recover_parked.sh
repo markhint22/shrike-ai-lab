@@ -17,6 +17,8 @@ export PATH=/usr/local/bin:/usr/bin:/bin:${PATH:-}
 # night that plan was written: a fix silently wiped mid-edit by the fleet's own loop).
 # shellcheck source=./scripts/lib_worktree.sh
 source "$HOME/overnight-queue/scripts/lib_worktree.sh"
+# shellcheck source=./scripts/lib_path_normalize.sh
+source "$HOME/overnight-queue/scripts/lib_path_normalize.sh"
 LITELLM="${LITELLM_BASE:-http://localhost:4000}"; LITELLM_KEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
 MODEL="${OVN_MODEL:-qwen-dflash-27B}"
 MAX_PER_RUN="${OVN_RECOVER_MAX:-4}"      # decompose at most this many parked items per pass (cost control)
@@ -85,37 +87,12 @@ for r in $REPOS; do
   # item wording it "backend/tests/test_x.py" one time and "tests/test_x.py" the next -
   # both legitimate ways to refer to one real file) hashes to two different lineage keys,
   # silently bypassing the cap above by wording alone. Confirmed live on gitlark: one file
-  # got two separate "cap hit" escalations instead of being capped after the first. Resolve
-  # the extracted text against the repo's actual tracked file list before hashing: an exact
-  # tracked-path match wins outright; otherwise prefer a tracked path ending in the
-  # extracted text (keeps directory context when it's present and correct - e.g. a
-  # "tests/test_x.py" phrasing correctly resolves to "backend/tests/test_x.py" if that's
-  # the one real file ending in that suffix); otherwise fall back to a basename-only match
-  # (handles the directory-prefix-differs case the task description calls out). Leaves
-  # lineage_file untouched (old behavior) when nothing in the tree matches at all - e.g. an
-  # item describing a file that doesn't exist yet.
-  if [ -n "$lineage_file" ]; then
-    _lf_tracked="$(git -C "$rd" ls-files 2>/dev/null)"
-    if [ -n "$_lf_tracked" ] && ! printf '%s\n' "$_lf_tracked" | grep -qxF "$lineage_file"; then
-      _lf_real=""
-      while IFS= read -r _lf_cand; do
-        [ -z "$_lf_cand" ] && continue
-        case "$_lf_cand" in
-          */"$lineage_file") _lf_real="$_lf_cand"; break ;;
-        esac
-      done <<< "$_lf_tracked"
-      if [ -z "$_lf_real" ]; then
-        _lf_base="$(basename "$lineage_file")"
-        while IFS= read -r _lf_cand; do
-          [ -z "$_lf_cand" ] && continue
-          case "$_lf_cand" in
-            "$_lf_base"|*"/$_lf_base") _lf_real="$_lf_cand"; break ;;
-          esac
-        done <<< "$_lf_tracked"
-      fi
-      [ -n "$_lf_real" ] && lineage_file="$_lf_real"
-    fi
-  fi
+  # got two separate "cap hit" escalations instead of being capped after the first.
+  # Resolved via the shared scripts/lib_path_normalize.sh helper (see its header for the
+  # full resolution-order writeup) - ovn_item_guard.sh's own feat-tag-churn fix reuses the
+  # identical helper, so both callers stay in sync on one tested normalization instead of
+  # two independently-drifting copies.
+  lineage_file="$(ovn_normalize_path "$rd" "$lineage_file")"
   lineage_key="$(printf '%s' "${r}__${lineage_file:-unknown}" | tr '/' '_')"
   mkdir -p state/recovery_lineage 2>/dev/null
   lineage_countf="state/recovery_lineage/${lineage_key}.count"

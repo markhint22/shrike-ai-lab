@@ -99,8 +99,22 @@ text="${top#*:}"
 # reset the clock. Hash the shared [feat:...] tag when present so all sub-items of
 # one feature draw from the SAME budget; fall back to the old whole-line hash for
 # untagged items (no behavior change there).
+#
+# 2026-09-28 FIX: the feat-tag itself churns across regenerations of the SAME underlying
+# stuck target - ovn_planner.sh mints it as [feat:<repo>-<YYYYMMDD>-<slug>], and when the
+# roadmap re-decomposes the same feature idea later, it gets a FRESH date (and often
+# slightly reworded slug), so the "same" stuck work is treated as a brand-new item with a
+# reset streak instead of a continuation. Confirmed live on shrike-notify: one file got 3
+# different feat-tags across repeated regeneration, turning a single design ambiguity into
+# 5-20 wasted cycles instead of being capped at CAP=3/NCAP=4 on the first regeneration.
+# Strip the embedded date token before hashing so same-slug regenerations collapse onto
+# the SAME budget regardless of when they were minted - this is strictly more robust than
+# the raw featkey hash (every feat-tag observed in this fleet follows the
+# <repo>-<YYYYMMDD>-<slug> shape), and a no-op for a feat-tag that happens not to contain
+# a date-shaped token (falls through to hashing the tag unchanged).
 featkey="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
 if [ -n "$featkey" ]; then
+  featkey="$(printf '%s' "$featkey" | sed -E 's/-[0-9]{8}-/-/; s/-[0-9]{6}-/-/')"
   h="$(printf '%s' "$featkey" | md5sum | cut -d' ' -f1)"
 else
   h="$(printf '%s' "$text" | md5sum | cut -d' ' -f1)"
