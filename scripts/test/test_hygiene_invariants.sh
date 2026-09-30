@@ -36,7 +36,7 @@ if [ -f "$H" ]; then
   ok "hygiene tracks timeout(124) separately from a real test failure" \
      "grep -q '_GATE_TIMEOUT_HIT' $H"
   ok "hygiene pytest gate checks for exit 124 specifically" \
-     "grep -A2 'venv_pytest.* -q -o addopts' $H | grep -q '\"\$rc\" -eq 124'"
+     "grep -A2 'venv_pytest.* -q .*-o addopts' $H | grep -q '\"\$rc\" -eq 124'"
   ok "hygiene retries once on a timeout-caused gate failure before flagging" \
      "grep -q 'retrying once with a fresh worktree' $H"
 else
