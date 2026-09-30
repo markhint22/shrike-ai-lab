@@ -66,6 +66,13 @@ needs_research_alert(){ # $1=repo $2=backlog-count
   fi
 }
 clear_research_alert(){ local r="$1" marker="$STATE_DIR/ovn_needs_research_${r}"; [ -f "$marker" ] && rm -f "$marker" && say "$r: needs-research condition cleared"; }
+# 2026-09-30: single-instance guard. Found live: an interactive/manual run overlapping the :40 cron run
+# (or a slow prior pass) made 2-3 passes each pick the SAME [ready] feature before any of them had marked it
+# [decomposed], so one feature was decomposed 2-3x into near-duplicate (differently-worded) backlog items
+# (gitlark 2x, shrike-monitor 3x, test-automation-agent 2x). Silent skip on contention: the next hourly pass
+# picks up whatever is still [ready], so a skipped pass costs nothing.
+exec 228>"$STATE_DIR/ovn_planner.lock"
+if ! flock -n 228; then say "another planner pass is already running - skipping this one"; exit 0; fi
 REPOS="${*:-billwatch gitlark iptv_apps test-automation-agent shrike-notify shrike-monitor xlite}"
 MAX_PER_RUN="${OVN_PLAN_MAX_PER_RUN:-4}"   # cap decompositions per invocation so cycle-end never balloons
 _did=0

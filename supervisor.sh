@@ -179,7 +179,7 @@ if ! fuser "$STATE/run.lock" >/dev/null 2>&1; then
   for id in $(jq -r '.[] | select(.enabled == false) | .id' "$TASKS" 2>/dev/null); do
     [ -f "$STATE/failures/${id}.count" ] || continue     # skip manual disables
     [ -f "$STATE/autorecovered_${id}" ] && continue      # already recovered once
-    tos="$(grep -h "| ${id} |" $(ls -t "$REPORT_DIR"/2026*.md 2>/dev/null | head -6) 2>/dev/null | grep -c 'error(exit=124)')"
+    tos="$(grep -h "| ${id} |" /dev/null $(ls -t "$REPORT_DIR"/2026*.md 2>/dev/null | head -6) 2>/dev/null | grep -c 'error(exit=124)')"
     [ "${tos:-0}" -lt 2 ] && continue                    # recent failures weren't timeouts
     cur="$(jq -r --arg id "$id" '.[]|select(.id==$id)|.timeout_secs // 600' "$TASKS")"
     new=$(( cur * 2 )); [ "$new" -gt 1800 ] && new=1800
