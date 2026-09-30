@@ -17,3 +17,21 @@ ovn_abs_symlinks() {
     case "$target" in /*) printf '%s\n' "$path" ;; esac
   done
 }
+
+# ovn_unstage_abs_symlinks <worktree>
+#   After a scripted `git add -A` inside a worktree, drop every STAGED symlink whose target is an absolute path from the index (the file
+#   stays on disk). The stage runner symlinks the live node_modules into its scratch worktree and commits with `git add -A`; a
+#   `.gitignore` entry like `node_modules/` (trailing slash) does not match a symlink, so the link was committed and, when merged into
+#   the working clone, replaced the real directory with a self-referencing link (the historic node_modules incident and the 2026-09-30
+#   .venv incident). Always returns 0.
+ovn_unstage_abs_symlinks() {
+  local wt="$1" line mode path target
+  git -C "$wt" diff --cached --raw --no-renames 2>/dev/null | while IFS= read -r line; do
+    mode="$(printf '%s' "$line" | awk '{print $2}')"
+    [ "$mode" = "120000" ] || continue
+    path="$(printf '%s' "$line" | cut -f2)"
+    target="$(git -C "$wt" show ":$path" 2>/dev/null)"
+    case "$target" in /*) git -C "$wt" reset -q -- "$path" 2>/dev/null ;; esac
+  done
+  return 0
+}

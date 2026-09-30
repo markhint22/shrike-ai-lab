@@ -13,6 +13,8 @@ omit = */scripts/test/*,*/scripts/cov/*,*/repos/*,*/proposals*/*
 RC
 export OVN_COV_DIR="$D" BASH_ENV="$Q/scripts/cov/cov_env.sh" COVERAGE_PROCESS_START="$D/covrc" PYTHONPATH="$Q/scripts/cov/pysite${PYTHONPATH:+:$PYTHONPATH}"
 cd "$Q/scripts/test" || exit 1
+# shellcheck source=/dev/null
+. "$Q/scripts/test/ntfy_guard.sh"   # 2026-09-30: never reach the real ntfy.sh from a test run
 if [ "$#" -gt 0 ]; then for t in "$@"; do bash "$t" < /dev/null > "$D/out.$(basename "$t").log" 2>&1; echo "$t rc=$?"; done
 else bash run_all.sh < /dev/null > "$D/run_all.log" 2>&1; echo "run_all rc=$?"; fi
 unset BASH_ENV COVERAGE_PROCESS_START

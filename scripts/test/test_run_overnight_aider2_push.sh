@@ -43,9 +43,18 @@ scout_ok
 aplan 2 'gc app.py "def mine(): return 1" "feat: mine
 
 DONE: Fix \`hello\` in app.py to return 2"; gc tests/test_mine.py "def test_mine(): assert True" "test: mine"'
-run_case
-eq "D: verification=none -> bare pushed" "$OUT" "pushed"
+OVN_VERIFY_FAIL_CLOSED=0 run_case   # legacy semantics: "no verifier ran" still pushes (fail-closed is exercised in D2 below)
+eq "D: verification=none (fail-closed disabled) -> bare pushed" "$OUT" "pushed"
 ok "D: no item-hash credit lines when verify was not a pass" '! logged "auto-credit: item-hash"'
+# D2 (2026-09-30): default FAIL-CLOSED - the repo carries python tests but no venv pytest exists, so nothing could verify the commit:
+# it is held unpushed (error(verify-skipped...)) instead of landing unverified.
+mk_case noverify noverify
+scout_ok
+aplan 2 'gc app.py "def mine(): return 1" "feat: mine
+
+DONE: Fix \`hello\` in app.py to return 2"; gc tests/test_mine.py "def test_mine(): assert True" "test: mine"'
+run_case
+ok "D2: python tests exist + no verifier -> held (verify-skipped), NOT pushed" 'case "$OUT" in error\(verify-skipped*) true;; *) false;; esac'
 
 # ---------- E: final statuses without a commit ----------
 mk_case apierr

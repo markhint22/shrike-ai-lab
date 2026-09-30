@@ -84,6 +84,8 @@ source scripts/lib_lock.sh
 # 2026-09-29: import-guarded pytest-xdist flag for full_verify's full-suite run (see the lib).
 # Falls back to serial if the lib is missing.
 source scripts/lib_pytest_parallel.sh 2>/dev/null || ovn_pytest_par_args(){ :; }
+# shellcheck source=scripts/lib_tree_guard.sh
+source scripts/lib_tree_guard.sh 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
@@ -537,7 +539,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       '{run:$r,step:$i,desc:$d,files:$f,attempt:$a,verdict:$v,fail_reason:$fr,duration_s:$dur,tokens_sent:$ts,tokens_recv:$tr,tok_s:$tps,diffstat:$ds,excerpt:$ex}')"
     if [ "$rc" -eq 0 ]; then
       say "  step $idx PASS (att $att, ${dur}s, ${dstat:-nostat}): ${desc:0:55}"
-      git -C "$wt" add -A && git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "feat($repo): staged step $idx — ${desc:0:60}" 2>/dev/null
+      git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "feat($repo): staged step $idx — ${desc:0:60}" 2>/dev/null
       return 0
     fi
     say "  step $idx att $att FAIL ($fa, ${dur}s): ${excerpt:0:90}"
@@ -597,6 +599,11 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     # before) unless the repo is allowlisted AND xdist imports in the live venv used here.
     local _xd; _xd="$(ovn_pytest_par_args "$(basename "$rd")" "$(dirname "$HOME/overnight-queue/$vp")")"
     [ -d "$wt/$pkg" ] && { echo "-- pytest FULL in $pkg ${_xd:+(parallel: $_xd)} --" >> "$vlog"; ( cd "$wt/$pkg" && timeout 600 "$HOME/overnight-queue/$vp" -q $_xd -o addopts="" -p no:cacheprovider ) >> "$vlog" 2>&1 || vok=0; }
+  fi
+  # FAIL CLOSED (2026-09-30): python tests exist but no live venv pytest was found -> the python suite silently did not run and this function
+  # returned "verified" (2026-09-30 11:46-12:24: two red shrike-notify staged steps landed this way while the venv was broken).
+  if [ -z "$vp" ] && [ "${OVN_VERIFY_FAIL_CLOSED:-1}" = 1 ] && find "$rd" -maxdepth 4 -path '*/tests/test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
+    echo "-- python tests exist but no venv pytest found: CANNOT verify (fail-closed) --" >> "$vlog"; vok=0
   fi
   # ANDROID (Gradle) — 2026-09-16 FIX: full_verify() had ZERO Kotlin/Android coverage, so a staged
   # multi-step item touching a .kt file got NO real re-check before being trusted/pushed — the
@@ -818,7 +825,7 @@ try_regen(){  # $1 = verify log
   esac
   say "verify wants a regenerated artifact — running: (cd ${dir:-.} && $cmd)"
   ( cd "$rundir" && timeout 120 bash -c "$cmd" ) >> "$vlog" 2>&1 || return 1
-  git -C "$wt" add -A 2>/dev/null
+  git -C "$wt" add -A 2>/dev/null; ovn_unstage_abs_symlinks "$wt"
   git -C "$wt" diff --cached --quiet 2>/dev/null && return 1   # nothing actually regenerated
   git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore($repo): regenerate stale artifact so verification passes" 2>/dev/null
   return 0
@@ -865,7 +872,7 @@ $reason"
           ${repair_fargs[@]+"${repair_fargs[@]}"} --message "$rmsg" ) >> "$local_vlog" 2>&1
       if full_verify; then
         VERIFIED=1; passed="$NSTEPS"
-        git -C "$wt" add -A && git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "fix($repo): repair staged item to pass verification (round $_rr)" 2>/dev/null
+        git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "fix($repo): repair staged item to pass verification (round $_rr)" 2>/dev/null
         say "REPAIR PASSED (round $_rr) — verified after fixing the flagged failure"
       fi
     done

@@ -25,6 +25,9 @@ else echo "  skip shellcheck (not installed)"; fi
 hit=""; for f in $(printf '%s\n' "$scripts" | grep '\.sh$' | grep -v '^test_'); do
   h="$(sed -E 's/[[:space:]]#.*$//' "$f" | grep -vE '^[[:space:]]*#' | grep -nE 'grep -c[^)|]*\|\| *echo 0|pgrep -c[^)|]*\|\| *echo 0' | head -2 | sed "s#^#$f:#")"; [ -n "$h" ] && hit="$hit $h"; done
 ok "no 'grep -c/pgrep -c ... || echo 0' (prints 0 AND exits 1 -> '0\\n0' integer-expression bugs)${hit:+: $hit}" "$([ -z "$hit" ] && echo 1 || echo 0)"
+hit=""; for f in $(printf '%s\n' "$scripts" | grep '\.sh$' | grep -v '^test_'); do
+  h="$(sed -E 's/[[:space:]]#.*$//' "$f" | grep -vE '^[[:space:]]*#' | grep -nE 'grep -[a-zA-Z]*v[^|]*>>[^|]*\|\| *(cat|cp|echo|printf)' | head -2 | sed "s#^#$f:#")"; [ -n "$h" ] && hit="$hit $h"; done
+ok "no 'grep -v ... >> file || cat ...' (grep -v exits 1 when it prints nothing, so the fallback re-appends everything: prework queue 12x bloat)${hit:+: $hit}" "$([ -z "$hit" ] && echo 1 || echo 0)"
 hit="$(grep -nE "python3? -c .*sys\.stdin\.read\(\)" $(printf '%s\n' "$scripts" | grep '\.sh$') 2>/dev/null | head -5)"
 ok "no 'python -c ... sys.stdin.read()' (UnicodeDecodeError on truncated multibyte text; use stdin.buffer.read().decode(...,'replace'))${hit:+: $hit}" "$([ -z "$hit" ] && echo 1 || echo 0)"
 hit="$(grep -nE '^[[:space:]]*[A-Za-z_]+\(\) *\{' ./run_overnight.sh | head -0)"

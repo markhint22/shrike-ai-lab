@@ -57,6 +57,14 @@ for t in "${TARGETS[@]}"; do
       .venv/bin/pip install --quiet --upgrade pip >> "$LOG" 2>&1 || STATUS=$?
       .venv/bin/pip install --quiet -r requirements.txt >> "$LOG" 2>&1 || STATUS=$?
       .venv/bin/pip install --quiet pytest pytest-asyncio pytest-cov httpx >> "$LOG" 2>&1 || STATUS=$?
+      # 2026-09-30: some repos' requirements.txt pins are stale relative to their own code/tests (shrike-notify: pytest==8.0.0 +
+      # pytest-asyncio==0.23.0 crash with INTERNALERROR "'Package' object has no attribute 'obj'", and fastapi==0.115.0/starlette 0.38 break
+      # its SSE tests). The fleet's ORIGINAL venv there had current versions; a rebuild from the pins produced a non-working test env and
+      # red hygiene gates. Repos listed here get the test toolchain + fastapi/starlette upgraded after the pinned install (the repo's own
+      # requirements.txt, which a test asserts on, is left untouched).
+      case " ${OVN_PROVISION_UPGRADE_REPOS:-shrike-notify} " in
+        *" $repo "*) .venv/bin/pip install --quiet -U fastapi starlette pytest pytest-asyncio pytest-cov httpx >> "$LOG" 2>&1 || STATUS=$? ;;
+      esac
     else
       echo "  no requirements.txt found" >> "$LOG"
       STATUS=1

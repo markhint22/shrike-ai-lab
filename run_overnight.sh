@@ -121,6 +121,8 @@ STATE_DIR="$SCRIPT_DIR/state"
 # this instead of its own independent top-of-file re-grep.
 # shellcheck source=scripts/lib_item_select.sh
 source "$SCRIPT_DIR/scripts/lib_item_select.sh" 2>/dev/null || true
+# shellcheck source=scripts/lib_tree_guard.sh
+source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
 
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
@@ -447,7 +449,7 @@ log "Loaded ${TASK_COUNT} task(s) from ${TASKS_FILE}"
 # "pass" (something ran and all green), "fail" (something ran, at least one
 # failure), "none" (nothing provisioned to run).
 run_repo_verification() {
-  local any_ran=0 any_failed=0 dir
+  local any_ran=0 any_failed=0 dir py_ran=0
   # 2026-08-27: scope each suite to the subdirs THIS cycle's commit(s) touched,
   # so a backend-only change never triggers an unrelated (e.g. broken Android)
   # build and mislabels a green change as tests:FAIL.
@@ -524,13 +526,13 @@ run_repo_verification() {
       echo "--- verify: .ovn-verify.sh override in ${dir} (600s cap) ---" >> "$task_log"
       ( cd "$dir" && OVN_CHANGED_FILES="$_OVN_CHANGED" timeout 600 ./.ovn-verify.sh ) >> "$task_log" 2>&1
       [ $? -ne 0 ] && any_failed=1
-      any_ran=1
+      any_ran=1; py_ran=1
       continue
     fi
     echo "--- verify: pytest in ${dir} (240s cap) ---" >> "$task_log"
     ( cd "$dir" && timeout 240 ./.venv/bin/pytest -q --no-cov ) >> "$task_log" 2>&1
     [ $? -ne 0 ] && any_failed=1
-    any_ran=1
+    any_ran=1; py_ran=1
   done < <(find . -maxdepth 4 -type f -path "*/.venv/bin/pytest" -print0 2>/dev/null)
 
   while IFS= read -r -d '' pkg; do
@@ -632,7 +634,15 @@ run_repo_verification() {
     fi
   done < <(find . -maxdepth 3 -type f -name "project.godot" -print0 2>/dev/null)
 
-  if [ "$any_ran" -eq 0 ]; then
+  # FAIL CLOSED (2026-09-30): a repo that HAS python tests but whose venv pytest is missing/broken (the 11:46-12:24 incident destroyed four repos'
+  # venvs) used to fall through to "none"/"pass" and land UNVERIFIED commits (shrike-notify landed two red staged steps that way). No python
+  # verifier ran although tests exist -> report "skip": the VERIFY-SKIP guard then holds the commit unpushed instead of landing it.
+  # OVN_VERIFY_FAIL_CLOSED=0 restores the old behavior.
+  if [ "$py_ran" -eq 0 ] && [ "$any_failed" -ne 1 ] && [ "${OVN_VERIFY_FAIL_CLOSED:-1}" = 1 ] \
+     && find . -maxdepth 4 -path '*/tests/test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
+    echo "--- verify: python tests exist but NO usable .venv/bin/pytest was found - verification could not run (fail-closed: skip, not pass) ---" >> "$task_log"
+    echo "skip"
+  elif [ "$any_ran" -eq 0 ]; then
     echo "none"
   elif [ "$any_failed" -eq 1 ]; then
     echo "fail"
@@ -2092,7 +2102,7 @@ ${full_prompt}"
         _RESIDUE_VERIFY="$(run_repo_verification)"
         if [ "$_RESIDUE_VERIFY" = "pass" ]; then
           echo "--- working-tree residue independently re-verified as PASSING - salvaging instead of discarding ---" >> "$task_log"
-          git add -A
+          git add -A; ovn_unstage_abs_symlinks "$PWD"
           if git commit -q -m "chore(queue): salvage working-tree residue independently verified as passing (likely cut off by a timeout before its own commit)" 2>>"$task_log"; then
             AFTER_SHA="$(git rev-parse HEAD)"
             _RESIDUE_SALVAGED=1

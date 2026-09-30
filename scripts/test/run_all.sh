@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Run the full overnight-queue regression suite. Exit 0 = all green.
 cd "$(dirname "$0")"
+# 2026-09-30: never let the suite reach the real ntfy.sh (shared per-IP quota; tests exhausted it and silenced all production alerts)
+HERE_RA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE_RA/ntfy_guard.sh"
 rc=0
 echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
 echo; echo "===== lib_item_select (real-item resolver — scout-file match over blind top-of-file) ====="; bash test_lib_item_select.sh || rc=1
@@ -217,5 +220,7 @@ echo; echo "===== tsc gate more w3d ====="; bash test_tsc_gate_more_w3d.sh || rc
 echo; echo "===== update progress cov ====="; bash test_update_progress_cov.sh || rc=1
 echo; echo "===== verify direction check more w3b ====="; bash test_verify_direction_check_more_w3b.sh || rc=1
 echo; echo "===== work summary more cov ====="; bash test_work_summary_more_cov.sh || rc=1
+echo; echo "===== ntfy guard ====="; bash test_ntfy_guard.sh || rc=1
+echo; echo "===== verify fail closed ====="; bash test_verify_fail_closed.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

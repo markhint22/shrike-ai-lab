@@ -286,6 +286,7 @@ osr_cleanup
 # -------- L. godot step: Godot-4 prompt + GODOT4.md, GUT full verify --------
 echo "== L: godot step"
 osr_new
+osr_venv backend   # 2026-09-30: fail-closed verify - the fixture repo carries python tests, so its live venv must exist for verification to run
 osr_godot ok
 osr_plan default '[{"desc":"add foo to x.gd","files":["game/x.gd"],"verify":"gdparse game/x.gd"}]'
 osr_aider 1 'mkdir -p game; printf "static func foo() -> int:\n\treturn 1\n" > game/x.gd'
