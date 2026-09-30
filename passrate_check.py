@@ -15,9 +15,11 @@ with open("state/outcomes.jsonl") as f:
         if not line:
             continue
         try:
-            rows.append(json.loads(line))
+            o = json.loads(line)
         except Exception:
-            pass
+            continue
+        if isinstance(o, dict):   # 2026-09-30: valid JSON that is not an object used to crash the report on r.get
+            rows.append(o)
 
 for wname, (start, end) in windows.items():
     print("=== %s [%s .. %s] ===" % (wname, start, end))
@@ -25,7 +27,7 @@ for wname, (start, end) in windows.items():
     per_repo = {}
     for r in rows:
         ts = r.get("ts","")
-        if not (start <= ts < end):
+        if not isinstance(ts, str) or not (start <= ts < end):
             continue
         b = bucket_from_severity(r.get("severity"))
         overall[b]+=1

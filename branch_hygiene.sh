@@ -48,6 +48,8 @@ source "$SCRIPT_DIR/scripts/lib_lock.sh"
 # under it (see that file). Falls back to serial if the lib is somehow missing.
 # shellcheck source=./scripts/lib_pytest_parallel.sh
 source "$SCRIPT_DIR/scripts/lib_pytest_parallel.sh" 2>/dev/null || ovn_pytest_par_args(){ :; }
+# shellcheck source=./scripts/lib_tree_guard.sh
+source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_abs_symlinks(){ :; }
 FEAT="${HYGIENE_FEATURE_BRANCH:-overnight/feature}"  # land which agent branch: overnight/feature (27B) | claude/feature (Claude)
 NOW_EPOCH="$(date +%s)"
 
@@ -415,8 +417,19 @@ for repo in "${REPOS[@]}"; do
   # isolated worktree at $FEAT so the live checkout is untouched
   wt="$(mktemp -d "/tmp/hygiene-${name}.XXXX")"
   if ! git -C "$repo" worktree add --detach --quiet "$wt" origin/$FEAT 2>/dev/null; then
+    rm -rf "$wt"   # 2026-09-30: the mktemp dir leaked on every failed worktree add
+    rm -rf "$wt"   # 2026-09-30: the mktemp dir leaked on every failed worktree add
     log "  could not create worktree — flagging"; echo "worktree add failed $(date)" > "$flag"
     report "| $name | ⚠️ +$ahead, worktree failed |"; continue
+  fi
+  # TREE GUARD (2026-09-30): never merge a branch that tracks a machine-local absolute symlink (a committed .venv/node_modules link
+  # replaces the real directory in the working clones - see scripts/lib_tree_guard.sh).
+  _abs_links="$(ovn_abs_symlinks "$repo" "origin/$mt" "origin/$FEAT")"
+  if [ -n "$_abs_links" ]; then
+    log "  TREE GUARD: $FEAT adds absolute symlink(s) vs $mt: $(printf '%s' "$_abs_links" | tr '\n' ' ') - NOT merging, flagged"
+    echo "absolute symlink(s) tracked on $FEAT: $_abs_links $(date)" > "$flag"
+    git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
+    report "| $name | 🔴 +$ahead, tracks absolute symlink(s) (tree guard) |"; continue
   fi
   # gate: does $FEAT build + test?
   run_gate "$repo" "$wt"; g=$?

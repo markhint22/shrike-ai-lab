@@ -10,6 +10,8 @@
 # Wire: end of daily_promote.sh (same-run) + cron `30 */3 * * *` (every 3h, the occasional pass).
 set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
+# shellcheck source=./scripts/lib_tree_guard.sh
+[ -f "$HOME/overnight-queue/scripts/lib_tree_guard.sh" ] && . "$HOME/overnight-queue/scripts/lib_tree_guard.sh"
 export PATH="/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
 DRY="${DRY_RUN:-0}"
@@ -107,6 +109,12 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
 merge_sanity_ok(){
   local wt="$1" tgt="$2" src="$3" base f n=0 bad=""
   [ "${OVN_MERGE_SANITY:-on}" = "off" ] && return 0
+  # absolute-symlink guard (scripts/lib_tree_guard.sh): runs on the MERGE RESULT vs the target, before the merge-base checks below
+  if command -v ovn_abs_symlinks >/dev/null 2>&1; then
+    bad="$(ovn_abs_symlinks "$wt" "origin/${tgt}" HEAD | head -3 | tr '\n' ' ')"
+    [ -n "$bad" ] && { echo "absolute symlink(s) in merge result: $bad"; return 1; }
+    bad=""
+  fi
   base="$(git -C "$wt" merge-base "origin/${tgt}" "origin/${src}" 2>/dev/null)" || return 0
   [ -n "$base" ] || return 0
   while IFS= read -r f; do

@@ -43,6 +43,48 @@ if os.path.exists(P):
         rows.append({'ts': ts, 'oc': oc, 'lang': lang, 'type': typ, 'cx': cx, 'verif': verif,
                      'repo': repo, 'file': f})
 
+# 2026-09-30: runway() is defined BEFORE the no-rows early exit below. scripts/ovn_fleet_health.sh imports this module and calls runway();
+# the old order made `import ovn_stats` sys.exit(0) whenever task_stats.log had no rows in the window, so the fleet-health check reported
+# "clean run" exactly when the fleet was stalled - the case it exists to catch.
+def runway():
+    """Per active repo: (repo, open_doable, days_str, burn24h). Runway = open items
+    / recent daily burn (substantive commits in the last 24h on the working branch)."""
+    import glob, subprocess
+    rdir = os.environ.get("OVN_REPOS_DIR")
+    if not rdir or not os.path.isdir(rdir):
+        return []
+    active = set(os.environ.get("OVN_ACTIVE_REPOS", "").split())
+    out = []
+    for prog in sorted(glob.glob(os.path.join(rdir, "*", "OVERNIGHT_PROGRESS.md"))):
+        repo = os.path.basename(os.path.dirname(prog))
+        if active and repo not in active:
+            continue
+        try:
+            txt = open(prog, encoding="utf-8", errors="ignore").read()
+        except OSError:
+            continue
+        doable = sum(1 for l in txt.splitlines()
+                     if l.lstrip().startswith("- [ ]")
+                     and not re.search(r"HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-", l))
+        rd = os.path.dirname(prog)
+        try:
+            log = subprocess.run(["git","-C",rd,"log","--since=24 hours ago","--pretty=%s"],
+                                 capture_output=True, text=True, timeout=15).stdout
+            burn = sum(1 for l in log.splitlines()
+                       if re.match(r"(feat|fix|test|perf|refactor)", l)
+                       and not re.search(r"auto-credit|auto-skip|reconcile|rebalance", l))
+        except Exception:
+            burn = 0
+        if doable == 0:
+            days = "0d"
+        elif burn == 0:
+            days = "stalled?"
+        else:
+            d = doable / burn
+            days = ("~%.0fd" % d) if d >= 1 else "<1d"
+        out.append((repo, doable, days, burn))
+    return out
+
 if not rows:
     print("no queue activity recorded in the last %gh yet" % hours)
     sys.exit(0)
@@ -123,44 +165,6 @@ def repeat_offenders(sub, threshold=5):
     return out
 
 
-def runway():
-    """Per active repo: (repo, open_doable, days_str, burn24h). Runway = open items
-    / recent daily burn (substantive commits in the last 24h on the working branch)."""
-    import glob, subprocess
-    rdir = os.environ.get("OVN_REPOS_DIR")
-    if not rdir or not os.path.isdir(rdir):
-        return []
-    active = set(os.environ.get("OVN_ACTIVE_REPOS", "").split())
-    out = []
-    for prog in sorted(glob.glob(os.path.join(rdir, "*", "OVERNIGHT_PROGRESS.md"))):
-        repo = os.path.basename(os.path.dirname(prog))
-        if active and repo not in active:
-            continue
-        try:
-            txt = open(prog, encoding="utf-8", errors="ignore").read()
-        except OSError:
-            continue
-        doable = sum(1 for l in txt.splitlines()
-                     if l.lstrip().startswith("- [ ]")
-                     and not re.search(r"HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-", l))
-        rd = os.path.dirname(prog)
-        try:
-            log = subprocess.run(["git","-C",rd,"log","--since=24 hours ago","--pretty=%s"],
-                                 capture_output=True, text=True, timeout=15).stdout
-            burn = sum(1 for l in log.splitlines()
-                       if re.match(r"(feat|fix|test|perf|refactor)", l)
-                       and not re.search(r"auto-credit|auto-skip|reconcile|rebalance", l))
-        except Exception:
-            burn = 0
-        if doable == 0:
-            days = "0d"
-        elif burn == 0:
-            days = "stalled?"
-        else:
-            d = doable / burn
-            days = ("~%.0fd" % d) if d >= 1 else "<1d"
-        out.append((repo, doable, days, burn))
-    return out
 
 L, F, N, E = c(rows)
 total = len(rows)

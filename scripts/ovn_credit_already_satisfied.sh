@@ -231,25 +231,12 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
 # logging stays); OVN_PATH_GATE=shadow logs but never refuses.
 PATH_GATE_MODE="${OVN_PATH_GATE:-enforce}"
 _LAST_PATH_RESULT=""
-path_gate(){  # $1 = line number in $PROG about to be credited. Sets $_LAST_PATH_RESULT.
-  local ln="$1" line body tgt desc ts
-  ts="$(date -u +%FT%TZ)"; _LAST_PATH_RESULT="NA"
-  line="$(sed -n "${ln}p" "$PROG" 2>/dev/null)"
-  # strip checkbox + any leading [tag] groups, then take the first token as the candidate target
-  body="$(printf '%s' "$line" | sed -E 's/^- \[ \] //; s/^(\[[^]]*\][[:space:]]*)+//')"
-  tgt="${body%% *}"; tgt="${tgt%%:*}"; tgt="${tgt//\`/}"
-  case "$tgt" in
-    */*.?*|*.py|*.ts|*.tsx|*.js|*.vue|*.gd|*.kt|*.swift|*.sh|*.sql|*.json|*.yml|*.yaml|*.toml|*.html) ;;
-    *) return ;;
-  esac
-  case "$tgt" in *[\*\?\[]*|http*|/*) return ;; esac
-  desc="$(printf '%s' "$body" | sed -E 's/^[^ ]+[[:space:]]*(—|-|–)?[[:space:]]*//' | head -c 120)"
-  if printf '%s' "$desc" | grep -qiE '^(delete|remove|drop|prune|retire)\b'; then
-    if [ -e "$tgt" ]; then _LAST_PATH_RESULT="STILL_EXISTS"; else _LAST_PATH_RESULT="OK"; fi
-  else
-    if [ -e "$tgt" ]; then _LAST_PATH_RESULT="OK"; else _LAST_PATH_RESULT="MISSING"; fi
-  fi
-  echo "$ts repo=$_REPO_LABEL line=$ln path_gate=$_LAST_PATH_RESULT target=$tgt" >> "$SHADOW_LOG"
+path_gate(){  # $1 = line number in $PROG about to be credited. Sets $_LAST_PATH_RESULT. Logic lives in ovn_path_gate.py (shared with the scout credit path).
+  local ln="$1" ts out; ts="$(date -u +%FT%TZ)"
+  out="$(python3 "$(dirname "${BASH_SOURCE[0]}")/ovn_path_gate.py" "$PROG" "$ln" "$PWD" 2>/dev/null)"
+  _LAST_PATH_RESULT="${out%% *}"; [ -n "$_LAST_PATH_RESULT" ] || _LAST_PATH_RESULT="NA"
+  [ "$_LAST_PATH_RESULT" = "NA" ] && return
+  echo "$ts repo=$_REPO_LABEL line=$ln path_gate=$_LAST_PATH_RESULT target=${out#* }" >> "$SHADOW_LOG"
 }
 
 # UNDER-CREDITING FIX (2026-09-28): both patterns below were exact-phrase matches with zero

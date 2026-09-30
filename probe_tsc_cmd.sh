@@ -3,7 +3,7 @@
 # commands and report (error-count, does-it-see-the-probe). Finds the command that ACTUALLY
 # type-checks the source (including new files) for these Vue+Vite+references projects.
 set -uo pipefail
-cd "$HOME/overnight-queue"
+cd "$HOME/overnight-queue" || exit 1   # 2026-09-30: was unguarded (would have run in the caller's cwd)
 probe() {
   local dir="$1"; [ -d "$dir" ] || { echo "MISSING $dir"; return; }
   echo "========================= $dir ========================="

@@ -11,7 +11,7 @@ log="$state/cycle_triage.log"
 prog="$repo/OVERNIGHT_PROGRESS.md"
 
 item="$(grep -viE 'HUMAN-ONLY|AUTO-SKIP|\[CLAUDE\]' "$prog" 2>/dev/null | grep -m1 -E '^- \[ \]' | sed -E 's/^- \[ \] //; s/[`*]//g' | cut -c1-64)"
-attempts="$(grep -c 'implement attempt' "$tasklog" 2>/dev/null || echo 0)"
+attempts="$(grep -c 'implement attempt' "$tasklog" 2>/dev/null)"; attempts="${attempts:-0}"   # grep -c prints 0 itself on no match; `|| echo 0` doubled it
 flags=""
 grep -qE 'exit=124|timed out|Killed|hard-killed' "$tasklog" 2>/dev/null && flags="${flags}TIMEOUT "
 grep -qE 'ContextWindowExceeded' "$tasklog" 2>/dev/null && flags="${flags}CTX-OVERFLOW "

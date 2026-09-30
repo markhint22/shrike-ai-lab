@@ -81,7 +81,15 @@ sys.argv = ['ovn_stats.py']
 sys.path.insert(0, 'scripts')
 _real_stdout = sys.stdout
 sys.stdout = open(os.devnull, 'w')
-import ovn_stats
+# 2026-09-30: ovn_stats sys.exit(0)s at import when task_stats.log has no rows in the window (a stalled fleet - the case this check
+# exists to catch). runway() is defined before that exit, so load the module by hand and tolerate the SystemExit.
+import importlib.util
+_spec = importlib.util.spec_from_file_location('ovn_stats', os.path.join('scripts', 'ovn_stats.py'))
+ovn_stats = importlib.util.module_from_spec(_spec); sys.modules['ovn_stats'] = ovn_stats
+try:
+    _spec.loader.exec_module(ovn_stats)
+except SystemExit:
+    pass
 sys.stdout = _real_stdout
 for repo, doable, days, burn in ovn_stats.runway():
     print('%s\t%s\t%s\t%s' % (repo, doable, days, burn))

@@ -41,7 +41,8 @@ if [ -f state/PAUSED ]; then
   exit 0
 fi
 
-_aiders(){ pgrep -c -f 'bin/aider ' 2>/dev/null || echo 0; }
+# 2026-09-30: `pgrep -c` prints 0 AND exits 1 on no match, so `|| echo 0` doubled it to "0\n0" (malformed log line, integer-expression errors in tests)
+_aiders(){ local n; n="$(pgrep -c -f 'bin/aider ' 2>/dev/null)"; echo "${n:-0}"; }
 best=0
 for i in 1 2 3 4; do
   t0=$(date +%s.%N)

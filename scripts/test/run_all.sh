@@ -120,5 +120,65 @@ echo; echo "===== delete executor (deterministic git rm for whole-file delete it
 echo; echo "===== alembic autogen hook (regenerates the missing migration for model drift) ====="; bash test_alembic_autogen.sh || rc=1
 echo; echo "===== record_outcome item_hash agrees with the shared ovn_item_hash (outcomes.jsonl hash joins the guard state-file key; date-bump regeneration keeps one identity) ====="; bash test_record_outcome_item_hash_agrees.sh || rc=1
 echo; echo "===== pytest-xdist guard (parallel flag only when repo allowlisted AND xdist importable; never breaks a venv without it) ====="; bash test_pytest_parallel_guard.sh || rc=1
+echo; echo "===== alembic_autogen_py ====="; bash test_alembic_autogen_py.sh || rc=1
+echo; echo "===== archive_done ====="; bash test_archive_done.sh || rc=1
+echo; echo "===== art_runner ====="; bash test_art_runner.sh || rc=1
+echo; echo "===== art_sh ====="; bash test_art_sh.sh || rc=1
+echo; echo "===== billwatch_summary_backfill ====="; bash test_billwatch_summary_backfill.sh || rc=1
+echo; echo "===== branch_hygiene_run ====="; bash test_branch_hygiene_run.sh || rc=1
+echo; echo "===== deploy_watch_run ====="; bash test_deploy_watch_run.sh || rc=1
+echo; echo "===== fix_backlog_paths ====="; bash test_fix_backlog_paths.sh || rc=1
+echo; echo "===== fleet_stats_py ====="; bash test_fleet_stats_py.sh || rc=1
+echo; echo "===== gitlark_control_consumer ====="; bash test_gitlark_control_consumer.sh || rc=1
+echo; echo "===== install_agents_md ====="; bash test_install_agents_md.sh || rc=1
+echo; echo "===== lib_worktree ====="; bash test_lib_worktree.sh || rc=1
+echo; echo "===== lib_worktree_paths ====="; bash test_lib_worktree_paths.sh || rc=1
+echo; echo "===== ovn_autotest_run ====="; bash test_ovn_autotest_run.sh || rc=1
+echo; echo "===== ovn_backlog_format_check ====="; bash test_ovn_backlog_format_check.sh || rc=1
+echo; echo "===== ovn_batch_scorecard ====="; bash test_ovn_batch_scorecard.sh || rc=1
+echo; echo "===== ovn_citation_check ====="; bash test_ovn_citation_check.sh || rc=1
+echo; echo "===== ovn_extract_failure ====="; bash test_ovn_extract_failure.sh || rc=1
+echo; echo "===== ovn_filesize_retag ====="; bash test_ovn_filesize_retag.sh || rc=1
+echo; echo "===== ovn_fleet_health_run ====="; bash test_ovn_fleet_health_run.sh || rc=1
+echo; echo "===== ovn_log_tokens ====="; bash test_ovn_log_tokens.sh || rc=1
+echo; echo "===== ovn_path_gate ====="; bash test_ovn_path_gate.sh || rc=1
+echo; echo "===== ovn_pipeline_audit_run ====="; bash test_ovn_pipeline_audit_run.sh || rc=1
+echo; echo "===== ovn_prioritize_tiers ====="; bash test_ovn_prioritize_tiers.sh || rc=1
+echo; echo "===== ovn_progress_slice ====="; bash test_ovn_progress_slice.sh || rc=1
+echo; echo "===== ovn_research_trigger_check ====="; bash test_ovn_research_trigger_check.sh || rc=1
+echo; echo "===== ovn_stage_runner_flow ====="; bash test_ovn_stage_runner_flow.sh || rc=1
+echo; echo "===== ovn_stage_runner_verify ====="; bash test_ovn_stage_runner_verify.sh || rc=1
+echo; echo "===== ovn_stage_stats ====="; bash test_ovn_stage_stats.sh || rc=1
+echo; echo "===== ovn_stage_sweep ====="; bash test_ovn_stage_sweep.sh || rc=1
+echo; echo "===== ovn_stale_top_item_check ====="; bash test_ovn_stale_top_item_check.sh || rc=1
+echo; echo "===== ovn_swift_retag ====="; bash test_ovn_swift_retag.sh || rc=1
+echo; echo "===== ovn_tag_items ====="; bash test_ovn_tag_items.sh || rc=1
+echo; echo "===== ovn_test_watch_run ====="; bash test_ovn_test_watch_run.sh || rc=1
+echo; echo "===== ovn_tier_stats_run ====="; bash test_ovn_tier_stats_run.sh || rc=1
+echo; echo "===== ovn_toks_monitor_run ====="; bash test_ovn_toks_monitor_run.sh || rc=1
+echo; echo "===== ovn_worktree_sweep ====="; bash test_ovn_worktree_sweep.sh || rc=1
+echo; echo "===== passrate_check ====="; bash test_passrate_check.sh || rc=1
+echo; echo "===== pipeline_lint ====="; bash test_pipeline_lint.sh || rc=1
+echo; echo "===== probe_tsc_cmd ====="; bash test_probe_tsc_cmd.sh || rc=1
+echo; echo "===== promote_to_prod_run ====="; bash test_promote_to_prod_run.sh || rc=1
+echo; echo "===== queue_health_full ====="; bash test_queue_health_full.sh || rc=1
+echo; echo "===== queue_refill_py_paths ====="; bash test_queue_refill_py_paths.sh || rc=1
+echo; echo "===== queue_sh_cli ====="; bash test_queue_sh_cli.sh || rc=1
+echo; echo "===== rebaseline_tsc ====="; bash test_rebaseline_tsc.sh || rc=1
+echo; echo "===== register_monitors ====="; bash test_register_monitors.sh || rc=1
+echo; echo "===== render_dashboard ====="; bash test_render_dashboard.sh || rc=1
+echo; echo "===== run_overnight_aider1_flow ====="; bash test_run_overnight_aider1_flow.sh || rc=1
+echo; echo "===== run_overnight_aider2_flow ====="; bash test_run_overnight_aider2_flow.sh || rc=1
+echo; echo "===== run_overnight_aider2_gates ====="; bash test_run_overnight_aider2_gates.sh || rc=1
+echo; echo "===== run_overnight_aider2_push ====="; bash test_run_overnight_aider2_push.sh || rc=1
+echo; echo "===== run_overnight_core_funcs ====="; bash test_run_overnight_core_funcs.sh || rc=1
+echo; echo "===== run_overnight_core_loop2 ====="; bash test_run_overnight_core_loop2.sh || rc=1
+echo; echo "===== run_overnight_core_main ====="; bash test_run_overnight_core_main.sh || rc=1
+echo; echo "===== run_overnight_core_verify ====="; bash test_run_overnight_core_verify.sh || rc=1
+echo; echo "===== shrike_notify_lib ====="; bash test_shrike_notify_lib.sh || rc=1
+echo; echo "===== staging_smoke ====="; bash test_staging_smoke.sh || rc=1
+echo; echo "===== sync_branches ====="; bash test_sync_branches.sh || rc=1
+echo; echo "===== tree_guard ====="; bash test_tree_guard.sh || rc=1
+echo; echo "===== un_park ====="; bash test_un_park.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

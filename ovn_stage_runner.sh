@@ -114,8 +114,11 @@ _wd=0
 _arm_watchdog(){ # $1 = seconds; kills any previously-armed watchdog first
   [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null
   ( exec 209>&-
+    # 2026-09-30 FIX: `pgrep -P $_self` includes THIS watchdog subshell, so the old walk kill -9'd itself first and never reached the
+    # runner (reproduced with a hung LLM call: the runner carried on past the watchdog). Skip our own pid.
+    _me=$BASHPID
     sleep "$1"
-    _kt(){ local c; for c in $(pgrep -P "$1" 2>/dev/null); do _kt "$c"; done; kill -9 "$1" 2>/dev/null; }
+    _kt(){ local c; for c in $(pgrep -P "$1" 2>/dev/null); do [ "$c" = "$_me" ] && continue; _kt "$c"; done; kill -9 "$1" 2>/dev/null; }
     _kt "$_self" ) >/dev/null 2>&1 &
   _wd=$!
 }
@@ -129,6 +132,11 @@ _dedicated=0
 if [ "${OVN_STAGE_DEDICATE:-1}" = 1 ] && [ ! -f state/PAUSED ]; then
   touch state/PAUSED; date +%s > state/stage_pause_since; _dedicated=1; sleep 18
 fi
+# 2026-09-30 FIX: the cleanup trap used to be installed only after the worktree exists (line ~265), so the early exits ("no doable T3+
+# item", capstone pass/fail, worktree failure) left state/PAUSED + stage_pause_since behind and the watchdog running until
+# pause_guard.sh cleared them. Install it right after dedicated mode is switched on; the worktree removal is guarded on $wt.
+cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; return 0; }
+trap cleanup EXIT
 
 # ---- one LiteLLM chat call: $1=prompt-file -> stdout = content. RETRIES with backoff so a collision
 #      with the fleet's aider on the single-threaded llama-server queues instead of aborting. ----
@@ -262,7 +270,7 @@ fi
 git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
 wt="$(mktemp -d "/tmp/stage-${repo}.XXXX")"
 git -C "$rd" worktree add -q "$wt" origin/overnight/feature 2>/dev/null || { say "worktree failed"; exit 1; }
-cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; }
+cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; return 0; }
 trap cleanup EXIT
 # 2026-09-09 FIX: a fresh `git worktree add` never includes gitignored content, so node_modules
 # is always absent here - every PER-STEP frontend gate (ovn_autotest.sh, called after every single
@@ -348,7 +356,7 @@ PROMPT
   local raw; raw="$(llm "$pf")"; rm -f "$pf"
   # extract the JSON array from the raw content (model may wrap it in prose/fences)
   printf '%s' "$raw" | python3 -c "import sys,json
-txt=sys.stdin.read(); i=txt.find('['); j=txt.rfind(']')
+txt=sys.stdin.buffer.read().decode('utf-8','replace'); i=txt.find('['); j=txt.rfind(']')
 try:
     a=json.loads(txt[i:j+1]) if i>=0 and j>i else []
     a=[s for s in a if isinstance(s,dict) and s.get('desc')]
@@ -578,7 +586,7 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   # PYTHON: FULL suite (catches circular imports / cross-file breaks / all tests) via the live venv
   local vp; vp="$(find "$rd" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
   if [ -n "$vp" ]; then
-    local pkg; pkg="${vp%/.venv/bin/pytest}"; pkg="${pkg#"$rd"/}"
+    local pkg; pkg="${vp%/.venv/bin/pytest}"; pkg="${pkg#"$rd"/}"; [ "$pkg" = "$rd" ] && pkg="."   # 2026-09-30: a repo-ROOT .venv left pkg as the absolute path, so [ -d "$wt/$pkg" ] was false and the whole python suite was silently skipped
     # 600s (was 300s, 2026-09-09): iptv_apps's full pytest suite (1436 tests, ~356s+ measured) was
     # getting killed at exactly 300s every single T3+ run (confirmed via verify.log truncated
     # mid-progress-bar at 81% + start/FAILED log timestamps exactly 300s apart), a false-revert
@@ -617,8 +625,13 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   fi
   # WEB: vitest full run (reuse provisioned node_modules)
   if [ "$vok" = 1 ]; then
-    local pj; pj="$(find "$rd" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null | grep -l . 2>/dev/null | head -1)"
-    [ -z "$pj" ] && pj="$(find "$rd" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null | head -1)"
+    # 2026-09-30: the old detection piped `find | grep -l .` which yields the literal "(standard input)", so this block has NEVER run in
+    # production (no "vitest FULL" line in any verify log). Detection is fixed below, but the full vitest run is OPT-IN
+    # (OVN_STAGE_VITEST_FULL=1): turning on a brand-new full-suite gate unvalidated could fail healthy stage runs.
+    local pj=""
+    if [ "${OVN_STAGE_VITEST_FULL:-0}" = 1 ]; then
+      pj="$(find "$rd" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null | xargs -r grep -l '"vitest"' 2>/dev/null | head -1)"
+    fi
     if [ -n "$pj" ] && grep -q '"vitest"' "$pj" 2>/dev/null; then
       local wd; wd="$(dirname "$pj")"
       [ -d "$wd/node_modules" ] && { local wwd; wwd="$wt/${wd#"$rd"/}"; [ -e "$wwd/node_modules" ] || ln -s "$(cd "$wd" && pwd)/node_modules" "$wwd/node_modules" 2>/dev/null; echo "-- vitest FULL --" >> "$vlog"; ( cd "$wwd" && CI=true timeout 240 npx vitest run ) >> "$vlog" 2>&1 || vok=0; }

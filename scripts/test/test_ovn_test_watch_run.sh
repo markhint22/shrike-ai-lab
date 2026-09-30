@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# Runs the REAL ovn_test_watch.sh (full-suite watchdog) end to end in a fake $HOME tree: per-repo git clones with bare origins,
+# stub pytest (.venv/bin/pytest) / npx (vitest) / godot (GUT), exported-function stubs for curl and flock (the script puts
+# system dirs first on PATH, so PATH stubs for those would lose to the real binaries). Covers green/red/timeout for each
+# runner, EMERGENCY item insertion (with header / without header / duplicate-open / closed-retired / no progress file), git
+# sync failure, missing clone, run.lock timeout, unprovisioned + non-vitest web packages.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+TW=""
+for c in "$HERE/../../ovn_test_watch.sh" "$HERE/../ovn_test_watch.sh" "$HERE/ovn_test_watch.sh"; do [ -f "$c" ] && { TW="$c"; break; }; done
+[ -n "$TW" ] || { echo "  SKIP: ovn_test_watch.sh not found"; exit 0; }
+P=0; F=0
+ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
+has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+H="$T/home"; R="$H/overnight-queue"; ORG="$T/origins"; ALERTS="$T/alerts.txt"; FLOCK_FAIL="$T/flock_fail"
+mkdir -p "$R/state" "$R/repos" "$ORG" "$H/aider-venv/bin" "$H/godot"; : > "$ALERTS"; export ALERTS FLOCK_FAIL
+curl(){ local t=""; while [ $# -gt 0 ]; do case "$1" in -H) case "$2" in Title:*) t="$2";; esac; shift 2;; -d|--max-time) shift 2;; -*) shift;; *) shift;; esac; done; echo "$t" >> "$ALERTS"; return 0; }
+flock(){ [ -f "$FLOCK_FAIL" ] && return 1; return 0; }
+export -f curl flock
+
+# ---- runner stubs ----
+cat > "$H/aider-venv/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+# fake `npx vitest run`: behaviour chosen by ./VITEST_MODE in the package dir
+case "$(cat VITEST_MODE 2>/dev/null)" in
+  red)     printf 'stdout\n FAIL  src/a.test.ts > adds\n x1 failed\n Tests  1 failed | 3 passed\n'; exit 1;;
+  timeout) exit 124;;
+  *)       printf ' Tests  7 passed (7)\n'; exit 0;;
+esac
+EOF
+cat > "$H/godot/godot4" <<'EOF'
+#!/usr/bin/env bash
+# fake godot: --import run prints nothing; the GUT run prints per ./GUT_MODE in cwd
+case "$*" in *--import*) exit 0;; esac
+case "$(cat GUT_MODE 2>/dev/null)" in
+  red) printf 'Totals\n2 failing\nErrors 1\n';;
+  *)   printf 'Totals\n9 passed\n';;
+esac
+exit 0
+EOF
+chmod +x "$H/aider-venv/bin/npx" "$H/godot/godot4"
+mkdir -p "$H/godot" ; # script's GODOT is $HOME/godot/godot4
+
+prog_with_header(){ printf '# Progress\n\n## Next Steps\n- [ ] existing item A\n- [ ] existing item B\n\n## Done\n- [x] old\n'; }
+mkclone(){ # $1 name [$2 progress: header|nohdr|none|closed]
+  local n="$1" mode="${2:-header}" o="$ORG/$1.git" d="$R/repos/$1"
+  git init -q --bare "$o"
+  mkdir -p "$d"
+  ( cd "$d" && git init -q -b overnight/feature && git config user.email t@t && git config user.name t
+    echo base > README.md
+    case "$mode" in
+      header) prog_with_header > OVERNIGHT_PROGRESS.md;;
+      nohdr)  printf 'just some text, no steps header\n' > OVERNIGHT_PROGRESS.md;;
+      closed) { prog_with_header; echo "- [x] (retired-stale) [EMERGENCY][T2] ${n} pytest suite is RED — old one"; } > OVERNIGHT_PROGRESS.md;;
+      none) ;;
+    esac
+    git add -A; git commit -q -m base; git remote add origin "$o"; git push -q origin overnight/feature )
+}
+pystub(){ # $1=repo dir  $2=mode  [$3=subdir]
+  local d="$R/repos/$1${3:+/$3}"; mkdir -p "$d/.venv/bin"
+  case "$2" in
+    green)   printf '#!/usr/bin/env bash\necho "12 passed in 1.2s"\nexit 0\n' ;;
+    red)     printf '#!/usr/bin/env bash\necho "FAILED tests/test_a.py::test_x - AssertionError"\necho "ERROR tests/test_b.py"\necho "2 failed, 3 passed in 1s"\nexit 1\n' ;;
+    errnolines) printf '#!/usr/bin/env bash\necho "3 error in 0.5s"\nexit 2\n' ;;
+    timeout) printf '#!/usr/bin/env bash\nexit 124\n' ;;
+  esac > "$d/.venv/bin/pytest"
+  chmod +x "$d/.venv/bin/pytest"
+}
+webpkg(){ # $1=repo $2=mode(red|green|timeout) $3=vitest?(1/0) $4=provisioned?(1/0) [$5 subdir]
+  local d="$R/repos/$1/${5:-web}"; mkdir -p "$d"
+  if [ "$3" = 1 ]; then echo '{"devDependencies":{"vitest":"^1"}}' > "$d/package.json"; else echo '{"name":"x"}' > "$d/package.json"; fi
+  [ "$4" = 1 ] && mkdir -p "$d/node_modules/vitest"
+  echo "$2" > "$d/VITEST_MODE"
+}
+
+# ---------------- repos ----------------
+mkclone r_py_red;     pystub r_py_red red
+mkclone r_py_green;   pystub r_py_green green
+mkclone r_py_timeout; pystub r_py_timeout timeout
+mkclone r_py_errnl;   pystub r_py_errnl errnolines
+mkclone r_py_nested;  pystub r_py_nested red backend
+mkclone r_py_nohdr nohdr; pystub r_py_nohdr red
+mkclone r_py_closed closed; pystub r_py_closed red
+mkclone r_py_noprog none;  pystub r_py_noprog red
+mkclone r_web_red;    webpkg r_web_red red 1 1
+mkclone r_web_timeout; webpkg r_web_timeout timeout 1 1
+mkclone r_web_green;  webpkg r_web_green green 1 1
+mkclone r_web_noprov; webpkg r_web_noprov red 1 0
+mkclone r_web_novitest; webpkg r_web_novitest red 0 1
+mkclone r_gd_red;     mkdir -p "$R/repos/r_gd_red/game/addons/gut"; touch "$R/repos/r_gd_red/game/project.godot"; echo red > "$R/repos/r_gd_red/game/GUT_MODE"
+mkclone r_gd_green;   mkdir -p "$R/repos/r_gd_green/game/addons/gut"; touch "$R/repos/r_gd_green/game/project.godot"
+mkclone r_gd_nogut;   mkdir -p "$R/repos/r_gd_nogut/game"; touch "$R/repos/r_gd_nogut/game/project.godot"
+# repo whose origin lacks overnight/feature -> git sync failure
+mkdir -p "$R/repos/r_nosync"; ( cd "$R/repos/r_nosync" && git init -q -b main && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -q -m x && git init -q --bare "$ORG/r_nosync.git" && git remote add origin "$ORG/r_nosync.git" && git push -q origin main )
+git -C "$R/repos/r_py_red" config user.email t@t >/dev/null
+
+# sanity: untracked stubs survive reset; commit progress (already in base). Run the watchdog with explicit repo list.
+ALL="r_missing r_nosync r_py_red r_py_green r_py_timeout r_py_errnl r_py_nested r_py_nohdr r_py_closed r_py_noprog r_web_red r_web_timeout r_web_green r_web_noprov r_web_novitest r_gd_red r_gd_green r_gd_nogut"
+run(){ OUT="$(cd "$H" && HOME="$H" bash "$TW" "$@" 2>&1)"; RC=$?; }
+run $ALL
+ok "run 1 exits 0" "$([ "$RC" = 0 ] && echo 1 || echo 0)"
+ok "sweep start+complete markers" "$([ "$(has 'test-health sweep start')" = 1 ] && [ "$(has 'test-health sweep complete')" = 1 ] && echo 1 || echo 0)"
+ok "missing clone skipped" "$(has 'r_missing: no clone — skip')"
+ok "git sync failure skipped" "$(has 'r_nosync: git sync failed — skip')"
+ok "pytest green logged with pass count" "$(has 'r_py_green: pytest green in r_py_green (12 passed)')"
+ok "pytest red logged with FAILED/ERROR detail" "$(has 'r_py_red: pytest RED in r_py_red — FAILED tests/test_a.py::test_x')"
+ok "pytest timeout is RED not green" "$(has 'pytest TIMED OUT in r_py_timeout after 600s')"
+ok "pytest 'N error' without FAILED lines falls back to summary line" "$(has 'r_py_errnl: pytest RED in r_py_errnl — 3 error in 0.5s')"
+ok "nested .venv (backend/) discovered, area uses basename" "$(has 'r_py_nested: pytest RED in backend')"
+ok "vitest red logged" "$(has 'r_web_red: vitest RED in web')"
+ok "vitest timeout is RED" "$(has 'vitest TIMED OUT in web after 400s')"
+ok "vitest green logged with count" "$(has 'r_web_green: vitest green in web (7 passed)')"
+ok "unprovisioned web package skipped" "$(has 'r_web_noprov: web not provisioned (no node_modules) — skip web')"
+ok "package.json without vitest silently ignored" "$(printf '%s' "$OUT" | grep -q 'r_web_novitest: vitest' && echo 0 || echo 1)"
+ok "GUT red logged" "$(has 'r_gd_red: GUT RED')"
+ok "GUT green logged with count" "$(has 'r_gd_green: GUT green (9 passed)')"
+ok "godot project without addons/gut ignored" "$(printf '%s' "$OUT" | grep -q 'r_gd_nogut: GUT' && echo 0 || echo 1)"
+
+fetch_prog(){ git -C "$ORG/$1.git" show "overnight/feature:OVERNIGHT_PROGRESS.md" 2>/dev/null; }
+ok "EMERGENCY item pushed to origin for pytest red, inserted right under '## Next Steps'" "$(fetch_prog r_py_red | sed -n '/## Next Steps/{n;p;}' | grep -q '\[EMERGENCY\]\[T2\] r_py_red pytest suite is RED' && echo 1 || echo 0)"
+ok "EMERGENCY detail carries the failing tests" "$(fetch_prog r_py_red | grep -q 'Failing: FAILED tests/test_a.py::test_x' && echo 1 || echo 0)"
+ok "timeout EMERGENCY text mentions 600s" "$(fetch_prog r_py_timeout | grep -q 'did not finish within 600s' && echo 1 || echo 0)"
+ok "vitest timeout EMERGENCY text mentions 400s" "$(fetch_prog r_web_timeout | grep -q 'did not finish within 400s' && echo 1 || echo 0)"
+ok "vitest red EMERGENCY pushed" "$(fetch_prog r_web_red | grep -q 'web vitest suite is RED' && echo 1 || echo 0)"
+ok "GUT red EMERGENCY pushed" "$(fetch_prog r_gd_red | grep -q 'godot GUT suite is RED' && echo 1 || echo 0)"
+ok "progress file with NO '## Next Steps' header gets one prepended" "$(fetch_prog r_py_nohdr | head -2 | tr '\n' '|' | grep -q '^## Next Steps|- \[ \] \[EMERGENCY\]' && echo 1 || echo 0)"
+ok "closed/retired '- [x]' emergency does NOT block a fresh one" "$(fetch_prog r_py_closed | grep -c '^- \[ \] \[EMERGENCY\]\[T2\] r_py_closed pytest suite is RED' | grep -q '^1$' && echo 1 || echo 0)"
+ok "repo without OVERNIGHT_PROGRESS.md: no enqueue, no crash" "$(has 'r_py_noprog: pytest RED' )"
+ok "emergency queued log line" "$(has 'r_py_red/r_py_red pytest: EMERGENCY fix item queued + pushed')"
+ok "ntfy alert per emergency (title names repo+area)" "$(grep -q 'Title: r_py_red r_py_red pytest tests are red' "$ALERTS" && echo 1 || echo 0)"
+ok "no alert for green repos" "$(grep -q 'r_py_green' "$ALERTS" && echo 0 || echo 1)"
+
+# ---- run 2: duplicates must not be re-filed ----
+before="$(fetch_prog r_py_red | grep -c 'EMERGENCY')"
+run r_py_red r_web_red
+after="$(fetch_prog r_py_red | grep -c 'EMERGENCY')"
+ok "run 2: open emergency already queued -> skipped" "$([ "$(has 'emergency already queued (open) — skip')" = 1 ] && [ "$before" = "$after" ] && echo 1 || echo 0)"
+
+# ---- run 3: lock not acquirable -> bail out cleanly ----
+touch "$FLOCK_FAIL"
+run r_py_green
+ok "run.lock timeout -> skip pass, exit 0" "$([ "$RC" = 0 ] && [ "$(has 'could not acquire run.lock in 20min')" = 1 ] && [ "$(has 'sweep start')" = 0 ] && echo 1 || echo 0)"
+rm -f "$FLOCK_FAIL"
+
+# ---- run 4: default REPOS list (no args) is iterated; absent clones just skip ----
+run
+ok "no-arg run walks the default repo list" "$([ "$(has 'billwatch: no clone — skip')" = 1 ] && [ "$(has 'shrike-labs-website: no clone — skip')" = 1 ] && echo 1 || echo 0)"
+
+# ---- godot absent -> GUT phase skipped entirely ----
+rm -f "$H/godot/godot4"
+run r_gd_red
+ok "no godot binary: GUT phase silently skipped" "$(printf '%s' "$OUT" | grep -q 'GUT' && echo 0 || echo 1)"
+
+# ---- cd failure ----
+OUT="$(HOME="$T/nohome" bash "$TW" 2>&1)"; RC=$?
+ok "missing \$HOME/overnight-queue exits 1" "$([ "$RC" = 1 ] && echo 1 || echo 0)"
+
+echo "ovn_test_watch_run: $P passed, $F failed"
+[ "$F" = 0 ]

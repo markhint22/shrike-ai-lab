@@ -32,6 +32,9 @@ if not os.path.isfile(os.path.join(proj, "alembic.ini")):
     print("REFUSE no alembic.ini in cwd"); sys.exit(11)
 
 tmp = tempfile.mkdtemp(prefix="ovn-autogen-")
+# 2026-09-30: the throwaway SQLite dir was never removed on any exit path (28 leaked in one test run)
+import atexit, shutil
+atexit.register(shutil.rmtree, tmp, True)
 dbfile = os.path.join(tmp, "autogen.db")
 # env.py flavour decides the URL flavour: async env.py (async_engine_from_config) needs the
 # aiosqlite driver spec; a sync env.py (iptv_apps: app.database derives its own async URL)

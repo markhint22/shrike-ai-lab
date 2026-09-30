@@ -19,7 +19,8 @@
 # Safe to re-run: GET /monitors first and skip any name that's already registered.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_WATCH="$DIR/overnight-queue/deploy_watch.sh"
+# 2026-09-30: lives next to deploy_watch.sh inside the pipeline dir (was one level up, which left a broken duplicate on the box)
+DEPLOY_WATCH="$DIR/deploy_watch.sh"; [ -f "$DEPLOY_WATCH" ] || DEPLOY_WATCH="$DIR/overnight-queue/deploy_watch.sh"
 
 if [ -z "${SHRIKE_MONITOR_URL:-}" ]; then
   echo "SHRIKE_MONITOR_URL not set — nothing to do (no-op)."

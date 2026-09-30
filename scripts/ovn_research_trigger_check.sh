@@ -67,5 +67,5 @@ PYEOF
 # pushing a redundant phone notification.
 if [ -n "$NEW" ]; then
   n="$(printf '%s\n' "$NEW" | grep -c .)"
-  say "=== $n repo(s) newly confirmed starving — ntfy suppressed (see ovn_fleet_health.sh), detail: $(printf '%s' "$NEW" | tr '\n' '; ')"
+  say "=== $n repo(s) newly confirmed starving — ntfy suppressed (see ovn_fleet_health.sh), detail: $(printf '%s\n' "$NEW" | paste -sd';' - | sed 's/;/; /g')"
 fi

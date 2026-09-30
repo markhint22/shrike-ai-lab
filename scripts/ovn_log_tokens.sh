@@ -17,7 +17,9 @@ DIR="${OVERNIGHT_DIR:-$HOME/overnight-queue}"
 STATE="$DIR/state"
 mkdir -p "$STATE" 2>/dev/null || exit 0
 src="${1:-unknown}"; repo="${2:--}"; sent="${3:-0}"; recv="${4:-0}"
-case "$sent" in ''|null) sent=0 ;; esac
-case "$recv" in ''|null) recv=0 ;; esac
-printf '{"ts":"%s","source":"%s","repo":"%s","tokens_sent":%s,"tokens_recv":%s}\n' \
-  "$(date -u +%FT%TZ)" "$src" "$repo" "$sent" "$recv" >> "$STATE/token_ledger.jsonl" 2>/dev/null || true
+# 2026-09-30: counts must be plain integers and the strings JSON-escaped, or one bad argument writes an invalid line into the ledger
+case "$sent" in ''|*[!0-9]*) sent=0 ;; esac
+case "$recv" in ''|*[!0-9]*) recv=0 ;; esac
+src="${src//\\/\\\\}"; src="${src//\"/\\\"}"; repo="${repo//\\/\\\\}"; repo="${repo//\"/\\\"}"
+{ printf '{"ts":"%s","source":"%s","repo":"%s","tokens_sent":%s,"tokens_recv":%s}\n' \
+  "$(date -u +%FT%TZ)" "$src" "$repo" "$sent" "$recv" >> "$STATE/token_ledger.jsonl"; } 2>/dev/null || true

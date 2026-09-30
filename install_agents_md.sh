@@ -13,7 +13,8 @@ for r in billwatch gitlark iptv_apps test-automation-agent shrike-notify shrike-
   fi
   cp "$src" "repos/$r/AGENTS.md"
   lines=$(wc -l < "repos/$r/AGENTS.md")
-  if ( cd "repos/$r" && git diff --quiet -- AGENTS.md ); then
+  # 2026-09-30: `git diff --quiet` is 0 for an UNTRACKED file, so a first-time install was reported "unchanged" and never committed; porcelain sees both
+  if [ -z "$( cd "repos/$r" && git status --porcelain -- AGENTS.md )" ]; then
     echo "$r: AGENTS.md unchanged ($lines lines)"
   else
     ( cd "repos/$r"

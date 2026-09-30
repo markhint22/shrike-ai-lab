@@ -204,7 +204,7 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
   rm -f "$target_note_file"
 
   say "$r: recovering parked item: ${task:0:80}"
-  body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.read()}],'temperature':0.3,'max_tokens':900}))" <<<"$PROMPT")"
+  body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.buffer.read().decode('utf-8','replace')}],'temperature':0.3,'max_tokens':900}))" <<<"$PROMPT")"
   _raw="$(curl -fsS --max-time 180 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' -H "Authorization: Bearer $LITELLM_KEY" -d "$body" 2>>"$LOG")"
   resp="$(printf '%s' "$_raw" | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
   # 2026-09-16: this call's real token spend was discarded entirely - log it.

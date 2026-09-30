@@ -27,7 +27,7 @@ SWEPT=0
 
 emit_alert() {
   local sev="$1" id="$2" msg="$3"
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${sev} | ${id} | ${msg}" >> "$ALERTS_FILE" 2>/dev/null || true
+  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${sev} | ${id} | ${msg}" >> "$ALERTS_FILE"; } 2>/dev/null || true
 }
 
 for repo_dir in repos/*/; do

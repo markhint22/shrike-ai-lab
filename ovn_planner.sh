@@ -52,7 +52,8 @@ RESEARCH_REMIND_HOURS="${OVN_RESEARCH_REMIND_HOURS:-24}"
 # behavior if that changes) — it just no longer pushes a redundant phone notification, so
 # the NTFY_TOPIC-resolving alert() helper this used to call was removed as dead weight.
 needs_research_alert(){ # $1=repo $2=backlog-count
-  local r="$1" bc="$2" marker="$STATE_DIR/ovn_needs_research_${r}" now remind_secs last
+  local r="$1" bc="$2" now remind_secs last marker
+  marker="$STATE_DIR/ovn_needs_research_${r}"
   now=$(date +%s); remind_secs=$(( RESEARCH_REMIND_HOURS * 3600 ))
   if [ ! -f "$marker" ]; then
     echo "$now" > "$marker"
@@ -131,7 +132,7 @@ Hard rules:
 PROMPT_END
 
   say "$r: decomposing [ready] feature: ${feat:0:80}"
-  body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.read()}],'temperature':0.3,'max_tokens':1200}))" <<<"$PROMPT")"
+  body="$(python3 -c "import json,sys;print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':sys.stdin.buffer.read().decode('utf-8','replace')}],'temperature':0.3,'max_tokens':1200}))" <<<"$PROMPT")"
   _raw="$(curl -fsS --max-time 180 "$LITELLM/v1/chat/completions" -H 'Content-Type: application/json' -H "Authorization: Bearer $LITELLM_KEY" -d "$body" 2>>"$LOG")"
   resp="$(printf '%s' "$_raw" | jq -r '.choices[0].message.content // empty' 2>>"$LOG")"
   # 2026-09-16: this runs HOURLY and its real token spend was discarded entirely - log it.

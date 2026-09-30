@@ -57,6 +57,12 @@ def main():
             end = i
             break
     section = lines[start:end]
+    # 2026-09-30: when the section runs to EOF the trailing "" from split("\n") must stay the file's final newline, not become a
+    # continuation line of the last item (it landed mid-section after a reorder and the file lost its trailing newline)
+    tail = []
+    if end == len(lines):
+        while section and section[-1] == "":
+            tail.insert(0, section.pop())
     # collect open items with their trailing continuation lines (indented / non-item lines that follow)
     blocks, cur, preamble = [], None, []
     for ln in section:
@@ -77,7 +83,7 @@ def main():
     if ordered == list(range(len(blocks))):
         print("already prioritized — no change")
         return
-    new_section = preamble + [l for i in ordered for l in blocks[i]]
+    new_section = preamble + [l for i in ordered for l in blocks[i]] + tail
     lines[start:end] = new_section
     open(path, "w", encoding="utf-8").write("\n".join(lines))
     t3 = sum(1 for b in blocks if rank(b[0]) == 0)

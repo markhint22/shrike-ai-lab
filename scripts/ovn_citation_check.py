@@ -55,6 +55,8 @@ def find_by_basename(repo_dir, basename):
              "-not", "-path", "*/.venv/*", "-not", "-path", "*/.git/*"],
             capture_output=True, text=True, timeout=10, check=False,
         )
+        if out.returncode != 0 and not out.stdout.strip():
+            return True  # find itself failed (e.g. repo_dir missing) - not evidence the file is missing
         return bool(out.stdout.strip())
     except Exception:
         return True  # find failing is not evidence of a missing file — don't false-flag

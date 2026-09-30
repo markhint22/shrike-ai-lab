@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Re-seed tsc baselines using each repo's CANONICAL type-check command.
 set -uo pipefail
-cd "$HOME/overnight-queue"
+cd "$HOME/overnight-queue" || exit 1   # 2026-09-30: unguarded cd + the rm below deleted .count files in the caller's cwd
 rm -f state/tsc_baseline/*.count
 mkdir -p state/tsc_baseline
 seed(){

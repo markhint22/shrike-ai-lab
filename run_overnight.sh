@@ -71,7 +71,9 @@ set -uo pipefail
 
 export PATH="$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# OVN_SCRIPT_DIR: TEST SEAM (2026-09-30) - lets the integration tests run this real script inside a hermetic fake tree
+# (own tasks.json/state/logs/scripts, stub aider/curl on PATH, HOME pointing at a temp dir). Unset in production.
+SCRIPT_DIR="${OVN_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 # optional pilot flags (OVN_ARCHITECT / OVN_BESTOF_N / OVN_EDIT_FORMAT) — toggle without restarts
 [ -f "$SCRIPT_DIR/state/pilot_flags.env" ] && . "$SCRIPT_DIR/state/pilot_flags.env" || true
 
@@ -716,7 +718,8 @@ run_lint_check() {
   local before="$1" after="$2" issues=0 changed n
   changed="$(git diff --name-only "$before" "$after" 2>/dev/null)"
   local pyfiles ruff
-  pyfiles="$(echo "$changed" | grep -E '\.py$' | grep -vE '/(migrations|\.venv)/' || true)"
+  # 2026-09-30: a root-level migrations/ dir was not excluded (the old pattern needed a leading slash)
+  pyfiles="$(echo "$changed" | grep -E '\.py$' | grep -vE '(^|/)(migrations|\.venv)/' || true)"
   if [ -n "$pyfiles" ]; then
     ruff="$(find . -maxdepth 4 -path '*/.venv/bin/ruff' 2>/dev/null | head -1)"
     [ -z "$ruff" ] && command -v ruff >/dev/null 2>&1 && ruff="ruff"
@@ -794,7 +797,7 @@ ${prompt}"
   fi
 
   if [ ! -d "$repo/.git" ]; then
-    log "Repo ${repo} has no .git checkout — skipping"
+    log "Repo ${repo} has no .git checkout — skipping" >&2   # 2026-09-30: stdout is this function's STATUS channel; the log line used to become the status (recorded as class=unknown)
     echo "error: no .git at ${repo}"
     return
   fi
@@ -1832,12 +1835,20 @@ PYEOF
           _df_base="$(basename "$_df")"
           _ad_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | grep -F "$_df_base" | head -1 | cut -d: -f1)"
           if [ -n "$_ad_ln" ]; then
+            # 2026-09-30: same target-path sanity check as the any-verdict credit (scripts/ovn_path_gate.py): an "already done" claim for a
+            # create/modify item whose target file does not exist (or a delete item whose target still exists) is refused, not credited.
+            _pg="$(python3 "$SCRIPT_DIR/scripts/ovn_path_gate.py" OVERNIGHT_PROGRESS.md "$_ad_ln" "$PWD" 2>/dev/null)"
+            case "${_pg%% *}" in
+              MISSING|STILL_EXISTS) echo "--- scout ALREADY-DONE credit REFUSED at line ${_ad_ln} (path gate: ${_pg}) - left open ---" >> "$task_log"; continue ;;
+            esac
             sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, scout-verified) /" OVERNIGHT_PROGRESS.md
             git add OVERNIGHT_PROGRESS.md
-            if git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet 2>>"$task_log"; then
+            if git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet >>"$task_log" 2>&1; then
               _credit_push
+              echo "--- credited already-done item at line ${_ad_ln} (matched ${_df_base}) ---" >> "$task_log"
+            else
+              echo "--- ALREADY-DONE credit commit FAILED at line ${_ad_ln} (matched ${_df_base}) - not credited ---" >> "$task_log"
             fi
-            echo "--- credited already-done item at line ${_ad_ln} (matched ${_df_base}) ---" >> "$task_log"
             break
           fi
         done
@@ -1851,7 +1862,7 @@ PYEOF
         _SKC="$(bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
         if echo "$_SKC" | grep -qE 'CREDITED=[1-9]'; then
           git add OVERNIGHT_PROGRESS.md
-          if git commit -q -m "chore(queue): credit already-satisfied item (scout verdict path)" 2>>"$task_log"; then
+          if git commit -q -m "chore(queue): credit already-satisfied item (scout verdict path)" >>"$task_log" 2>&1; then   # 2026-09-30: was 2>> only - "nothing to commit" went to stdout and became the status string
             _credit_push
           fi
         fi
@@ -2860,14 +2871,16 @@ run_train_job_task() {
     echo ""
     echo "=== Restarting inference container ==="
     docker start "${INFERENCE_CONTAINER}"
+    HEALTHY=0
     for i in $(seq 1 24); do
       HEALTH="$(docker inspect --format='{{.State.Health.Status}}' "${INFERENCE_CONTAINER}" 2>/dev/null || echo unknown)"
       echo "  [$i] health: ${HEALTH}"
-      [ "$HEALTH" = "healthy" ] && break
+      [ "$HEALTH" = "healthy" ] && { HEALTHY=1; break; }
       sleep 5
     done
   } >> "$task_log" 2>&1
-  RESTART_EXIT=$?
+  # 2026-09-30: RESTART_EXIT used to be the exit status of the LAST `sleep` (always 0), so "trained-but-inference-restart-failed" was unreachable
+  if [ "${HEALTHY:-0}" = 1 ]; then RESTART_EXIT=0; else RESTART_EXIT=1; fi
 
   if [ "$STOP_EXIT" -ne 0 ]; then
     echo "error(could not stop inference, exit=${STOP_EXIT})"
@@ -2989,7 +3002,7 @@ coder_process_index() {
   local i="$1"
   local ID TYPE ENABLED TASK_LOG REPO REPO_BASENAME HOLD_FILE PROMPT PERSISTENT MAP_TOKENS SKIP_AGENTS_MD MAX_FILES PROTECTED_FILES TIMEOUT_SECS BRANCH STATUS VERSION_OR_BRANCH
   ID="$(jq -r ".[$i].id" "$TASKS_FILE")"
-  if [ "${OVN_CODER_FAST:-0}" = "1" ]; then case " ${CODER_DONE:-} " in *" ${ID} "*) continue;; esac; fi
+  if [ "${OVN_CODER_FAST:-0}" = "1" ]; then case " ${CODER_DONE:-} " in *" ${ID} "*) return 0;; esac; fi
   TYPE="$(jq -r ".[$i].type // \"aider_fix\"" "$TASKS_FILE")"
   ENABLED="$(jq -r ".[$i].enabled | if . == null then true else . end" "$TASKS_FILE")"
   TASK_LOG="$LOG_RUN_DIR/${ID}.log"
@@ -3029,7 +3042,7 @@ coder_fast_prepass() {
   for i in $(seq 0 $((TASK_COUNT - 1))); do
     [ "$(jq -r ".[$i].type // \"aider_fix\"" "$TASKS_FILE")" = "aider_fix" ] || continue
     [ "$(jq -r ".[$i].enabled | if . == null then true else . end" "$TASKS_FILE")" = "true" ] || continue
-    explicit="$(jq -r ".[$i].coder_eligible // \"\"" "$TASKS_FILE")"
+    explicit="$(jq -r ".[$i].coder_eligible | if . == null then \"\" else tostring end" "$TASKS_FILE")"   # 2026-09-30: jq `//` treats false as empty, so coder_eligible:false was ignored
     [ "$explicit" = "false" ] && continue
     if [ "$explicit" = "true" ]; then idxs="${idxs} ${i}"; continue; fi
     persist="$(jq -r ".[$i].persistent_branch // false" "$TASKS_FILE")"
@@ -3056,6 +3069,10 @@ coder_fast_prepass() {
 }
 
 
+# OVN_SOURCE_ONLY: TEST SEAM - `source`ing this file with it set defines every function (record_outcome, run_repo_verification,
+# run_aider_fix_task, ...) and returns before the main task loop, so unit tests can call them directly. Unset in production.
+if [ -n "${OVN_SOURCE_ONLY:-}" ] && (return 0 2>/dev/null); then return 0; fi
+
 if [ "${OVN_CODER_FAST:-0}" = "1" ]; then coder_fast_prepass; fi
 
 REMAINING_SKIPPED=0
@@ -3081,6 +3098,9 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
     echo "| ${ID} | ${TYPE} | disabled | - | - |" >> "$REPORT_FILE"
     continue
   fi
+  # 2026-09-30: a task already processed in the coder fast-batch window must not run a second time on the 27B (CODER_DONE was only
+  # consulted inside coder_process_index, never here, so every coder-window task produced two report rows / two runs)
+  if [ "${OVN_CODER_FAST:-0}" = "1" ]; then case " ${CODER_DONE:-} " in *" ${ID} "*) continue;; esac; fi
 
   log "=== Task ${ID} (type=${TYPE}) ==="
   _TASK_START_TS="$(date +%s)"

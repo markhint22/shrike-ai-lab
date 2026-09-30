@@ -53,7 +53,8 @@ if [ -n "$task_log" ] && [ -f "$task_log" ]; then
 fi
 
 _lib="$(dirname "$0")/lib_item_select.sh"
-[ -f "$_lib" ] && . "$_lib"   # shellcheck source=scripts/lib_item_select.sh
+# shellcheck source=scripts/lib_item_select.sh
+[ -f "$_lib" ] && . "$_lib"
 
 # A clean landing clears the fail/no-op streaks (+ grounded failure memory) for whichever
 # item(s) actually landed THIS cycle — identified via "item-hash <md5>" marker line(s) that

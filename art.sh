@@ -26,7 +26,7 @@ case "$cmd" in
     echo "=== queued (pending) ==="; grep -nE "^- \[ \]" "$Q" 2>/dev/null || echo "  (none)"
     echo "=== staged (generated, awaiting review) ==="; grep -nE "^- \[x\]" "$Q" 2>/dev/null | tail -20 || echo "  (none)" ;;
   run)
-    n=$(grep -cE "^- \[ \]" "$Q" 2>/dev/null || echo 0)
+    n=$(grep -cE "^- \[ \]" "$Q" 2>/dev/null); n=${n:-0}
     [ "${n:-0}" -eq 0 ] && { echo "art queue empty — nothing to run"; exit 0; }
     echo "generating $n task(s). Stopping 27B to free the GPU (auto-restores when done)..."
     docker stop "$LLAMA" >/dev/null 2>&1 || true
@@ -35,7 +35,7 @@ case "$cmd" in
     echo "art runner started (pid $!). Tail: art.sh status  |  log: $LOG"
     echo "The gpu_autoswap watcher restarts the 27B automatically once the GPU frees." ;;
   status)
-    echo "=== queue ==="; echo "  pending: $(grep -cE '^- \[ \]' "$Q" 2>/dev/null || echo 0)  staged: $(grep -cE '^- \[x\]' "$Q" 2>/dev/null || echo 0)"
+    echo "=== queue ==="; p=$(grep -cE '^- \[ \]' "$Q" 2>/dev/null); x=$(grep -cE '^- \[x\]' "$Q" 2>/dev/null); echo "  pending: ${p:-0}  staged: ${x:-0}"
     echo "=== runner ==="; pgrep -f art_runner.py >/dev/null && echo "  RUNNING" || echo "  idle"
     echo "=== GPU ==="; nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader 2>/dev/null | head -1
     echo "=== 27B ==="; [ "$(docker inspect -f '{{.State.Running}}' "$LLAMA" 2>/dev/null)" = true ] && echo "  up" || echo "  down (art running or auto-swap pending)"

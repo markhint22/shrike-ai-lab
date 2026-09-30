@@ -58,11 +58,28 @@ log(){ echo "$(date '+%F %T') $*"; }
 hc(){ curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null; }
 
 # key | repo | label | provider | target | health_url | fleet_active(1/0)
-#   provider=railway: target = service name          provider=vercel: target = project name
+#   provider=railway: target = project_id:environment_id:service_id (see note below)
+#   provider=vercel:  target = project name
+#
+# 2026-09-26 FIX: railway rows used to key off a per-repo .env.railway file holding a
+# RAILWAY_TOKEN. Those tokens are secrets — one leaked+got-rotated fleet-wide on 2026-09-04
+# (see project_committed-railway-tokens-fleet-leak) — and the 3 repos below never got a
+# fresh one recreated afterward. railway_stat()'s only response to a missing file was a
+# silent "UNKNOWN" (skip), with no alert distinguishing "can't tell" from "healthy" — so
+# these 3 backend checks silently no-op'd on every single run for 3+ weeks (2026-09-04 to
+# 2026-09-26) while gitlark staging crash-looped the entire time with zero warning.
+#
+# Fix: use the Mac's own already-authenticated `railway` CLI user session (confirmed
+# persistent via ~/.railway/config.json's refreshToken — the same session interactively
+# used to diagnose the gitlark crash this session) with hardcoded project/environment/
+# service IDs instead of a per-repo secret file. No token file to go stale, and one fewer
+# secret sitting in a repo directory. IDs below are PRODUCTION (not secrets - useless
+# without the authenticated session) confirmed live via `railway status`/config.json on
+# 2026-09-26 for billwatch/gitlark/chickadee-stream(iptv_apps).
 SURFACES="
-billwatch-backend|billwatch|billwatch backend|railway|billwatch|https://billwatch-production.up.railway.app/health|1
-chickadee-backend|iptv_apps|chickadee backend|railway|chickadeestream-backend|https://chickadeestream-production.up.railway.app/health|1
-gitlark-backend|gitlark|gitlark backend|railway|gitlark|https://gitlark-production.up.railway.app/health|1
+billwatch-backend|billwatch|billwatch backend|railway|38d377fc-d005-41fc-9675-e84659ef7ce1:b1ecd4c1-05d0-40a7-bf1c-44c7664c9a14:31f8e4dd-5827-48a8-9d36-d09dc6ce64c2|https://billwatch-production.up.railway.app/health|1
+chickadee-backend|iptv_apps|chickadee backend|railway|5adaa84c-5dd0-40ee-8265-deb5870ee87e:d9dda61d-6154-4eb2-ba9e-f857ee8b9a34:58dcc554-8c73-4fa1-8c0f-653de8f31784|https://chickadeestream-production.up.railway.app/health|1
+gitlark-backend|gitlark|gitlark backend|railway|a6a9ae6b-8df9-4d05-8169-25bf13d92293:62ac46fe-07be-4028-9c39-ad8de2b443e3:de12ff53-2434-4b7e-8a32-eb77e02c14dd|https://gitlark-production.up.railway.app/health|1
 billwatch-frontend|billwatch|billwatch frontend|vercel|billwatch|https://billwatch.vercel.app|1
 chickadee-frontend|iptv_apps|chickadee frontend|vercel|chickadee|https://chickadeestream.com|1
 gitlark-frontend|gitlark|gitlark frontend|vercel|gitlark|https://gitlark.vercel.app|1
@@ -73,16 +90,26 @@ website|shrike-labs-website|shrike website|vercel|shrike-labs-website|https://sh
 command -v railway >/dev/null 2>&1 || { log "FATAL: railway CLI not on PATH"; exit 1; }
 command -v vercel  >/dev/null 2>&1 || log "WARN: vercel CLI not on PATH — frontend checks will skip"
 
+# All railway CLI calls run from a dedicated, isolated cwd (not a project checkout) so
+# this script's `railway link` state never collides with a human's interactive session
+# linked against the same project from LocalProjects/<repo> (config.json keys links by cwd).
+RWCWD="$STATE/.railway-cwd"; mkdir -p "$RWCWD"
+
 # ---- provider status: echoes "STATUS<TAB>DEPLOY_ID"  (STATUS in FAILED|OK|INPROGRESS|UNKNOWN) ----
-railway_stat(){ # $1=repo $2=service  (cwd-independent; uses the repo's project token to link)
-  local repo="$1" svc="$2" d="$LOCAL/$1" pid raw did st
-  [ -f "$d/.env.railway" ] || { echo "UNKNOWN	"; return; }
-  ( cd "$d" || exit 0
-    pid="$(RAILWAY_TOKEN="$(grep -E '^RAILWAY_TOKEN=' .env.railway | cut -d= -f2- | tr -d '"'"'"'[:space:]')" railway status --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)"
-    [ -n "$pid" ] || { echo "UNKNOWN	"; exit 0; }
-    railway link --project "$pid" --environment production --service "$svc" >/dev/null 2>&1 || { echo "UNKNOWN	"; exit 0; }
-    raw="$(railway deployment list 2>/dev/null | grep -vE 'setup agent|Tip:' | grep -oE '[0-9a-f-]{36} \| [A-Z]+' | head -1 | tr -d '|')"
-    did="$(echo "$raw" | awk '{print $1}')"; st="$(echo "$raw" | awk '{print $2}')"
+railway_stat(){ # $1=project_id:environment_id:service_id
+  local pid eid sid raw did st
+  IFS=':' read -r pid eid sid <<<"$1"
+  ( cd "$RWCWD" || exit 0
+    railway link --project "$pid" --environment "$eid" --service "$sid" >/dev/null 2>&1 || { echo "UNKNOWN	"; exit 0; }
+    raw="$(railway deployment list --json --environment "$eid" --service "$sid" --limit 1 2>/dev/null | grep -vE 'setup agent|Tip:')"
+    did="$(printf '%s' "$raw" | python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin); print(d[0]["id"] if d else "")
+except Exception: print("")' 2>/dev/null)"
+    st="$(printf '%s' "$raw" | python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin); print(d[0]["status"] if d else "")
+except Exception: print("")' 2>/dev/null)"
     case "$st" in FAILED|CRASHED) echo "FAILED	$did";; SUCCESS) echo "OK	$did";; BUILDING|DEPLOYING|INITIALIZING|QUEUED) echo "INPROGRESS	$did";; *) echo "UNKNOWN	$did";; esac )
 }
 vercel_stat(){ # $1=project
@@ -93,8 +120,39 @@ vercel_stat(){ # $1=project
   st="$(vercel inspect "$url" 2>&1 | grep -iE '^[[:space:]]*status' | grep -oE 'Ready|Error|Building|Queued|Canceled|Failed' | head -1)"
   case "$st" in Error|Failed|Canceled) echo "FAILED	$url";; Ready) echo "OK	$url";; Building|Queued) echo "INPROGRESS	$url";; *) echo "UNKNOWN	$url";; esac
 }
-railway_err(){ ( cd "$LOCAL/$1" 2>/dev/null || exit 0; railway logs "$2" 2>/dev/null | grep -vE 'setup agent|Tip:' | grep -iE 'error|failed|exception|traceback|refus|no module|multiple head|cannot|denied|fatal' | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-460 ); }
-vercel_err(){ vercel inspect "$1" --logs 2>&1 | grep -iE 'error|failed|cannot|not found|module|type|expected|exit code' | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-460; }
+# target_file <raw log text> — best-effort extraction of a repo-relative file path from a
+# Python traceback (`File "/app/some/path.py", line N, in ...`), preferring the LAST frame
+# inside /app (the app's own code) over site-packages/vendored frames. Empty if none found.
+#
+# 2026-09-26 FIX: emergency deploy-fix items enqueued below only ever carried a prose error
+# excerpt, never a concrete file path — ovn_retire_vague.py's sanitizer correctly requires a
+# named file with a real extension (it exists specifically so the scout doesn't churn
+# no-op(BLOCKED) forever on items with nothing to open) and retires anything without one as
+# "vague" before the fleet ever attempts it. Confirmed live: billwatch's own psycopg fix
+# today (commit f14d5a2) landed only because a human traced the log by hand — the
+# auto-enqueued item for the exact same failure was silently retired-vague first. Every
+# Railway/Vercel deploy failure this script catches was, by construction, unactionable by
+# the fleet until this existed.
+target_file(){
+  printf '%s\n' "$1" | grep -oE 'File "/app/[^"]+", line [0-9]+' | grep -v '/app/\.venv/\|/site-packages/' | tail -1 | sed -E 's#File "/app/##; s#", line.*##'
+}
+railway_err(){ # $1=project_id:environment_id:service_id $2=deployment_id -> echoes "FILE<US>EXCERPT" (US = 0x1f: a TAB delimiter made `read` collapse an empty FILE field, so the excerpt became the target file)
+  local pid eid sid fulllog tf excerpt
+  IFS=':' read -r pid eid sid <<<"$1"
+  ( cd "$RWCWD" || exit 0
+    railway link --project "$pid" --environment "$eid" --service "$sid" >/dev/null 2>&1
+    fulllog="$(railway logs "$2" --service "$sid" --environment "$eid" --lines 60 2>/dev/null | grep -vE 'setup agent|Tip:')"
+    tf="$(target_file "$fulllog")"
+    excerpt="$(printf '%s' "$fulllog" | grep -iE 'error|failed|exception|traceback|refus|no module|multiple head|cannot|denied|fatal' | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-460)"
+    printf '%s\x1f%s\n' "$tf" "$excerpt" )
+}
+vercel_err(){ # -> echoes "FILE<US>EXCERPT" (US = 0x1f: a TAB delimiter made `read` collapse an empty FILE field, so the excerpt became the target file) (vercel build logs use JS-style "at file.ts:12:34" frames)
+  local fulllog tf excerpt
+  fulllog="$(vercel inspect "$1" --logs 2>&1)"
+  tf="$(printf '%s\n' "$fulllog" | grep -oE '[A-Za-z0-9_./-]+\.(ts|tsx|js|jsx|vue|mjs|cjs):[0-9]+' | grep -v 'node_modules/' | tail -1 | sed -E 's/:[0-9]+$//')"
+  excerpt="$(printf '%s' "$fulllog" | grep -iE 'error|failed|cannot|not found|module|type|expected|exit code' | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-460)"
+  printf '%s\x1f%s\n' "$tf" "$excerpt"
+}
 
 enqueue_fix(){ # $1=repo $2=surface-label $3=item-text  -> 0 ok
   # 2026-09-07 FIX: base64 the item text. Previously ITEM="$3" was passed as an ssh command-line env
@@ -125,12 +183,33 @@ while IFS='|' read -r key repo label provider target health fleet; do
   [ -z "${key// /}" ] && continue        # skip blank lines (read line-by-line; fields contain spaces)
   if suppressed "$key"; then log "$key: suppressed (human-gated, see alert_suppress.txt)"; continue; fi
   case "$provider" in
-    railway) read -r st did <<<"$(railway_stat "$repo" "$target")";;
+    railway) read -r st did <<<"$(railway_stat "$target")";;
     vercel)  read -r st did <<<"$(vercel_stat "$target")";;
     *) continue;;
   esac
   st="${st:-UNKNOWN}"
   idf="$STATE/$key.id"; atf="$STATE/$key.attempts"
+  usf="$STATE/$key.unknown_streak"; uaf="$STATE/$key.unknown_alerted"
+
+  # 2026-09-26 FIX: a check that silently returns UNKNOWN forever (missing token, broken
+  # link, CLI auth expired, API outage) looks identical to "quiet and healthy" in every log
+  # line above — this exact blind spot hid gitlark/billwatch/chickadee's Railway checks for
+  # 3+ weeks with zero alert. Any run that gets a REAL signal (OK or FAILED) resets the
+  # streak; only an unbroken run of UNKNOWNs (this check itself failing, not the deploy)
+  # escalates, once, until a real signal returns.
+  if [ "$st" = "UNKNOWN" ] || [ "$st" = "INPROGRESS" ]; then
+    if [ "$st" = "UNKNOWN" ]; then
+      streak=$(( $(cat "$usf" 2>/dev/null || echo 0) + 1 ))
+      echo "$streak" > "$usf"
+      if [ "$streak" -ge 6 ] && [ ! -f "$uaf" ]; then
+        touch "$uaf"
+        alert "🕳️ $label monitoring is blind (${streak}x UNKNOWN)" "warning" "deploy_watch has gotten UNKNOWN from $label for $streak consecutive checks (~$((streak*20))min) — this means the CHECK ITSELF is broken (railway link/auth/API), not necessarily the deploy. Investigate deploy_watch.sh's railway_stat for $key before trusting silence here again."
+        log "$key: MONITORING-BLIND escalated after $streak consecutive UNKNOWN"
+      fi
+    fi
+    log "$key: $st (skip)"; continue
+  fi
+  rm -f "$usf" "$uaf" 2>/dev/null
 
   if [ "$st" = OK ]; then
     if [ -f "$idf" ]; then          # we'd acted on a failure -> report the RESULT
@@ -145,12 +224,11 @@ while IFS='|' read -r key repo label provider target health fleet; do
     else log "$key: $st"; fi
     continue
   fi
-  [ "$st" != FAILED ] && { log "$key: $st (skip)"; continue; }   # INPROGRESS/UNKNOWN -> wait
 
   # FAILED
   [ "$(cat "$idf" 2>/dev/null)" = "$did" ] && { log "$key: FAILED (already handled $did)"; continue; }
   atts=$(( $(cat "$atf" 2>/dev/null || echo 0) + 1 ))
-  case "$provider" in railway) err="$(railway_err "$repo" "$did")";; vercel) err="$(vercel_err "$did")";; esac
+  case "$provider" in railway) IFS=$'\x1f' read -r tfile err <<<"$(railway_err "$target" "$did")";; vercel) IFS=$'\x1f' read -r tfile err <<<"$(vercel_err "$did")";; esac
   [ -n "$err" ] || err="(no error captured — inspect the $provider deploy $did)"
   echo "$did" > "$idf"; echo "$atts" > "$atf"
 
@@ -164,10 +242,22 @@ while IFS='|' read -r key repo label provider target health fleet; do
 
   if [ "$fleet" = 1 ]; then
     ts="$(date '+%Y-%m-%d')"
+    # A named TARGET FILE (when extraction succeeded) is load-bearing, not decorative:
+    # ovn_retire_vague.py's sanitizer requires a real file+extension in the item text or it
+    # retires the item as "vague" before the fleet ever attempts it (see target_file()'s note
+    # above) — without this, every emergency item enqueued below silently never gets tried.
     if [ "$provider" = vercel ]; then
-      item="- [ ] [T4] ${label} — 🚨 EMERGENCY DEPLOY FIX (auto-added ${ts}): the Vercel PRODUCTION frontend build FAILED — prod is serving the last good build. Fix the web build error so it compiles and deploys (check the web/ dir build + typecheck). ERROR EXCERPT: ${err}"
+      if [ -n "$tfile" ]; then
+        item="- [ ] [T4] ${label} — 🚨 EMERGENCY DEPLOY FIX (auto-added ${ts}): the Vercel PRODUCTION frontend build FAILED — prod is serving the last good build. TARGET FILE: ${tfile} — start there. Fix the build error so it compiles and deploys. ERROR EXCERPT: ${err}"
+      else
+        item="- [ ] [T4] ${label} — 🚨 EMERGENCY DEPLOY FIX (auto-added ${ts}): the Vercel PRODUCTION frontend build FAILED — prod is serving the last good build. Fix the web build error so it compiles and deploys (check the web/ dir build + typecheck). ERROR EXCERPT: ${err}"
+      fi
     else
-      item="- [ ] [T4] ${label} — 🚨 EMERGENCY DEPLOY FIX (auto-added ${ts}): the Railway PRODUCTION deploy FAILED — prod is frozen on the last good build. Fix the code so it builds, starts, and passes /health. ERROR EXCERPT: ${err}"
+      if [ -n "$tfile" ]; then
+        item="- [ ] [T4] ${label} — 🚨 EMERGENCY DEPLOY FIX (auto-added ${ts}): the Railway PRODUCTION deploy FAILED — prod is frozen on the last good build. TARGET FILE: ${tfile} — start there. Fix the code so it builds, starts, and passes /health. ERROR EXCERPT: ${err}"
+      else
+        item="- [ ] [T4] ${label} — 🚨 EMERGENCY DEPLOY FIX (auto-added ${ts}): the Railway PRODUCTION deploy FAILED — prod is frozen on the last good build. Fix the code so it builds, starts, and passes /health. ERROR EXCERPT: ${err}"
+      fi
     fi
     if [ "$DRYRUN" = 1 ]; then
       log "$key: FAILED ($did) attempt $atts -> WOULD enqueue fix into $repo"

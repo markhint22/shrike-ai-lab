@@ -116,7 +116,7 @@ active="$(printf '%s\n%s\n' "$cron_scripts" "$internal" | sort -u | grep -v '^$'
 while IFS= read -r s; do
   [ -z "$s" ] && continue
   base="$(basename "$s")"
-  if grep -rl "$base" scripts/test/*.sh scripts/test/*.py >/dev/null 2>&1; then
+  if grep -rl "$base" scripts/test/ >/dev/null 2>&1; then   # 2026-09-30: was scripts/test/*.sh *.py - exit 2 (no match for the glob) flagged everything untested when no .py test existed
     pass "$base: has test coverage"
   else
     warn "$base: NO test file references it (active in cron/run_overnight, untested)"

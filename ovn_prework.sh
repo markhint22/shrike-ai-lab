@@ -127,7 +127,7 @@ elif [ -f prework/queue.tsv ]; then
     fi
   done < prework/queue.tsv
   mv "$tmp" prework/queue.tsv
-  say "prework pass: generated $done briefing(s); $(grep -c . prework/queue.tsv 2>/dev/null || echo 0) left in queue"
+  say "prework pass: generated $done briefing(s); $(grep -c . prework/queue.tsv 2>/dev/null) left in queue"
 else
   echo "usage: ovn_prework.sh <repo> \"<task>\"   (or populate prework/queue.tsv)"; exit 1
 fi

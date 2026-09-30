@@ -4,7 +4,7 @@
 import re, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ovn_classify as C
-TAGGED = re.compile(r'- \[ \] (\[[A-Z]+\] )?\{')
+TAGGED = re.compile(r'- \[ \] (\[[A-Z][A-Z0-9]*\] )?\{')   # 2026-09-30: [T2] has a digit - the old [A-Z]+ never matched a tier label
 SKIP = re.compile(r'HUMAN-ONLY|human/|retired-|BLOCKED ITEM', re.I)
 def process(path):
     lines = open(path, encoding='utf-8').read().splitlines()
@@ -12,7 +12,7 @@ def process(path):
     for ln in lines:
         if ln.startswith('- [ ]') and not TAGGED.match(ln) and not SKIP.search(ln):
             tag = C.tag(C.classify(ln))
-            m = re.match(r'(- \[ \] (?:\[[A-Z]+\] )?)(.*)', ln)
+            m = re.match(r'(- \[ \] (?:\[[A-Z][A-Z0-9]*\] )?)(.*)', ln)
             if m:
                 out.append(m.group(1) + tag + ' ' + m.group(2)); n += 1; continue
         out.append(ln)
