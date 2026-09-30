@@ -71,7 +71,7 @@ def parse_queue():
 def alert(title, msg):
     try:
         subprocess.run(["curl", "-fsS", "--max-time", "8", "-H", f"Title: {title}",
-                        "-H", "Tags: art", "-d", msg, f"https://ntfy.sh/{TOPIC}"],
+                        "-H", "Tags: art", "-d", msg, f"{os.environ.get('NTFY_SERVER', 'https://ntfy.sh')}/{TOPIC}"],
                        capture_output=True, timeout=10)
     except Exception:
         pass

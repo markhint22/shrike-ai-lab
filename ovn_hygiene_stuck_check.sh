@@ -24,7 +24,7 @@ REMIND_HOURS="${HYGIENE_STUCK_REMIND_HOURS:-6}"  # repeat reminder cadence while
 STUCK_SECS=$(( STUCK_HOURS * 3600 ))
 REMIND_SECS=$(( REMIND_HOURS * 3600 ))
 log(){ echo "$(date '+%F %T') $*"; }
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true; }
 
 now=$(date +%s)
 seen_repos=""

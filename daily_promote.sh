@@ -61,6 +61,6 @@ if [ -n "$blocked" ]; then
 ⚠ BLOCKED (gate/conflict — stayed on last-good):$blocked"
   PROMOTE_PRIO="high"
 fi
-curl -fsS --max-time 8 -H "Title: Daily prod promote" -H "Tags: rocket" -H "Priority: $PROMOTE_PRIO" -d "$body" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+curl -fsS --max-time 8 -H "Title: Daily prod promote" -H "Tags: rocket" -H "Priority: $PROMOTE_PRIO" -d "$body" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
 command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_queue_promote" "Daily prod promote" "rocket" "$body"
 echo "$body"

@@ -51,7 +51,7 @@ alert(){
   local topic_repo="${4:-${repo:-queue}}"
   local prio="${5:-default}"
   [ "$DRYRUN" = 1 ] && { echo "  [ntfy] $1 :: $3" ; return 0; }
-  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
   command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${topic_repo}_deploy" "$1" "$2" "$3"
 }
 log(){ echo "$(date '+%F %T') $*"; }

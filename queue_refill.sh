@@ -137,7 +137,7 @@ fi
 if [ -n "$recovered" ]; then
   curl -fsS --max-time 8 -H "Title: Backlog refilled" -H "Tags: white_check_mark" -H "Priority: low" \
     -d "These repos have doable items again:${recovered}." \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
   log "backlog-recovered note sent for:${recovered}"
 fi
 [ -n "$dry" ] && [ -z "$newly_dry$reminder_dry" ] && log "still dry (no alert, within cooldown):${dry}"

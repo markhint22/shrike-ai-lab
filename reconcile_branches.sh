@@ -264,16 +264,16 @@ done
 if [ -n "$conflicts" ]; then
   curl -fsS --max-time 8 -H "Title: 🔴 Branch reconcile CONFLICT" -H "Tags: rotating_light" -H "Priority: high" \
     -d "Branches diverged with CONFLICTING edits (auto-reconcile couldn't resolve, needs a human):$conflicts. Resolve the merge manually." \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
 fi
 if [ -n "$directs" ]; then
   curl -fsS --max-time 8 -H "Title: Reconciled a direct-to-main commit" -H "Tags: information_source" -H "Priority: low" \
     -d "Found + back-merged a NON-promote commit sitting on main (a chat/hotfix pushed straight to main?):$directs. It's now on develop + feature too — nothing lost. Tip: commit app-repo work to overnight/feature so it rides the gated pipeline." \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
 fi
 if [ -n "$resolved" ]; then
   curl -fsS --max-time 8 -H "Title: 🤖 Branch reconcile auto-resolved a conflict" -H "Tags: robot" -H "Priority: default" \
     -d "A develop<->feature conflict was resolved automatically (LLM-assisted, independently re-verified against the repo's real test/build gate before pushing — gate=tests-green):$resolved. Worth a quick look, but no action needed." \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
 fi
 log "reconcile complete${conflicts:+ 🔴 conflicts:$conflicts}${directs:+ ℹ direct-to-main:$directs}${resolved:+ 🤖 auto-resolved:$resolved}"

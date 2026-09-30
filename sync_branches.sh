@@ -51,6 +51,6 @@ done
 if [ -n "$conflicts" ]; then
   curl -fsS --max-time 8 -H "Title: Branch back-merge conflict" -H "Tags: warning" -H "Priority: high" \
     -d "main->develop back-merge conflicted (needs a human):$conflicts. develop and main have conflicting edits — likely a chat/hotfix commit to main touched a file develop also changed." \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
 fi
 log "sync_branches complete (reconciled:${reconciled:- none})"

@@ -118,6 +118,14 @@ ok "self-gen tops up a low-water repo and commits" "$(git -C "$(rd selfgen)" log
 run exhausted
 ok "no doable items -> skip(exhausted)" "$([ "$(res exhausted)" = 'skip(exhausted)' ] && echo 1 || echo 0)"
 ok "exhausted skip leaves a log line and never calls aider" "$([ "$(has "$(tlog exhausted)" '0 doable items')" = 1 ] && [ ! -d "$T/exhausted/scn/calls" ] && echo 1 || echo 0)"
+run inline_refill
+ok "low-water repo: the backlog refill runs INLINE for exactly this repo (by basename)" "$([ "$(cat "$T/inline_refill/scn/refill.args" 2>/dev/null)" = ro_aider1_repo ] && echo 1 || echo 0)"
+ok "after the inline refill the cycle proceeds to the scout instead of skip(exhausted)" "$([ "$(res inline_refill)" != 'skip(exhausted)' ] && [ -f "$T/inline_refill/scn/calls/1.scout" ] && echo 1 || echo 0)"
+kb "the task log keeps the inline-refill line (same scout '> \$task_log' truncation as the sanitizer lines)" "$(has "$(tlog inline_refill)" 'inline refill: only 0 doable')"
+run inline_refill_dry
+ok "an inline refill that finds nothing still ends in skip(exhausted), tried once" "$([ "$(res inline_refill_dry)" = 'skip(exhausted)' ] && [ "$(wc -l < "$T/inline_refill_dry/scn/refill.args" | tr -d ' ')" = 1 ] && echo 1 || echo 0)"
+OVN_INLINE_REFILL=0 run inline_refill
+ok "OVN_INLINE_REFILL=0 disables it (no refill call, exhausted skip as before)" "$([ ! -f "$T/inline_refill/scn/refill.args" ] && [ "$(res inline_refill)" = 'skip(exhausted)' ] && echo 1 || echo 0)"
 # KNOWN-BUG: sanitizer/self-gen/self-heal log lines are written to task_log BEFORE the scout pass, whose `> "$task_log"` truncates them.
 kb "pre-scout diagnostic lines (sanitizer) survive the scout's truncating '>' redirect (run_overnight.sh scout call: > \"\$task_log\")" "$(has "$(tlog sanitizer)" '--- sanitizer:')"
 

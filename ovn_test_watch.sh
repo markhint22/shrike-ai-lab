@@ -57,7 +57,7 @@ PY
   ) && log "$repo/$area: EMERGENCY fix item queued + pushed"
   curl -fsS --max-time 8 -H "Title: ${repo} ${area} tests are red" -H "Tags: rotating_light" -H "Priority: high" \
     -d "The full-suite watchdog found ${area} failing in ${repo}. An [EMERGENCY] triage+fix item was queued at the top of its Next Steps — the fleet will work it first next cycle. Failing: ${detail:0:300}" \
-    "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
 }
 
 for r in $REPOS; do

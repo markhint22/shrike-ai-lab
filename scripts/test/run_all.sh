@@ -222,5 +222,6 @@ echo; echo "===== verify direction check more w3b ====="; bash test_verify_direc
 echo; echo "===== work summary more cov ====="; bash test_work_summary_more_cov.sh || rc=1
 echo; echo "===== ntfy guard ====="; bash test_ntfy_guard.sh || rc=1
 echo; echo "===== verify fail closed ====="; bash test_verify_fail_closed.sh || rc=1
+echo; echo "===== ovn notify ====="; bash test_ovn_notify.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

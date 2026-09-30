@@ -88,7 +88,7 @@ acquire_lock() {
           if [ -n "$topic" ]; then
             curl -fsS --max-time 8 -H "Title: $label lock contention" -H "Tags: warning" -H "Priority: default" \
               -d "$label waited ${wait_seconds}s for $(basename "$lock_file") and gave up — another pass is still holding it. If this repeats, either the holder is stuck or the wait window is too short. (silent on immediate repeats — reminder repeats at most every $((LOCK_ALERT_COOLDOWN_SECS/60))min while it stays stuck)" \
-              "https://ntfy.sh/$topic" >/dev/null 2>&1 || true
+              "${NTFY_SERVER:-https://ntfy.sh}/$topic" >/dev/null 2>&1 || true
           fi
         else
           echo "[$label $(date '+%F %H:%M:%S')] contention persisted past the ${LOCK_ALERT_COOLDOWN_SECS}s cooldown — logged only, ntfy push suppressed for this caller (a genuinely orphaned lock is independently caught+alerted by lock_guard.sh; see this file's 2026-09-20 header note)."

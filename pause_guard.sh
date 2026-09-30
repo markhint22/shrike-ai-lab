@@ -14,7 +14,7 @@ set -uo pipefail
 STATE="$HOME/overnight-queue/state"
 TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
 P="$STATE/PAUSED"
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true; }
 
 # 2026-09-10 fix: clean the alert dedup flag HERE (before the early exit), not in dead code
 # after it - the old `[ ! -f "$P" ] && rm -f pause_alerted` line at the bottom could never run,

@@ -73,7 +73,7 @@ After re-fixing, record it: ovn_failure_triage.py --ack <repo> <part-of-signatur
 sent=0
 for attempt in 1 2 3; do
   if curl -fsS --max-time 8 -H "Title: A bug we already fixed is back" -H "Tags: warning" \
-       -H "Priority: high" -d "$BODY" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1; then
+       -H "Priority: high" -d "$BODY" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1; then
     sent=1; break
   fi
   sleep 2

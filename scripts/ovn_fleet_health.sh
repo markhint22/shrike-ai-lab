@@ -23,7 +23,7 @@ NTFY_TOPIC_RESOLVED="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
 # to each push their own redundant ntfy for the same fact and now just log). A
 # real-signal-but-not-urgent alert -> explicit "default" priority (not urgent/broken,
 # but worth a look — distinct from a pure heartbeat).
-alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: default" -d "$3" "https://ntfy.sh/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
+alert(){ [ -n "$NTFY_TOPIC_RESOLVED" ] && curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: default" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$NTFY_TOPIC_RESOLVED" >/dev/null 2>&1; true; }
 
 RUNWAY_ALERT_DAYS="${OVN_RUNWAY_ALERT_DAYS:-2}"
 ACTIVE="$(jq -r 'map(select(.enabled != false)) | .[].repo' tasks.json 2>/dev/null | xargs -n1 basename 2>/dev/null | sort -u | tr '\n' ' ')"

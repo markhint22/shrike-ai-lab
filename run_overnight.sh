@@ -1128,6 +1128,17 @@ STUB
     # tracked apart from real "faced work, did not land" no-ops.
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
       _DOABLE_NOW="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-|\[CLAUDE\]' | wc -l | tr -d ' ')"
+      # INLINE LOW-WATER REFILL (2026-09-30): the pull from backlog/<repo>.md into this queue used to run ONLY (a) in fleet_autofix, which needs
+      # the same run.lock this function runs under, and (b) once at the END of a pass. A pass can now last 100+ minutes (one staged T3+ item has
+      # a multi-hour watchdog), so a repo that drained early in the pass sat at 0 doable with 10+ items waiting in its backlog (test-automation-
+      # agent: 3 "skip(exhausted)" cycles in 3h). Refill THIS repo right here, under the lock we already hold. Bounded (90s), never fatal.
+      # OVN_INLINE_REFILL=0 disables.
+      if [ "${_DOABLE_NOW:-1}" -le 3 ] && [ "${OVN_INLINE_REFILL:-1}" != "0" ] && [ -f "$SCRIPT_DIR/queue_refill.sh" ]; then
+        echo "--- inline refill: only ${_DOABLE_NOW} doable item(s) left in $(basename "$PWD") - pulling from its backlog ---" >> "$task_log"
+        MIN_DOABLE=15 timeout 90 bash "$SCRIPT_DIR/queue_refill.sh" "$(basename "$PWD")" >> "$SCRIPT_DIR/logs/queue_refill.log" 2>&1 || true
+        _DOABLE_NOW="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-|\[CLAUDE\]' | wc -l | tr -d ' ')"
+        echo "--- inline refill done: ${_DOABLE_NOW} doable ---" >> "$task_log"
+      fi
       if [ "${_DOABLE_NOW:-1}" -eq 0 ]; then
         echo "--- skip: 0 doable items (exhausted; resumes when refilled) ---" >> "$task_log"
         echo "skip(exhausted)"

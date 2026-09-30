@@ -19,7 +19,7 @@ LOG="$HOME/overnight-queue/logs/gpu_autoswap.log"
 STATE="$HOME/overnight-queue/state"
 ts(){ date "+%F %T"; }
 say(){ echo "$(ts) $*" >> "$LOG"; }
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true; }
 
 healthy(){ docker exec "$C" curl -sf --max-time 5 http://localhost:8080/health >/dev/null 2>&1; }
 

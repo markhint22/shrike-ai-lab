@@ -225,6 +225,27 @@ case "$SCN_NAME" in
 - [x] [T1] app/foo.py — done already (cat:python)
 '
     call ;;
+  inline_refill|inline_refill_dry)
+    # queue_refill.sh stub: records its args; the "wet" variant pulls one doable item into the live queue and commits it locally
+    cat > "$SD/queue_refill.sh" <<'RSTUB'
+#!/bin/bash
+echo "$*" >> "$AIDER1_SCN/refill.args"
+if [ -f "$AIDER1_SCN/refill.wet" ]; then
+  cd "$HOME/../repos/$1" 2>/dev/null || cd "$(dirname "$AIDER1_SCN")/repos/$1" || exit 0
+  printf -- '- [ ] [T1] app/foo.py — refilled from backlog (cat:python)\n' >> OVERNIGHT_PROGRESS.md
+  git add -A && git commit -q -m "chore(queue): auto-refill 1 items from backlog"
+fi
+exit 0
+RSTUB
+    chmod +x "$SD/queue_refill.sh"
+    [ "$SCN_NAME" = inline_refill ] && : > "$SC/refill.wet"
+    progress '# Overnight Progress
+
+## Next Steps
+- [x] [T1] app/foo.py — done already (cat:python)
+'
+    proceed 'fix foo' 'app/foo.py'
+    call ;;
   # ---------- higher tier stage ----------
   stage_nodoable) progress "$TOP_PROG- [ ] [T3] app/foo.py — rework foo heavily (cat:python)
 "; echo nodoable > "$SC/stage.mode"; call ;;

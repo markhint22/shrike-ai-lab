@@ -119,7 +119,7 @@ else:
         date +%F > state/toks_alerted
         curl -fsS --max-time 8 -H "Title: 27B speed regression: ${best} tok/s (baseline ${baseline})" -H "Tags: warning" -H "Priority: default" \
           -d "The last ${ROLLING_WINDOW} generation-speed probes were ALL below ${threshold} tok/s (${REGRESSION_RATIO}x the ${BASELINE_DAYS}-day median of ${baseline}) - sustained, not a one-off contended blip. Check llama-server flags (flash-attn/ngl/spec-decode), GPU thermals/clocks, or try a container restart. Latest: ${best} tok/s, aiders=${aiders}, GPU=${gpu}." \
-          "https://ntfy.sh/$TOPIC" >/dev/null 2>&1 || true
+          "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
       fi
     else
       rm -f state/toks_alerted 2>/dev/null   # recovered - allow a future regression to alert again today too
