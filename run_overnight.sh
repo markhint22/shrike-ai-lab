@@ -996,11 +996,27 @@ STUB
     _ovn_new_source_file="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue|kt|swift)' | head -1)"
     if [ -n "$_ovn_new_source_file" ] && [ ! -f "$_ovn_new_source_file" ]; then
       mkdir -p "$(dirname "$_ovn_new_source_file")"
+      # 2026-09-30 FIX: a comment-only stub is NOT valid for every file type, and this stub is
+      # COMMITTED - so if the implement step does not fill it, the broken file stays on the branch
+      # and poisons every later commit in that repo. Confirmed live on gitlark: a comment-only
+      # web/.../TemporalNavigation.test.ts made vitest fail with "No test suite found", so every
+      # commit (any item) was judged to have "broken a previously-green test" and reverted - 14
+      # reverts / ~35 min in 4 hours from that ONE file. CONFIRMED hazard: only the vitest/jest
+      # test-file case. The *.ts/*.tsx (`export {}`) and *.vue (minimal template) stubs below are
+      # DEFENSIVE and UNOBSERVED: in gitlark a comment-only .ts and .vue added 0 vue-tsc errors
+      # (measured, baseline 10 = 10), but a comment-only .vue would fail `vite build` once something
+      # imports it and a comment-only .ts errors under isolatedModules in repos that enable it, so
+      # making every stub a valid module costs nothing. (.py/.gd/.kt/.swift comment-only files are
+      # valid and stay as they were.) The "Placeholder - the implement step fills this in" marker is
+      # kept in all of them so leftovers stay greppable. Test-file patterns must precede plain *.ts.
       case "$_ovn_new_source_file" in
         *.py) _ovn_stub_comment='"""Placeholder - the implement step fills this in."""' ;;
         *.gd) _ovn_stub_comment='# Placeholder - the implement step fills this in.' ;;
-        *.kt|*.swift|*.ts|*.tsx) _ovn_stub_comment='// Placeholder - the implement step fills this in.' ;;
-        *.vue) _ovn_stub_comment='<!-- Placeholder - the implement step fills this in. -->' ;;
+        *.test.ts|*.test.tsx|*.spec.ts|*.spec.tsx)
+          _ovn_stub_comment="// Placeholder - the implement step fills this in."$'\n'"import { describe, it } from 'vitest'"$'\n\n'"describe.skip('placeholder until the implement step fills it in', () => {"$'\n'"  it('placeholder', () => {})"$'\n'"})" ;;
+        *.ts|*.tsx) _ovn_stub_comment="// Placeholder - the implement step fills this in."$'\n'"export {}" ;;
+        *.kt|*.swift) _ovn_stub_comment='// Placeholder - the implement step fills this in.' ;;
+        *.vue) _ovn_stub_comment="<template><div /></template>"$'\n'"<!-- Placeholder - the implement step fills this in. -->" ;;
         *) _ovn_stub_comment='' ;;
       esac
       printf '%s\n' "$_ovn_stub_comment" > "$_ovn_new_source_file"
