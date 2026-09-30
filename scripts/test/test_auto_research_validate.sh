@@ -12,6 +12,7 @@ M='{cat: backend; size: S; multifile: no; research: none}'
 cat > "$T/roadmap.md" <<EOR
 - [ ] [P2] [decomposed] Existing feature alpha — already built in app/alpha.py $M
 - [x] [P3] [done] Done thing — see app/done.py $M
+- [ ] [P2] [decomposed] Stop the broker dropping high severity messages — backend/app/services/broker.py severity map lacks high $M
 EOR
 cat > "$T/p.md" <<EOR
 - [ ] [P1] [needs-decompose] Fix beta crash — app/beta.py line 10 subscripts a User object $M
@@ -20,6 +21,7 @@ cat > "$T/p.md" <<EOR
 - [ ] [P2] [ready] Ungrounded idea — make it better somehow $M
 - [ ] [P2] [ready] Fix beta crash — app/beta.py duplicate within batch $M
 - [ ] [P9] [ready] Bad priority — app/x.py $M
+- [ ] [P1] [ready] Broker silently drops high severity messages — backend/app/services/broker.py defines its own severity map missing high $M
 - [ ] [P3] [ready] Good gamma — web/src/gamma.ts has an unused export $M
 - [ ] [P1] [ready] A very long descriptive title that real research agents produce, naming the bug and the trigger and the symptom in one breath so it runs well past the old one hundred twenty character limit — app/long.py has the defect $M
 not a feature line
@@ -31,6 +33,8 @@ ok "drops duplicate of existing (case-insensitive)" "$(grep -q 'duplicate title:
 ok "drops duplicate of a done item" "$(grep -q 'duplicate title: Done thing' "$T/err" && echo 1 || echo 0)"
 ok "drops ungrounded (no file path)" "$(grep -q 'cites no file path: Ungrounded' "$T/err" && echo 1 || echo 0)"
 ok "drops in-batch duplicate" "$(grep -q 'duplicate title: Fix beta crash' "$T/err" && echo 1 || echo 0)"
+ok "drops a RE-WORDED duplicate (same file + same title words)" "$(grep -q 'near-duplicate.*Broker silently drops' "$T/err" && echo 1 || echo 0)"
+ok "keeps a different item in a different file" "$(printf '%s' "$out" | grep -q 'Good gamma' && echo 1 || echo 0)"
 ok "drops bad priority P9" "$(grep -q 'bad format: - \[ \] \[P9\]' "$T/err" && echo 1 || echo 0)"
 : > "$T/empty.md"
 out2="$(python3 "$V" "$T/empty.md" "$T/roadmap.md" 12 2>"$T/err2")"; rc=$?

@@ -74,7 +74,10 @@ clear_research_alert(){ local r="$1" marker="$STATE_DIR/ovn_needs_research_${r}"
 exec 228>"$STATE_DIR/ovn_planner.lock"
 if ! flock -n 228; then say "another planner pass is already running - skipping this one"; exit 0; fi
 REPOS="${*:-billwatch gitlark iptv_apps test-automation-agent shrike-notify shrike-monitor xlite}"
-MAX_PER_RUN="${OVN_PLAN_MAX_PER_RUN:-4}"   # cap decompositions per invocation so cycle-end never balloons
+# 2026-09-30: 4 -> 8. A research refuel lands ~70 [ready] features at once and at 4/hour they took ~17h to drain
+# (iptv_apps last in line with 0 doable items). Each decomposition is ~15-40s of 27B time, so 8 is ~2-5 min/hour;
+# repos are processed neediest-first so the cap is spent where it matters. OVN_PLAN_MAX_PER_RUN overrides.
+MAX_PER_RUN="${OVN_PLAN_MAX_PER_RUN:-8}"   # cap decompositions per invocation so cycle-end never balloons
 _did=0
 
 # Process the NEEDIEST repos first (fewest backlog T-items), so a dry repo gets fed before a full

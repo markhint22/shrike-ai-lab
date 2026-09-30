@@ -26,6 +26,30 @@ def norm(title):
     return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
 
 
+STOP = {"the", "a", "an", "of", "to", "in", "on", "for", "and", "or", "is", "are", "with", "from", "that", "this", "it", "by", "as", "at", "be", "add", "fix", "new"}
+
+
+def words(text):
+    return {w for w in norm(text).split() if len(w) > 2 and w not in STOP}
+
+
+def paths(text):
+    return set(PATHISH_RE.findall(text))
+
+
+def near_dup(title, body, existing_items, thresh=0.5):
+    """Same file cited AND substantially the same title words -> a re-worded duplicate (title-only dedupe misses these)."""
+    tw, tp = words(title), paths(title + " " + body)
+    if not tw or not tp:
+        return False
+    for ex_words, ex_paths in existing_items:
+        if tp & ex_paths:
+            union = tw | ex_words
+            if union and len(tw & ex_words) / len(union) >= thresh:
+                return True
+    return False
+
+
 def main():
     proposed, existing = sys.argv[1], sys.argv[2]
     cap = int(sys.argv[3]) if len(sys.argv) > 3 else 12
@@ -33,11 +57,12 @@ def main():
         ex_text = open(existing, encoding="utf-8").read()
     except OSError:
         ex_text = ""
-    ex_titles = set()
+    ex_titles, ex_items = set(), []
     for ln in ex_text.splitlines():
         m = re.match(r"^- \[[ x]\] \[P[1-4]\] \[[a-z-]+\] ([^—]+?)(?: — |$)", ln)
         if m:
             ex_titles.add(norm(m.group(1)))
+            ex_items.append((words(m.group(1)), paths(ln)))
     seen, out, total = set(), [], 0
     try:
         lines = open(proposed, encoding="utf-8").read().splitlines()
@@ -57,6 +82,8 @@ def main():
             sys.stderr.write("reject: too long: %s\n" % title)
         elif key in ex_titles or key in seen:
             sys.stderr.write("reject: duplicate title: %s\n" % title)
+        elif near_dup(title, m.group("body"), ex_items):
+            sys.stderr.write("reject: near-duplicate of an existing roadmap item (same file, same words): %s\n" % title)
         elif not PATHISH_RE.search(m.group("body")):
             sys.stderr.write("reject: cites no file path: %s\n" % title)
         elif len(out) >= cap:

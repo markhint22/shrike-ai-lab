@@ -17,7 +17,8 @@
 #
 # 2026-09-28 FIX: this test's whole premise ("crediting behavior is UNCHANGED, shadow mode
 # never blocks/demotes") describes SHADOW mode specifically, but it never actually set
-# OVN_VERIFY_GATE_MODE=shadow - it just invoked the script bare, so once enforce became the
+# OVN_PATH_GATE=off pins the separate 2026-09-30 target-path gate out of this VERIFY-gate test (its fixture items name files that
+# deliberately do not exist). # OVN_VERIFY_GATE_MODE=shadow - it just invoked the script bare, so once enforce became the
 # DEFAULT (the 2026-09-28 shadow->enforce promotion in ovn_credit_already_satisfied.sh
 # itself), this test started running in enforce mode by accident and its own
 # fake_thing.py case (a VERIFY that deliberately, correctly FAILs) got REFUSED instead of
@@ -74,7 +75,7 @@ Checking venv_check.py — already present, no changes needed.
 EOF
 
 shadow_log="$tmp/state/verify_gate_shadow.log"
-OVN_VERIFY_SHADOW_LOG="$shadow_log" OVN_VERIFY_GATE_MODE=shadow bash "$SCRIPT" "$task_log" "$prog" > /tmp/credit_out.$$ 2>&1
+OVN_VERIFY_SHADOW_LOG="$shadow_log" OVN_VERIFY_GATE_MODE=shadow OVN_PATH_GATE=off bash "$SCRIPT" "$task_log" "$prog" > /tmp/credit_out.$$ 2>&1
 out="$(cat /tmp/credit_out.$$)"; rm -f /tmp/credit_out.$$
 
 # --- crediting behavior unchanged: all 7 items should still get credited ---

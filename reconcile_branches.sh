@@ -97,6 +97,32 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
     -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard, LLM-assisted conflict resolution, gate=tests-green)" >/dev/null 2>&1
 }
 
+# POST-MERGE SANITY GATE (2026-09-30). A clean `git merge` (exit 0, no conflict markers from git itself) can still
+# SYNTHESIZE a broken file when both branches edited the same file in different regions (duplicated blocks, a
+# half-applied rename...). The plain-merge path pushed that straight to develop/feature with no check at all (only the
+# LLM-assisted path re-verified). This checks ONLY the files that BOTH sides changed since the merge base - the ones
+# git actually had to combine - for cheap structural validity: no leftover conflict markers, python compiles,
+# shell parses, json parses. Anything failing -> do NOT push; caller reports `sanityfail` (alerts like a conflict).
+# OVN_MERGE_SANITY=off disables. Returns 0 ok / 1 broken (prints the reason on stdout).
+merge_sanity_ok(){
+  local wt="$1" tgt="$2" src="$3" base f n=0 bad=""
+  [ "${OVN_MERGE_SANITY:-on}" = "off" ] && return 0
+  base="$(git -C "$wt" merge-base "origin/${tgt}" "origin/${src}" 2>/dev/null)" || return 0
+  [ -n "$base" ] || return 0
+  while IFS= read -r f; do
+    [ -f "$wt/$f" ] || continue
+    n=$((n+1)); [ "$n" -gt 200 ] && break
+    if grep -qE '^(<<<<<<< |>>>>>>> |=======$)' "$wt/$f" 2>/dev/null && ! printf '%s' "$f" | grep -qE '\.(md|rst|txt)$'; then bad="$f: conflict markers"; break; fi
+    case "$f" in
+      *.py) python3 -m py_compile "$wt/$f" >/dev/null 2>&1 || { bad="$f: python does not compile"; break; } ;;
+      *.sh) bash -n "$wt/$f" >/dev/null 2>&1 || { bad="$f: shell syntax error"; break; } ;;
+      *.json) python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$wt/$f" >/dev/null 2>&1 || { bad="$f: invalid json"; break; } ;;
+    esac
+  done < <(comm -12 <(git -C "$wt" diff --name-only "$base" "origin/${tgt}" 2>/dev/null | sort) <(git -C "$wt" diff --name-only "$base" "origin/${src}" 2>/dev/null | sort))
+  [ -z "$bad" ] && return 0
+  echo "$bad"; return 1
+}
+
 # merge origin/<src> into <tgt> in an isolated worktree, push (rebase-retry once). $4=1 to allow
 # ONE LLM-assisted resolution attempt before giving up (see try_llm_resolve above; only passed by
 # the develop<->feature call site). echoes ok|llm_resolved|conflict|pushfail|wterror|nochange
@@ -135,7 +161,9 @@ merge_into(){
     # (run.lock) from the fleet_autofix.sh caller - see that script's own
     # 2026-09-15 comment for the "orphaned lock, fleet blocked" failure mode
     # this closes off at the source.
-    if timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
+    if ! _sanity_why="$(merge_sanity_ok "$wt" "$tgt" "$src")"; then
+      rc=sanityfail; echo "$(date '+%F %T') $(basename "$repo"): merge ${src}->${tgt} SYNTHESIZED a broken file, NOT pushed: ${_sanity_why}" >> "${SANITY_LOG:-logs/reconcile_sanity.log}" 2>/dev/null
+    elif timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
     elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
     else rc=pushfail; fi
   elif [ "$allow_llm" = 1 ] && try_llm_resolve "$wt" "$repo" "$tgt" "$src"; then
@@ -192,6 +220,7 @@ for repo in $repos; do
       case "$rc" in
         ok) log "$name: back-merged main->develop (+$m_ahead)"; [ "${direct:-0}" -gt 0 ] && directs="$directs ${name}(${direct})";;
         conflict) log "$name: 🔴 CONFLICT main->develop"; conflicts="$conflicts main→develop:${name}";;
+        sanityfail) log "$name: 🔴 main->develop merge would have pushed a BROKEN file (see logs/reconcile_sanity.log) - NOT pushed"; conflicts="$conflicts main→develop(sanity):${name}";;
         *) log "$name: main->develop $rc";;
       esac
     fi
@@ -214,6 +243,7 @@ for repo in $repos; do
       ok) log "$name: merged develop->$feat (+$d_ahead)"; synced_any=1;;
       llm_resolved) log "$name: 🤖 auto-resolved a develop->$feat CONFLICT (LLM-assisted, gate=tests-green)"; resolved="$resolved develop→$feat:${name}"; synced_any=1;;
       conflict) log "$name: 🔴 CONFLICT develop->$feat"; conflicts="$conflicts develop→$feat:${name}"; synced_any=1;;
+      sanityfail) log "$name: 🔴 develop->$feat merge would have pushed a BROKEN file (see logs/reconcile_sanity.log) - NOT pushed"; conflicts="$conflicts develop→$feat(sanity):${name}"; synced_any=1;;
       pushfail) log "$name: develop->$feat pushfail (fleet racing; next pass retries)"; synced_any=1;;
       nobranch|nochange) : ;;
       *) log "$name: develop->$feat $rc";;

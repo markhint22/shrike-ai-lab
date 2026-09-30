@@ -221,6 +221,37 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   fi
 }
 
+# TARGET-PATH GATE (2026-09-30): the VERIFY gate above only protects items that HAVE a runnable VERIFY clause.
+# The 2026-09-24 audit found 5-21% of credits wrong (billwatch 21%, gitlark 16%) and the remaining exposure is
+# items with NO_VERIFY_CLAUSE / SKIPPED_DENYLIST, which still credited on the model's say-so alone. This is the
+# cheap, tight check that audit used: the item's own LEADING path (`- [ ] [T3] path/to/file.ext — ...`) must
+# make sense. A create/modify item whose target file does not exist cannot be "already satisfied in code"; a
+# delete/remove item whose target still exists is not satisfied either. Result is OK / MISSING / STILL_EXISTS /
+# NA (no resolvable leading path -> no opinion, credit as before). OVN_PATH_GATE=off disables (observe-only
+# logging stays); OVN_PATH_GATE=shadow logs but never refuses.
+PATH_GATE_MODE="${OVN_PATH_GATE:-enforce}"
+_LAST_PATH_RESULT=""
+path_gate(){  # $1 = line number in $PROG about to be credited. Sets $_LAST_PATH_RESULT.
+  local ln="$1" line body tgt desc ts
+  ts="$(date -u +%FT%TZ)"; _LAST_PATH_RESULT="NA"
+  line="$(sed -n "${ln}p" "$PROG" 2>/dev/null)"
+  # strip checkbox + any leading [tag] groups, then take the first token as the candidate target
+  body="$(printf '%s' "$line" | sed -E 's/^- \[ \] //; s/^(\[[^]]*\][[:space:]]*)+//')"
+  tgt="${body%% *}"; tgt="${tgt%%:*}"; tgt="${tgt//\`/}"
+  case "$tgt" in
+    */*.?*|*.py|*.ts|*.tsx|*.js|*.vue|*.gd|*.kt|*.swift|*.sh|*.sql|*.json|*.yml|*.yaml|*.toml|*.html) ;;
+    *) return ;;
+  esac
+  case "$tgt" in *[\*\?\[]*|http*|/*) return ;; esac
+  desc="$(printf '%s' "$body" | sed -E 's/^[^ ]+[[:space:]]*(—|-|–)?[[:space:]]*//' | head -c 120)"
+  if printf '%s' "$desc" | grep -qiE '^(delete|remove|drop|prune|retire)\b'; then
+    if [ -e "$tgt" ]; then _LAST_PATH_RESULT="STILL_EXISTS"; else _LAST_PATH_RESULT="OK"; fi
+  else
+    if [ -e "$tgt" ]; then _LAST_PATH_RESULT="OK"; else _LAST_PATH_RESULT="MISSING"; fi
+  fi
+  echo "$ts repo=$_REPO_LABEL line=$ln path_gate=$_LAST_PATH_RESULT target=$tgt" >> "$SHADOW_LOG"
+}
+
 # UNDER-CREDITING FIX (2026-09-28): both patterns below were exact-phrase matches with zero
 # tolerance for ordinary sentence variation, so a correctly-completed item whose model
 # response phrased "nothing to change" even slightly differently was scored as a flail
@@ -266,8 +297,13 @@ for f in $FILES; do
     # NO_VERIFY_CLAUSE/SKIPPED_DENYLIST all credit as before - none of those are
     # evidence the credit is wrong, just cases this check can (or chooses not
     # to) verify one way or the other.
+    _LAST_PATH_RESULT="NA"
+    # the path gate covers exactly what the VERIFY gate cannot: items with no runnable VERIFY clause
+    case "$_LAST_VERIFY_RESULT" in NO_VERIFY_CLAUSE|SKIPPED_DENYLIST) path_gate "$ln" ;; esac
     if [ "$VERIFY_GATE_MODE" = "enforce" ] && [ "$_LAST_VERIFY_RESULT" = "FAIL" ]; then
       echo "REFUSED credit at line ${ln} (matched ${b}) - VERIFY clause failed, left open for review"
+    elif [ "$PATH_GATE_MODE" = "enforce" ] && { [ "$_LAST_PATH_RESULT" = "MISSING" ] || [ "$_LAST_PATH_RESULT" = "STILL_EXISTS" ]; }; then
+      echo "REFUSED credit at line ${ln} (matched ${b}) - item's own target path check: ${_LAST_PATH_RESULT}, left open for review"
     else
       sed -i "${ln}s/^- \[ \] /- [x] (already-satisfied in code, implement-verified) /" "$PROG"
       credited=$((credited+1))

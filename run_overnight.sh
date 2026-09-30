@@ -1651,7 +1651,27 @@ Task: ${prompt}"
     # was already 100% done in the code the whole time. Use the LAST verdict/plan in the
     # log (the model's final, corrected answer) instead of the first.
     OVN_VERDICT="$(grep -hoiE "VERDICT:[[:space:]]*(PROCEED|ALREADY-DONE|BLOCKED|NEEDS-DECISION)" "$task_log" 2>/dev/null | tail -1 | sed -E "s/.*VERDICT:[[:space:]]*//I" | tr "[:lower:]" "[:upper:]")"
-    OVN_PLAN="$(grep -hoiE "PLAN:[[:space:]]*.+" "$task_log" 2>/dev/null | tail -1 | sed -E "s/^PLAN:[[:space:]]*//I; s/[[:space:]]*FILES:.*//I" | cut -c1-300)"
+    # 2026-09-29 FIX (already-done credit never fires): aider hard-wraps the model's reply at ~80
+    # columns, so "PLAN: <text> FILES: <paths>" spans 2-4 physical log lines. The old one-liner
+    # (`grep -o "PLAN:.*" | tail -1`) only ever captured the FIRST physical line, e.g. just
+    # "PLAN: The test file" - the file path sits on line 2. Every consumer of $OVN_PLAN that looks for
+    # a path token (ALREADY-DONE credit `_df` loop, force-load of the PLAN target, the
+    # ungrounded-plan guard, the "Your plan:" text fed to implement) therefore saw a truncated plan.
+    # Measured 7d: first-line-only loses the file token in 1029/1823 attempts; in 24h 52 of 63
+    # ALREADY-DONE outcomes could not credit for exactly this reason (51 matched an open item).
+    # Join the wrapped lines: from the LAST "PLAN:" to "FILES:" (or blank line / "Tokens:").
+    OVN_PLAN="$(python3 - "$task_log" 2>/dev/null <<'PYEOF'
+import re, sys
+t = open(sys.argv[1], errors="replace").read()
+ms = list(re.finditer(r"PLAN:[ \t]*", t, re.I))
+if ms:
+    seg = t[ms[-1].end():]
+    m = re.search(r"FILES:|\n[ \t]*\n|Tokens:", seg, re.I)
+    if m:
+        seg = seg[:m.start()]
+    print(re.sub(r"\s+", " ", seg).strip()[:300])
+PYEOF
+)"
     # 2026-09-16 FIX: this free-text plan gets embedded verbatim into the
     # implement-phase --message below. aider scans that outgoing message
     # for existing repo file paths and silently loads any match IN FULL
@@ -2362,7 +2382,30 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
       else
         _buildgate_tests_ran=0
       fi
-      if [ "$VERIFY_RESULT" = "fail" ] && [ "$_buildgate_tests_ran" != "1" ] && { grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | grep -q .; }; then
+      # 2026-09-30 GROUNDING FIX (see /tmp/proposals/buildgate_fixup_context.patch):
+      # the fix-up prompt below was built ONLY from the lines that matched
+      # _BUILD_BREAK_POS_RE (tail -6, 500 chars). For the dominant failure shapes that is
+      # just the banner ("ImportError while loading conftest", "ERROR collecting X",
+      # "Build failed in 1.03s", "FAILURE: Build failed with an exception.") - the line that
+      # actually names the cause ("E   ModuleNotFoundError: No module named 'x'", vite's
+      # "Single file component can contain only one <template>", kotlinc's "e: file:///..")
+      # never matched, so the 27B answered "I need to see the actual error" and changed
+      # nothing (78 of 177 fix-ups since 2026-09-20 = "made no change").
+      # Emit the REAL failing block of the LAST verify run, verbatim, ANSI-stripped, deduped,
+      # capped (first 30 + last 15 relevant lines, <=3500 chars). Never paraphrased.
+      _ovn_buildbreak_evidence() {
+        local _f="$1"
+        awk '/^--- verify:/{n=NR} {a[NR]=$0} END{for(i=(n?n:1);i<=NR;i++) print a[i]}' "$_f" 2>/dev/null \
+          | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+          | grep -a -vE '^(> Task |[[:space:]]*$|.*(UserWarning|DeprecationWarning|PydanticDeprecated|warnings\.warn|Sentry|TSC-RATCHET|MIGRATION SAFETY)|tests/[^ ]*::[^ ]*$|[.sxF]+ +\[ *[0-9]+%\])' \
+          | grep -a -E '^E( |$)|Error|ERROR|FAILED|^e: |^x |Build failed|Cannot |Could not|No module|not found|Parse Error|SCRIPT ERROR|\.(py|ts|tsx|vue|js|kt|gd):[0-9]+|only one <' \
+          | awk '!seen[$0]++' | cut -c1-300 \
+          | awk '{l[NR]=$0} END{if(NR<=45){for(i=1;i<=NR;i++)print l[i]}else{for(i=1;i<=30;i++)print l[i]; print "   [... snipped ...]"; for(i=NR-14;i<=NR;i++)print l[i]}}' > "$_f.ev.tmp"
+        # strong-signal lines FIRST (in noisy vitest/gradle logs the real cause is buried or at the very end)
+        { grep -a -E 'ModuleNotFoundError|No module named|SyntaxError|IndentationError|cannot import name|only one <|Parse Error|Cannot find module|error TS[0-9]|^e: |already defined|Could not (determine|resolve)|Multiple head' "$_f.ev.tmp" | awk '!s[$0]++' | head -6 | sed 's/^/KEY: /'; cat "$_f.ev.tmp"; } | head -c 3500
+        rm -f "$_f.ev.tmp"
+      }
+      if [ "$VERIFY_RESULT" = "fail" ] && [ "$_buildgate_tests_ran" != "1" ] && { grep -aE "$_BUILD_BREAK_POS_RE" "$task_log" | grep -avE "$_BUILD_BREAK_NEG_RE" | grep -aq .; }; then
         # BUILD-GATE grounded fix-up (2026-09-20): plain aider_fix items (T1/T2, and the
         # ongoing-* background lanes, which run this exact same path) used to get ZERO
         # repair attempts on a structural break — straight to revert, no matter how trivial
@@ -2380,7 +2423,7 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
         # append-only), which would falsely re-trigger this branch; only $VERIFY_RESULT (a
         # fresh run_repo_verification call) decides, exactly as the Tier-2 fix-up already does
         # via the NO-NEW-RED GUARD below it.
-        _buildfix_summary="$(grep -E "$_BUILD_BREAK_POS_RE" "$task_log" | grep -vE "$_BUILD_BREAK_NEG_RE" | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-500)"
+        _buildfix_summary="$(grep -aE "$_BUILD_BREAK_POS_RE" "$task_log" | grep -avE "$_BUILD_BREAK_NEG_RE" | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-500)"
         # Kotlin build-red grounding (2026-09-20): the outer Gradle banner grabbed above
         # ("compileDebugUnitTestKotlin FAILED" / "Build failed" / "Compilation error. See
         # log for more details") carries ZERO actionable detail - Python failures get the
@@ -2410,11 +2453,30 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
           _buildfix_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$' | grep -vE '^(OVERNIGHT_PROGRESS|OVERNIGHT_DONE)\.md$')"
           _buildfix_fileargs=()
           for _bf in $_buildfix_touched; do [ -f "$_bf" ] && _buildfix_fileargs+=(--file "$_bf"); done
+          # Real failing output + the in-repo files named in its traceback (e.g. the
+          # conftest-imported __init__.py, or tests/test_x.py that still imports a module the
+          # commit deleted - that test file is NOT in the commit's touched set, so before this
+          # the fix-up could never even see it). Capped: <=4 extra files, each <=60KB, so the
+          # 65K context is never blown (see the OVERNIGHT_PROGRESS.md incident above).
+          _buildfix_evidence="$(_ovn_buildbreak_evidence "$task_log")"
+          _buildfix_extra="$(printf '%s\n' "$_buildfix_evidence" | grep -aoE '[A-Za-z0-9_./@-]+\.(py|ts|tsx|vue|js|kt|gd):[0-9]+' | sed 's/:[0-9]*$//' | grep -avE '(^|/)(\.venv|node_modules|site-packages)/' | awk '!s[$0]++' | head -8)"
+          _buildfix_nextra=0
+          for _bp in $_buildfix_extra; do
+            [ "$_buildfix_nextra" -ge 4 ] && break
+            _bpr="$_bp"; [ -f "$_bpr" ] || _bpr="$(git ls-files -- "*/$_bp" "$_bp" 2>/dev/null | head -1)"
+            { [ -n "$_bpr" ] && [ -f "$_bpr" ]; } || continue
+            [ "$(wc -c < "$_bpr" 2>/dev/null || echo 999999)" -le 60000 ] || continue
+            case " $_buildfix_touched " in *" $_bpr "*) continue;; esac
+            _buildfix_fileargs+=(--file "$_bpr"); _buildfix_nextra=$((_buildfix_nextra+1))
+          done
+          echo "--- BUILD-GATE fix-up: evidence=$(printf '%s' "$_buildfix_evidence" | wc -c)B extra_files=${_buildfix_nextra} ---" >> "$task_log"
           echo "--- BUILD-GATE fix-up: one bounded attempt at the structural break before reverting: ${_buildfix_summary:0:200}" >> "$task_log"
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_buildfix_fileargs[@]}" \
-            --message "Your last change broke the build: ${_buildfix_summary}
+            --message "Your last change broke the build. Here is the REAL failing output from the verify run (verbatim; you already have every file it names in the chat):
 
-Fix this SPECIFIC structural error (syntax/import/parse) so the code loads again. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
+${_buildfix_evidence:-$_buildfix_summary}
+
+Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code loads again. Do not ask for more output - the error above is complete. If it is 'No module named X' / 'cannot import name X': either create X or remove the import that needs it. If your change deleted a file, also update or delete the tests/imports that still reference it. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
             >> "$task_log" 2>&1
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
@@ -2456,11 +2518,24 @@ Fix this SPECIFIC structural error (syntax/import/parse) so the code loads again
           _fixup_touched="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -v '^$' | grep -vE '^(OVERNIGHT_PROGRESS|OVERNIGHT_DONE)\.md$')"
           _fixup_fileargs=()
           for _ff in $_fixup_touched; do [ -f "$_ff" ] && _fixup_fileargs+=(--file "$_ff"); done
+          # 2026-09-29: the fix-up used to see ONLY the files the (red) commit touched - i.e. the
+          # new test file - never the source under test the scout had named. 9 of 13 "model added
+          # failing tests" events in 24h ended with the model asking "please add <source>.py to
+          # the chat" or emitting a <tool_call>, then "fix-up made no change". Also load the
+          # scout's FILES (existing, non-bookkeeping, non-.md) so the assertion can be reconciled
+          # with the real behaviour.
+          for _ff in $OVN_SCOUT_FILES; do
+            case "$_ff" in *.md) continue;; esac
+            [ -f "$_ff" ] || continue
+            case " ${_fixup_fileargs[*]} " in *" $_ff "*) continue;; esac
+            [ "${#_fixup_fileargs[@]}" -lt 8 ] && _fixup_fileargs+=(--file "$_ff")
+          done
           echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting: ${_fixup_summary:0:200}" >> "$task_log"
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_fixup_fileargs[@]}" \
             --message "The test suite is failing after your last change: ${_fixup_summary}
 
-Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
+Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your change as-is if it's working.
+All files you need are already in the chat. You cannot run commands or call tools - reply with a udiff only. Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug." \
             >> "$task_log" 2>&1
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then
