@@ -20,6 +20,7 @@ usage:  ovn_notify.py serve [--port 8099]
 env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIFY_DAILY_CAP (default 40), OVN_NOTIFY_DISABLE=1 (drop all pushes)
 """
 import base64
+import email.header
 import calendar
 import glob
 import ipaddress
@@ -124,6 +125,20 @@ def _hdr(v):
     return v if v.isascii() else "=?UTF-8?B?%s?=" % base64.b64encode(v.encode("utf-8")).decode()
 
 
+def fix_header(v):
+    """Undo http.server's latin-1 header decoding: raw UTF-8 bytes (emoji) arrive as mojibake ('ð\x9f\x94´'), and RFC 2047 words stay encoded."""
+    if not v:
+        return v
+    try:
+        if "=?" in v:
+            v = str(email.header.make_header(email.header.decode_header(v)))
+        else:
+            v = v.encode("latin-1").decode("utf-8")
+    except (UnicodeError, ValueError):
+        pass
+    return v
+
+
 def forward(title, body, priority="default", tags="", kind="emergency", dry=False):
     """Push ONE message upstream, honoring the daily cap and the per-title emergency cooldown. Returns 'sent' | 'deduped' | 'capped' | 'failed' | 'dry'."""
     key = clean_title(title)
@@ -204,7 +219,7 @@ class _Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n).decode("utf-8", "replace") if n else ""
         topic = self.path.strip("/").split("/")[0] or TOPIC
-        hdrs = {k.lower(): v for k, v in self.headers.items()}
+        hdrs = {k.lower(): fix_header(v) for k, v in self.headers.items()}
         act = handle_publish(topic, hdrs, body, source=self.client_address[0])
         self._reply(200, {"id": "ovn%d" % int(now() * 1000), "event": "message", "topic": topic, "action": act})
 
