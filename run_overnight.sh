@@ -1024,6 +1024,31 @@ STUB
       git commit -m "chore: stub new source file before implement (new-file udiff is unreliable)" --quiet
     fi
 
+    # >>> SELF-HEAL-BEGIN
+    # 2026-09-30 SELF-HEAL: repair any placeholder-only vitest/jest test file that is ALREADY committed
+    # (by an older run, or one that slipped out before the stub content above was fixed). An empty test
+    # file fails the whole suite ("No test suite found"), which makes every later commit in the repo
+    # look like it broke a previously-green test (gitlark 2026-09-30: 14 reverts in 4 hours; a second
+    # such stub appeared 4 minutes after the first was repaired, from an in-flight cycle still running
+    # the old code). Fixing the generator is not enough on its own, so heal the repo state too. Only a
+    # file whose every non-blank line is a // comment AND that carries our marker is touched - a real
+    # test, or a comment-only file we did not create, is never modified. Cheap: one git ls-files.
+    _ovn_healed=0
+    while IFS= read -r _ovn_sf; do
+      [ -n "$_ovn_sf" ] && [ -f "$_ovn_sf" ] || continue
+      if ! grep -qvE '^[[:space:]]*(//.*)?$' "$_ovn_sf" && grep -q 'Placeholder - the implement step fills this in' "$_ovn_sf"; then
+        printf '%s\n' "// Placeholder - the implement step fills this in." "import { describe, it } from 'vitest'" "" \
+          "describe.skip('placeholder until the implement step fills it in', () => {" "  it('placeholder', () => {})" "})" > "$_ovn_sf"
+        git add "$_ovn_sf"
+        _ovn_healed=$((_ovn_healed + 1))
+      fi
+    done < <(git ls-files '*.test.ts' '*.test.tsx' '*.spec.ts' '*.spec.tsx' 2>/dev/null)
+    if [ "$_ovn_healed" -gt 0 ]; then
+      git commit -q -m "chore: make ${_ovn_healed} placeholder-only test file(s) a valid skipped suite (an empty vitest file fails the whole suite)" >/dev/null 2>&1
+      echo "--- self-heal: repaired ${_ovn_healed} placeholder-only test stub(s) ---" >> "${task_log:-/dev/null}"
+    fi
+    # <<< SELF-HEAL-END
+
     BEFORE_SHA="$(git rev-parse HEAD)"
 
     # OVERNIGHT_PROGRESS.md is always pre-loaded, not counted against

@@ -98,6 +98,34 @@ ok "a .vue stub is a minimal valid SFC (has a <template>)" \
 ok "every stub keeps the greppable placeholder marker" \
    "( for f in a.py a.gd a.kt a.swift a.ts a.tsx a.vue a.test.ts a.spec.tsx; do stub_comment_for \$f | grep -q 'Placeholder - the implement step fills this in' || exit 1; done )"
 
+
+# ---- 7. SELF-HEAL of already-committed placeholder-only vitest files (the deployed block, run for real
+#      in a throwaway git repo) ----
+HEAL_SRC="$(sed -n '/# >>> SELF-HEAL-BEGIN/,/# <<< SELF-HEAL-END/p' "$RO")"
+[ -n "$HEAL_SRC" ] || { echo "  FAIL: could not extract the self-heal block from $RO"; exit 1; }
+hr="$tmp/healrepo"; mkdir -p "$hr/web/__tests__" && cd "$hr" || exit 1
+git init -q . && git config user.email t@t && git config user.name t
+M='// Placeholder - the implement step fills this in.'
+printf '%s\n' "$M" > web/__tests__/Stub.test.ts                                   # the poisoning case
+printf '%s\n' "$M" > web/__tests__/StubSpec.spec.tsx                              # also healed
+printf '%s\n' "import { it, expect } from 'vitest'" "it('real', () => { expect(1).toBe(1) })" > web/__tests__/Real.test.ts
+printf '%s\n' "// just a comment someone else wrote" > web/__tests__/OtherComment.test.ts   # no marker: hands off
+printf '%s\n' "$M" > web/plain.ts                                                  # not a test file: hands off
+git add -A && git commit -q -m base
+before_real="$(git hash-object web/__tests__/Real.test.ts)"; before_other="$(git hash-object web/__tests__/OtherComment.test.ts)"; before_plain="$(git hash-object web/plain.ts)"
+task_log="$tmp/heal.log"; : > "$task_log"
+eval "$HEAL_SRC"
+ok "a placeholder-only .test.ts is repaired into a skipped suite" "grep -q 'describe.skip' web/__tests__/Stub.test.ts"
+ok "a placeholder-only .spec.tsx is repaired too" "grep -q 'describe.skip' web/__tests__/StubSpec.spec.tsx"
+ok "a real test file is never modified" "[ \"\$(git hash-object web/__tests__/Real.test.ts)\" = \"$before_real\" ]"
+ok "a comment-only test file WITHOUT our marker is never modified" "[ \"\$(git hash-object web/__tests__/OtherComment.test.ts)\" = \"$before_other\" ]"
+ok "a non-test placeholder is never modified by the heal" "[ \"\$(git hash-object web/plain.ts)\" = \"$before_plain\" ]"
+ok "the repair is committed (working tree clean afterwards)" "[ -z \"\$(git status --short)\" ]"
+ok "the repair is logged to the task log" "grep -q 'self-heal: repaired 2' '$tmp/heal.log'"
+n_before="$(git rev-list --count HEAD)"; eval "$HEAL_SRC"
+ok "a second pass is a no-op (idempotent: no new commit)" "[ \"\$(git rev-list --count HEAD)\" = \"$n_before\" ]"
+cd "$tmp" || exit 1
+
 cd - >/dev/null 2>&1 || true
 
 echo "new-source-file-stub: $P passed, $F failed"
