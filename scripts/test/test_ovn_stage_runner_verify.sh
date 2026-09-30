@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 trap osr_cleanup EXIT
 G(){ grep -qF -- "$1" "$T/out.txt"; }
-J(){ osr_jsonl | grep -qF -- "$1"; }
+J(){ osr_jsonl | grep -F -- "$1" >/dev/null; }   # no -q: under pipefail an early-exiting grep SIGPIPEs cat when loaded
 V(){ grep -qF -- "$1" <<<"$VL"; }
 vl(){ VL="$(osr_vlog)"; }
 pushed(){ git -C "$O" log --format=%s overnight/feature | grep -q 'staged step 0'; }

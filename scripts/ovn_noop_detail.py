@@ -65,18 +65,21 @@ def _int_arg(args, flag, default):
     return default
 
 
-def _is_flag_value(argv, a):
+def _flag_value_indexes(argv):
+    """Indexes of argv elements that are the VALUE of a flag (2026-09-30: matching by value swallowed a positional equal to a flag's value)."""
+    idx = set()
     for flag in ('--min-repeat', '--max-total', '--max-len'):
         if flag in argv:
             i = argv.index(flag)
-            if i + 1 < len(argv) and argv[i + 1] == a:
-                return True
-    return False
+            if i + 1 < len(argv):
+                idx.add(i + 1)
+    return idx
 
 
 def main():
     argv = sys.argv[1:]
-    pos = [a for a in argv if not a.startswith('--') and not _is_flag_value(argv, a)]
+    _fv = _flag_value_indexes(argv)
+    pos = [a for i, a in enumerate(argv) if not a.startswith('--') and i not in _fv]
     hours = float(pos[0]) if pos else 3.0
     min_repeat = _int_arg(argv, '--min-repeat', 3)
     max_total = _int_arg(argv, '--max-total', 8)

@@ -82,7 +82,8 @@ def _int_arg(args, flag, default):
 
 def main():
     argv = sys.argv[1:]
-    pos = [a for a in argv if not a.startswith('--') and not _is_flag_value(argv, a)]
+    _fv = _flag_value_indexes(argv)
+    pos = [a for i, a in enumerate(argv) if not a.startswith('--') and i not in _fv]
     hours = float(pos[0]) if pos else 3.0
     max_per_repo = _int_arg(argv, '--max-per-repo', 3)
     max_total = _int_arg(argv, '--max-total', 12)
@@ -141,15 +142,15 @@ def main():
     print("\n".join(lines))
 
 
-def _is_flag_value(argv, a):
-    """True if `a` is the value immediately following one of our --flags (so it's not
-    mistaken for the positional hours arg, e.g. `ovn_landed_detail.py --max-total 5`)."""
+def _flag_value_indexes(argv):
+    """Indexes of argv elements that are the VALUE of a flag (2026-09-30: matching by value swallowed a positional equal to a flag's value)."""
+    idx = set()
     for flag in ('--max-per-repo', '--max-total', '--max-len'):
         if flag in argv:
             i = argv.index(flag)
-            if i + 1 < len(argv) and argv[i + 1] == a:
-                return True
-    return False
+            if i + 1 < len(argv):
+                idx.add(i + 1)
+    return idx
 
 
 if __name__ == "__main__":

@@ -47,4 +47,7 @@ done
 ok "every pipeline script is referenced by a test (or listed with a reason in coverage_exempt.txt)${untested:+ - UNTESTED:$untested}" "$([ -z "$untested" ] && echo 1 || echo 0)"
 stale=""; while read -r f _; do [ -n "$f" ] && [ ! -e "$f" ] && stale="$stale $f"; done < <(sed -E 's/[[:space:]]*#.*//' "$EX" | awk 'NF')
 ok "coverage_exempt.txt has no stale entries${stale:+: $stale}" "$([ -z "$stale" ] && echo 1 || echo 0)"
+# every test file must be wired into run_all.sh (an unregistered test never runs in the gate)
+unreg="$(python3 "$HERE/register_new_tests.py" --check 2>/dev/null | sed 's/^unregistered: //')"
+ok "every scripts/test/test_*.sh is registered in run_all.sh${unreg:+ - NOT: $unreg}" "$([ "$unreg" = "none" ] || [ -z "$unreg" ] && echo 1 || echo 0)"
 echo "  $pass passed, $fail failed"; [ "$fail" = 0 ]

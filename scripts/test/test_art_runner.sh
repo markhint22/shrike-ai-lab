@@ -10,7 +10,7 @@ pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 python3 -c 'import PIL' 2>/dev/null || { echo "PIL missing - cannot test"; exit 2; }
 export HOME="$T/home"; mkdir -p "$HOME/overnight-queue" "$T/bin"
-cp "$SUT" "$T/art_runner.py"
+export PYTHONDONTWRITEBYTECODE=1   # run the REAL file in place (coverage attribution); never write __pycache__ into the tree
 # curl stub: records args, succeeds (or fails when CURL_FAIL=1)
 cat > "$T/bin/curl" <<'C'
 #!/usr/bin/env bash
@@ -19,17 +19,17 @@ C
 chmod +x "$T/bin/curl"; export CURL_LOG="$T/curl.log"; : > "$CURL_LOG"
 
 # ---- CLI: no queue file / empty queue -> graceful exit 0 (nothing imported from torch) ----
-out="$(PATH="$T/bin:$PATH" python3 "$T/art_runner.py" 2>&1)"; rc=$?
+out="$(PATH="$T/bin:$PATH" python3 "$SUT" 2>&1)"; rc=$?
 ok "CLI, no queue file -> rc 0 + 'queue empty'" "$([ $rc = 0 ] && echo "$out" | grep -q 'art queue empty' && echo 1 || echo 0)"
 printf '# header only\n- [x] (staged for review) [unit] old — done already\n' > "$HOME/overnight-queue/art_queue.md"
-out="$(PATH="$T/bin:$PATH" python3 "$T/art_runner.py" 2>&1)"; rc=$?
+out="$(PATH="$T/bin:$PATH" python3 "$SUT" 2>&1)"; rc=$?
 ok "CLI, only done items -> rc 0 + 'queue empty'" "$([ $rc = 0 ] && echo "$out" | grep -q 'art queue empty' && echo 1 || echo 0)"
 ok "CLI empty run sends no ntfy" "$([ ! -s "$CURL_LOG" ] && echo 1 || echo 0)"
 
 # ---- in-process harness ----
 cat > "$T/harness.py" <<'PY'
 import os, sys, types, io, contextlib, importlib
-sys.path.insert(0, os.environ["TREE"])
+sys.path.insert(0, os.environ["SUTDIR"])
 import art_runner as A
 from PIL import Image
 res = []
@@ -175,7 +175,7 @@ chk("main: all-fail batch leaves queue untouched (no mark_done)", open(A.QUEUE, 
 chk("main: all-fail batch still alerts with 0 frames", len(alerts) == 1 and alerts[0][1].startswith("0 frames, 0 unit(s)"))
 print("\n".join(res))
 PY
-export TREE="$T"
+export TREE="$T" SUTDIR="$(dirname "$SUT")"
 PATH="$T/bin:$PATH" python3 "$T/harness.py" > "$T/h.out" 2> "$T/h.err"; hrc=$?
 while IFS= read -r ln; do case "$ln" in "OK "*) ok "${ln#OK }" 1;; "FAIL "*) ok "${ln#FAIL }" 0;; esac; done < "$T/h.out"
 ok "harness ran to completion (rc 0, no traceback)" "$([ $hrc = 0 ] && ! grep -q Traceback "$T/h.err" && echo 1 || echo 0)"

@@ -109,7 +109,8 @@ for r in $repos; do
   # EITHER moved or credited, and stage both files.
   if [ "$moved" -gt 0 ] || [ "$credited" -gt 0 ]; then
     ( cd "repos/$r"
-      git add OVERNIGHT_PROGRESS.md OVERNIGHT_DONE.md 2>/dev/null
+      # 2026-09-30: `git add A B` is all-or-nothing - a missing OVERNIGHT_DONE.md aborted the whole add, nothing was committed, yet "refilled +N" was logged
+      git add OVERNIGHT_PROGRESS.md 2>/dev/null; [ -f OVERNIGHT_DONE.md ] && git add OVERNIGHT_DONE.md 2>/dev/null
       git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): auto-refill $moved items from backlog, pre-verify-credited $credited (doable was $d)"
       git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
     ) && log "$r: refilled +$moved, credited +$credited already-satisfied (was $d, backlog now $remain)" || log "$r: refill push FAILED"

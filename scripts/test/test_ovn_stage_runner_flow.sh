@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 trap osr_cleanup EXIT
 G(){ grep -qF -- "$1" "$T/out.txt"; }
-J(){ osr_jsonl | grep -qF -- "$1"; }
+J(){ osr_jsonl | grep -F -- "$1" >/dev/null; }   # no -q: under pipefail an early-exiting grep SIGPIPEs cat when loaded
 
 # -------- A. lock contention: another runner holds the lock -> exit 0, nothing done --------
 echo "== A: lock contention"
@@ -211,7 +211,9 @@ osr_new; osr_venv backend
 osr_plan default '[{"desc":"m0","files":["backend/app/m0.py"],"verify":"t"},{"desc":"m1","files":["backend/app/m1.py"],"verify":"t"},{"desc":"m2","files":["backend/app/m2.py"],"verify":"t"},{"desc":"m3","files":["backend/app/m3.py"],"verify":"t"},{"desc":"m4","files":["backend/app/m4.py"],"verify":"t"}]'
 osr_aider 1 'echo "litellm.ContextWindowExceededError: context size has been exceeded"'
 osr_aider 2 "$(mk 0)"
-osr_aider 3 "$(mk 1); /bin/sleep 3"
+# 2026-09-30: a genuine hang killed by the step timeout (was a 3s sleep vs a 14s timeout: the dur>=TIMEOUT-12 rule then
+# also flagged every ordinary step under heavy load/xtrace as a timeout). Timeout 30 => threshold 18s; aider #3 sleeps past it.
+osr_aider 3 "$(mk 1); /bin/sleep 100"
 osr_aider 4 "$(mk 1)"
 osr_aider 5 'echo "I looked but changed nothing"'
 osr_aider 6 "$(mk 2)"
@@ -221,7 +223,7 @@ osr_aider 9 "$(mk 4); echo 'def junk(): return 1' > backend/app/junk.py"
 osr_aider 10 "$(mk 4); printf 'from app.m4 import f4\n\ndef test_f4():\n    assert f4() == 4\n' > backend/tests/test_m4.py"
 # autotest calls happen only for attempts that edited and did not hit ctx/timeout: #4 is s3-attempt-1 -> red
 osr_autotest 4 'echo "FAILED tests/test_m3.py::test_f3 - assert 1 == 2"; exit 1'
-OVN_STAGE_STEP_TIMEOUT=14 OVN_STAGE_REDECOMP=0 OVN_STAGE_DEDICATE=0 osr_run "$OSR_REPO" "$ITEM_MF"
+OVN_STAGE_STEP_TIMEOUT=30 OVN_STAGE_REDECOMP=0 OVN_STAGE_DEDICATE=0 osr_run "$OSR_REPO" "$ITEM_MF"
 t "all 5 steps eventually land; item_arg mode -> verified + pushed" bash -c "grep -q 'DONE: 5/5 steps landed' '$T/out.txt' && grep -q 'pushed 5 verified commit' '$T/out.txt'"
 t "context-exceeded detected" J '"fail_reason":"context-exceeded"'
 t "step timeout detected" J '"fail_reason":"timeout"'

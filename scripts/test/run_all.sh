@@ -180,5 +180,42 @@ echo; echo "===== staging_smoke ====="; bash test_staging_smoke.sh || rc=1
 echo; echo "===== sync_branches ====="; bash test_sync_branches.sh || rc=1
 echo; echo "===== tree_guard ====="; bash test_tree_guard.sh || rc=1
 echo; echo "===== un_park ====="; bash test_un_park.sh || rc=1
+echo; echo "===== ovn coverage cron ====="; bash test_ovn_coverage_cron.sh || rc=1
+echo; echo "===== alembic autogen more w3d ====="; bash test_alembic_autogen_more_w3d.sh || rc=1
+echo; echo "===== art py more w3c ====="; bash test_art_py_more_w3c.sh || rc=1
+echo; echo "===== batch park stragglers more w3d ====="; bash test_batch_park_stragglers_more_w3d.sh || rc=1
+echo; echo "===== classify fail more w3b ====="; bash test_classify_fail_more_w3b.sh || rc=1
+echo; echo "===== credit tool paths real w3d ====="; bash test_credit_tool_paths_real_w3d.sh || rc=1
+echo; echo "===== cycle notify more paths ====="; bash test_cycle_notify_more_paths.sh || rc=1
+echo; echo "===== dedupe gd duplicate functions cov ====="; bash test_dedupe_gd_duplicate_functions_cov.sh || rc=1
+echo; echo "===== dedupe progress headers cov ====="; bash test_dedupe_progress_headers_cov.sh || rc=1
+echo; echo "===== dedupe python duplicate defs cov ====="; bash test_dedupe_python_duplicate_defs_cov.sh || rc=1
+echo; echo "===== digest notify more paths ====="; bash test_digest_notify_more_paths.sh || rc=1
+echo; echo "===== failure triage cov ====="; bash test_failure_triage_cov.sh || rc=1
+echo; echo "===== failure triage cron more w3d ====="; bash test_failure_triage_cron_more_w3d.sh || rc=1
+echo; echo "===== filesize retag cov ====="; bash test_filesize_retag_cov.sh || rc=1
+echo; echo "===== groom paused w3d ====="; bash test_groom_paused_w3d.sh || rc=1
+echo; echo "===== hourly notify more paths ====="; bash test_hourly_notify_more_paths.sh || rc=1
+echo; echo "===== item guard nolib w3d ====="; bash test_item_guard_nolib_w3d.sh || rc=1
+echo; echo "===== lib path normalize more w3d ====="; bash test_lib_path_normalize_more_w3d.sh || rc=1
+echo; echo "===== outcome buckets cov ====="; bash test_outcome_buckets_cov.sh || rc=1
+echo; echo "===== ovn alembic generate more w3c ====="; bash test_ovn_alembic_generate_more_w3c.sh || rc=1
+echo; echo "===== ovn failure triage more w3c ====="; bash test_ovn_failure_triage_more_w3c.sh || rc=1
+echo; echo "===== ovn feature groups more w3c ====="; bash test_ovn_feature_groups_more_w3c.sh || rc=1
+echo; echo "===== ovn misc py more w3c ====="; bash test_ovn_misc_py_more_w3c.sh || rc=1
+echo; echo "===== ovn planner more w3d ====="; bash test_ovn_planner_more_w3d.sh || rc=1
+echo; echo "===== ovn reports py more w3c ====="; bash test_ovn_reports_py_more_w3c.sh || rc=1
+echo; echo "===== ovn stats more w3c ====="; bash test_ovn_stats_more_w3c.sh || rc=1
+echo; echo "===== queue refill more w3b ====="; bash test_queue_refill_more_w3b.sh || rc=1
+echo; echo "===== reconcile branches more w3b ====="; bash test_reconcile_branches_more_w3b.sh || rc=1
+echo; echo "===== recover parked more w3b ====="; bash test_recover_parked_more_w3b.sh || rc=1
+echo; echo "===== small py more cov ====="; bash test_small_py_more_cov.sh || rc=1
+echo; echo "===== small py more w3c ====="; bash test_small_py_more_w3c.sh || rc=1
+echo; echo "===== small py more w3cb ====="; bash test_small_py_more_w3cb.sh || rc=1
+echo; echo "===== supervisor more w3b ====="; bash test_supervisor_more_w3b.sh || rc=1
+echo; echo "===== tsc gate more w3d ====="; bash test_tsc_gate_more_w3d.sh || rc=1
+echo; echo "===== update progress cov ====="; bash test_update_progress_cov.sh || rc=1
+echo; echo "===== verify direction check more w3b ====="; bash test_verify_direction_check_more_w3b.sh || rc=1
+echo; echo "===== work summary more cov ====="; bash test_work_summary_more_cov.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regression: render_dashboard.py turns state/fleet_stats.json into a self-contained www/fleet_dashboard.html.
-# Hermetic: the script is copied into a temp "tree" (it derives state/ and www/ from its own dir), so the real
+# Hermetic: the script derives state/ and www/ from its own dir, so a tiny driver runs the REAL file IN PLACE (so coverage
+# attributes it) with os.path.abspath shimmed to report the script as living in a temp "tree"; the real
 # ~/overnight-queue/state and www are never read or written.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -8,10 +9,26 @@ SUT=""; for c in "$HERE/../../render_dashboard.py" "$HERE/../render_dashboard.py
 [ -n "$SUT" ] || { echo "render_dashboard.py not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/tree/state"; cp "$SUT" "$T/tree/render_dashboard.py"
+mkdir -p "$T/tree/state"
+export PYTHONDONTWRITEBYTECODE=1 SUT TREE="$T/tree"
+cat > "$T/drv.py" <<'PY'
+import os, sys, runpy, importlib.util
+sut, tree = os.environ["SUT"], os.environ["TREE"]
+_abs = os.path.abspath
+def shim(p):
+    return os.path.join(tree, "render_dashboard.py") if os.path.basename(str(p)) == "render_dashboard.py" else _abs(p)
+os.path.abspath = shim
+if len(sys.argv) > 1 and sys.argv[1] == "module":
+    spec = importlib.util.spec_from_file_location("render_dashboard", sut)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    sys.modules["render_dashboard"] = mod
+    exec(sys.stdin.read(), {"r": mod})
+else:
+    exec(compile(open(sut).read(), sut, "exec"), {"__name__": "__main__", "__file__": sut})
+PY
 OUT="$T/tree/www/fleet_dashboard.html"; ST="$T/tree/state/fleet_stats.json"
 has(){ grep -qF -- "$1" "$OUT" && echo 1 || echo 0; }
-run(){ python3 "$T/tree/render_dashboard.py" >"$T/out.txt" 2>"$T/err.txt"; echo $?; }
+run(){ python3 "$T/drv.py" >"$T/out.txt" 2>"$T/err.txt"; echo $?; }
 
 # 1. missing stats file
 rc="$(run)"
@@ -95,14 +112,19 @@ ok "corrupt json -> nonzero exit" "$([ "$rc" != 0 ] && echo 1 || echo 0)"
 ok "corrupt json -> previous output untouched" "$(cmp -s "$OUT" "$T/good.html" && echo 1 || echo 0)"
 
 # 6. helper functions directly
-ok "helpers: fmt_num/runway_class/pass_rate_class boundaries" "$(cd "$T/tree" && python3 - <<'P'
-import render_dashboard as r
+ok "helpers: fmt_num/runway_class/pass_rate_class boundaries" "$(python3 "$T/drv.py" module <<'P'
 c=[r.fmt_num(None)=="—", r.fmt_num(0)=="0", r.fmt_num(1234)=="1,234", r.fmt_num(0.04)=="0.0",
    r.runway_class(None)=="", r.runway_class(0.99)=="runway-low", r.runway_class(1)=="runway-warn",
    r.runway_class(3)=="", r.pass_rate_class(None)=="", r.pass_rate_class(69.9)=="rate-low",
    r.pass_rate_class(70)=="rate-warn", r.pass_rate_class(84.9)=="rate-warn", r.pass_rate_class(85)=="rate-good",
    "no attempts" in r.render_category_bars({}), "no attempts" in r.render_category_bars(None)]
 print(1 if all(c) else 0)
+P
+)"
+# 7. os.replace/exec edge: main() importable path returns 1 directly when stats missing (no SystemExit)
+rm -f "$ST"
+ok "main() returns 1 (not raises) on missing stats when imported" "$(python3 "$T/drv.py" module <<'P'
+print(1 if r.main() == 1 else 0)
 P
 )"
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

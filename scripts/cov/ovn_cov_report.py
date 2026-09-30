@@ -15,23 +15,76 @@ import re
 import subprocess
 import sys
 
-BARE = re.compile(r"^\s*(fi|done|esac|else|then|do|\{|\}|;;|\)|in|\(|\|\|.*true)\s*(#.*)?$")
+BARE = re.compile(r"^\s*(fi|done\b.*|esac|else|then|do|\{|\}|;;|\)|in|\(|elif\b.*;\s*then)\s*(#.*)?$")
+LABEL = re.compile(r"^\s*[A-Za-z0-9_*?|\\\"'\[\]\-.: /${}@]+\)\s*(#.*)?$")      # bare `pattern)` case label
+FUNC_HEADER = re.compile(r"^\s*(function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{?\s*(#.*)?$")      # `name() {` with nothing after
+
+
+CLOSE_REDIR = re.compile(r"^\s*(done|fi|esac|\})\s*(<|>|\|)")             # `done < <(...)`, `} >> log`: the closer is never traced
+
+
+def _scan(line, stack):
+    """Advance a tiny shell-lexer state machine across one line. `stack` holds open contexts: "dq" (inside "..."), "sq" (inside '...'),
+    "cmd" (inside $( ... )). Comments, escapes and nested $(..)/quotes are handled well enough to know whether a statement is still
+    open at end of line."""
+    st = list(stack)
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        top = st[-1] if st else None
+        if top == "sq":
+            if c == "'":
+                st.pop()
+        elif top == "dq":
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                st.pop()
+            elif c == "$" and line[i + 1:i + 2] == "(":
+                st.append("cmd")
+                i += 1
+        else:  # top level or inside $( )
+            if c == "#" and (i == 0 or line[i - 1] in " \t;("):
+                break
+            if c == "\\":
+                i += 1
+            elif c == "'":
+                st.append("sq")
+            elif c == '"':
+                st.append("dq")
+            elif c == "$" and line[i + 1:i + 2] == "(":
+                st.append("cmd")
+                i += 1
+            elif c == ")" and top == "cmd":
+                st.pop()
+        i += 1
+    return st
 
 
 def bash_executable_lines(path):
+    """Executable lines = lines xtrace CAN report. xtrace reports a multi-line command at its LAST line (verified against real trace
+    data), so for a statement spanning several lines (backslash continuation, an open quote or an open $( ... )) only the final line
+    counts. Also excluded: blank/comment/bare closers, heredoc bodies, function-definition headers and bare case labels."""
     try:
         lines = open(path, errors="replace").read().split("\n")
     except OSError:
         return set()
-    out, heredoc, cont = set(), None, False
+    out, heredoc, stack = set(), None, []
     for i, raw in enumerate(lines, 1):
         s = raw.strip()
         if heredoc is not None:
             if s == heredoc or raw.rstrip("\n") == heredoc:
                 heredoc = None
             continue
-        was_cont, cont = cont, raw.rstrip().endswith("\\")
-        if not s or s.startswith("#") or BARE.match(raw) or was_cont:
+        was_open = bool(stack)
+        stack = _scan(raw, stack)
+        cont = raw.rstrip().endswith("\\") and not stack
+        if stack or cont:
+            continue
+        if was_open:
+            out.add(i)
+            continue
+        if not s or s.startswith("#") or BARE.match(raw) or LABEL.match(raw) or FUNC_HEADER.match(raw) or CLOSE_REDIR.match(raw):
             continue
         m = re.search(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", raw)
         if m:
@@ -86,17 +139,18 @@ def main():
     pydata = os.path.join(cov_dir, "py")
     pyjson = os.path.join(cov_dir, "py.json")
     if os.path.isdir(pydata):
-        comb = os.path.join(cov_dir, "py.combined")
-        for stale in (comb, pyjson):
-            if os.path.exists(stale):
-                os.remove(stale)
+        # coverage.py's combine scans <dir> for files named "<data-file basename>.*", so the combined file must share the raw files'
+        # prefix (".coverage"); --keep leaves the raw per-process files so re-running this report is idempotent.
+        comb = os.path.join(pydata, ".coverage")
+        if os.path.exists(pyjson):
+            os.remove(pyjson)
         env = {k: v for k, v in os.environ.items() if k != "COVERAGE_FILE"}
         subprocess.run(["python3", "-m", "coverage", "combine", "--keep", "--data-file=" + comb, pydata], env=env, capture_output=True)
         subprocess.run(["python3", "-m", "coverage", "json", "--data-file=" + comb, "-o", pyjson, "--ignore-errors"], env=env, capture_output=True)
         if os.path.exists(pyjson):
             d = json.load(open(pyjson))
             for f, v in d.get("files", {}).items():
-                ap = os.path.normpath(f)
+                ap = os.path.normpath(f if os.path.isabs(f) else os.path.join(root, f))   # coverage.py may report paths relative to the cwd
                 if not ap.startswith(root) or "/scripts/test/" in ap or "/scripts/cov/" in ap:
                     continue
                 rel = os.path.relpath(ap, root)

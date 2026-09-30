@@ -232,7 +232,7 @@ _gate_n = _bad_bd.get('noop:gate', 0)
 _flail_n = _bad_bd.get('noop:flail', 0) + _bad_bd.get('noop', 0)  # legacy bare noop folds into flail
 _benign_bd = oc_benign_breakdown(rows)
 _skip_n = sum(1 for r in rows if r['oc'] == 'skip')
-_benign_total = sum(_benign_bd.values()) + _skip_n
+_benign_total = sum(_benign_bd.values())   # 2026-09-30: the breakdown already includes skip; adding _skip_n again double-counted every skip row
 
 if ntfy:
     lines = ["Overnight · %gh · %d cycles" % (hours, total)]
