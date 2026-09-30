@@ -81,6 +81,9 @@ capstone_escalate_on_failure() {
 # "stuck," not "briefly busy," signal. fd 209 is unchanged (the watchdog subshell below still
 # closes it the same way).
 source scripts/lib_lock.sh
+# 2026-09-29: import-guarded pytest-xdist flag for full_verify's full-suite run (see the lib).
+# Falls back to serial if the lib is missing.
+source scripts/lib_pytest_parallel.sh 2>/dev/null || ovn_pytest_par_args(){ :; }
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
@@ -581,7 +584,11 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     # mid-progress-bar at 81% + start/FAILED log timestamps exactly 300s apart), a false-revert
     # of every T4/T5 attempt regardless of whether the change was actually good — same class of
     # bug as the run_overnight.sh 240->600 fix, just a separate hardcoded cap in this file.
-    [ -d "$wt/$pkg" ] && { echo "-- pytest FULL in $pkg --" >> "$vlog"; ( cd "$wt/$pkg" && timeout 600 "$HOME/overnight-queue/$vp" -q -o addopts="" -p no:cacheprovider ) >> "$vlog" 2>&1 || vok=0; }
+    # 2026-09-29: parallel (pytest-xdist) for allowlisted repos - iptv_apps' full suite is ~456s
+    # serial vs ~64s with -n 8, and this runs on every staged (T3+) run. Empty (=> serial, as
+    # before) unless the repo is allowlisted AND xdist imports in the live venv used here.
+    local _xd; _xd="$(ovn_pytest_par_args "$(basename "$rd")" "$(dirname "$HOME/overnight-queue/$vp")")"
+    [ -d "$wt/$pkg" ] && { echo "-- pytest FULL in $pkg ${_xd:+(parallel: $_xd)} --" >> "$vlog"; ( cd "$wt/$pkg" && timeout 600 "$HOME/overnight-queue/$vp" -q $_xd -o addopts="" -p no:cacheprovider ) >> "$vlog" 2>&1 || vok=0; }
   fi
   # ANDROID (Gradle) — 2026-09-16 FIX: full_verify() had ZERO Kotlin/Android coverage, so a staged
   # multi-step item touching a .kt file got NO real re-check before being trusted/pushed — the

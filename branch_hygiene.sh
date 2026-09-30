@@ -44,6 +44,10 @@ REPORT_FILE="${REPORT_FILE:-}"                    # optional markdown report to 
 DRY_RUN="${DRY_RUN:-0}"                           # 1 = log mutations instead of running them
 # shellcheck source=./scripts/lib_lock.sh
 source "$SCRIPT_DIR/scripts/lib_lock.sh"
+# 2026-09-29: ovn_pytest_par_args - import-guarded pytest-xdist flag for the repos measured to pass
+# under it (see that file). Falls back to serial if the lib is somehow missing.
+# shellcheck source=./scripts/lib_pytest_parallel.sh
+source "$SCRIPT_DIR/scripts/lib_pytest_parallel.sh" 2>/dev/null || ovn_pytest_par_args(){ :; }
 FEAT="${HYGIENE_FEATURE_BRANCH:-overnight/feature}"  # land which agent branch: overnight/feature (27B) | claude/feature (Claude)
 NOW_EPOCH="$(date +%s)"
 
@@ -204,7 +208,16 @@ run_gate() {
       # real red test, and EVERY one of the 40 self-healed on a later run with no
       # code change. See the retry-once wrapper below instead of flagging on the
       # very first contention-caused timeout.
-      ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q -o addopts="" -p no:cacheprovider 2>&1 ) ; rc=$?
+      #
+      # 2026-09-29: parallel via pytest-xdist for the allowlisted repos (iptv_apps 467s -> 64s,
+      # billwatch 105s -> 18s measured). This is not just speed: this gate holds the per-repo
+      # verify lock (fd 223 above) for the whole pytest run, and iptv_apps' 7.5-minute serial run
+      # outlasted the fleet's 300s lock wait, which is what produced the "verify skipped - lock
+      # contended" errors (58 min/day of retries). A ~1-minute hold makes that contention rare.
+      # ovn_pytest_par_args is empty (=> serial, exactly as before) unless the repo is allowlisted
+      # AND xdist imports in this venv.
+      _xd="$(ovn_pytest_par_args "$_repo_name" "$(dirname "$venv_pytest")")"
+      ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q $_xd -o addopts="" -p no:cacheprovider 2>&1 ) ; rc=$?
       flock -u 223
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       [ "$rc" -ne 0 ] && return 1
