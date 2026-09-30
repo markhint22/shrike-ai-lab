@@ -1,0 +1,13 @@
+# alert_suppress.txt — surfaces that are LOGGED but never ALERTED (ntfy-silenced).
+#
+# Purpose: known, human-gated issues that cannot be fixed by the fleet or a redeploy
+# should alert ONCE at most, not on every cron run / every state reset. List their
+# surface KEY here (one per line, matching the `name` in deploy_health.sh SURFACES or
+# the `key` in deploy_watch.sh SURFACES). Recovery is still detected — when the issue
+# is fixed, REMOVE its line here to re-enable full alerting.
+#
+# Format: key            # reason (keep it short)
+# Lines starting with # and blank lines are ignored; inline "# ..." comments are stripped.
+
+specpilot-routes         # SpecPilot on Fly is not deploy-wired (needs FLY_API_TOKEN) — HUMAN_QUEUE #1, tracked, no per-cycle fix
+ripple-backend           # Ripple/VoiceRipple discontinued 2026-09-09, Railway backend deliberately taken down — 404 is expected, not an outage (2435+ consecutive "still down" log lines before this, 2026-09-26)
