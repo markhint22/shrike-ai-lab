@@ -116,6 +116,8 @@ echo; echo "===== supervisor recover-count grep never falls back to stdin (hung 
 echo; echo "===== credit target-path gate (no-VERIFY credits must have a sane target path) ====="; bash test_credit_path_gate.sh || rc=1
 echo; echo "===== reconcile post-merge sanity gate (clean merge that synthesizes a broken file is not pushed) ====="; bash test_reconcile_merge_sanity.sh || rc=1
 echo; echo "===== whitespace-only-line strip tool (semantics-preserving, python strings untouched) ====="; bash test_ws_strip.sh || rc=1
+echo; echo "===== delete executor (deterministic git rm for whole-file delete items) ====="; bash test_delete_executor.sh || rc=1
+echo; echo "===== alembic autogen hook (regenerates the missing migration for model drift) ====="; bash test_alembic_autogen.sh || rc=1
 echo; echo "===== record_outcome item_hash agrees with the shared ovn_item_hash (outcomes.jsonl hash joins the guard state-file key; date-bump regeneration keeps one identity) ====="; bash test_record_outcome_item_hash_agrees.sh || rc=1
 echo; echo "===== pytest-xdist guard (parallel flag only when repo allowlisted AND xdist importable; never breaks a venv without it) ====="; bash test_pytest_parallel_guard.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"

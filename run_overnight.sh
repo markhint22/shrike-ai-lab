@@ -1258,6 +1258,61 @@ STUB
     # DISCARDED the freshly-generated/retired items - backlogs never refilled and
     # empty repos stayed empty forever (0 doable despite self-gen making 12).
     BEFORE_SHA="$(git rev-parse HEAD)"
+
+    # >>> DELETE-EXECUTOR-BEGIN
+    # 2026-09-30: "Delete/Remove <file>" items can NEVER succeed as an LLM udiff job here ("'/dev/null' is not in the
+    # subpath of ..."): measured ~43 min/day of dead cycles, one gitlark item attempted 57 times. For the ongoing-* lanes
+    # (which work the top open progress item) do the deletion deterministically: scripts/ovn_delete_executor.py DECIDES
+    # (conservative: whole-file phrasing, code file, not protected, tracked, non-generic name, zero other importers; a
+    # dedicated test goes too only if the item names it), then git rm + the repo's FULL verification + credit + push.
+    # Anything doubtful/red falls through to the normal path exactly as before (a failed executor attempt is remembered
+    # in state/delete_exec_failed/<hash> so it is tried at most once per item). OVN_DELETE_EXECUTOR=off disables.
+    case "$id" in
+      ongoing-*)
+        if [ "${OVN_DELETE_EXECUTOR:-on}" != "off" ] && [ -f "$SCRIPT_DIR/scripts/ovn_delete_executor.py" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
+          _de_item="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+          _de_hash="$(ovn_item_hash "$_de_item" 2>/dev/null)"
+          if [ -n "$_de_item" ] && [ -n "$_de_hash" ] && [ ! -e "$SCRIPT_DIR/state/delete_exec_failed/$_de_hash" ]; then
+            _de_out="$(timeout 60 python3 "$SCRIPT_DIR/scripts/ovn_delete_executor.py" check "$PWD" "$_de_item" 2>>"$task_log")"
+            case "$_de_out" in
+              OK*)
+                _de_targets="$(printf '%s' "$_de_out" | cut -f2)"
+                echo "--- DELETE-EXECUTOR: deterministic git rm of: ${_de_targets} ---" >> "$task_log"
+                # shellcheck disable=SC2086
+                if git rm -q -- $_de_targets >>"$task_log" 2>&1 && git commit -q -m "chore: remove dead file(s) ${_de_targets} (deterministic delete executor)" >>"$task_log" 2>&1; then
+                  _de_v="$(run_repo_verification)"
+                  if [ "$_de_v" = "pass" ]; then
+                    _de_ln="$(grep -nF -- "$_de_item" OVERNIGHT_PROGRESS.md | head -1 | cut -d: -f1)"
+                    if [ -n "$_de_ln" ]; then
+                      sed -i "${_de_ln}s/^- \[ \] /- [x] (deleted by delete-executor, verified) /" OVERNIGHT_PROGRESS.md
+                      git add OVERNIGHT_PROGRESS.md
+                      git commit -q -m "chore(queue): credit deterministic delete (${_de_targets})" >>"$task_log" 2>&1
+                    fi
+                    if timeout 30 git push origin "$branch" --quiet 2>>"$task_log" || { timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; }; then
+                      echo "--- DELETE-EXECUTOR: verified green and pushed ---" >> "$task_log"
+                      echo "pushed(tests:pass) delete-executor"
+                      return
+                    fi
+                    git rebase --abort >/dev/null 2>&1 || true
+                    echo "--- DELETE-EXECUTOR: push failed after rebase-retry; resetting, normal path continues ---" >> "$task_log"
+                  else
+                    echo "--- DELETE-EXECUTOR: verification=${_de_v} (not pass) - reverting, normal path continues ---" >> "$task_log"
+                  fi
+                  git reset -q --hard "$BEFORE_SHA" >>"$task_log" 2>&1
+                  if [ "$_de_v" != "skip" ]; then mkdir -p "$SCRIPT_DIR/state/delete_exec_failed" 2>/dev/null; : > "$SCRIPT_DIR/state/delete_exec_failed/$_de_hash"; fi
+                else
+                  git reset -q --hard "$BEFORE_SHA" >>"$task_log" 2>&1
+                  echo "--- DELETE-EXECUTOR: git rm/commit failed - reset, normal path continues ---" >> "$task_log"
+                fi
+                ;;
+              SKIP*) echo "--- delete-executor: ${_de_out#SKIP	} ---" >> "$task_log" ;;
+            esac
+          fi
+        fi
+        ;;
+    esac
+    # <<< DELETE-EXECUTOR-END
+
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
       # 2026-09-16 FIX: OVERNIGHT_PROGRESS.md is append-only and long-lived —
       # billwatch/gitlark/iptv_apps/test-automation-agent/xlite had all grown
@@ -2220,6 +2275,29 @@ ${full_prompt}"
           git commit -q -m "chore(contract): auto-regenerate openapi.json (deterministic, matches this cycle's commit)"
           AFTER_SHA="$(git rev-parse HEAD)"
           echo "--- auto-regenerated docs/openapi.json (contract had drifted) ---" >> "$task_log"
+        fi
+      fi
+
+      # Auto-generate the missing Alembic migration (2026-09-30), same pattern as the OpenAPI
+      # regen above: deterministic, zero-LLM, idempotent, runs BEFORE verification so the repo's
+      # own tests/test_migration_drift.py sees a chain that matches the models. aider has no
+      # shell, so it can never run `alembic revision --autogenerate`; instead of hoping the 27B
+      # hand-writes a correct migration (it invents stale revision ids like "009"/"0005" and
+      # forks the chain), scripts/ovn_alembic_autogen.sh generates it against a throwaway
+      # SQLite DB at head. Measured 2026-09-29: 15 test-automation-agent drift/fork failures
+      # (~43 min), 14 of which go green with this hook (full backend suite re-run per commit).
+      # Gated inside the script (allowlisted repos, drift-test marker present, clean tree,
+      # model/migration files touched, changed files compile), bounded (one generate, one retry
+      # after undoing the cycle's own broken migration edits), never edits an existing
+      # migration (it restores any the cycle mangled), and leaves the tree exactly as the cycle
+      # left it on any refusal - every existing gate still runs afterwards.
+      # Kill switch: OVN_ALEMBIC_AUTOGEN_DISABLE=1.
+      if [ -x "$SCRIPT_DIR/scripts/ovn_alembic_autogen.sh" ]; then
+        _ovn_ag_out="$("$SCRIPT_DIR/scripts/ovn_alembic_autogen.sh" "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" 2>>"$task_log")"
+        [ -n "$_ovn_ag_out" ] && printf -- '--- %s ---\n' "$_ovn_ag_out" >> "$task_log"
+        _ovn_ag_head="$(git rev-parse HEAD)"
+        if [ "$_ovn_ag_head" != "$AFTER_SHA" ]; then
+          AFTER_SHA="$_ovn_ag_head"
         fi
       fi
 
