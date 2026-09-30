@@ -9,6 +9,7 @@ ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FA
 
 # ---- ovn_credit_already_satisfied.sh ----
 d=$(mktemp -d); ( cd "$d"
+  mkdir -p app; touch app/foo.py app/bar.py   # 2026-09-30 target-path gate: an 'already satisfied' credit needs its target to exist
   printf '# P\n\n## Next Steps\n- [ ] [HIGH] `app/foo.py` — add Query bounds. One file.\n- [ ] [MED] `app/bar.py` — add aria-label. One file.\n' > OVERNIGHT_PROGRESS.md
   printf 'app/foo.py\nLooking at it, Query is already imported and both params already use Query. This item is already done.\n' > tlog
   bash "$SCRIPTS/ovn_credit_already_satisfied.sh" tlog OVERNIGHT_PROGRESS.md >/dev/null 2>&1
