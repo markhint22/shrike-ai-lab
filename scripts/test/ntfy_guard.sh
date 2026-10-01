@@ -21,3 +21,9 @@ curl() {
   command curl "$@"
 }
 export -f curl
+
+# 2026-10-01: the CRON environment exports NTFY_SERVER=<relay> (the notification redesign) so production scripts publish through the
+# relay. Tests assume the default server (https://ntfy.sh, which the guard above swallows); inheriting the relay made 4+ tests fail
+# only under cron ("Queue tests FAILED" at 00:09 and 06:09) while every manual run passed, and let test traffic reach the real
+# relay. Tests must run in the same environment whether started by cron or by hand.
+unset NTFY_SERVER

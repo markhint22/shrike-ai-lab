@@ -20,4 +20,11 @@ ok "non-ntfy URLs are forwarded to the real curl (file:// works)" "$([ "$(curl -
 kill "$(cat "$T/srv.pid" 2>/dev/null)" 2>/dev/null
 ok "run_all.sh sources the guard" "$(grep -q 'ntfy_guard.sh' "$HERE/run_all.sh" && echo 1 || echo 0)"
 ok "run_coverage.sh sources the guard" "$(grep -q 'ntfy_guard.sh' "$HERE/../cov/run_coverage.sh" 2>/dev/null && echo 1 || echo 0)"
+# ---- regression (2026-10-01): run_all.sh's header must load the guard when started with a RELATIVE path from the repo root, as cron does
+_q="$(cd "$HERE/../.." && pwd)"; _probe="$HERE/.ra_probe.sh"
+n=$(grep -n '^rc=0' "$HERE/run_all.sh" | head -1 | cut -d: -f1)
+{ head -n "$((n-1))" "$HERE/run_all.sh"; echo 'echo "PROBE NTFY_SERVER=[${NTFY_SERVER:-unset}] curl=$(type -t curl)"'; } > "$_probe"
+_out="$(cd "$_q" && NTFY_SERVER=http://127.0.0.1:8099 bash scripts/test/.ra_probe.sh 2>&1)"; rm -f "$_probe"
+ok "run_all.sh header loads the guard under a relative (cron-style) invocation, unsets NTFY_SERVER, and shadows curl" "$([ "$_out" = "PROBE NTFY_SERVER=[unset] curl=function" ] && echo 1 || echo 0)"
 echo "  $pass passed, $fail failed"; [ "$fail" = 0 ]
+

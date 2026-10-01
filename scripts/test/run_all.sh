@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Run the full overnight-queue regression suite. Exit 0 = all green.
-cd "$(dirname "$0")"
-# 2026-09-30: never let the suite reach the real ntfy.sh (shared per-IP quota; tests exhausted it and silenced all production alerts)
+# resolve our own directory BEFORE cd: cron runs `bash scripts/test/run_all.sh` (relative path); computing it after the cd made
+# HERE_RA empty -> the guard below was never sourced under cron (tests failed and could reach the real ntfy.sh). 2026-10-01.
 HERE_RA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE_RA"
+# 2026-09-30: never let the suite reach the real ntfy.sh (shared per-IP quota; tests exhausted it and silenced all production alerts)
 . "$HERE_RA/ntfy_guard.sh"
 rc=0
 echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
