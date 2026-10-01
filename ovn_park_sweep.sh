@@ -27,8 +27,12 @@ for r in $repos; do
   if ! ( cd "repos/$r" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ); then
     log "$r: git sync failed — skipping"; ./queue.sh release "$r" >/dev/null 2>&1 || true; continue
   fi
+  # first park items that can never land (hard-banned / context-overflowing target), then relocate parked items
+  pk=$(python3 ovn_park_unworkable.py "$f" "repos/$r" 2>&1 | grep -oE 'PARKED=[0-9]+' | cut -d= -f2); pk=${pk:-0}
+  [ "$pk" -gt 0 ] && log "$r: parked $pk unworkable item(s) (hard-banned / too large for the model context)"
   out=$(python3 ovn_park_sweep.py "$f" 2>&1)
   moved=$(echo "$out" | grep -oE 'SWEPT=[0-9]+' | cut -d= -f2); moved=${moved:-0}
+  moved=$((moved + pk))
   if [ "$moved" -gt 0 ]; then
     ( cd "repos/$r"
       git add OVERNIGHT_PROGRESS.md

@@ -224,5 +224,7 @@ echo; echo "===== ntfy guard ====="; bash test_ntfy_guard.sh || rc=1
 echo; echo "===== verify fail closed ====="; bash test_verify_fail_closed.sh || rc=1
 echo; echo "===== ovn notify ====="; bash test_ovn_notify.sh || rc=1
 echo; echo "===== retired filter ====="; bash test_retired_filter.sh || rc=1
+echo; echo "===== park unworkable ====="; bash test_park_unworkable.sh || rc=1
+echo; echo "===== vercel state check ====="; bash test_vercel_state_check.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
