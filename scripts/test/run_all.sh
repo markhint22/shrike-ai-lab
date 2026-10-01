@@ -6,6 +6,9 @@ HERE_RA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE_RA"
 # 2026-09-30: never let the suite reach the real ntfy.sh (shared per-IP quota; tests exhausted it and silenced all production alerts)
 . "$HERE_RA/ntfy_guard.sh"
+# the suite must NEVER launch the real QA shadow gates (branch_hygiene.sh tests run the REAL script from the real tree; the hygiene hook would spawn
+# gates that write fake-repo rows into production state/qa_shadow) - 2026-10-01
+export OVN_QA_SHADOW=off
 rc=0
 echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
 echo; echo "===== lib_item_select (real-item resolver — scout-file match over blind top-of-file) ====="; bash test_lib_item_select.sh || rc=1
@@ -235,7 +238,15 @@ echo; echo "===== stage scope guard lists new files (-uall) ====="; bash test_st
 echo; echo "===== Tier-2 fix-up direction (own test vs source broke green) ====="; bash test_fixup_direction.sh || rc=1
 echo; echo "===== QA common library + replay ====="; python3 test_qa_common.py || rc=1
 echo; echo "===== QA shadow runner ====="; bash test_qa_run_shadow.sh || rc=1
+echo; echo "===== hygiene -> QA shadow hook ====="; bash test_hygiene_qa_hook.sh || rc=1
 echo; echo "===== QA mode switch ====="; bash test_qa_mode.sh || rc=1
 echo; echo "===== QA manual notes loop ====="; python3 test_qa_manual_notes.py || rc=1
+echo; echo "===== QA locator v2 (platform, agentic, hung-model budget) ====="; python3 test_qa_locator_v2.py || rc=1
+echo; echo "===== QA gate: acceptance card lint ====="; python3 test_qa_acceptance.py || rc=1
+echo; echo "===== QA gate: anti-gaming diff ====="; python3 test_qa_antigaming.py || rc=1
+echo; echo "===== QA gate: scanners ====="; python3 test_qa_scanners.py || rc=1
+echo; echo "===== QA gate: baseline-relative verify ====="; python3 test_qa_baseline.py || rc=1
+echo; echo "===== QA gate: release candidate + staging ====="; python3 test_qa_release.py || rc=1
+echo; echo "===== QA: escape ledger + scorecard ====="; bash test_qa_ledger.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

@@ -1,0 +1,271 @@
+# Small LOCAL semgrep ruleset for gate_scanners (no registry, no network). Severity ERROR = blocking-class (FAIL), WARNING = FLAG.
+# Test files are excluded per-rule and again in the gate. Every rule has a seeded positive in scripts/test/test_qa_scanners.py.
+rules:
+  - id: qa-shell-true-nonliteral
+    languages: [python]
+    severity: ERROR
+    message: subprocess call with shell=True and a non-literal command (shell injection risk)
+    patterns:
+      - pattern: subprocess.$F($CMD, ..., shell=True, ...)
+      - pattern-not: subprocess.$F("...", ..., shell=True, ...)
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-shell-true-literal
+    languages: [python]
+    severity: WARNING
+    message: subprocess call with shell=True (literal command; confirm no interpolation is ever added)
+    pattern: subprocess.$F("...", ..., shell=True, ...)
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-os-system-nonliteral
+    languages: [python]
+    severity: ERROR
+    message: os.system / os.popen with a non-literal command
+    patterns:
+      - pattern-either:
+          - pattern: os.system($CMD)
+          - pattern: os.popen($CMD)
+      - pattern-not: os.system("...")
+      - pattern-not: os.popen("...")
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-eval-exec-nonliteral
+    languages: [python]
+    severity: ERROR
+    message: eval/exec of a non-literal expression
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: exec($X)
+      - pattern-not: eval("...")
+      - pattern-not: exec("...")
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-unsafe-deserialization
+    languages: [python]
+    severity: ERROR
+    message: unsafe deserialization (pickle / marshal / yaml.load without a safe loader)
+    patterns:
+      - pattern-either:
+          - pattern: pickle.load(...)
+          - pattern: pickle.loads(...)
+          - pattern: cPickle.loads(...)
+          - pattern: marshal.loads(...)
+          - pattern: yaml.load($X)
+          - pattern: yaml.load($X, Loader=yaml.Loader)
+          - pattern: yaml.load($X, Loader=yaml.UnsafeLoader)
+          - pattern: yaml.load($X, Loader=yaml.FullLoader)
+          - pattern: yaml.unsafe_load(...)
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-tls-verify-disabled
+    languages: [python]
+    severity: ERROR
+    message: TLS certificate verification disabled (verify=False)
+    pattern-either:
+      - pattern: requests.$M(..., verify=False, ...)
+      - pattern: httpx.$M(..., verify=False, ...)
+      - pattern: httpx.Client(..., verify=False, ...)
+      - pattern: httpx.AsyncClient(..., verify=False, ...)
+      - pattern: $S.$M(..., verify=False, ...)
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-hardcoded-secret
+    languages: [python]
+    severity: WARNING
+    message: possible hard-coded secret/token assigned to a credential-like name (use env/config)
+    patterns:
+      - pattern-either:
+          - pattern: $X = "..."
+          - pattern: $X = '...'
+          - pattern: "$X: str = \"...\""
+      - metavariable-regex:
+          metavariable: $X
+          regex: |-
+            (?i)^_?(.*_)?(secret|token|api_?key|apikey|passwd|password|private_?key|auth_?key|access_?key)(_.*)?$
+      - pattern-not: $X = ""
+      - pattern-regex: |-
+          =\s*[rbf]?["'][A-Za-z0-9_\-+/=.:@!#$%^&*]{16,}["']
+      - pattern-not-regex: |-
+          (?i)=\s*[rbf]?["'](change[-_ ]?me|your[-_a-z ]*|example|placeholder|dummy|test|xxx+|\*+|<[^>]*>|\$\{[^}]*\}|[a-z_]+_here|none|null|todo)[^"']*["']
+      - pattern-not-regex: |-
+          (?i)=\s*[rbf]?["'][a-z0-9_.\-/:]*(://|/)[a-z0-9_.\-/:]*["']
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py", "**/config*.py", "**/settings*.py", "**/constants*.py"]}
+
+  - id: qa-sql-built-from-string
+    languages: [python]
+    severity: ERROR
+    message: SQL statement built with f-string / format / % / concatenation (injection risk) - use bound parameters
+    patterns:
+      - pattern-either:
+          - pattern: $C.execute(f"...{$X}...", ...)
+          - pattern: $C.execute("...".format(...), ...)
+          - pattern: $C.execute("..." % $A, ...)
+          - pattern: $C.execute("..." + $A, ...)
+          - pattern: $C.executemany(f"...{$X}...", ...)
+          - pattern: $C.execute(text(f"...{$X}..."), ...)
+          - pattern: $C.execute(text("...".format(...)), ...)
+          - pattern: $C.execute(text("..." % $A), ...)
+          - pattern: $C.execute(text("..." + $A), ...)
+          - pattern: sqlalchemy.text(f"...{$X}...")
+          - pattern: text(f"...{$X}...")
+      - pattern-regex: |-
+          (?i)(select\s[\s\S]{1,300}?\sfrom\s|insert\s+into\s|update\s+\S+\s+set\s|delete\s+from\s|drop\s+table|alter\s+table|create\s+table)
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py", "**/alembic/**", "**/migrations/**"]}
+
+  - id: qa-fastapi-write-route-no-auth
+    languages: [python]
+    severity: WARNING
+    message: FastAPI write route (POST/PUT/PATCH/DELETE) with no auth dependency in its signature or decorator (confirm router/app-level auth or that it is intentionally public)
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$R.post(...)
+              def $F(...): ...
+          - pattern: |
+              @$R.put(...)
+              def $F(...): ...
+          - pattern: |
+              @$R.patch(...)
+              def $F(...): ...
+          - pattern: |
+              @$R.delete(...)
+              def $F(...): ...
+          - pattern: |
+              @$R.post(...)
+              async def $F(...): ...
+          - pattern: |
+              @$R.put(...)
+              async def $F(...): ...
+          - pattern: |
+              @$R.patch(...)
+              async def $F(...): ...
+          - pattern: |
+              @$R.delete(...)
+              async def $F(...): ...
+      - metavariable-regex:
+          metavariable: $R
+          regex: |-
+            ^(app|router|.*_router|.*router|api|v\d+)$
+      - pattern-not-inside: |
+          $R = APIRouter(..., dependencies=$D, ...)
+          ...
+      - pattern-not-inside: |
+          $R = FastAPI(..., dependencies=$D, ...)
+          ...
+      - pattern-not-regex: |-
+          (?s)dependencies\s*=
+      - pattern-not-regex: |-
+          (?s)(Depends|Security)\s*\(
+      - pattern-not-regex: |-
+          (?i)def\s+(login|logout|register|signup|sign_up|token|refresh|forgot|reset|verify|webhook|health|ping|callback|oauth|stripe|revenuecat|subscribe|contact|waitlist|unsubscribe)\w*\s*\(
+      - pattern-not-regex: |-
+          (?i)@\w+\.(post|put|patch|delete)\(\s*["'][^"']*(login|logout|register|signup|token|refresh|forgot|reset|verify|webhook|auth|callback|oauth|health|ping|stripe|revenuecat|public|contact|waitlist|unsubscribe)
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-log-sensitive-value
+    languages: [python]
+    severity: WARNING
+    message: logging call interpolates a credential-like value, headers or a DB URL/DSN (leaks secrets into logs)
+    patterns:
+      - pattern-regex: |-
+          (?i)\b(log|logger|logging|_log|_logger|app_logger)\.(debug|info|warning|warn|error|exception|critical)\([^\n]*(\{[^}\n]*(?<![a-z0-9])(api_?key|password|passwd|secret|token|authorization|headers|database_url|db_url|dsn|private_key)(?![a-z0-9])[^}\n]*\}|%[sr][^\n]*,\s*[\w.]*(?<![a-z0-9])(api_?key|password|passwd|secret|token|authorization|headers|database_url|db_url|dsn|private_key)\))
+      - pattern-not-regex: |-
+          (?i)\{[^}\n]*(token|key|secret|password)s?_?(count|len|length|expired|missing|invalid|present|found|type|name|id)(?![a-z0-9])[^}\n]*\}
+      - pattern-not-regex: |-
+          (?i)(len|bool|type)\(\s*[\w.]*(api_?key|password|secret|token|headers)
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-except-swallows
+    languages: [python]
+    severity: WARNING
+    message: broad/bare except that silently swallows the error (pass / ... / continue only) - log or re-raise
+    pattern-either:
+      - pattern: |
+          try:
+              ...
+          except:
+              pass
+      - pattern: |
+          try:
+              ...
+          except Exception:
+              pass
+      - pattern: |
+          try:
+              ...
+          except BaseException:
+              pass
+      - pattern: |
+          try:
+              ...
+          except Exception as $E:
+              pass
+      - pattern: |
+          try:
+              ...
+          except:
+              continue
+      - pattern: |
+          try:
+              ...
+          except Exception:
+              continue
+      - pattern: |
+          try:
+              ...
+          except Exception as $E:
+              continue
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-mutable-default-arg
+    languages: [python]
+    severity: WARNING
+    message: mutable default argument (shared across calls)
+    pattern-either:
+      - pattern: |
+          def $F(..., $A=[], ...):
+              ...
+      - pattern: |
+          def $F(..., $A={}, ...):
+              ...
+      - pattern: |
+          def $F(..., $A=set(), ...):
+              ...
+      - pattern: |
+          def $F(..., $A=list(), ...):
+              ...
+      - pattern: |
+          def $F(..., $A=dict(), ...):
+              ...
+      - pattern: |
+          async def $F(..., $A=[], ...):
+              ...
+      - pattern: |
+          async def $F(..., $A={}, ...):
+              ...
+    paths: {exclude: ["**/test_*.py", "**/tests/**", "**/*_test.py", "**/conftest.py"]}
+
+  - id: qa-js-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: eval / new Function with a non-literal argument
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: new Function(..., $X)
+      - pattern-not: eval("...")
+    paths: {exclude: ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "**/node_modules/**"]}
+
+  - id: qa-js-innerhtml-assign
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: assignment to innerHTML / outerHTML / document.write with a non-literal value (XSS risk)
+    patterns:
+      - pattern-either:
+          - pattern: $E.innerHTML = $X
+          - pattern: $E.outerHTML = $X
+          - pattern: document.write($X)
+      - pattern-not: $E.innerHTML = "..."
+      - pattern-not: $E.innerHTML = ""
+    paths: {exclude: ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "**/node_modules/**"]}

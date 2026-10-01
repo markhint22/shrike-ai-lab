@@ -341,7 +341,8 @@ ok("file named after the flow/word (routers/alerts.py) is a located candidate fo
 ok("VERIFY picks the nearest test file by name (alerts.py -> tests/test_alerts_router.py)",
    mn.verify_command(["backend/tests/test_alerts_router.py", "backend/tests/test_other.py", "backend/app/routers/alerts.py"], "backend/app/routers/alerts.py")
    == "pytest backend/tests/test_alerts_router.py -v")
-ok("prose API note with 'endpoint' + two plausible files => the web view and the router tie closely (model decides in prod)", len(mn.plausible(e3b["candidates"])) >= 2)
+ok("prose API note with 'endpoint' (v2: platform inferred = backend) => only the router is a candidate, the web view is excluded by the platform filter",
+   e3b.get("platform") == "backend" and "app-web/src/views/AlertsView.vue" not in [c["path"] for c in e3b["candidates"]], e3b.get("candidates"))
 rc, out = A.add('The "Sign Out Everywhere" button on Android does nothing', flow="profile", OVN_MANUAL_MODEL="off")
 e3c = ent(A, "Sign Out Everywhere\" button on Android", out)
 ok("platform word 'Android' steers an otherwise tied UI label to the Android file", e3c.get("path") == "android/app/src/main/java/com/x/ProfileScreen.kt", e3c.get("candidates"))
@@ -429,7 +430,7 @@ ok("model off: deterministic top candidate (alphabetical tie-break), no model ca
 ok("fixture really is ambiguous (>=2 plausible candidates)", len(mn.plausible(ec["candidates"])) >= 2, ec["candidates"])
 C2 = Fix("c2")
 model_content["v"] = 'Sure! {"ranking": ["backend/app/services/digest_service.py", "backend/app/routers/digest.py"], "reason": "the service builds the email"}'
-rc, out = C2.add(AMB, flow="digest")
+rc, out = C2.add(AMB, flow="digest", OVN_MANUAL_AGENTIC="off")
 ec2 = entry_of(C2)
 ok("ambiguous: ONE model request, and its valid ranking decides", len(model.hits) == 1 and ec2["path"] == "backend/app/services/digest_service.py" and ec2["ranked_by"] == "model", (len(model.hits), ec2.get("path")))
 req = json.loads(model.hits[0]["body"])
@@ -438,17 +439,17 @@ ok("model got the auth header + configured model name", model.hits[0]["headers"]
 C3 = Fix("c3")
 model.hits.clear()
 model_content["v"] = '{"ranking": ["/etc/passwd", "../../x.py", "backend/app/invented.py"], "reason": "x"}'
-rc, out = C3.add(AMB, flow="digest")
+rc, out = C3.add(AMB, flow="digest", OVN_MANUAL_AGENTIC="off")
 ec3 = entry_of(C3)
 ok("model invents paths => all discarded, deterministic fallback", ec3["path"] == "backend/app/routers/digest.py" and ec3["ranked_by"] == "model-unavailable-deterministic", ec3)
 ok("an invented path never reaches the queue", "invented" not in ec3["item"] and "passwd" not in ec3["item"])
 C4 = Fix("c4")
 model_content["v"] = "I think maybe the first one!! (no json at all)"
-rc, out = C4.add(AMB, flow="digest")
+rc, out = C4.add(AMB, flow="digest", OVN_MANUAL_AGENTIC="off")
 ok("model garbage => deterministic fallback", entry_of(C4)["path"] == "backend/app/routers/digest.py")
 C5 = Fix("c5")
 model_content["v"] = '{"ranking": ["backend/app/services/digest_service.py", "/etc/shadow"]}'
-rc, out = C5.add(AMB, flow="digest")
+rc, out = C5.add(AMB, flow="digest", OVN_MANUAL_AGENTIC="off")
 ok("model mixes valid + invented => only the valid one is used", entry_of(C5)["path"] == "backend/app/services/digest_service.py")
 C6 = Fix("c6")
 rc, out = C6.add(AMB, flow="digest", LITELLM_BASE="http://127.0.0.1:%d" % dead_port())

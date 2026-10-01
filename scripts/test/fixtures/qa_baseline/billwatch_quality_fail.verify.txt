@@ -1,0 +1,316 @@
+2026-09-09 23:08:40 independent full-verify (combined result)
+-- pytest FULL in billwatch-backend --
+........................................................................ [  5%]
+........................................................................ [ 11%]
+........................................................................ [ 17%]
+........................................................................ [ 23%]
+........................................................................ [ 29%]
+........................................................................ [ 35%]
+........................................................................ [ 41%]
+........................................................................ [ 46%]
+........................................................................ [ 52%]
+........................................................................ [ 58%]
+........................................................................ [ 64%]
+........................................................................ [ 70%]
+........................................................................ [ 76%]
+........................................................................ [ 82%]
+........................................................................ [ 87%]
+........................................................................ [ 93%]
+........................................................................ [ 99%]
+....                                                                     [100%]
+=============================== warnings summary ===============================
+app/schemas/auth.py:41
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/auth.py:41: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class UserResponse(BaseModel):
+
+app/schemas/bill.py:10
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/bill.py:10: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillActionResponse(BaseModel):
+
+app/schemas/bill.py:22
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/bill.py:22: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillCosponsorResponse(BaseModel):
+
+app/schemas/bill.py:35
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/bill.py:35: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillResponse(BaseModel):
+
+app/schemas/bill.py:82
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/bill.py:82: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillBackgroundResponse(BaseModel):
+
+app/schemas/bill.py:97
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/bill.py:97: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillSummaryResponse(BaseModel):
+
+app/schemas/topic.py:7
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/topic.py:7: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class TopicResponse(BaseModel):
+
+app/schemas/notification.py:8
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/notification.py:8: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class NotificationResponse(BaseModel):
+
+app/schemas/legislator.py:9
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/legislator.py:9: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class VoteResponse(BaseModel):
+
+app/schemas/legislator.py:18
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/legislator.py:18: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class RollCallVoteResponse(BaseModel):
+
+app/schemas/legislator.py:45
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/legislator.py:45: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LegislatorResponse(BaseModel):
+
+app/schemas/committee.py:8
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/committee.py:8: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class CommitteeResponse(BaseModel):
+
+app/schemas/committee.py:21
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/committee.py:21: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class CommitteeMemberResponse(BaseModel):
+
+app/schemas/committee.py:41
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/committee.py:41: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class LegislatorCommitteeResponse(BaseModel):
+
+app/schemas/feedback.py:9
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/feedback.py:9: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class FeedbackCreate(BaseModel):
+
+app/schemas/feedback.py:52
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/feedback.py:52: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class FeedbackResponse(BaseModel):
+
+app/routers/ranking.py:26
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/ranking.py:26: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class UserPreferencesOut(BaseModel):
+
+app/routers/alerts.py:53
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/alerts.py:53: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillAlertResponse(BaseModel):
+
+app/schemas/campaign_finance.py:8
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/campaign_finance.py:8: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class TopDonorResponse(BaseModel):
+
+app/schemas/campaign_finance.py:21
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/campaign_finance.py:21: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class IndustryContributionResponse(BaseModel):
+
+app/schemas/campaign_finance.py:49
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/campaign_finance.py:49: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class CampaignFinanceSummary(BaseModel):
+
+app/schemas/civic.py:24
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/civic.py:24: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class RepresentativeResponse(BaseModel):
+
+app/schemas/civic.py:65
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/civic.py:65: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class DivisionInfo(BaseModel):
+
+app/schemas/civic.py:80
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/civic.py:80: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class FindRepsRequest(BaseModel):
+
+app/schemas/bill_chat.py:21
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/bill_chat.py:21: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillMessageResponse(BaseModel):
+
+app/schemas/bill_chat.py:46
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/bill_chat.py:46: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class BillSummaryResponse(BaseModel):
+
+app/schemas/sync_status.py:9
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/schemas/sync_status.py:9: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class SyncStatusResponse(BaseModel):
+
+app/routers/career_history.py:36
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/career_history.py:36: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class CareerEventResponse(BaseModel):
+
+../../../home/mhintermeister/overnight-queue/repos/billwatch/billwatch-backend/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /home/mhintermeister/overnight-queue/repos/billwatch/billwatch-backend/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_admin.py: 32 warnings
+tests/test_auth.py: 8 warnings
+tests/test_background_scheduler.py: 16 warnings
+tests/test_bill_alert_service.py: 17 warnings
+tests/test_bill_background_service.py: 10 warnings
+tests/test_bill_sponsor_sync_service.py: 16 warnings
+tests/test_bill_summary_endpoint.py: 10 warnings
+tests/test_bill_sync_congress.py: 14 warnings
+tests/test_billing_endpoints.py: 9 warnings
+tests/test_billing_service.py: 34 warnings
+tests/test_campaign_finance_sync.py: 54 warnings
+tests/test_career_history.py: 12 warnings
+tests/test_committee_sync_service.py: 22 warnings
+tests/test_committees_router.py: 30 warnings
+tests/test_digest_router.py: 21 warnings
+tests/test_digest_service.py: 51 warnings
+tests/test_follow_committees.py: 15 warnings
+tests/test_follow_legislators.py: 20 warnings
+tests/test_legislator_detail_scorecard.py: 2 warnings
+tests/test_legislator_scorecard.py: 42 warnings
+tests/test_legislator_stats.py: 36 warnings
+tests/test_legislator_stats_service.py: 19 warnings
+tests/test_performance_caching.py: 72 warnings
+tests/test_preferences_router.py: 19 warnings
+tests/test_recommendation_service.py: 71 warnings
+tests/test_saved_searches.py: 77 warnings
+tests/test_search.py: 42 warnings
+tests/test_security_audit.py: 21 warnings
+tests/test_status_change_alerts.py: 31 warnings
+tests/test_sync_status.py: 7 warnings
+tests/test_sync_status_reliability.py: 19 warnings
+tests/test_user_preferences_service.py: 18 warnings
+  /home/mhintermeister/overnight-queue/repos/billwatch/billwatch-backend/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3623: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/test_admin.py: 7 warnings
+tests/test_auth.py: 5 warnings
+tests/test_billing_endpoints.py: 6 warnings
+tests/test_digest_router.py: 8 warnings
+tests/test_performance_caching.py: 4 warnings
+tests/test_preferences_router.py: 10 warnings
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/auth.py:45: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+
+tests/test_auth.py::test_create_access_token
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_auth.py:26: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    exp_time = datetime.utcfromtimestamp(payload["exp"])
+
+tests/test_auth.py::test_create_access_token
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_auth.py:27: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_auth.py: 5 warnings
+tests/test_billing_endpoints.py: 6 warnings
+tests/test_digest_router.py: 8 warnings
+tests/test_performance_caching.py: 4 warnings
+tests/test_preferences_router.py: 10 warnings
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/auth.py:53: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expire = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+
+tests/test_auth.py::test_create_refresh_token
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_auth.py:48: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    exp_time = datetime.utcfromtimestamp(payload["exp"])
+
+tests/test_auth.py::test_create_refresh_token
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_auth.py:49: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_bill_sync_congress.py: 5 warnings
+tests/test_campaign_finance_sync.py: 8 warnings
+tests/test_sync_status.py: 3 warnings
+tests/test_sync_status_reliability.py: 4 warnings
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/sync_status_service.py:43: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_bill_sync_congress.py::test_sync_does_not_retry_permanent_error
+tests/test_bill_sync_congress.py::test_sync_gives_up_after_max_retries
+tests/test_campaign_finance_sync.py::test_sync_propagates_503_when_key_unset
+tests/test_campaign_finance_sync.py::test_sync_all_counts_failures_without_aborting_batch
+tests/test_sync_status.py::test_record_error_marks_error_but_keeps_prior_success
+tests/test_sync_status_reliability.py::test_legislator_sync_records_error
+tests/test_sync_status_reliability.py::test_legislator_error_preserves_prior_success
+tests/test_sync_status_reliability.py::test_finance_sync_records_error_on_503
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/sync_status_service.py:60: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    record.last_run_at = datetime.utcnow()
+
+tests/test_billing_service.py::test_is_premium_active
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_billing_service.py:69: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    subscription_current_period_end=datetime.utcnow() + timedelta(days=10),
+
+tests/test_billing_service.py::test_is_premium_active
+tests/test_billing_service.py::test_is_premium_expired_period
+tests/test_billing_service.py::test_require_premium_allows_premium_user
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/billing_service.py:219: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if end is not None and end < datetime.utcnow():
+
+tests/test_billing_service.py::test_is_premium_expired_period
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_billing_service.py:79: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    subscription_current_period_end=datetime.utcnow() - timedelta(days=1),
+
+tests/test_billing_service.py::test_handle_subscription_created_grants_premium
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_billing_service.py:151: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    period_end = int((datetime.utcnow() + timedelta(days=30)).timestamp())
+
+tests/test_billing_service.py::test_handle_subscription_created_grants_premium
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/billing_service.py:171: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    user.subscription_current_period_end = datetime.utcfromtimestamp(int(period_end))
+
+tests/test_billing_service.py::test_require_premium_allows_premium_user
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_billing_service.py:268: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    subscription_current_period_end=datetime.utcnow() + timedelta(days=5),
+
+tests/test_follow_committees.py::test_follow_and_list_committee
+tests/test_follow_committees.py::test_follow_is_idempotent
+tests/test_follow_committees.py::test_unfollow_committee
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/users.py:274: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    followed_at=datetime.utcnow(),
+
+tests/test_follow_legislators.py::test_follow_and_list_legislator
+tests/test_follow_legislators.py::test_follow_is_idempotent
+tests/test_follow_legislators.py::test_unfollow_legislator
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/users.py:214: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    followed_at=datetime.utcnow(),
+
+tests/test_sync_status.py::test_record_success_persists_and_is_fresh
+tests/test_sync_status.py::test_is_stale_old_success
+tests/test_sync_status.py::test_is_stale_recent_success
+tests/test_sync_status.py::test_endpoint_reports_fresh_after_success
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/sync_status_service.py:79: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return datetime.utcnow() - record.last_success_at > staleness_threshold()
+
+tests/test_sync_status.py::test_is_stale_old_success
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_sync_status.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    old.last_success_at = datetime.utcnow() - timedelta(days=30)
+
+tests/test_sync_status.py::test_is_stale_recent_success
+  /tmp/stage-billwatch.8S0M/billwatch-backend/tests/test_sync_status.py:67: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    fresh.last_success_at = datetime.utcnow()
+
+tests/test_sync_status.py::test_endpoint_reports_fresh_after_success
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/routers/sync_status.py:22: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    age_seconds = (datetime.utcnow() - record.last_success_at).total_seconds()
+
+tests/test_trending.py: 34 warnings
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/trending.py:113: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat()
+
+tests/test_trending.py: 10 warnings
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/trending.py:140: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    cutoff = datetime.utcnow() - timedelta(days=window_days)
+
+tests/test_trending.py::test_get_category_trends
+tests/test_trending.py::test_get_trend_report
+tests/test_trending.py::TestGetTrendReportEmptyList::test_empty_bills_list_returns_zero_stats
+tests/test_trending_pure.py::test_empty_list_fallback
+tests/test_trending_pure.py::test_non_empty_list_computes_scores
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/trending.py:235: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+tests/test_trending.py::test_generate_trending_recommendations
+tests/test_trending.py::test_generate_trending_recommendations
+tests/test_trending.py::test_generate_trending_recommendations
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/trending.py:334: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "added_at": datetime.utcnow().isoformat()
+
+tests/test_trending.py::test_track_trend_milestone
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/trending.py:356: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "reached_at": datetime.utcnow().isoformat()
+
+tests/test_trending.py::test_get_trend_report
+tests/test_trending.py::TestGetTrendReportEmptyList::test_empty_bills_list_returns_zero_stats
+tests/test_trending_pure.py::test_empty_list_fallback
+tests/test_trending_pure.py::test_non_empty_list_computes_scores
+  /tmp/stage-billwatch.8S0M/billwatch-backend/app/services/trending.py:386: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "generated_at": datetime.utcnow().isoformat()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1228 passed, 1079 warnings in 39.20s
+-- QUALITY FAIL: no changed test exercises the changed source (no new symbol, added route, NOR the changed module referenced) --

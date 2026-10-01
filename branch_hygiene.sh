@@ -507,6 +507,15 @@ for repo in "${REPOS[@]}"; do
       # CLOBBER commits the fleet pushed after our merge started. develop->feature is reconcile's job.
       rm -f "$flag"
       log "  MERGED $name $FEAT (+$ahead) -> $mt (reconcile will bring $mt back into $FEAT)"
+      # 2026-10-01 QA shadow gates (docs/QA_GATES_SPEC.md): run every installed gate over the merged range IN THE BACKGROUND (detached, niced, bounded,
+      # serialized, always exits 0 - results go to state/qa_shadow/*.jsonl, never to this script's verdict). Guarded: no qa/ dir (test sandboxes) or
+      # OVN_QA_SHADOW=off -> nothing happens. Cannot delay or fail a merge.
+      if [ "${OVN_QA_SHADOW:-on}" != "off" ] && [ -f "$SCRIPT_DIR/qa/qa_run_shadow.sh" ]; then
+        _qa_head="$(git -C "$tmp_main" rev-parse HEAD 2>/dev/null)"; _qa_base="$(git -C "$tmp_main" rev-parse 'HEAD^1' 2>/dev/null)"
+        if [ -n "$_qa_head" ] && [ -n "$_qa_base" ]; then
+          ( OVN_DIR="$SCRIPT_DIR" nohup bash "$SCRIPT_DIR/qa/qa_run_shadow.sh" "$name" "$_qa_base" "$_qa_head" >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1 || true
+        fi
+      fi
       report "| $name | ✅ merged +$ahead to $mt ($([ $g -eq 0 ] && echo gated || echo no-tests)) |"
     else
       log "  push to $mt failed (after rebase-retry) — flagging"; echo "push failed $(date)" > "$flag"

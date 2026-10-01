@@ -1,0 +1,212 @@
+2026-09-27 11:06:34 independent full-verify (combined result)
+-- gradlew test FULL in iptv-android --
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preFireTvDebugBuild UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateFireTvDebugBuildConfig UP-TO-DATE
+> Task :app:checkFireTvDebugAarMetadata UP-TO-DATE
+> Task :app:processFireTvDebugNavigationResources UP-TO-DATE
+> Task :app:compileFireTvDebugNavigationResources UP-TO-DATE
+> Task :app:generateFireTvDebugResValues UP-TO-DATE
+> Task :app:mapFireTvDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateFireTvDebugResources UP-TO-DATE
+> Task :app:mergeFireTvDebugResources UP-TO-DATE
+> Task :app:packageFireTvDebugResources UP-TO-DATE
+> Task :app:parseFireTvDebugLocalResources UP-TO-DATE
+> Task :app:createFireTvDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksFireTvDebug UP-TO-DATE
+> Task :app:processFireTvDebugMainManifest UP-TO-DATE
+> Task :app:processFireTvDebugManifest UP-TO-DATE
+> Task :app:processFireTvDebugManifestForPackage UP-TO-DATE
+> Task :app:processFireTvDebugResources UP-TO-DATE
+> Task :app:kspFireTvDebugKotlin UP-TO-DATE
+> Task :app:compileFireTvDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileFireTvDebug UP-TO-DATE
+> Task :app:compileFireTvDebugJavaWithJavac UP-TO-DATE
+> Task :app:hiltAggregateDepsFireTvDebug UP-TO-DATE
+> Task :app:hiltJavaCompileFireTvDebug UP-TO-DATE
+> Task :app:transformFireTvDebugClassesWithAsm UP-TO-DATE
+> Task :app:bundleFireTvDebugClassesToRuntimeJar UP-TO-DATE
+> Task :app:preFireTvDebugUnitTestBuild UP-TO-DATE
+> Task :app:processFireTvDebugJavaRes UP-TO-DATE
+> Task :app:bundleFireTvDebugClassesToCompileJar UP-TO-DATE
+> Task :app:kspFireTvDebugUnitTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileFireTvDebugUnitTest UP-TO-DATE
+> Task :app:preFireTvReleaseBuild UP-TO-DATE
+> Task :app:buildKotlinToolingMetadata UP-TO-DATE
+> Task :app:generateFireTvReleaseBuildConfig UP-TO-DATE
+> Task :app:checkFireTvReleaseAarMetadata UP-TO-DATE
+> Task :app:processFireTvReleaseNavigationResources UP-TO-DATE
+> Task :app:compileFireTvReleaseNavigationResources UP-TO-DATE
+> Task :app:generateFireTvReleaseResValues UP-TO-DATE
+> Task :app:mapFireTvReleaseSourceSetPaths UP-TO-DATE
+> Task :app:generateFireTvReleaseResources UP-TO-DATE
+> Task :app:mergeFireTvReleaseResources UP-TO-DATE
+> Task :app:packageFireTvReleaseResources UP-TO-DATE
+> Task :app:parseFireTvReleaseLocalResources UP-TO-DATE
+> Task :app:createFireTvReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksFireTvRelease UP-TO-DATE
+> Task :app:processFireTvReleaseMainManifest UP-TO-DATE
+> Task :app:processFireTvReleaseManifest UP-TO-DATE
+> Task :app:processFireTvReleaseManifestForPackage UP-TO-DATE
+> Task :app:processFireTvReleaseResources UP-TO-DATE
+> Task :app:kspFireTvReleaseKotlin UP-TO-DATE
+> Task :app:compileFireTvReleaseKotlin UP-TO-DATE
+> Task :app:javaPreCompileFireTvRelease UP-TO-DATE
+> Task :app:compileFireTvReleaseJavaWithJavac UP-TO-DATE
+> Task :app:hiltAggregateDepsFireTvRelease UP-TO-DATE
+> Task :app:hiltJavaCompileFireTvRelease UP-TO-DATE
+> Task :app:transformFireTvReleaseClassesWithAsm UP-TO-DATE
+> Task :app:bundleFireTvReleaseClassesToRuntimeJar UP-TO-DATE
+> Task :app:preFireTvReleaseUnitTestBuild UP-TO-DATE
+> Task :app:processFireTvReleaseJavaRes UP-TO-DATE
+> Task :app:bundleFireTvReleaseClassesToCompileJar UP-TO-DATE
+> Task :app:kspFireTvReleaseUnitTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileFireTvReleaseUnitTest UP-TO-DATE
+> Task :app:preGoogleTvDebugBuild UP-TO-DATE
+> Task :app:generateGoogleTvDebugBuildConfig UP-TO-DATE
+> Task :app:checkGoogleTvDebugAarMetadata UP-TO-DATE
+> Task :app:processGoogleTvDebugNavigationResources UP-TO-DATE
+> Task :app:compileGoogleTvDebugNavigationResources UP-TO-DATE
+> Task :app:generateGoogleTvDebugResValues UP-TO-DATE
+> Task :app:mapGoogleTvDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateGoogleTvDebugResources UP-TO-DATE
+> Task :app:mergeGoogleTvDebugResources UP-TO-DATE
+> Task :app:packageGoogleTvDebugResources UP-TO-DATE
+> Task :app:parseGoogleTvDebugLocalResources UP-TO-DATE
+> Task :app:createGoogleTvDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksGoogleTvDebug UP-TO-DATE
+> Task :app:processGoogleTvDebugMainManifest UP-TO-DATE
+> Task :app:processGoogleTvDebugManifest UP-TO-DATE
+> Task :app:processGoogleTvDebugManifestForPackage UP-TO-DATE
+> Task :app:processGoogleTvDebugResources UP-TO-DATE
+> Task :app:kspGoogleTvDebugKotlin UP-TO-DATE
+> Task :app:compileGoogleTvDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileGoogleTvDebug UP-TO-DATE
+> Task :app:compileGoogleTvDebugJavaWithJavac UP-TO-DATE
+> Task :app:hiltAggregateDepsGoogleTvDebug FROM-CACHE
+> Task :app:hiltJavaCompileGoogleTvDebug FROM-CACHE
+> Task :app:transformGoogleTvDebugClassesWithAsm FROM-CACHE
+> Task :app:preGoogleTvDebugUnitTestBuild UP-TO-DATE
+> Task :app:processGoogleTvDebugJavaRes
+> Task :app:javaPreCompileGoogleTvDebugUnitTest FROM-CACHE
+> Task :app:preGoogleTvReleaseBuild UP-TO-DATE
+> Task :app:generateGoogleTvReleaseBuildConfig FROM-CACHE
+> Task :app:bundleGoogleTvDebugClassesToRuntimeJar
+> Task :app:checkGoogleTvReleaseAarMetadata
+> Task :app:processGoogleTvReleaseNavigationResources FROM-CACHE
+> Task :app:compileGoogleTvReleaseNavigationResources FROM-CACHE
+> Task :app:generateGoogleTvReleaseResValues FROM-CACHE
+> Task :app:mapGoogleTvReleaseSourceSetPaths
+> Task :app:generateGoogleTvReleaseResources FROM-CACHE
+> Task :app:bundleGoogleTvDebugClassesToCompileJar
+> Task :app:mergeGoogleTvReleaseResources FROM-CACHE
+
+> Task :app:compileFireTvDebugUnitTestKotlin FAILED
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:22:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:22:54 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:22:54 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:23:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:24:21 Unresolved reference 'body'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:24:38 Not enough information to infer type argument for 'T'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:34:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:34:54 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:34:54 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:35:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:36:21 'operator' modifier is required on 'FirNamedFunctionSymbol io/mockk/MockKMatcherScope.invoke' in 'invoke'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:36:25 No value passed for parameter 'name'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:36:38 Argument type mismatch: actual type is 'kotlin.Int', but 'io.mockk.MockKMatcherScope.DynamicCallLong' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:47:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:47:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:47:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:48:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:58:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:58:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:58:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:59:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:60:21 'operator' modifier is required on 'FirNamedFunctionSymbol io/mockk/MockKMatcherScope.invoke' in 'invoke'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:60:25 No value passed for parameter 'name'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:60:38 Argument type mismatch: actual type is 'kotlin.Int', but 'io.mockk.MockKMatcherScope.DynamicCallLong' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:71:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:71:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:71:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:72:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:82:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:82:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:82:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:83:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:84:21 'operator' modifier is required on 'FirNamedFunctionSymbol io/mockk/MockKMatcherScope.invoke' in 'invoke'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:84:25 No value passed for parameter 'name'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:84:38 Argument type mismatch: actual type is 'kotlin.Int', but 'io.mockk.MockKMatcherScope.DynamicCallLong' was expected.
+
+> Task :app:kspGoogleTvDebugUnitTestKotlin FROM-CACHE
+
+> Task :app:compileFireTvReleaseUnitTestKotlin FAILED
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:22:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:22:54 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:22:54 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:23:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:24:21 Unresolved reference 'body'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:24:38 Not enough information to infer type argument for 'T'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:34:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:34:54 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:34:54 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:35:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:36:21 'operator' modifier is required on 'FirNamedFunctionSymbol io/mockk/MockKMatcherScope.invoke' in 'invoke'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:36:25 No value passed for parameter 'name'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:36:38 Argument type mismatch: actual type is 'kotlin.Int', but 'io.mockk.MockKMatcherScope.DynamicCallLong' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:47:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:47:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:47:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:48:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:58:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:58:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:58:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:59:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:60:21 'operator' modifier is required on 'FirNamedFunctionSymbol io/mockk/MockKMatcherScope.invoke' in 'invoke'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:60:25 No value passed for parameter 'name'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:60:38 Argument type mismatch: actual type is 'kotlin.Int', but 'io.mockk.MockKMatcherScope.DynamicCallLong' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:71:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:71:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:71:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:72:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:82:38 No type arguments expected for class 'Response'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:82:46 Argument type mismatch: actual type is 'kotlin.Function1<T, kotlin.Unit>', but 'kotlin.Function1<T, kotlin.Unit>' was expected.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:82:46 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:83:21 Unresolved reference 'isSuccessful'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:84:21 'operator' modifier is required on 'FirNamedFunctionSymbol io/mockk/MockKMatcherScope.invoke' in 'invoke'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:84:25 No value passed for parameter 'name'.
+e: file:///tmp/stage-iptv_apps.tiTO/iptv-android/app/src/test/java/com/chickadee/streams/data/repository/FavoritesRepositoryTest.kt:84:38 Argument type mismatch: actual type is 'kotlin.Int', but 'io.mockk.MockKMatcherScope.DynamicCallLong' was expected.
+
+FAILURE: Build completed with 2 failures.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':app:compileFireTvDebugUnitTestKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':app:compileFireTvReleaseUnitTestKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+BUILD FAILED in 2s
+95 actionable tasks: 7 executed, 11 from cache, 77 up-to-date

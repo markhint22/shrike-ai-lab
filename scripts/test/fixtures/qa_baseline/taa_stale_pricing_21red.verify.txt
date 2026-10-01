@@ -1,0 +1,1159 @@
+2026-09-30 21:15:29 independent full-verify (combined result)
+-- pytest FULL in backend  --
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 12%]
+..................................................................ss.... [ 15%]
+......ssssssssssssss.................................................... [ 18%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 28%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+.............................FFFFFFF....F..............................F [ 40%]
+FF..FFF.F..............FFF.FFF.......................................... [ 44%]
+........................................................................ [ 47%]
+........................................................................ [ 50%]
+........................................................................ [ 53%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 66%]
+........................................................................ [ 69%]
+........................................................................ [ 72%]
+........................................................................ [ 75%]
+........................................................................ [ 78%]
+.....................................s.................................. [ 81%]
+........................................................................ [ 85%]
+........................................................................ [ 88%]
+........................................................................ [ 91%]
+........................................................................ [ 94%]
+........................................................................ [ 97%]
+.......................................................                  [100%]
+=================================== FAILURES ===================================
+____________________ TestEstimateCost.test_haiku_input_only ____________________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142d5b0>
+
+    def test_haiku_input_only(self):
+        """Haiku input tokens should use haiku input rate."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", 1000, 0)
+>       assert cost == 0.0008
+E       assert 0.001 == 0.0008
+
+tests/test_llm_service.py:66: AssertionError
+___________________ TestEstimateCost.test_haiku_output_only ____________________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142ef60>
+
+    def test_haiku_output_only(self):
+        """Haiku output tokens should use haiku output rate."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", 0, 1000)
+>       assert cost == 0.004
+E       assert 0.005 == 0.004
+
+tests/test_llm_service.py:71: AssertionError
+_____________________ TestEstimateCost.test_haiku_combined _____________________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142f0b0>
+
+    def test_haiku_combined(self):
+        """Haiku combined input and output tokens."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", 1000, 1000)
+>       assert cost == 0.0048
+E       assert 0.006 == 0.0048
+
+tests/test_llm_service.py:76: AssertionError
+___________________ TestEstimateCost.test_sonnet_input_only ____________________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142f200>
+
+    def test_sonnet_input_only(self):
+        """Sonnet input tokens should use sonnet input rate."""
+        cost = LLMService.estimate_cost("claude-3-5-sonnet-20241022", 1000, 0)
+>       assert cost == 0.003
+E       assert 0.001 == 0.003
+
+tests/test_llm_service.py:81: AssertionError
+___________________ TestEstimateCost.test_sonnet_output_only ___________________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142f350>
+
+    def test_sonnet_output_only(self):
+        """Sonnet output tokens should use sonnet output rate."""
+        cost = LLMService.estimate_cost("claude-3-5-sonnet-20241022", 0, 1000)
+>       assert cost == 0.015
+E       assert 0.005 == 0.015
+
+tests/test_llm_service.py:86: AssertionError
+____________________ TestEstimateCost.test_sonnet_combined _____________________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142f4a0>
+
+    def test_sonnet_combined(self):
+        """Sonnet combined input and output tokens."""
+        cost = LLMService.estimate_cost("claude-3-5-sonnet-20241022", 1000, 1000)
+>       assert cost == 0.018
+E       assert 0.006 == 0.018
+
+tests/test_llm_service.py:91: AssertionError
+____________ TestEstimateCost.test_unknown_model_defaults_to_haiku _____________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142f5f0>
+
+    def test_unknown_model_defaults_to_haiku(self):
+        """Unknown model should default to haiku rates."""
+        cost = LLMService.estimate_cost("unknown-model", 1000, 0)
+>       assert cost == 0.0008
+E       assert 0.001 == 0.0008
+
+tests/test_llm_service.py:96: AssertionError
+_____________________ TestEstimateCost.test_partial_tokens _____________________
+
+self = <tests.test_llm_service.TestEstimateCost object at 0x76bc1142fc80>
+
+    def test_partial_tokens(self):
+        """Partial tokens (less than 1000) should calculate proportionally."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", 500, 0)
+>       assert cost == 0.0004
+E       assert 0.0005 == 0.0004
+
+tests/test_llm_service.py:121: AssertionError
+____________________ TestEstimateCost.test_haiku_known_cost ____________________
+
+self = <tests.test_llm_service_estimate_cost.TestEstimateCost object at 0x76bc114542f0>
+
+    def test_haiku_known_cost(self):
+        """Haiku: 1000 input + 500 output tokens."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", 1000, 500)
+        # 1000/1000 * 0.0008 + 500/1000 * 0.004 = 0.0008 + 0.002 = 0.0028
+>       assert cost == pytest.approx(0.0028)
+E       assert 0.0035 == 0.0028 ± 2.8e-09
+E         comparison failed
+E         Obtained: 0.0035
+E         Expected: 0.0028 ± 2.8e-09
+
+tests/test_llm_service_estimate_cost.py:14: AssertionError
+___________________ TestEstimateCost.test_sonnet_known_cost ____________________
+
+self = <tests.test_llm_service_estimate_cost.TestEstimateCost object at 0x76bc114235f0>
+
+    def test_sonnet_known_cost(self):
+        """Sonnet: 2000 input + 1000 output tokens."""
+        cost = LLMService.estimate_cost("claude-3-5-sonnet-20241022", 2000, 1000)
+        # 2000/1000 * 0.003 + 1000/1000 * 0.015 = 0.006 + 0.015 = 0.021
+>       assert cost == pytest.approx(0.021)
+E       assert 0.007 == 0.021 ± 2.1e-08
+E         comparison failed
+E         Obtained: 0.007
+E         Expected: 0.021 ± 2.1e-08
+
+tests/test_llm_service_estimate_cost.py:20: AssertionError
+____________ TestEstimateCost.test_unknown_model_defaults_to_haiku _____________
+
+self = <tests.test_llm_service_estimate_cost.TestEstimateCost object at 0x76bc11422ab0>
+
+    def test_unknown_model_defaults_to_haiku(self):
+        """Unknown model should default to Haiku rates."""
+        cost = LLMService.estimate_cost("claude-unknown-model", 1000, 0)
+        # 1000/1000 * 0.0008 = 0.0008
+>       assert cost == pytest.approx(0.0008)
+E       assert 0.001 == 0.0008 ± 8.0e-10
+E         comparison failed
+E         Obtained: 0.001
+E         Expected: 0.0008 ± 8.0e-10
+
+tests/test_llm_service_estimate_cost.py:26: AssertionError
+_________________ TestEstimateCost.test_mixed_negative_tokens __________________
+
+self = <tests.test_llm_service_estimate_cost.TestEstimateCost object at 0x76bc114227b0>
+
+    def test_mixed_negative_tokens(self):
+        """One negative, one positive: negative clamped to 0."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", -100, 1000)
+        # 0 + 1000/1000 * 0.004 = 0.004
+>       assert cost == pytest.approx(0.004)
+E       assert 0.005 == 0.004 ± 4.0e-09
+E         comparison failed
+E         Obtained: 0.005
+E         Expected: 0.004 ± 4.0e-09
+
+tests/test_llm_service_estimate_cost.py:42: AssertionError
+___________________ TestEstimateCost.test_small_token_counts ___________________
+
+self = <tests.test_llm_service_estimate_cost.TestEstimateCost object at 0x76bc11454230>
+
+    def test_small_token_counts(self):
+        """Small token counts produce small costs."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", 100, 50)
+        # 100/1000 * 0.0008 + 50/1000 * 0.004 = 0.00008 + 0.0002 = 0.00028
+>       assert cost == pytest.approx(0.00028)
+E       assert 0.00035 == 0.00028 ± 2.8e-10
+E         comparison failed
+E         Obtained: 0.00035
+E         Expected: 0.00028 ± 2.8e-10
+
+tests/test_llm_service_estimate_cost.py:48: AssertionError
+___________________ TestEstimateCost.test_large_token_counts ___________________
+
+self = <tests.test_llm_service_estimate_cost.TestEstimateCost object at 0x76bc114544a0>
+
+    def test_large_token_counts(self):
+        """Large token counts produce proportionally larger costs."""
+        cost = LLMService.estimate_cost("claude-3-5-sonnet-20241022", 100000, 50000)
+        # 100000/1000 * 0.003 + 50000/1000 * 0.015 = 0.3 + 0.75 = 1.05
+>       assert cost == pytest.approx(1.05)
+E       assert 0.35 == 1.05 ± 1.0e-06
+E         comparison failed
+E         Obtained: 0.35
+E         Expected: 1.05 ± 1.0e-06
+
+tests/test_llm_service_estimate_cost.py:54: AssertionError
+________________________ TestEstimateCost.test_rounding ________________________
+
+self = <tests.test_llm_service_estimate_cost.TestEstimateCost object at 0x76bc11454740>
+
+    def test_rounding(self):
+        """Result should be rounded to 6 decimal places."""
+        cost = LLMService.estimate_cost("claude-3-5-haiku-20241022", 1, 1)
+        # 1/1000 * 0.0008 + 1/1000 * 0.004 = 0.0000008 + 0.000004 = 0.0000048
+        # Rounded to 6 decimal places -> 0.000005
+>       assert cost == pytest.approx(0.000005)
+E       assert 6e-06 == 5e-06 ± 5.0e-12
+E         comparison failed
+E         Obtained: 6e-06
+E         Expected: 5e-06 ± 5.0e-12
+
+tests/test_llm_service_estimate_cost.py:66: AssertionError
+__________________ TestSelectModel.test_starter_maps_to_haiku __________________
+
+self = <tests.test_llm_service_select_model.TestSelectModel object at 0x76bc114573e0>
+
+    def test_starter_maps_to_haiku(self):
+        service = LLMService(tier="starter")
+>       assert service.model == "claude-3-5-haiku-20241022"
+E       AssertionError: assert 'claude-haiku-4-5-20251001' == 'claude-3-5-haiku-20241022'
+E         - claude-3-5-haiku-20241022
+E         + claude-haiku-4-5-20251001
+
+tests/test_llm_service_select_model.py:21: AssertionError
+____________________ TestSelectModel.test_pro_maps_to_haiku ____________________
+
+self = <tests.test_llm_service_select_model.TestSelectModel object at 0x76bc11457560>
+
+    def test_pro_maps_to_haiku(self):
+        service = LLMService(tier="pro")
+>       assert service.model == "claude-3-5-haiku-20241022"
+E       AssertionError: assert 'claude-haiku-4-5-20251001' == 'claude-3-5-haiku-20241022'
+E         - claude-3-5-haiku-20241022
+E         + claude-haiku-4-5-20251001
+
+tests/test_llm_service_select_model.py:25: AssertionError
+________________ TestSelectModel.test_enterprise_maps_to_sonnet ________________
+
+self = <tests.test_llm_service_select_model.TestSelectModel object at 0x76bc114576e0>
+
+    def test_enterprise_maps_to_sonnet(self):
+        service = LLMService(tier="enterprise")
+>       assert service.model == "claude-3-5-sonnet-20241022"
+E       AssertionError: assert 'claude-sonnet-4-6' == 'claude-3-5-sonnet-20241022'
+E         - claude-3-5-sonnet-20241022
+E         + claude-sonnet-4-6
+
+tests/test_llm_service_select_model.py:29: AssertionError
+____________ TestSelectModel.test_select_model_direct_call_starter _____________
+
+self = <tests.test_llm_service_select_model.TestSelectModel object at 0x76bc114579e0>
+
+    def test_select_model_direct_call_starter(self):
+        service = LLMService(tier="starter")
+>       assert service._select_model("starter") == "claude-3-5-haiku-20241022"
+E       AssertionError: assert 'claude-haiku-4-5-20251001' == 'claude-3-5-haiku-20241022'
+E         - claude-3-5-haiku-20241022
+E         + claude-haiku-4-5-20251001
+
+tests/test_llm_service_select_model.py:39: AssertionError
+______________ TestSelectModel.test_select_model_direct_call_pro _______________
+
+self = <tests.test_llm_service_select_model.TestSelectModel object at 0x76bc11457b60>
+
+    def test_select_model_direct_call_pro(self):
+        service = LLMService(tier="starter")
+>       assert service._select_model("pro") == "claude-3-5-haiku-20241022"
+E       AssertionError: assert 'claude-haiku-4-5-20251001' == 'claude-3-5-haiku-20241022'
+E         - claude-3-5-haiku-20241022
+E         + claude-haiku-4-5-20251001
+
+tests/test_llm_service_select_model.py:43: AssertionError
+___________ TestSelectModel.test_select_model_direct_call_enterprise ___________
+
+self = <tests.test_llm_service_select_model.TestSelectModel object at 0x76bc11457b00>
+
+    def test_select_model_direct_call_enterprise(self):
+        service = LLMService(tier="starter")
+>       assert service._select_model("enterprise") == "claude-3-5-sonnet-20241022"
+E       AssertionError: assert 'claude-sonnet-4-6' == 'claude-3-5-sonnet-20241022'
+E         - claude-3-5-sonnet-20241022
+E         + claude-sonnet-4-6
+
+tests/test_llm_service_select_model.py:47: AssertionError
+=============================== warnings summary ===============================
+../../../home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/starlette/testclient.py:40
+  /home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+../../../home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:291
+  /home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:291: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.8/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+../../../home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/passlib/utils/__init__.py:854
+  /home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_artifacts_endpoints.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_artifacts_endpoints.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_core.py)
+    class TestOrchestrator:
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_database_constraints.py)
+    class TestRun(Base):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_database_constraints.py)
+    class TestResult(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_database_constraints.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_database_operations.py)
+    class TestRun(Base):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_database_operations.py)
+    class TestResult(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_database_operations.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_duration_regression.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_duration_regression.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_duration_regression.py)
+    class TestResult(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_execution_engine.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_execution_engine.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_execution_engine.py)
+    class TestResult(Base):
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_execution_engine.py)
+    class TestOrchestrator:
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_execution_engine_artifacts.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_execution_engine_artifacts.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_execution_engine_artifacts.py)
+    class TestResult(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_execution_engine_browser_type.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_execution_engine_browser_type.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_execution_engine_quarantine_skip.py)
+    class TestOrchestrator:
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_execution_engine_quarantine_skip.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_agent.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_assert_element_attribute.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_assertions.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_attribute_contains_assertion.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_click_if_visible.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_count_between_assertion.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_double_click_action.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_element_contains_text_assertion.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_element_enabled_assertion.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_element_text_matches_assertion.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_fill_form_action.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_healing_no_retry_gives_up.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_hover_action.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_press_action.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_reload_action.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_run_step.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_run_test_artifacts_surfaced.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_select_option_action.py)
+    class TestExecutor:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_executor_type_hints.py)
+    class TestExecutor:
+
+app/models/test_run.py:152
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:152: PytestCollectionWarning: cannot collect test class 'TestFlakeStat' because it has a __init__ constructor (from: tests/test_flake_detection_record_result_no_commit.py)
+    class TestFlakeStat(Base):
+
+app/models/test_run.py:152
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:152: PytestCollectionWarning: cannot collect test class 'TestFlakeStat' because it has a __init__ constructor (from: tests/test_flakes_fix_first_integration.py)
+    class TestFlakeStat(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_integration.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_integration.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_integration.py)
+    class TestOrchestrator:
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_models.py)
+    class TestRun(Base):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_models.py)
+    class TestResult(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_models.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_models_timezone.py)
+    class TestRun(Base):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_models_timezone.py)
+    class TestResult(Base):
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestration_e2e.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_agent.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_classify_difficulty_llm_fallback.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_difficulty.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_execute_phase_result_keys.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_handle_user_response_branches.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_heuristic.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_next_phase_after.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_parse_plan_fill_form_fields.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_parsing.py)
+    class TestOrchestrator:
+
+app/agents/orchestrator.py:16
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/orchestrator.py:16: PytestCollectionWarning: cannot collect test class 'TestOrchestrator' because it has a __init__ constructor (from: tests/test_orchestrator_plan_phase_none.py)
+    class TestOrchestrator:
+
+app/agents/executor.py:15
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/executor.py:15: PytestCollectionWarning: cannot collect test class 'TestExecutor' because it has a __init__ constructor (from: tests/test_self_healing.py)
+    class TestExecutor:
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_self_healing_endpoints.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_self_healing_endpoints.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_self_healing_endpoints.py)
+    class TestResult(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_self_healing_router.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_self_healing_router.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_self_healing_router.py)
+    class TestResult(Base):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_test_result_artifact_columns.py)
+    class TestResult(Base):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_test_result_healing_events.py)
+    class TestResult(Base):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_test_run_model.py)
+    class TestResult(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_test_run_model.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_test_run_models.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_test_run_models.py)
+    class TestResult(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_test_run_models.py)
+    class TestRun(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_test_run_report.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_test_run_report.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_test_run_report.py)
+    class TestResult(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_test_runs_router.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_test_runs_router.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_test_runs_start_endpoint.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_test_runs_start_endpoint.py)
+    class TestRunStatus(str, enum.Enum):
+
+app/models/test_run.py:61
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:61: PytestCollectionWarning: cannot collect test class 'TestResult' because it has a __init__ constructor (from: tests/test_visual_diffs_router.py)
+    class TestResult(Base):
+
+app/models/test_run.py:20
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:20: PytestCollectionWarning: cannot collect test class 'TestRun' because it has a __init__ constructor (from: tests/test_visual_diffs_router.py)
+    class TestRun(Base):
+
+app/models/test_run.py:9
+  /tmp/stage-test-automation-agent.7vwy/backend/app/models/test_run.py:9: PytestCollectionWarning: cannot collect test class 'TestRunStatus' because it has a __init__ constructor (from: tests/test_visual_diffs_router.py)
+    class TestRunStatus(str, enum.Enum):
+
+tests/test_analyzer_agent.py: 10 warnings
+tests/test_analyzer_categorize.py: 5 warnings
+tests/test_analyzer_categorize_auth.py: 8 warnings
+tests/test_analyzer_categorize_error.py: 4 warnings
+tests/test_analyzer_retry_strategy.py: 5 warnings
+tests/test_api_flakes.py: 2 warnings
+tests/test_api_keys_authenticate_key_branches.py: 5 warnings
+tests/test_api_keys_authenticate_key_success.py: 1 warning
+tests/test_api_keys_plaintext_once_integration.py: 1 warning
+tests/test_api_test_runs.py: 2 warnings
+tests/test_artifacts_endpoints.py: 7 warnings
+tests/test_artifacts_size_human.py: 1 warning
+tests/test_auth_endpoints.py: 28 warnings
+tests/test_auth_get_current_user_optional.py: 4 warnings
+tests/test_billing.py: 24 warnings
+tests/test_billing_webhook_subscription_updated.py: 1 warning
+tests/test_check_tier.py: 6 warnings
+tests/test_ci_schedules_endpoint.py: 4 warnings
+tests/test_ci_schedules_next_run_integration.py: 1 warning
+tests/test_ci_scheduling.py: 11 warnings
+tests/test_core.py: 2 warnings
+tests/test_database_constraints.py: 15 warnings
+tests/test_database_operations.py: 20 warnings
+tests/test_duration_regression.py: 4 warnings
+tests/test_email_channel.py: 8 warnings
+tests/test_email_service.py: 3 warnings
+tests/test_execution_engine.py: 13 warnings
+tests/test_execution_engine_artifacts.py: 3 warnings
+tests/test_execution_engine_browser_type.py: 3 warnings
+tests/test_execution_engine_quarantine_skip.py: 1 warning
+tests/test_execution_engine_scoped.py: 2 warnings
+tests/test_execution_engine_time_budget.py: 1 warning
+tests/test_executor.py: 5 warnings
+tests/test_executor_agent.py: 62 warnings
+tests/test_executor_assert_element_attribute.py: 5 warnings
+tests/test_executor_assertions.py: 9 warnings
+tests/test_executor_attribute_contains_assertion.py: 12 warnings
+tests/test_executor_click_if_visible.py: 5 warnings
+tests/test_executor_count_between_assertion.py: 8 warnings
+tests/test_executor_double_click_action.py: 2 warnings
+tests/test_executor_element_contains_text_assertion.py: 7 warnings
+tests/test_executor_element_enabled_assertion.py: 5 warnings
+tests/test_executor_element_text_matches_assertion.py: 8 warnings
+tests/test_executor_fill_form_action.py: 5 warnings
+tests/test_executor_healing_no_retry_gives_up.py: 2 warnings
+tests/test_executor_hover_action.py: 2 warnings
+tests/test_executor_press_action.py: 3 warnings
+tests/test_executor_reload_action.py: 2 warnings
+tests/test_executor_run_step.py: 2 warnings
+tests/test_executor_run_test_artifacts_surfaced.py: 2 warnings
+tests/test_executor_select_option_action.py: 2 warnings
+tests/test_executor_type_hints.py: 3 warnings
+tests/test_flake_detection.py: 16 warnings
+tests/test_flake_detection_imports.py: 2 warnings
+tests/test_flake_detection_record_result_no_commit.py: 1 warning
+tests/test_flake_priority.py: 3 warnings
+tests/test_flakes_fix_first_integration.py: 1 warning
+tests/test_flakes_router.py: 7 warnings
+tests/test_flakes_trend_endpoint.py: 5 warnings
+tests/test_github_ci_pr_comment_injection.py: 4 warnings
+tests/test_github_ci_state_map.py: 4 warnings
+tests/test_github_ci_update_check_run.py: 4 warnings
+tests/test_health_endpoint.py: 2 warnings
+tests/test_integration.py: 5 warnings
+tests/test_knowledge_base.py: 16 warnings
+tests/test_knowledge_base_get_selector_patterns.py: 4 warnings
+tests/test_knowledge_base_success_rate.py: 3 warnings
+tests/test_llm_service.py: 2 warnings
+tests/test_llm_service_analyze_error_validation.py: 5 warnings
+tests/test_llm_service_classify_difficulty_hint.py: 6 warnings
+tests/test_llm_service_classify_difficulty_logging.py: 9 warnings
+tests/test_llm_service_generate_strategies_non_list.py: 2 warnings
+tests/test_llm_service_json_extract.py: 3 warnings
+tests/test_llm_service_validate_assertion.py: 3 warnings
+tests/test_models.py: 27 warnings
+tests/test_notification_dispatcher.py: 11 warnings
+tests/test_notification_dispatcher_email_channel.py: 3 warnings
+tests/test_optimizer_agent.py: 11 warnings
+tests/test_optimizer_confidence.py: 1 warning
+tests/test_optimizer_dedup.py: 6 warnings
+tests/test_optimizer_find_best_selector.py: 2 warnings
+tests/test_optimizer_find_element.py: 1 warning
+tests/test_optimizer_validate_selector_exception.py: 4 warnings
+tests/test_orchestration_e2e.py: 18 warnings
+tests/test_orchestrator_agent.py: 28 warnings
+tests/test_orchestrator_classify_difficulty_llm_fallback.py: 4 warnings
+tests/test_orchestrator_difficulty.py: 16 warnings
+tests/test_orchestrator_execute_phase_result_keys.py: 3 warnings
+tests/test_orchestrator_handle_user_response_branches.py: 7 warnings
+tests/test_orchestrator_parse_plan_fill_form_fields.py: 4 warnings
+tests/test_orchestrator_parsing.py: 18 warnings
+tests/test_orchestrator_plan_phase_none.py: 3 warnings
+tests/test_orgs_lifecycle_endpoint.py: 4 warnings
+tests/test_orgs_switch_endpoint.py: 3 warnings
+tests/test_orgs_webhook_endpoint.py: 4 warnings
+tests/test_performance_load.py: 27 warnings
+tests/test_phase_10_integration.py: 21 warnings
+tests/test_plan_source.py: 7 warnings
+tests/test_playwright_browser_type.py: 4 warnings
+tests/test_playwright_get_browser_semaphore_release.py: 1 warning
+tests/test_playwright_release_and_cleanup.py: 3 warnings
+tests/test_playwright_viewport.py: 4 warnings
+tests/test_public_api.py: 10 warnings
+tests/test_routers_test_runs.py: 5 warnings
+tests/test_schedule_dispatcher.py: 5 warnings
+tests/test_scheduling_find_due_invalid_cron.py: 1 warning
+tests/test_scheduling_find_due_same_minute_dedupe.py: 1 warning
+tests/test_self_healing.py: 7 warnings
+tests/test_self_healing_endpoints.py: 9 warnings
+tests/test_self_healing_network_category_retries.py: 1 warning
+tests/test_self_healing_router.py: 7 warnings
+tests/test_self_healing_selector_category_no_selector.py: 1 warning
+tests/test_services_integration.py: 17 warnings
+tests/test_services_uploads.py: 7 warnings
+tests/test_ssrf_guard.py: 1 warning
+tests/test_tenancy.py: 14 warnings
+tests/test_tenancy_authenticate_user_inactive.py: 2 warnings
+tests/test_tenancy_get_invitation_by_token_unknown.py: 2 warnings
+tests/test_test_plan_selection.py: 3 warnings
+tests/test_test_plans.py: 7 warnings
+tests/test_test_plans_select.py: 2 warnings
+tests/test_test_run_report.py: 5 warnings
+tests/test_test_runs_cancel_status.py: 5 warnings
+tests/test_test_runs_endpoints.py: 27 warnings
+tests/test_test_runs_router.py: 2 warnings
+tests/test_test_runs_start_endpoint.py: 5 warnings
+tests/test_test_runs_validation.py: 8 warnings
+tests/test_upload_confirm.py: 5 warnings
+tests/test_upload_delete.py: 5 warnings
+tests/test_upload_list.py: 7 warnings
+tests/test_upload_model.py: 3 warnings
+tests/test_upload_persistence.py: 4 warnings
+tests/test_upload_service.py: 1 warning
+tests/test_upload_status.py: 6 warnings
+tests/test_uploads_endpoints.py: 29 warnings
+tests/test_uploads_file_size.py: 2 warnings
+tests/test_uploads_router.py: 1 warning
+tests/test_uploads_test_item_validation.py: 2 warnings
+tests/test_uploads_timezone.py: 4 warnings
+tests/test_usage_timezone.py: 2 warnings
+tests/test_visual_diffs_router.py: 6 warnings
+tests/test_webhook_delivery_flow.py: 3 warnings
+tests/test_webhooks.py: 2 warnings
+tests/test_webhooks_cross_customer_403.py: 6 warnings
+tests/test_webhooks_email_and_invalid_channel.py: 3 warnings
+tests/test_webhooks_endpoints.py: 33 warnings
+tests/test_webhooks_retry_unknown_delivery_404.py: 1 warning
+tests/test_webhooks_timezone.py: 3 warnings
+tests/test_websocket_broadcast_endpoint.py: 4 warnings
+tests/test_websocket_realtime.py: 18 warnings
+tests/test_websocket_service.py: 11 warnings
+tests/test_websocket_service_broadcast.py: 5 warnings
+tests/routers/test_flakes_analysis_health.py: 6 warnings
+  /home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:742: DeprecationWarning: The event_loop fixture provided by pytest-asyncio has been redefined in
+  /tmp/stage-test-automation-agent.7vwy/backend/tests/conftest.py:83
+  Replacing the event_loop fixture with a custom implementation is deprecated
+  and will lead to errors in the future.
+  If you want to request an asyncio event loop with a scope other than function
+  scope, use the "scope" argument to the asyncio mark when marking the tests.
+  If you want to return different types of event loops, use the event_loop_policy
+  fixture.
+  
+    warnings.warn(
+
+tests/test_api_flakes.py: 1 warning
+tests/test_api_keys_plaintext_once_integration.py: 1 warning
+tests/test_api_test_runs.py: 2 warnings
+tests/test_artifacts_endpoints.py: 6 warnings
+tests/test_artifacts_size_human.py: 1 warning
+tests/test_auth.py: 5 warnings
+tests/test_auth_endpoints.py: 19 warnings
+tests/test_auth_get_current_user_optional.py: 2 warnings
+tests/test_billing.py: 9 warnings
+tests/test_ci_schedules_endpoint.py: 4 warnings
+tests/test_ci_schedules_next_run_integration.py: 1 warning
+tests/test_ci_scheduling.py: 7 warnings
+tests/test_duration_regression.py: 1 warning
+tests/test_email_channel.py: 3 warnings
+tests/test_flake_detection.py: 3 warnings
+tests/test_flakes_fix_first_integration.py: 1 warning
+tests/test_flakes_router.py: 6 warnings
+tests/test_flakes_trend_endpoint.py: 4 warnings
+tests/test_orgs_lifecycle_endpoint.py: 10 warnings
+tests/test_orgs_switch_endpoint.py: 7 warnings
+tests/test_orgs_webhook_endpoint.py: 8 warnings
+tests/test_phase_10_integration.py: 20 warnings
+tests/test_plan_source.py: 4 warnings
+tests/test_public_api.py: 7 warnings
+tests/test_self_healing_endpoints.py: 7 warnings
+tests/test_self_healing_router.py: 6 warnings
+tests/test_tenancy.py: 28 warnings
+tests/test_test_plans.py: 6 warnings
+tests/test_test_plans_select.py: 2 warnings
+tests/test_test_run_report.py: 4 warnings
+tests/test_test_runs_cancel_status.py: 6 warnings
+tests/test_test_runs_endpoints.py: 19 warnings
+tests/test_test_runs_validation.py: 8 warnings
+tests/test_upload_confirm.py: 4 warnings
+tests/test_upload_delete.py: 4 warnings
+tests/test_upload_list.py: 6 warnings
+tests/test_upload_model.py: 3 warnings
+tests/test_upload_persistence.py: 4 warnings
+tests/test_upload_status.py: 5 warnings
+tests/test_uploads_endpoints.py: 24 warnings
+tests/test_uploads_file_size.py: 2 warnings
+tests/test_uploads_router.py: 1 warning
+tests/test_uploads_test_item_validation.py: 2 warnings
+tests/test_uploads_timezone.py: 4 warnings
+tests/test_usage_timezone.py: 2 warnings
+tests/test_visual_diffs_router.py: 5 warnings
+tests/test_webhook_delivery_flow.py: 3 warnings
+tests/test_webhooks.py: 2 warnings
+tests/test_webhooks_cross_customer_403.py: 6 warnings
+tests/test_webhooks_email_and_invalid_channel.py: 3 warnings
+tests/test_webhooks_endpoints.py: 25 warnings
+tests/test_webhooks_retry_unknown_delivery_404.py: 1 warning
+tests/test_webhooks_timezone.py: 3 warnings
+tests/test_websocket_broadcast_endpoint.py: 3 warnings
+  /tmp/stage-test-automation-agent.7vwy/backend/app/core/auth.py:79: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expire = datetime.utcnow() + expires_delta
+
+tests/test_api_flakes.py: 1 warning
+tests/test_api_keys_plaintext_once_integration.py: 2 warnings
+tests/test_api_test_runs.py: 3 warnings
+tests/test_artifacts_endpoints.py: 6 warnings
+tests/test_auth.py: 3 warnings
+tests/test_auth_endpoints.py: 7 warnings
+tests/test_auth_get_current_user_optional.py: 2 warnings
+tests/test_billing.py: 9 warnings
+tests/test_ci_schedules_endpoint.py: 8 warnings
+tests/test_ci_schedules_next_run_integration.py: 3 warnings
+tests/test_ci_scheduling.py: 17 warnings
+tests/test_duration_regression.py: 1 warning
+tests/test_email_channel.py: 3 warnings
+tests/test_flake_detection.py: 6 warnings
+tests/test_flakes_fix_first_integration.py: 1 warning
+tests/test_flakes_router.py: 7 warnings
+tests/test_flakes_trend_endpoint.py: 4 warnings
+tests/test_orgs_lifecycle_endpoint.py: 16 warnings
+tests/test_orgs_switch_endpoint.py: 7 warnings
+tests/test_orgs_webhook_endpoint.py: 4 warnings
+tests/test_phase_10_integration.py: 41 warnings
+tests/test_plan_source.py: 12 warnings
+tests/test_public_api.py: 10 warnings
+tests/test_self_healing_endpoints.py: 7 warnings
+tests/test_self_healing_router.py: 6 warnings
+tests/test_tenancy.py: 27 warnings
+tests/test_test_plans.py: 6 warnings
+tests/test_test_plans_select.py: 2 warnings
+tests/test_test_run_report.py: 4 warnings
+tests/test_test_runs_cancel_status.py: 15 warnings
+tests/test_test_runs_endpoints.py: 19 warnings
+tests/test_test_runs_validation.py: 8 warnings
+tests/test_upload_confirm.py: 5 warnings
+tests/test_upload_delete.py: 5 warnings
+tests/test_upload_list.py: 6 warnings
+tests/test_upload_model.py: 3 warnings
+tests/test_upload_persistence.py: 4 warnings
+tests/test_upload_status.py: 7 warnings
+tests/test_uploads_endpoints.py: 24 warnings
+tests/test_uploads_file_size.py: 2 warnings
+tests/test_uploads_router.py: 1 warning
+tests/test_uploads_test_item_validation.py: 2 warnings
+tests/test_uploads_timezone.py: 4 warnings
+tests/test_usage_timezone.py: 2 warnings
+tests/test_visual_diffs_router.py: 5 warnings
+tests/test_webhook_delivery_flow.py: 8 warnings
+tests/test_webhooks.py: 2 warnings
+tests/test_webhooks_cross_customer_403.py: 6 warnings
+tests/test_webhooks_email_and_invalid_channel.py: 3 warnings
+tests/test_webhooks_endpoints.py: 25 warnings
+tests/test_webhooks_retry_unknown_delivery_404.py: 2 warnings
+tests/test_webhooks_timezone.py: 5 warnings
+tests/test_websocket_broadcast_endpoint.py: 3 warnings
+  /home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/jose/jwt.py:311: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = timegm(datetime.utcnow().utctimetuple())
+
+tests/test_api_flakes.py: 1 warning
+tests/test_api_keys_plaintext_once_integration.py: 2 warnings
+tests/test_api_test_runs.py: 3 warnings
+tests/test_artifacts_endpoints.py: 6 warnings
+tests/test_auth.py: 1 warning
+tests/test_auth_endpoints.py: 6 warnings
+tests/test_auth_get_current_user_optional.py: 1 warning
+tests/test_billing.py: 9 warnings
+tests/test_ci_schedules_endpoint.py: 8 warnings
+tests/test_ci_schedules_next_run_integration.py: 3 warnings
+tests/test_ci_scheduling.py: 17 warnings
+tests/test_duration_regression.py: 1 warning
+tests/test_email_channel.py: 3 warnings
+tests/test_flake_detection.py: 6 warnings
+tests/test_flakes_fix_first_integration.py: 1 warning
+tests/test_flakes_router.py: 7 warnings
+tests/test_flakes_trend_endpoint.py: 4 warnings
+tests/test_orgs_lifecycle_endpoint.py: 16 warnings
+tests/test_orgs_switch_endpoint.py: 7 warnings
+tests/test_orgs_webhook_endpoint.py: 4 warnings
+tests/test_phase_10_integration.py: 41 warnings
+tests/test_plan_source.py: 12 warnings
+tests/test_public_api.py: 10 warnings
+tests/test_self_healing_endpoints.py: 7 warnings
+tests/test_self_healing_router.py: 6 warnings
+tests/test_tenancy.py: 27 warnings
+tests/test_test_plans.py: 6 warnings
+tests/test_test_plans_select.py: 2 warnings
+tests/test_test_run_report.py: 4 warnings
+tests/test_test_runs_cancel_status.py: 15 warnings
+tests/test_test_runs_endpoints.py: 19 warnings
+tests/test_test_runs_validation.py: 8 warnings
+tests/test_upload_confirm.py: 5 warnings
+tests/test_upload_delete.py: 5 warnings
+tests/test_upload_list.py: 6 warnings
+tests/test_upload_model.py: 3 warnings
+tests/test_upload_persistence.py: 4 warnings
+tests/test_upload_status.py: 7 warnings
+tests/test_uploads_endpoints.py: 24 warnings
+tests/test_uploads_file_size.py: 2 warnings
+tests/test_uploads_router.py: 1 warning
+tests/test_uploads_test_item_validation.py: 2 warnings
+tests/test_uploads_timezone.py: 4 warnings
+tests/test_usage_timezone.py: 2 warnings
+tests/test_visual_diffs_router.py: 5 warnings
+tests/test_webhook_delivery_flow.py: 8 warnings
+tests/test_webhooks.py: 2 warnings
+tests/test_webhooks_cross_customer_403.py: 6 warnings
+tests/test_webhooks_email_and_invalid_channel.py: 3 warnings
+tests/test_webhooks_endpoints.py: 25 warnings
+tests/test_webhooks_retry_unknown_delivery_404.py: 2 warnings
+tests/test_webhooks_timezone.py: 5 warnings
+tests/test_websocket_broadcast_endpoint.py: 3 warnings
+  /tmp/stage-test-automation-agent.7vwy/backend/app/core/auth.py:124: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    exp=datetime.utcfromtimestamp(exp_value),
+
+tests/test_api_flakes.py: 1 warning
+tests/test_api_keys_plaintext_once_integration.py: 2 warnings
+tests/test_api_test_runs.py: 3 warnings
+tests/test_artifacts_endpoints.py: 6 warnings
+tests/test_auth_endpoints.py: 5 warnings
+tests/test_billing.py: 9 warnings
+tests/test_ci_schedules_endpoint.py: 8 warnings
+tests/test_ci_schedules_next_run_integration.py: 3 warnings
+tests/test_ci_scheduling.py: 17 warnings
+tests/test_duration_regression.py: 1 warning
+tests/test_email_channel.py: 3 warnings
+tests/test_flake_detection.py: 6 warnings
+tests/test_flakes_fix_first_integration.py: 1 warning
+tests/test_flakes_router.py: 7 warnings
+tests/test_flakes_trend_endpoint.py: 4 warnings
+tests/test_orgs_lifecycle_endpoint.py: 16 warnings
+tests/test_orgs_switch_endpoint.py: 7 warnings
+tests/test_orgs_webhook_endpoint.py: 4 warnings
+tests/test_phase_10_integration.py: 41 warnings
+tests/test_plan_source.py: 12 warnings
+tests/test_public_api.py: 10 warnings
+tests/test_self_healing_endpoints.py: 7 warnings
+tests/test_self_healing_router.py: 6 warnings
+tests/test_tenancy.py: 27 warnings
+tests/test_test_plans.py: 6 warnings
+tests/test_test_plans_select.py: 2 warnings
+tests/test_test_run_report.py: 4 warnings
+tests/test_test_runs_cancel_status.py: 15 warnings
+tests/test_test_runs_endpoints.py: 19 warnings
+tests/test_test_runs_validation.py: 8 warnings
+tests/test_upload_confirm.py: 5 warnings
+tests/test_upload_delete.py: 5 warnings
+tests/test_upload_list.py: 6 warnings
+tests/test_upload_model.py: 3 warnings
+tests/test_upload_persistence.py: 4 warnings
+tests/test_upload_status.py: 7 warnings
+tests/test_uploads_endpoints.py: 24 warnings
+tests/test_uploads_file_size.py: 2 warnings
+tests/test_uploads_router.py: 1 warning
+tests/test_uploads_test_item_validation.py: 2 warnings
+tests/test_uploads_timezone.py: 4 warnings
+tests/test_usage_timezone.py: 2 warnings
+tests/test_visual_diffs_router.py: 5 warnings
+tests/test_webhook_delivery_flow.py: 8 warnings
+tests/test_webhooks.py: 2 warnings
+tests/test_webhooks_cross_customer_403.py: 6 warnings
+tests/test_webhooks_email_and_invalid_channel.py: 3 warnings
+tests/test_webhooks_endpoints.py: 25 warnings
+tests/test_webhooks_retry_unknown_delivery_404.py: 2 warnings
+tests/test_webhooks_timezone.py: 5 warnings
+tests/test_websocket_broadcast_endpoint.py: 3 warnings
+  /tmp/stage-test-automation-agent.7vwy/backend/app/core/auth.py:147: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if datetime.utcnow() > token_data.exp:
+
+tests/test_auth.py::TestTokenData::test_token_data_creation
+  /tmp/stage-test-automation-agent.7vwy/backend/tests/test_auth.py:146: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    exp = datetime.utcnow() + timedelta(hours=24)
+
+tests/test_auth.py::TestTokenData::test_token_data_validation
+  /tmp/stage-test-automation-agent.7vwy/backend/tests/test_auth.py:163: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    exp=datetime.utcnow(),
+
+tests/test_auth_endpoints.py::TestAuthTokenTimezone::test_decode_token_uses_utc
+  /tmp/stage-test-automation-agent.7vwy/backend/tests/test_auth_endpoints.py:378: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now_utc = datetime.utcnow()
+
+tests/test_auth_get_current_user_optional.py::TestGetCurrentUserOptional::test_populated_user_for_valid_token
+  /tmp/stage-test-automation-agent.7vwy/backend/app/core/auth.py:174: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if datetime.utcnow() > token_data.exp:
+
+tests/test_duration_regression.py::test_finalize_flags_regression_and_records_tokens
+tests/test_duration_regression.py::test_finalize_no_history_leaves_null
+tests/test_duration_regression.py::test_failed_run_not_evaluated
+tests/test_execution_engine.py::test_run_execution_finalizes_completed
+tests/test_execution_engine.py::test_drive_generic_exception_updates_github_ci_failed
+tests/test_execution_engine.py::test_drive_generic_exception_github_ci_failed_status
+tests/test_execution_engine_browser_type.py::test_browser_type_from_plan_is_passed_to_playwright_service
+tests/test_execution_engine_browser_type.py::test_missing_browser_type_defaults_to_chromium
+tests/test_execution_engine_browser_type.py::test_invalid_browser_type_falls_back_to_chromium_without_crashing
+  /tmp/stage-test-automation-agent.7vwy/backend/app/services/execution_engine.py:515: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    run.completed_at = datetime.utcnow()
+
+tests/test_execution_engine_scoped.py::test_create_run_accepts_test_names
+tests/test_execution_engine_scoped.py::test_full_execution_without_test_names
+  /tmp/stage-test-automation-agent.7vwy/backend/app/services/scheduling.py:54: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    db.add(run)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_execution_engine_time_budget.py::test_time_budget_reached_before_execution
+  /tmp/stage-test-automation-agent.7vwy/backend/tests/test_execution_engine_time_budget.py:50: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deadline = datetime.utcnow().timestamp() - 1
+
+tests/test_execution_engine_time_budget.py::test_time_budget_reached_before_execution
+  /tmp/stage-test-automation-agent.7vwy/backend/app/services/execution_engine.py:566: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if deadline is not None and datetime.utcnow().timestamp() > deadline:
+
+tests/test_knowledge_base.py::TestStoreSuccess::test_store_success_returns_none
+  /tmp/stage-test-automation-agent.7vwy/backend/app/services/knowledge_base.py:172: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    self.db.add(entry)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_knowledge_base.py::TestRecordFailure::test_record_failure_new_entry_creates_with_zero_successes
+tests/test_knowledge_base.py::TestRecordFailure::test_record_failure_returns_none
+  /tmp/stage-test-automation-agent.7vwy/backend/app/services/knowledge_base.py:210: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    self.db.add(entry)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_models.py::TestTestRunModel::test_test_run_with_all_fields
+  /tmp/stage-test-automation-agent.7vwy/backend/tests/test_models.py:103: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    completed_at=datetime.utcnow(),
+
+tests/test_optimizer_agent.py::TestSelectorOptimizerValidation::test_validate_css_selector
+tests/test_optimizer_agent.py::TestSelectorOptimizerValidation::test_validate_xpath_selector
+  /tmp/stage-test-automation-agent.7vwy/backend/app/agents/optimizer.py:145: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    return False
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_phase_10_integration.py::TestEdgeCases::test_special_characters_in_data
+  /home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/result.py:1162: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    def _getter(
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/routers/test_flakes_analysis_health.py::TestFlakeAnalysisEndpoint::test_analysis_returns_suite_health_healthy
+tests/routers/test_flakes_analysis_health.py::TestFlakeAnalysisEndpoint::test_analysis_normalizes_flake_score_above_one
+tests/routers/test_flakes_analysis_health.py::TestFlakeAnalysisEndpoint::test_analysis_returns_suite_health_flaky
+tests/routers/test_flakes_analysis_health.py::TestFlakeAnalysisEndpoint::test_analysis_returns_suite_health_degraded
+tests/routers/test_flakes_analysis_health.py::TestFlakeAnalysisEndpoint::test_analysis_empty_stats
+tests/routers/test_flakes_analysis_health.py::TestFlakeAnalysisEndpoint::test_analysis_multiple_tests_healthy
+  /home/mhintermeister/overnight-queue/repos/test-automation-agent/backend/.venv/lib/python3.12/site-packages/httpx/_client.py:1426: DeprecationWarning: The 'app' shortcut is now deprecated. Use the explicit style 'transport=ASGITransport(app=...)' instead.
+    warnings.warn(message, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_llm_service.py::TestEstimateCost::test_haiku_input_only - a...
+FAILED tests/test_llm_service.py::TestEstimateCost::test_haiku_output_only - ...
+FAILED tests/test_llm_service.py::TestEstimateCost::test_haiku_combined - ass...
+FAILED tests/test_llm_service.py::TestEstimateCost::test_sonnet_input_only - ...
+FAILED tests/test_llm_service.py::TestEstimateCost::test_sonnet_output_only
+FAILED tests/test_llm_service.py::TestEstimateCost::test_sonnet_combined - as...
+FAILED tests/test_llm_service.py::TestEstimateCost::test_unknown_model_defaults_to_haiku
+FAILED tests/test_llm_service.py::TestEstimateCost::test_partial_tokens - ass...
+FAILED tests/test_llm_service_estimate_cost.py::TestEstimateCost::test_haiku_known_cost
+FAILED tests/test_llm_service_estimate_cost.py::TestEstimateCost::test_sonnet_known_cost
+FAILED tests/test_llm_service_estimate_cost.py::TestEstimateCost::test_unknown_model_defaults_to_haiku
+FAILED tests/test_llm_service_estimate_cost.py::TestEstimateCost::test_mixed_negative_tokens
+FAILED tests/test_llm_service_estimate_cost.py::TestEstimateCost::test_small_token_counts
+FAILED tests/test_llm_service_estimate_cost.py::TestEstimateCost::test_large_token_counts
+FAILED tests/test_llm_service_estimate_cost.py::TestEstimateCost::test_rounding
+FAILED tests/test_llm_service_select_model.py::TestSelectModel::test_starter_maps_to_haiku
+FAILED tests/test_llm_service_select_model.py::TestSelectModel::test_pro_maps_to_haiku
+FAILED tests/test_llm_service_select_model.py::TestSelectModel::test_enterprise_maps_to_sonnet
+FAILED tests/test_llm_service_select_model.py::TestSelectModel::test_select_model_direct_call_starter
+FAILED tests/test_llm_service_select_model.py::TestSelectModel::test_select_model_direct_call_pro
+FAILED tests/test_llm_service_select_model.py::TestSelectModel::test_select_model_direct_call_enterprise
+21 failed, 2249 passed, 17 skipped, 2647 warnings in 30.15s

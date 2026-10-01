@@ -1,0 +1,1342 @@
+[
+ {
+  "repo": "billwatch",
+  "sha": "b0664dd0eca11c19f7973e384c569934ce5186ba",
+  "parent": "2f8447061e34a4f1478124d66f0a66fa1a92958d",
+  "subject": "fix(votes): senate-vote 404 no longer aborts sync or discards house votes",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/services/vote_sync_service.py"
+  ],
+  "platform": "backend",
+  "note": "I checked the voting records for a bill, but the House votes were missing even though they should have been there. I expected to see all available votes, not just an error or empty list.",
+  "flow": "Bill Vote History"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "6296c8e38919bbf376aaa1c5430f74352e1c0a6b",
+  "parent": "13dc51d04eea238b8d50dc2a3bfce12d7e7d22e8",
+  "subject": "fix(admin): mobile-gaps endpoint was comparing dict keys instead of real feature-name lists",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/routers/admin.py"
+  ],
+  "platform": "backend",
+  "note": "I checked the admin report for missing features on mobile apps, but it showed incorrect results because it was comparing the wrong data. I expected to see a correct list of features that are missing on one platform compared to the other.",
+  "flow": "Admin Mobile Gaps Report"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "a9dc03d369c207e88e804c20af629d615a6ee310",
+  "parent": "484fa2d9f033df4d29efe39878a3824b6f06c837",
+  "subject": "fix: pass explicit arguments to searchBills in BillsView",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/views/BillsView.vue"
+  ],
+  "platform": "web",
+  "note": "When I opened the bills page, the list was empty instead of showing my bills. I expected to see my bill information immediately.",
+  "flow": "Bills Page Load"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "e61bc6d4ee99343dfdd190e03c1d24dad96ef50d",
+  "parent": "005b84ffdcad4a28799da06353318b133c188bd8",
+  "subject": "fix(recommendations): match real bill status values, not stale literals",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/services/recommendation_service.py"
+  ],
+  "platform": "backend",
+  "note": "I followed several topics and committees, but the 'Recommended for You' section only showed general trending bills instead of ones related to my interests. I expected to see personalized suggestions based on what I follow.",
+  "flow": "Recommendations Feed"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "005b84ffdcad4a28799da06353318b133c188bd8",
+  "parent": "e5f9e4bbb7b5b55053566636dc167b695fcdb78e",
+  "subject": "fix(alerts): recognize the real underscored bill-status literals",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/utils/bill_status.py"
+  ],
+  "platform": "backend",
+  "note": "I was waiting for notifications about bills that had just passed the House or Senate, but no alerts appeared. I expected to see a notification immediately when a bill reached these major milestones.",
+  "flow": "Bill Alerts"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "e8e66756eac4841d20770b9ecf840313a57cd8fc",
+  "parent": "a8c244bfac2c7f5a238d8e9bc4fedb0b483591bc",
+  "subject": "fix: make require_premium sync and improve get_tier_gate attribute handling",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/core/dependencies.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to access a premium feature but got an error saying 'Upgrade required' even though I have a premium subscription. I expected the feature to work since my account is upgraded.",
+  "flow": "Premium Feature Access"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "db2e18789ad7fea4dc3eecbe8fd8ebfc47bef4ee",
+  "parent": "36bedd40facd284befc1cfa87f1df9ccd2851906",
+  "subject": "fix(civic): register civic router under /api/civic prefix",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/main.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to use the Find My Representatives feature, but it failed to load any information. I expected to see a list of my elected officials, but instead, the app showed an error or remained blank.",
+  "flow": "Find My Representatives"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "344edfd5e34b5db9f91eda13eb2b1811321fda02",
+  "parent": "2f1eae50e562b052ee0145c300fa36e0c99ae3da",
+  "subject": "fix: use UTC timezone for date formatting in BillPriorityItem",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/components/BillPriorityItem.vue"
+  ],
+  "platform": "web",
+  "note": "The due date shown for a bill was off by one day compared to what I expected. It should have displayed the correct date based on the standard time zone.",
+  "flow": "Bill Priority List"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "aa507996fef6f22c762e33af20ff7f5ebfb80a9d",
+  "parent": "d3aadaed9278ceece179a4b6375826a662b561ea",
+  "subject": "fix: initialize isLoading to true in FollowingView",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/views/FollowingView.vue"
+  ],
+  "platform": "web",
+  "note": "When I opened the page to see who I am following, it showed a blank screen instead of loading my list. I expected to see a loading indicator or the list of people immediately.",
+  "flow": "Following Page Load"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "aba1798b76f9c2392752e1725161bf20b2df9257",
+  "parent": "04ddd4df789c5dac39b8f8270904b8f8dccbae96",
+  "subject": "fix(analytics): repair broken BillSummaryService and add real coverage",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/config.py",
+   "billwatch-backend/app/routers/analytics.py",
+   "billwatch-backend/app/services/bill_summary_service.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to view the summary for one of my bills, but the page showed an error instead of the text. I expected to see a clear explanation of what was in the bill.",
+  "flow": "Bill Summary View"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "9a0e227a829762478c0cd9b6c2fd6f08e4f2c4d3",
+  "parent": "6cc9627dfa3310f457f80bdd2927c6d0eeb5f5ab",
+  "subject": "fix: move .bg-independent class inside scoped style block",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/views/BillDetailView.vue"
+  ],
+  "platform": "web",
+  "note": "The background color for independent bills was not showing up on the bill detail page. I expected to see a gray background to distinguish them, but it appeared with the default color instead.",
+  "flow": "Bill Detail Page"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "debd222aede414b2bd7967d80934f20dcc5d01ee",
+  "parent": "8b8479e0cc3ca37d4fdb2219ac219a3e16df7433",
+  "subject": "fix: remove redundant /api prefix from legislator search endpoint",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/components/LegislatorSearch.vue"
+  ],
+  "platform": "web",
+  "note": "I tried to search for a legislator by typing their name and selecting a state, but the search returned no results or an error instead of showing the list of matching legislators.",
+  "flow": "Legislator Search"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "cfe600186d5573ec47820de490356bcec872b069",
+  "parent": "7396cfdf4ba5dff12770d38b8a4f90709bea2f1d",
+  "subject": "fix: use request object for alert notification flags",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/services/alert_service.py"
+  ],
+  "platform": "backend",
+  "note": "I set my preferences to get notified when a bill matches my interests or when there is new action, but I did not receive any alerts. I expected the system to send me notifications based on the choices I made.",
+  "flow": "Alert Settings"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "de39e0d5ba87f14d9ce6629eb04c3752e91593f9",
+  "parent": "e86d75f5c78c3bf4f918a7272c52fab0e000450e",
+  "subject": "fix: add missing legislator 404 checks in votes router",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/routers/votes.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to view the voting record for a specific member of Congress, but instead of seeing their votes, I got an error message saying the person could not be found.",
+  "flow": "Legislator Voting History"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "4da24e151e8bfb17f1c29b37e19f7cbe1e56fe54",
+  "parent": "00f3b095c344f39a1ba5d9f70802ac2044a86379",
+  "subject": "fix: use explicit DB query for follow_topic check",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/routers/users.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to follow a topic I was already following, but the app did not tell me I was already following it. I expected a message saying I was already following that topic.",
+  "flow": "Follow Topic Action"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "2cca3987c60901529b0c870e27ea1191d06d9875",
+  "parent": "093793aead828114e55aa9083a19a1d7a22188aa",
+  "subject": "fix: handle exceptions in article relevance router to return 500",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/routers/article_relevance.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to see which news articles were most relevant to my bill, but the app crashed instead of showing the list. I expected to see the ranked articles or a clear error message, not a system failure.",
+  "flow": "Article Relevance Ranking"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "bbbd4cb7b1b47388318281ad439ea504d2796b31",
+  "parent": "cf264de03c83192d547b2935c081b685d2559cc6",
+  "subject": "fix: add empty bill_id validation to prevent 500 errors",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/routers/bill_background.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to view the details for a bill but got a server error instead of the information I expected.",
+  "flow": "Bill Details View"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "647a336fdbc6452e2d3de0c82c6054cfd28d338f",
+  "parent": "add0a331f1b77a398b80ed48d7ee4d25b46f0b90",
+  "subject": "fix: repair POST/PATCH/GET /api/alerts, broken in prod since May",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/models/analytics.py",
+   "billwatch-backend/app/routers/alerts.py",
+   "billwatch-backend/app/services/alert_service.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to create or edit a bill alert, but the app crashed with an error instead of saving my changes. I expected the alert to be saved successfully.",
+  "flow": "Create Bill Alert"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "bdd38518c20be5bcf5d17f64902e1bc0045f1467",
+  "parent": "e919da048901d8b793b482d71ace07fc404c3928",
+  "subject": "fix: re-enable address field in user registration",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/routers/auth.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to sign up for a new account and enter my home address, but the information was not saved. I expected my address to be stored with my profile details.",
+  "flow": "User Registration"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "4622be7e9ea06cfeb70f2a39f1ebf88d989e8558",
+  "parent": "76a5a09a32c994d045fb8800e223a1904520edc2",
+  "subject": "fix: resolve v-for/v-if conflict in RepCard social links",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/components/RepCard.vue"
+  ],
+  "platform": "web",
+  "note": "I looked at a representative's profile card and some social media icons were missing even though the representative had those accounts listed. I expected to see all available social links.",
+  "flow": "Rep Card Social Links"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "e8af12f3c04936605560eb931f2e8fa061853b43",
+  "parent": "e99fd54815bbafe43a72a53f35b166f6eb743f02",
+  "subject": "fix(billwatch): stop poisoning prod with placeholder AI summaries \u2014 never persist a failed generation (generated=False => skip+retry), make LLM base-url/model env-configurable (localhost Ollama doesn'",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/services/llm_service.py",
+   "billwatch-backend/app/services/summary_scheduler.py"
+  ],
+  "platform": "backend",
+  "note": "I opened a bill to see its summary, but it showed a message saying the summary was temporarily unavailable instead of the actual details. I expected to see the real summary for my bill.",
+  "flow": "Bill Summary View"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "ce597e2c3544b63d0c98ce89b28e2d554685aa81",
+  "parent": "1c70c09658501d794fa9a821d7d2ccc03f24ad6f",
+  "subject": "fix: add type=\"button\" to prevent unintended form submissions",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/components/modals/ChangePriorityModal.vue",
+   "billwatch-web/src/views/PremiumView.vue"
+  ],
+  "platform": "web",
+  "note": "When I clicked the buttons to change a bill's priority or manage my premium subscription, the page unexpectedly reloaded or submitted a form instead of just performing the action. I expected the buttons to simply close the window or start the process without refreshing the screen.",
+  "flow": "Priority Change Modal"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "26086a46192e90fc67ed90f568aab08624dd8e64",
+  "parent": "b0a6a2166347b8a65550b1185eaa36c97a5044eb",
+  "subject": "fix: add type=\"button\" to pagination buttons in LegislatorsView",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/views/LegislatorsView.vue"
+  ],
+  "platform": "web",
+  "note": "When I clicked the 'Previous' or 'Next' buttons to change pages, the page unexpectedly reloaded instead of just showing the next set of results. I expected the list to update without the whole screen refreshing.",
+  "flow": "Legislators Pagination"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "f543645393921933a472d00566117705460b6463",
+  "parent": "545ba15d7e368a5e6f414b1673e219bf4868a06a",
+  "subject": "fix: add type=\"button\" to reset button in NotificationPreferencesView",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/views/NotificationPreferencesView.vue"
+  ],
+  "platform": "web",
+  "note": "I clicked the reset button on the notification settings page, but instead of just resetting my preferences, the page reloaded or submitted a form. I expected the button to only reset the settings without reloading the page.",
+  "flow": "Notification Preferences Reset"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "639bbf80e2c5514f9409c5ceac74bc5d6b2a7443",
+  "parent": "4ae386a931de24d086393d96a564ff780f272157",
+  "subject": "fix: surface address save errors in ProfileView status message",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/views/ProfileView.vue"
+  ],
+  "platform": "web",
+  "note": "I tried to save my address but the page did not show any message telling me it failed, so I thought it worked when it actually did not.",
+  "flow": "Profile Address Save"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "4ae386a931de24d086393d96a564ff780f272157",
+  "parent": "651393d2a34287a3683a461a6941f2563db393ce",
+  "subject": "fix(sync): parse Congress.gov dates/bill_number before insert; add real coverage for bill_sponsor_sync_service + bill_alert_service",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/services/bill_sponsor_sync_service.py"
+  ],
+  "platform": "backend",
+  "note": "I checked the app for new bills from Congress, but none of them appeared in my list even though they were posted online. I expected to see the latest bills and their details immediately.",
+  "flow": "Bill Sync"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "5f13ff7639d1f41ea7d8ef7d331e0aa4cabf3d95",
+  "parent": "846a38d38c7c53853906f914fcdd1bcf179adcbe",
+  "subject": "fix: replace raw fetch with api client and add error state in LegislatorCareerHistoryPage",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-web/src/pages/LegislatorCareerHistoryPage.vue"
+  ],
+  "platform": "web",
+  "note": "When I opened a legislator's career history page and the data failed to load, I saw a blank screen instead of an error message. I expected to see a clear message telling me something went wrong and a button to try again.",
+  "flow": "Legislator Career History"
+ },
+ {
+  "repo": "billwatch",
+  "sha": "6b7678026f1d7c7cc7fb3c1081f2847a2293d425",
+  "parent": "7c2329e449a1f37b3347f430e965b7b5e32f32cd",
+  "subject": "fix: log exception details and use generic error message in bill summary handler",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "billwatch-backend/app/routers/bill_chat.py"
+  ],
+  "platform": "backend",
+  "note": "When I tried to get a summary of my bill, the error message showed confusing technical details instead of just saying it failed. I expected a simple message telling me something went wrong.",
+  "flow": "Bill Summary Error"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "56e076dd8d94bb2f92d19845e007e007cbdccc59",
+  "parent": "7851ea39130d5b76e05ad29c98e503842475763c",
+  "subject": "fix: handle GitHubWriteError in dispatcher and update commit message format",
+  "author": "t",
+  "labels": [
+   "backend/app/services/dispatcher.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to send my plan tasks to the project, but they didn't appear in the task list. I expected the tasks to be added successfully or for me to see a clear error message explaining why they failed.",
+  "flow": "Plan Dispatch"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "446ad569d5e07f8a0e6bdb66424e121d0dcaab1d",
+  "parent": "b7145ec62f5024e5add7c59db0dba3d39787ecf5",
+  "subject": "fix: handle empty and punctuation-only inputs in intent router",
+  "author": "t",
+  "labels": [
+   "backend/app/services/intent_router.py"
+  ],
+  "platform": "backend",
+  "note": "I typed only punctuation symbols into the chat box and pressed send. Instead of getting a normal response or an error message, the app seemed to ignore my input or behave unexpectedly.",
+  "flow": "Chat Input Handling"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "09ae21edea59933aea025bbe6535b022ad7bf67b",
+  "parent": "021cadb20ba3ef0d31cd0315e646dc5f28f09aad",
+  "subject": "fix: repair malformed ConversationDetailPage.vue SFC structure",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/pages/ConversationDetailPage.vue"
+  ],
+  "platform": "web",
+  "note": "I clicked on a conversation to view its details, but the page was blank or broken instead of showing the chat messages and header.",
+  "flow": "Conversation Detail Page"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "4ec5d9fee41578eca2aa80f375e19ee3031c436d",
+  "parent": "9f4366024e653085e7f3ade3cb4671ef367f5b40",
+  "subject": "fix(gitlark): repair staged item to pass verification (round 1)",
+  "author": "shrike-fleet",
+  "labels": [
+   "backend/app/services/conversation.py"
+  ],
+  "platform": "backend",
+  "note": "I asked the assistant to perform a task, but it crashed or gave no answer instead of completing the request. I expected it to handle the action successfully without breaking.",
+  "flow": "Assistant Task Execution"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "d33ea590baec9b8d7f765e6c0243f25723797de8",
+  "parent": "a93f6fda3162f36e6444238c4d89e797eac9257d",
+  "subject": "fix: use api client directly in useWorkspaceOptions composable",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/composables/useWorkspaceOptions.ts"
+  ],
+  "platform": "web",
+  "note": "The list of workspaces did not load when I tried to select one. I expected to see the available options but the screen showed an error instead.",
+  "flow": "Workspace Selection"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "1f4f6047c5e552c1091ea6fa173859f3ecd73892",
+  "parent": "c03cebb9e434f3d761d8ed5c81c7ac0d27d02b5c",
+  "subject": "fix: connector credentials POST endpoint was completely non-functional",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/models/connector.py",
+   "backend/app/routers/connector_credentials.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to save my connection details for a new data source, but the system gave me an error and nothing was saved. I expected the information to be stored so I could use it later.",
+  "flow": "Save Connector Details"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "e1207a6cb89e4694b9b998bae4d3a70ca60025a0",
+  "parent": "1f887b0b04f3aa2f6d721824362ca3ac1e057bf1",
+  "subject": "fix: correct encryption_service.encrypt call in update_connector_credential",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/routers/connector_credentials.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to update the secret password for my data connection, but the change did not save correctly and the system could not secure the new information.",
+  "flow": "Connector Credential Update"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "0611f9277d2ee1cd5464279e006f24d5d580b126",
+  "parent": "ed20a64d9dd94464ce95057b81eb7733ec5d677b",
+  "subject": "fix: pass workspaceId to notifications feed store actions",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/components/NotificationsFeedPanel.vue"
+  ],
+  "platform": "web",
+  "note": "I opened the notifications panel but it did not show any updates or let me mark them as read. I expected to see my recent alerts and be able to clear them.",
+  "flow": "Notifications Panel"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "b48ceb16a17e5dedb6c4ae860bb8253c2c67136a",
+  "parent": "4393df3f114677180cae4eddd34df439b5ca018a",
+  "subject": "fix(plans): 409 on dispatch lock contention; fix real db-session bug found along the way",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/routers/plans.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to start a task but the system crashed instead of running it. I expected the task to begin processing normally.",
+  "flow": "Task Dispatch"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "df3de2dab194e86107a13da7b113789e0b6a6389",
+  "parent": "bf3a6375b893f53705f8d9a4e3dfe0850ac1147f",
+  "subject": "fix(web): route ConversationsPage through the api service instead of raw fetch",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/pages/ConversationsPage.vue"
+  ],
+  "platform": "web",
+  "note": "When I tried to archive a conversation, it did not work and the conversation stayed in my list. I expected the conversation to be removed from the active view after clicking the archive button.",
+  "flow": "Conversations Archive Action"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "bf3a6375b893f53705f8d9a4e3dfe0850ac1147f",
+  "parent": "642d3bcab3441ce713a8a67ca565b79a8593fdb4",
+  "subject": "fix(vscode-ext): load stored auth token before checking authentication",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "vscode-extension/src/extension-core.ts"
+  ],
+  "platform": "single",
+  "note": "I logged into the app and then restarted my editor. When it came back up, it said I was not logged in, even though I had already signed in before.",
+  "flow": "Login Persistence"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "12dfe723194183ab25200402a979967bfbd59f89",
+  "parent": "af73d31d3eff8aeb8cdeacb961e00b5f40e2383e",
+  "subject": "fix(pull-requests): actually paginate PR files using diff_paginate.page()",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/routers/pull_requests.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to view the next page of changed files in a pull request, but the same list of files appeared again instead of showing new ones. I expected to see different files after moving to the next page.",
+  "flow": "Pull Request Files"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "0807b37c09fa91205a32eb5d2a19bcc422ae4e88",
+  "parent": "0275b2a9c23d16c91eccf62fccad205d8dafed37",
+  "subject": "fix: populate score, rating, and markdown_summary in code review agent",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/services/code_review_agent.py"
+  ],
+  "platform": "backend",
+  "note": "I ran a code review but the results page was missing the overall score and the detailed summary text. I expected to see these details clearly displayed after the review finished.",
+  "flow": "Code Review Results"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "07b48564d63811cc2528239d950272194bcf49f1",
+  "parent": "b44bfac6c6394bcfa99b1d5c1bbb208561451060",
+  "subject": "fix: pass workspace ID from route params to connector runs fetch",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/pages/ConnectorRunsPage.vue"
+  ],
+  "platform": "web",
+  "note": "I went to the page showing connector activity for my workspace, but it did not load any information. I expected to see a list of recent runs.",
+  "flow": "Connector Runs Page"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "e866ca68499fc5bec17fb7ef87ca6b90af7d12a9",
+  "parent": "1ff55bfbe0cf713555761490d730d53655d684b1",
+  "subject": "fix: add error handling to EnhancedCodeReview loadReview",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/components/EnhancedCodeReview.vue"
+  ],
+  "platform": "web",
+  "note": "I opened a code review page and it showed an error message instead of the review details. I expected to see the code changes and comments.",
+  "flow": "Code Review Page"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "371e1cb343538a46dfbf2580f0e756f51ec3606d",
+  "parent": "17a75c615a51292f88d9201e09c9c3f286eac55f",
+  "subject": "fix: add missing /ws segment to review collaboration WebSocket URL",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/components/ReviewCollaborationManager.vue"
+  ],
+  "platform": "web",
+  "note": "I tried to collaborate on a review with another user, but the live updates did not appear. I expected to see changes made by others in real-time.",
+  "flow": "Review Collaboration Screen"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "cdd01c7aa07f32a73cf72645c17f28bd01c8a03c",
+  "parent": "7601ab47123589bb0370ea9af5cb3b90cf0c46d0",
+  "subject": "fix: add error handling to team management actions",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/pages/TeamManagementPage.vue"
+  ],
+  "platform": "web",
+  "note": "When I tried to invite a new person, remove a team member, or change someone's role, the action failed silently without any message. I expected to see an error message explaining what went wrong so I could try again.",
+  "flow": "Team Management Actions"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "c239b4677e67881a535d589b1bdd97cdbd8772a7",
+  "parent": "f4f744680287459dbc93659ad74e445248cb5d32",
+  "subject": "fix(review-rules): apply-template now bulk-inserts the template's rules",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/routers/review_rules.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to apply a review rule template, but the system said it was successful without actually adding any rules. I expected the new rules to appear in my list immediately after applying the template.",
+  "flow": "Apply Review Template"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "7a9ab01af7aa084e51662eb071d6fb6869570bf3",
+  "parent": "408ff40602c6e2eeda6d9699be65982319f0abac",
+  "subject": "fix(planner): restore file-path grounding lost when repo-analysis dict support was added",
+  "author": "shrike-fleet",
+  "labels": [
+   "backend/app/services/planner.py"
+  ],
+  "platform": "backend",
+  "note": "I asked the app to create a plan for my project, but the plan did not mention any of my files or code structure. I expected the plan to be based on the actual files in my repository.",
+  "flow": "Plan Generation"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "3a6ddd15896047d7104e29b69b0ed5148424ec42",
+  "parent": "9b705298365fb09cd3c7112de1053c50834375a4",
+  "subject": "fix(backend): wire tasks router to the real path+auth dependency",
+  "author": "shrike-fleet",
+  "labels": [
+   "backend/app/main.py",
+   "backend/app/routers/tasks.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to add a new task to the queue, but the system said the page could not be found. I expected the task to be added successfully.",
+  "flow": "Task Queue Submission"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "d918aeb31454537a873bc50106b7e4dc26514bd5",
+  "parent": "2b0e812f3c9d8ddc51b286332d94165384dd2675",
+  "subject": "fix: handle 404 and 409 exceptions in get_file endpoint",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/routers/github.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to view a file that had been deleted or changed, but instead of seeing a clear message, I got a generic error saying the system failed to fetch it. I expected to see a specific message telling me the file was not found or had been modified.",
+  "flow": "File View Error Handling"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "2601dc1d3c9f9a6e800d389f16bd9f3b3de51463",
+  "parent": "4a17c71694a23f4786525ff7a2d9c17531a37a46",
+  "subject": "fix(connectors): wire list endpoint to the real registry, not a hardcoded mock",
+  "author": "shrike-fleet",
+  "labels": [
+   "backend/app/routers/connectors.py"
+  ],
+  "platform": "backend",
+  "note": "I went to the page that shows my connected services, but it only showed two fake test items instead of the ones I actually set up. I expected to see my real connections listed there.",
+  "flow": "Connectors List Page"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "326eceb940319c7d4ee7d416063ec636b042a95b",
+  "parent": "178c15af3bcff8794edf2df312b1b85db832d4bd",
+  "subject": "fix(conversations): conversation search always returned zero results",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "backend/app/routers/conversations.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to search for a specific word inside a chat conversation, but the search box showed no results even though I know the word is there. I expected to see the matching messages listed.",
+  "flow": "Conversation Search"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "51a6fec4eec383025f9fa6cb3b3bce5432c0c8ab",
+  "parent": "ca4bc0c61b483ff4938ea9b02738e21d7e596790",
+  "subject": "fix: add type=\"button\" to export menu buttons",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/components/ExportMenu.vue"
+  ],
+  "platform": "web",
+  "note": "Clicking the export button caused the page to reload or submit a form instead of opening the menu. I expected the menu to appear so I could choose a file format.",
+  "flow": "Export Menu Interaction"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "bef017bf0c13d586aa7ccff8048ff23a809100ef",
+  "parent": "ea108ff9afaa384039e7e0145384b390cd8fd693",
+  "subject": "fix: add type=\"button\" to reaction trigger button",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/components/ReactionButtons.vue"
+  ],
+  "platform": "web",
+  "note": "When I clicked the button to add a reaction to a message, the page unexpectedly refreshed or submitted instead of just showing the emoji options. I expected it to simply open the list of emojis without reloading the screen.",
+  "flow": "Message Reaction Button"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "dc6289b6740bba296fce63897b094412bee43ab2",
+  "parent": "6020ad79892d9baaff3754c3a45dfee827b8b36b",
+  "subject": "fix: add type=\"button\" to Edit and Delete buttons in MessageActions",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/components/MessageActions.vue"
+  ],
+  "platform": "web",
+  "note": "When I clicked the Edit or Delete button next to a message, the page unexpectedly reloaded instead of opening the edit box or deleting the item. I expected the action to happen without the screen refreshing.",
+  "flow": "Message Actions"
+ },
+ {
+  "repo": "gitlark",
+  "sha": "29e9612efe5d8ff1de180295fc5f377d77133352",
+  "parent": "01187ed427c04011389ab638fa33291742e530b7",
+  "subject": "fix: add type=\"button\" to action buttons in ConversationActions",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "web/src/components/ConversationActions.vue"
+  ],
+  "platform": "web",
+  "note": "I clicked the pin, archive, or star button on a chat, but instead of just marking it, the page reloaded or sent a form. I expected the button to only change the status without refreshing the screen.",
+  "flow": "Chat Action Buttons"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "a2e00b45010df447adb278f2d2cdb3c7c2784736",
+  "parent": "e8af6192009d56335ca6db753a29a269b1917a86",
+  "subject": "fix(ios): reload the streams list when a queued playlist import finishes",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-ios/ChickadeeStreams/ViewModels/StreamsViewModel.swift"
+  ],
+  "platform": "ios",
+  "note": "I imported a new playlist and closed the window, but the new channels did not show up in my list. I expected them to appear automatically without having to manually refresh the page.",
+  "flow": "Import Playlist"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "630fd9bba7fbe3d4a9b1eb3026619bf78be05eed",
+  "parent": "1ca0b2444453c0b4460352c99422ef17a45a9762",
+  "subject": "fix(backend): serialize dedup runs and heal same-key duplicate groups from concurrent imports",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/services/content_dedup.py"
+  ],
+  "platform": "backend",
+  "note": "I imported two playlists at the same time, and the same show appeared as separate entries instead of being combined into one list. I expected all copies of the same title to be grouped together automatically.",
+  "flow": "Playlist Import Deduplication"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "ef0b266f2a18fbd3bd6b589b8f17bb6519e219df",
+  "parent": "7eae87fabdf179769643bafa39b79ba246cbd89b",
+  "subject": "fix(backend): series shows/episodes honor disabled sources, collapse_duplicates, and carry multi-source fields",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/routers/streams.py"
+  ],
+  "platform": "backend",
+  "note": "When I looked at the list of shows or episodes, I saw duplicate entries for the same content even though I had turned on the option to merge them. I also saw shows from sources I had disabled, which should have been hidden.",
+  "flow": "Series Shows List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "d6e018b62d5ef9628eb6a5e802ba54cee1273ea5",
+  "parent": "8ba29166aa665192dade1133d3fca184a65f78e9",
+  "subject": "fix: add explicit .all() and rollback to _reorder in favorites router",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/routers/favorites.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to change the order of my favorite channels, but the changes did not save and the list stayed in the original order.",
+  "flow": "Favorites Reordering"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "22a70722ad2b50b9488b94e621eb0845a958e76f",
+  "parent": "c896edc56a4e62b6b216a56f7e7e9a7ae5f3e908",
+  "subject": "fix(ios): clear active profile on AuthService.logout",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-ios/ChickadeeStreams/Services/AuthService.swift"
+  ],
+  "platform": "ios",
+  "note": "After signing out and then signing in with a different account, the app still showed content or settings from the previous account instead of starting fresh. I expected the app to forget my previous selection when I logged out.",
+  "flow": "Account Switching"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "5295d61baf3c2200aa88b463aa641fc5033a3ef5",
+  "parent": "e68f6b6002064de66aca71fdacdaccb17411c251",
+  "subject": "fix(mobile): stop long movie titles truncating - overflow menu for Watchlist/Delete",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/StreamsListScreen.kt"
+  ],
+  "platform": "android",
+  "note": "Long movie titles were cut off with dots instead of showing the full name and year. I expected to see the complete title on the list screen.",
+  "flow": "Stream List Titles"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "e68f6b6002064de66aca71fdacdaccb17411c251",
+  "parent": "5bc41d9bad6dbde595c93bbb90e1dcf926de933b",
+  "subject": "fix(iptv-backend): unify country filtering, add Unspecified bucket + flags/counts",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/routers/streams.py",
+   "iptv-backend/app/services/normalization.py"
+  ],
+  "platform": "backend",
+  "note": "I selected a specific country from the filter list, but many channels that clearly belong to that country were missing from the results. I expected to see all channels for the chosen country, not just a few.",
+  "flow": "Stream Country Filter"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "b3692e3efd3909a144750450477a7027691be89e",
+  "parent": "53d5f763d9c6cccff020190bf605bbfafb9e330e",
+  "subject": "fix(mobile): recognize year-based season numbers when grouping episodes",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/util/TvShowGrouping.kt"
+  ],
+  "platform": "android",
+  "note": "I looked at a show where the season number was a four-digit year, but instead of seeing one card with all the episodes inside, I saw many separate cards for each episode. I expected all the episodes to be grouped together under one title.",
+  "flow": "Episode List View"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "040f14fc054f358cd9ba94ae029f2e2f902a3d74",
+  "parent": "58b59d8183871fc774664038312e82c489571890",
+  "subject": "fix(iptv-backend): recognize year-based season numbers as TV episodes",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/services/playlist.py"
+  ],
+  "platform": "backend",
+  "note": "I opened the Movies tab and saw a long list of identical cards for an anime series instead of one show with episodes. I expected to see the series as a single TV show entry, but it looked like 37 separate movies with cut-off names.",
+  "flow": "Movies Tab Anime List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "6f0e2c5f52ebc1ad8a1ed874b7451b6396564d36",
+  "parent": "56b8f0b388a18739b0a6e2c2831aa24eb4673871",
+  "subject": "fix(iptv): grouped-tab pagination, alphabet index disappearing after jump, EPG orphaned mappings",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/StreamsViewModel.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/StreamsListScreen.kt",
+   "iptv-backend/app/routers/epg.py"
+  ],
+  "platform": "android",
+  "note": "When I scrolled through the list of TV shows, it barely moved and I couldn't see new items. Also, when I tapped a letter in the alphabet guide to jump to a specific show, the guide disappeared immediately.",
+  "flow": "Home Page TV Shows List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "9ea9723c68d3eb16ab0fb3e49714a5ad0c04cc80",
+  "parent": "071a07c7af1b0a7796172f01ef3929f7239fff5b",
+  "subject": "fix(paywall): TV dismiss dead-end, prod log level, locale-unsafe price format",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/data/subscription/RevenueCatManager.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/PaywallScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/tv/TvPaywallScreen.kt"
+  ],
+  "platform": "android",
+  "note": "I was on the subscription screen on my TV and wanted to leave without buying anything, but there was no button to close it. I expected a way to go back or dismiss the screen so I could continue using the app.",
+  "flow": "TV Subscription Screen"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "a61ceb5e55770d74e752371bd7a55065e368ef5b",
+  "parent": "bb2a565675ceb837d58d8f6eee1387e5f869d1a7",
+  "subject": "fix(mobile+tv): stop stream titles truncating harder than necessary",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/PersonalizedFeedScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/StreamsListScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/tv/TvHistoryScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/tv/TvStreamCard.kt"
+  ],
+  "platform": "android",
+  "note": "Stream titles were cut off too early or disappeared in the middle of a word instead of showing an ellipsis. I expected to see the full title or a proper '...' at the end.",
+  "flow": "Stream List Titles"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "2a18251231435707c7bc010943153803ae308cfd",
+  "parent": "6d752d6e302f06d318a4078d3d57c02a09fa3783",
+  "subject": "fix(mobile): stop TV-show episode rows truncating unreadable text",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/StreamsListScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/util/TvShowGrouping.kt"
+  ],
+  "platform": "android",
+  "note": "When I expanded a TV show to see its episodes, the episode titles were cut off and unreadable. I expected to see the full episode names clearly.",
+  "flow": "TV Show Episode List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "6d752d6e302f06d318a4078d3d57c02a09fa3783",
+  "parent": "9225bd5e8ba612d3705449df8ef3c40f1b696a30",
+  "subject": "fix(mobile): stop Settings getting permanently stuck on a fetch error",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/MobileActivity.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/SettingsScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/StreamsListScreen.kt"
+  ],
+  "platform": "android",
+  "note": "When I opened the Settings page, it showed an error saying 'Failed to fetch settings' and would not load my options. I expected the settings to appear automatically or have a button to try again without restarting the app.",
+  "flow": "Settings Page Load Error"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "9225bd5e8ba612d3705449df8ef3c40f1b696a30",
+  "parent": "47862fabd92f4e8206cc886afa95f13695948f77",
+  "subject": "fix(mobile): make screen headers consistent, use non-deprecated back icon",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/AddStreamScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/DiscoverScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/PersonalizedFeedScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/SettingsScreen.kt"
+  ],
+  "platform": "android",
+  "note": "The top bar on the Discover Channels page looked different from the rest of the app, and the back arrow icon appeared inconsistent on several screens. I expected all screen headers to look the same and have matching back buttons.",
+  "flow": "App Header Consistency"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "92f6bfe52df6bf7c17bcd52f67a9485d2c7b5cc3",
+  "parent": "732d6c07ae1815e092b17e9ee30c21932d19207e",
+  "subject": "fix(favorites): add a clear-filter banner + give Discover a distinct look",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/DiscoverScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/StreamsListScreen.kt"
+  ],
+  "platform": "android",
+  "note": "When I turned on the favorites filter on the home screen, there was no clear way to tell that I was only seeing my saved channels or how to see everything again. Now a banner appears at the top saying 'Showing favorites only' with a button to show all channels.",
+  "flow": "Home Favorites Filter"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "19adf34e0de0b2da5775c82ce14110a8f79b0759",
+  "parent": "9b73b89cdb931cb6fce859be5ceaceb531067aac",
+  "subject": "fix(epg): revert Program Guide's scope back to Live TV only",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/MobileActivity.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/EpgScreen.kt"
+  ],
+  "platform": "android",
+  "note": "I opened the Program Guide and saw tabs for Movies and TV Shows that just listed the same content as the Home screen without any schedule information. I expected the guide to only show live TV channels with their broadcast times.",
+  "flow": "Program Guide Tabs"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "a4215950ae487e5c029edd451aa7713b0ff4efbe",
+  "parent": "3c862a511a419c940d43218c2b4c138b153f5475",
+  "subject": "fix(epg): stop program guide loading-state race and improve channel sort",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/viewmodels/EpgViewModel.kt"
+  ],
+  "platform": "android",
+  "note": "When I opened the program guide, it briefly showed a message saying no channels were available before the list appeared. Also, the first channel selected often displayed 'No program data' even though other channels had schedules.",
+  "flow": "Program Guide Loading"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "6deb655d3fa0a64e7c09deb7a9379e65f8ff5ab6",
+  "parent": "30a6220942e36bc2856829db1d5440a7bafe15d4",
+  "subject": "fix(android): disable NavHost's default cross-fade to stop screen-content bleed-through",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/MobileActivity.kt"
+  ],
+  "platform": "android",
+  "note": "When I switched from the list of streams to the program guide, I saw the stream rows briefly appear on top of the guide cards. I expected the screen to change instantly without any overlapping content.",
+  "flow": "Stream List to Guide"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "6002cf3419d23a49e3806903493683cef2786bd6",
+  "parent": "7bf2a075e50611dce53aa8f9722d244c7b279809",
+  "subject": "fix(android): disambiguate duplicate subtitle track labels in the player",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/player/PlayerActivity.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/util/SubtitleTrackLabel.kt"
+  ],
+  "platform": "android",
+  "note": "When I opened the subtitle menu, I saw two options that both just said 'English'. I expected them to be different so I could pick the right one, but they looked identical.",
+  "flow": "Player Subtitle Menu"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "25d484dd24d847598ec4a9dd3420c1ee1eb7f9b8",
+  "parent": "81ad9f9c0165ee9ca693a2d9af0ebc9fb3f9e1f6",
+  "subject": "fix: apply cleanDisplayTitle to stream name in StreamDetailView",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-web/src/views/StreamDetailView.vue"
+  ],
+  "platform": "web",
+  "note": "The channel name shown on the details page and in the delete confirmation message looked messy or contained extra characters. I expected it to be clean and readable.",
+  "flow": "Stream Details Page"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "cde537df6c6efc6dd9389e911cf780d2acb944bc",
+  "parent": "1fe60ba08ef2184ecc9752b264a32478cbd55b62",
+  "subject": "fix: handle empty features array in getFeatures",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-web/src/utils/paywallFeatures.ts"
+  ],
+  "platform": "web",
+  "note": "I looked at the subscription details page and saw a blank space where the list of benefits should be. I expected to see the standard list of features included in the plan.",
+  "flow": "Subscription Benefits List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "c1cf61d98f5913be61d0f3ec91eb3847ddec65e4",
+  "parent": "c42c997e2c204b664766829f2b3b278c2834214c",
+  "subject": "fix(profiles): rate-limit profile PIN unlock attempts with PinLockoutTracker",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/routers/profiles.py"
+  ],
+  "platform": "backend",
+  "note": "I entered the wrong PIN several times to unlock my profile and now I cannot try again because it says 'Too many incorrect PIN attempts. Try again later.'",
+  "flow": "Profile Unlock Screen"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "c321892c18e0226d64ffaaf4c91bbff99d6d76f2",
+  "parent": "6489f1c5f675c1bf63be8c2a968ffc676a89ec0c",
+  "subject": "fix(ios-player): disable forward-skip button on live streams with no seekable range",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-ios/ChickadeeStreams/Views/Player/PlayerView.swift"
+  ],
+  "platform": "ios",
+  "note": "I was watching a live channel and tapped the skip forward button, but nothing happened. I expected the video to jump ahead, but it stayed in the same place.",
+  "flow": "Live Stream Player Controls"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "3a1aa9ce58cdb660b2f21c2612089471bd85b84a",
+  "parent": "f1f299653cc82ad6a0e173ba8941d09859b7a098",
+  "subject": "fix(ios-player): extract calculateSeekTarget so live seek-forward stops zeroing out",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-ios/ChickadeeStreams/ViewModels/PlayerViewModel.swift"
+  ],
+  "platform": "ios",
+  "note": "I was watching a live channel and tried to skip forward, but the video jumped back to the beginning instead of moving ahead. I expected the video to continue playing from a point slightly later in the stream.",
+  "flow": "Live Channel Seek"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "064b8ab24cca83e1fee43a38c5cca4b4f9693a1c",
+  "parent": "cb53ab01cd82736b8fcfd67a5206f8a32ca6cbd5",
+  "subject": "fix(history): wire tapping a Watch History row to actually open the player",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/MobileActivity.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/HistoryScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/viewmodels/HistoryViewModel.kt"
+  ],
+  "platform": "android",
+  "note": "I tapped a channel in my watch history list, but nothing happened. I expected the video player to open and start playing the stream.",
+  "flow": "Watch History List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "115f05a66d13d4945ada602fe2f8879407ab74a0",
+  "parent": "593e3e9b2ac8b7aab6855f7a79433f01f2c34b6f",
+  "subject": "fix(auth): center the wrapped app title on Login/Register",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/LoginScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/RegisterScreen.kt"
+  ],
+  "platform": "android",
+  "note": "The app name on the login and sign-up screens was not centered properly; the second line of the title looked misaligned to the left instead of being in the middle like the rest of the text.",
+  "flow": "Login Page Title Alignment"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "8b1081de9c45d30f9c4cc60ee53ffc395f753610",
+  "parent": "53895a31a9d635c5390ce11592efdb78d8112228",
+  "subject": "fix(epg): extend the program-list window on scroll instead of hard-stopping at 4 hours",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/EpgScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/viewmodels/EpgViewModel.kt"
+  ],
+  "platform": "android",
+  "note": "When I scrolled down to see more TV programs for a channel, the list stopped after a few hours and would not load any more shows. I expected to be able to keep scrolling to see the rest of the day's schedule.",
+  "flow": "TV Guide Scroll"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "855545e1ba22f929b1e0c35962baa2f7427eb683",
+  "parent": "5a309ef8fcda042bfc5196c5f1b8952fadbdc397",
+  "subject": "fix(epg): auto-map against ALL active sources, not just the one just touched",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/routers/epg.py"
+  ],
+  "platform": "backend",
+  "note": "I added a second TV guide source and my previously set up channel matches disappeared. I expected the new source to add to my list without removing the channels I had already configured.",
+  "flow": "TV Guide Setup"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "4815ed83bc3aa045b06001831d1a44e1ce5488b1",
+  "parent": "043001d3c8868d0ff348d35758b1fdf321c5b01b",
+  "subject": "fix(iptv-android): call enableEdgeToEdge() in PlayerActivity for targetSdk 36",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/player/PlayerActivity.kt"
+  ],
+  "platform": "android",
+  "note": "When I opened a video to watch, the top and bottom parts of the screen were hidden behind the system bars, making it hard to see the controls.",
+  "flow": "Video Player Screen"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "dd4f2f84fed7af462adb6a24e50af440dd8cc88d",
+  "parent": "dbe620b44fe986ec0a075bac77eade5a73648424",
+  "subject": "fix: import and use cleanDisplayTitle in HomeView",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-web/src/views/HomeView.vue"
+  ],
+  "platform": "web",
+  "note": "The channel names on the home screen looked messy or contained extra characters. I expected them to be clean and easy to read.",
+  "flow": "Home Page Channel List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "bee856a9ab2c1ea4cceaf358ce652f646364afd5",
+  "parent": "e02d789b6e0b00323415907aeba6905547b9d40c",
+  "subject": "fix(iptv_apps): actually wire EPG auto-map into Android+iOS source creation",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/data/repository/EpgRepository.kt",
+   "iptv-ios/ChickadeeStreams/Services/APIService+Extended.swift"
+  ],
+  "platform": "android",
+  "note": "I added a new TV guide source, but the program listings never appeared. I expected the app to automatically load the schedule after adding the source so I could see what is on.",
+  "flow": "Add TV Guide Source"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "d0fae55485b01fe489c8ee4f9d0097ad1254bbed",
+  "parent": "a28fd14d0d4b6deb9baaa346f1e72306943b6ec0",
+  "subject": "fix(discover): don't skip the failed page on a loadMore() error",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/DiscoverViewModel.kt"
+  ],
+  "platform": "android",
+  "note": "I scrolled down the channel list to load more options, but after a brief connection hiccup, no new channels appeared even when I kept scrolling. I expected the list to continue loading the remaining channels instead of stopping permanently.",
+  "flow": "Discover Channel List"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "236620b2d5f36c9b148c334a588e4f1a72eb9114",
+  "parent": "2b01aa681b5a43c4d79e3e123d89522420d587e1",
+  "subject": "fix: clear stale error message on player stall",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-web/src/views/PlayerView.vue"
+  ],
+  "platform": "web",
+  "note": "When the video paused to load more data, an old error message from a previous problem stayed on the screen instead of disappearing. I expected the error text to go away while the video was buffering.",
+  "flow": "Video Player Buffering"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "3902b65fb5a1a51124f7b6871675050c1c7236a0",
+  "parent": "df9b4c231c10f7a4b2e3aeb597704719f7fcacb0",
+  "subject": "fix(iptv-android): fix TV remote playback focus-trap, hide broken YouTube tab, strengthen playback E2E",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/player/PlayerActivity.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/DiscoverScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/tv/TvDiscoverScreen.kt"
+  ],
+  "platform": "android",
+  "note": "I tried to use my TV remote to control the video player, but the buttons for play, pause, and changing channels did not work. I expected to be able to navigate and control the playback using the remote.",
+  "flow": "TV Player Controls"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "2c788b9c7cb0d80223cda50e9791625260dcba73",
+  "parent": "01b11103a0e2063ba6a45891ceed7ff8e9f4bb87",
+  "subject": "fix(iptv-android): switch YouTube embed to IFrame Player API, document unresolved layout bug",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/player/YoutubePlayerActivity.kt"
+  ],
+  "platform": "android",
+  "note": "When I open a video in the tab, it only shows up as a very thin strip at the top of the screen instead of filling the whole area. I expected the video to play at a normal size so I could watch it properly.",
+  "flow": "YouTube Video Player"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "a3462cb156cbc4daa28dd69d04bd837e45717008",
+  "parent": "0767f9f7685d9663f83fd604ca22bfe395784e6c",
+  "subject": "fix: implement filter_vod_streams for real, break the recurring re-attempt loop",
+  "author": "shrike-fleet",
+  "labels": [
+   "iptv-backend/app/routers/streams.py",
+   "iptv-backend/app/services/stream_filtering.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to filter the stream list to show only on-demand videos, but the page crashed or showed no results. I expected to see a list of movies and shows when selecting that option.",
+  "flow": "Stream List Filter"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "c1db4a4bd66cbbc05972c8a5fddebab6568e8e74",
+  "parent": "2e528bea5bc71f2fa7aaa363434b30e1eae47023",
+  "subject": "fix: add null-guards and accessible empty-state to Continue Watching tab",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-web/src/views/HistoryView.vue"
+  ],
+  "platform": "web",
+  "note": "I opened the Continue Watching tab and saw a blank screen instead of a message telling me there was nothing to watch. I expected to see a friendly note saying 'Nothing to continue' when my list is empty.",
+  "flow": "Continue Watching Tab"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "7cb70223077b2aa3fdd68e4b16a6f5c3132adbdc",
+  "parent": "9f13d96c1d63c080cc38ebc18746c1bfcafd37b8",
+  "subject": "fix(discover): default country filter to US and persist selection",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/data/repository/DiscoverRepository.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/DiscoverViewModel.kt",
+   "iptv-ios/ChickadeeStreams/ViewModels/DiscoverViewModel.swift"
+  ],
+  "platform": "android",
+  "note": "I selected a specific country to filter the channel list, but when I closed and reopened the app, the filter reset to 'All Countries' instead of staying on my choice. I expected the app to remember my selection so I wouldn't have to pick it again every time.",
+  "flow": "Discover Page Country Filter"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "7c9957f2e99cfd61e32c59d587d4e848619a3757",
+  "parent": "ce99b1a0cb7aa5f5754940b8e01001d36729432c",
+  "subject": "fix: enforce the free-tier stream limit + fix a data inconsistency in the seed",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/routers/discover.py",
+   "iptv-backend/app/routers/subscription.py"
+  ],
+  "platform": "backend",
+  "note": "I was able to add more than ten channels to my library even though I am on the free plan. I expected the app to stop me after adding ten and tell me to upgrade for more.",
+  "flow": "Add Channel Limit"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "b7c2d816e685359071e2498a9b5a35e1dfeb1b5e",
+  "parent": "029e5f908c6d72b0c10453a6b4cb5e094122fa10",
+  "subject": "fix: add esc key handler to PaywallModal",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-web/src/components/PaywallModal.vue"
+  ],
+  "platform": "web",
+  "note": "I opened the payment screen and tried to close it by pressing the escape key on my keyboard, but nothing happened. I expected the window to close so I could go back to the previous page.",
+  "flow": "Payment Modal Close"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "b485ed2a94207c15b2b9f333034c511e91c744dd",
+  "parent": "6b81b8d968c2ada1c8b551d16fba8e10955543d2",
+  "subject": "fix: reject past program_start in create_reminder with 422",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-backend/app/routers/reminders.py"
+  ],
+  "platform": "backend",
+  "note": "I tried to set a reminder for a show that had already started, but the app rejected it and showed an error saying the start time must be in the future. I expected the reminder to be created or for the option to be disabled for past shows.",
+  "flow": "Create Reminder"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "ae9b0eb4aea05fe3891b133684ad53e3a116d8d9",
+  "parent": "f97fc0e6c453928b7d76e42b673ae9bd79f8ee5b",
+  "subject": "fix(ios): fix iPad tab-bar assertions and search-field visibility",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-ios/ChickadeeStreams/Views/Streams/StreamsListView.swift"
+  ],
+  "platform": "ios",
+  "note": "I opened the list of live streams on my, but I could not see the search box at the top. I expected to see a field where I could type to find a channel, just like on my phone.",
+  "flow": "Stream List Search"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "fb57386f5e3fd7f9fe97680e7781683ecd44ea05",
+  "parent": "b134f99eae6ce3ece1893f8266f7a760fb5c904f",
+  "subject": "fix(android): repoint dead legal links to chickadeestream.com",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/PaywallScreen.kt",
+   "iptv-android/app/src/main/java/com/chickadeestreams/iptv/ui/mobile/screens/RegisterScreen.kt"
+  ],
+  "platform": "android",
+  "note": "I tried to open the Terms of Service or Privacy Policy links on the sign-up or payment screens, but the browser showed an error saying the website could not be reached instead of loading the documents.",
+  "flow": "Sign Up Legal Links"
+ },
+ {
+  "repo": "iptv_apps",
+  "sha": "036791421ebeb360cfcc351b19b58013498fe2df",
+  "parent": "7cf4c5624fcb85e9b3f54a60e4f80667b3f8c126",
+  "subject": "fix(web): stop paywalling premium users on Guide/Analytics/History/Import",
+  "author": "Mark Hintermeister",
+  "labels": [
+   "iptv-web/src/views/AnalyticsView.vue",
+   "iptv-web/src/views/GuideView.vue",
+   "iptv-web/src/views/HistoryView.vue",
+   "iptv-web/src/views/ImportView.vue"
+  ],
+  "platform": "web",
+  "note": "I have a premium subscription, but when I opened the Guide, Analytics, History, or Import pages, I saw a paywall asking me to pay $ instead of seeing my content.",
+  "flow": "Premium User Paywall"
+ }
+]

@@ -2,6 +2,7 @@
 # Runs the REAL branch_hygiene.sh against throwaway bare origins + clones. Gate tools (pytest/npm/gradlew/godot/docker),
 # curl and a git wrapper (to inject worktree failures) are stub executables first on PATH; HOME is a fake tree that holds a
 # fake check_migrations.py. STATE_DIR/REPORT_FILE point into the fixture. Nothing real is touched or pushed.
+export OVN_QA_SHADOW=off   # never launch the real QA shadow gates from a test (they would write fake-repo rows into production state)
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BH="$HERE/../../branch_hygiene.sh"; [ -f "$BH" ] || BH="$HERE/../branch_hygiene.sh"
