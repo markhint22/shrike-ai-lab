@@ -16,7 +16,7 @@ L1='app/foo.py — replace the bare except with except Exception. One line.'
 L2='web/src/A.vue — add type="button" to the close button'
 L3='ios/V.swift — rename helper'
 printf '%s\n' '## Next Steps' "- [ ] $L1" "- [ ] [CLAUDE] $L2" "- [x] $L3" "- [ ] $L3 HUMAN-ONLY" "- [ ] human/ review the design" \
-  '- [ ] [T1] retired-vague thing' '- [ ] blocked item: BLOCKED ITEM waiting' '- [ ] {py·x·T1·y} already tagged' '- [ ] [CLAUDE] {py·x·T1·y} already tagged w/ label' \
+  '- [ ] [T1] (retired-vague) thing' '- [ ] blocked item: BLOCKED ITEM waiting' '- [ ] {py·x·T1·y} already tagged' '- [ ] [CLAUDE] {py·x·T1·y} already tagged w/ label' \
   'prose line - [ ] not an item' '- [ ]' '- [ ]x glued' > "$P"
 out="$(python3 "$S" "$P")"
 ok "prints GENERATED_TAGS=2 (only the two eligible items)" "$([ "$out" = "GENERATED_TAGS=2" ] && echo 1 || echo 0)"
@@ -28,7 +28,7 @@ ok "[CLAUDE]-labelled item: tag goes AFTER the label" "$(grep -qxF -- "- [ ] [CL
 ok "checked item untouched" "$(grep -qxF -- "- [x] $L3" "$P" && echo 1 || echo 0)"
 ok "HUMAN-ONLY item untouched" "$(grep -qxF -- "- [ ] $L3 HUMAN-ONLY" "$P" && echo 1 || echo 0)"
 ok "human/ item untouched" "$(grep -qxF -- '- [ ] human/ review the design' "$P" && echo 1 || echo 0)"
-ok "retired- item untouched" "$(grep -qxF -- '- [ ] [T1] retired-vague thing' "$P" && echo 1 || echo 0)"
+ok "retired- item untouched" "$(grep -qxF -- '- [ ] [T1] (retired-vague) thing' "$P" && echo 1 || echo 0)"
 ok "BLOCKED ITEM (case-insensitive SKIP regex) untouched" "$(grep -qxF -- '- [ ] blocked item: BLOCKED ITEM waiting' "$P" && echo 1 || echo 0)"
 ok "already-tagged items (with and without [LABEL]) untouched" "$(grep -qxF -- '- [ ] {py·x·T1·y} already tagged' "$P" && grep -qxF -- '- [ ] [CLAUDE] {py·x·T1·y} already tagged w/ label' "$P" && echo 1 || echo 0)"
 ok "prose / bare '- [ ]' / glued '- [ ]x' lines preserved verbatim" "$(grep -qxF -- 'prose line - [ ] not an item' "$P" && grep -qxF -- '- [ ]' "$P" && grep -qxF -- '- [ ]x glued' "$P" && echo 1 || echo 0)"

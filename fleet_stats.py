@@ -112,7 +112,7 @@ def queue_counts(repo_dir):
                     low = line.lower()
                     if not any(
                         m in low
-                        for m in ("human-only", "human/", "auto-skip", "blocked item", "retired-")
+                        for m in ("human-only", "human/", "auto-skip", "blocked item", "(retired-")
                     ):
                         doable += 1
     except OSError:

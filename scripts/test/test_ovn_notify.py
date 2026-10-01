@@ -82,7 +82,8 @@ now = time.time(); iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmti
 rows = [{"ts": iso(now - 600), "repo": "gitlark", "class": "landed"}] * 3 + [{"ts": iso(now - 900), "repo": "billwatch", "class": "landed"}, {"ts": iso(now - 300), "repo": "gitlark", "class": "revert"}, {"ts": iso(now - 99999), "repo": "old", "class": "landed"}, {"ts": iso(now - 60), "repo": "x", "class": "skipped"}]
 open(os.path.join(ST, "outcomes.jsonl"), "w").write("\n".join(json.dumps(r) for r in rows) + "\nnot json\n")
 repos = os.path.join(T, "q", "repos"); os.makedirs(os.path.join(repos, "gitlark")); os.makedirs(os.path.join(repos, "billwatch")); os.makedirs(os.path.join(repos, "shrike-labs-website"))
-open(os.path.join(repos, "gitlark", "OVERNIGHT_PROGRESS.md"), "w").write("- [ ] a\n- [ ] b\n- [ ] [AUTO-SKIP x] c\n- [x] d\n")
+open(os.path.join(repos, "gitlark", "OVERNIGHT_PROGRESS.md"), "w").write("- [ ] a\n- [ ] b\n- [ ] [AUTO-SKIP x] c\n- [x] d\n- [ ] [T1] make the output human-readable\n- [ ] [HUMAN-ONLY] e\n")
+ok("an item that merely says 'human' is still doable; HUMAN-ONLY and AUTO-SKIP are not", N._doable(os.path.join(repos, "gitlark")) == 3)
 open(os.path.join(repos, "billwatch", "OVERNIGHT_PROGRESS.md"), "w").write("".join("- [ ] i%d\n" % i for i in range(9)))
 open(os.path.join(repos, "shrike-labs-website", "OVERNIGHT_PROGRESS.md"), "w").write("- [ ] z\n")
 N.ROOT = os.path.join(T, "q")
@@ -90,7 +91,7 @@ t, b, n = N.compose_update(at=now)
 ok("quiet hour: 'all good' title", t == "✅ Shrike hourly — all good" and n == 0)
 ok("landed line counts per repo, biggest first, old rows excluded", "Landed 4: gitlark 3 · billwatch 1" in b and "old" not in b)
 ok("reverts are shown in plain words", "Undone (broke tests): gitlark 1" in b)
-ok("low queue is named with its count (website ignored)", "Queues low: gitlark (2)" in b and "website" not in b)
+ok("low queue is named with its count (website ignored)", "Queues low: gitlark (3)" in b and "website" not in b)
 for ti, bo, pr in (("Hygiene stalled — gate red on a feature branch", "gitlark has not merged in 3h. More.", "high"), ("Hygiene stalled — gate red on a feature branch", "dup", "high"), ("Deploy failed: x (human)", "needs you", "urgent"), ("✅ Recovered: gitlark-backend", "ok", "low"), ("a", "b", "default"), ("c", "d", "default"), ("e", "f", "low")):
     N.add_note(ti, bo, pr)
 t, b, n = N.compose_update(at=now)

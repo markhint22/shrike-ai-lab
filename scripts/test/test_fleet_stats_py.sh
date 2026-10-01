@@ -70,9 +70,9 @@ check("enabled_repos: dedupes by dir, skips disabled/blank, id fallback",
 check("queue_counts: missing file -> (None, None)", m.queue_counts(os.path.join(repos, "nope")) == (None, None))
 os.makedirs(os.path.join(repos, "alpha"))
 open(os.path.join(repos, "alpha", "OVERNIGHT_PROGRESS.md"), "w").write(
-    "- [x] done 1\n- [x] done 2\n- [ ] real a\n- [ ] real b\n- [ ] HUMAN-ONLY c\n- [ ] see human/ dir\n- [ ] AUTO-SKIP d\n"
-    "- [ ] BLOCKED ITEM e\n- [ ] retired-x\n  - [ ] indented not counted\nprose\n")
-check("queue_counts: done/doable with all exclusion markers", m.queue_counts(os.path.join(repos, "alpha")) == (2, 2))
+    "- [x] done 1\n- [x] done 2\n- [ ] real a\n- [ ] real b\n- [ ] [feat:x-replace-retired-ids] tagged\n- [ ] HUMAN-ONLY c\n- [ ] see human/ dir\n- [ ] AUTO-SKIP d\n"
+    "- [ ] BLOCKED ITEM e\n- [ ] (retired-vague) x\n  - [ ] indented not counted\nprose\n")
+check("queue_counts: done/doable with all exclusion markers", m.queue_counts(os.path.join(repos, "alpha")) == (2, 3))
 
 # ---- git_unpromoted ----
 origin = os.path.join(T, "origin.git"); subprocess.run(["git", "init", "-q", "--bare", origin])
@@ -127,8 +127,8 @@ out = json.load(open(m.OUT_FILE))
 check("main: wrote atomically (no .tmp left)", not os.path.exists(m.OUT_FILE + ".tmp"))
 check("main: repos with no clone dir (gamma) are skipped", sorted(out["repos"]) == ["alpha", "iptv_apps"])
 a = out["repos"]["alpha"]
-check("main: alpha counters", a["task_id"] == "t1" and a["done"] == 2 and a["doable"] == 2 and a["landed_1d"] == 2 and a["landed_7d"] == 2 and a["unpromoted"] == 3)
-check("main: runway_days = doable / (landed_7d/7)", a["runway_days"] == round(2 / (2 / 7.0), 1))
+check("main: alpha counters", a["task_id"] == "t1" and a["done"] == 2 and a["doable"] == 3 and a["landed_1d"] == 2 and a["landed_7d"] == 2 and a["unpromoted"] == 3)
+check("main: runway_days = doable / (landed_7d/7)", a["runway_days"] == round(3 / (2 / 7.0), 1))
 check("main: pass_rate_7d + breakdown keys present", "pass_rate_7d" in a and "wasted_attempts_7d" in a and "benign_excluded_7d_breakdown" in a and "by_category_7d" in a)
 ip = out["repos"]["iptv_apps"]
 check("main: REPO_LOG_NAME maps iptv_apps -> iptv-apps log rows", ip["landed_7d"] == 1 and ip["done"] == 0 and ip["doable"] == 1)

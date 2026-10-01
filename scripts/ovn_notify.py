@@ -258,7 +258,7 @@ def _doable(repo_dir):
         lines = open(os.path.join(repo_dir, "OVERNIGHT_PROGRESS.md"), errors="replace").read().split("\n")
     except OSError:
         return None
-    bad = re.compile(r"AUTO-SKIP|HUMAN|\[CLAUDE\]|BLOCKED ITEM|retired-", re.I)
+    bad = re.compile(r"AUTO-SKIP|HUMAN-ONLY|human/|\[CLAUDE\]|BLOCKED ITEM|\(retired-", re.I)   # same filter as run_overnight/queue_refill (a bare "human" matched ordinary item text)
     return sum(1 for l in lines if l.startswith("- [ ]") and not bad.search(l))
 
 

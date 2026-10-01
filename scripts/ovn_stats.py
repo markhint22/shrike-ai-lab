@@ -65,7 +65,7 @@ def runway():
             continue
         doable = sum(1 for l in txt.splitlines()
                      if l.lstrip().startswith("- [ ]")
-                     and not re.search(r"HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-", l))
+                     and not re.search(r"HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|\(retired-", l))
         rd = os.path.dirname(prog)
         try:
             log = subprocess.run(["git","-C",rd,"log","--since=24 hours ago","--pretty=%s"],

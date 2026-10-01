@@ -46,7 +46,7 @@ mkrepo(){ # $1 name $2 "doable count" ; creates repos/<n> with OVERNIGHT_PROGRES
   local n="$1" d="$2" r="$Q/repos/$1"
   mkdir -p "$r"
   { echo "## Next Steps"; i=0; while [ "$i" -lt "$d" ]; do echo "- [ ] real item $i"; i=$((i+1)); done
-    echo "- [ ] HUMAN-ONLY thing"; echo "- [ ] human/ dir item"; echo "- [ ] AUTO-SKIP me"; echo "- [ ] BLOCKED ITEM x"; echo "- [ ] retired-foo"; echo "- [x] done one"; } > "$r/OVERNIGHT_PROGRESS.md"
+    echo "- [ ] HUMAN-ONLY thing"; echo "- [ ] human/ dir item"; echo "- [ ] AUTO-SKIP me"; echo "- [ ] BLOCKED ITEM x"; echo "- [ ] (retired-vague) foo"; echo "- [x] done one"; } > "$r/OVERNIGHT_PROGRESS.md"
 }
 mkgit(){ # $1 name $2 ahead-count ; adds git + origin
   local n="$1" ahead="$2" r="$Q/repos/$1" o="$T/origin_$1.git"

@@ -154,7 +154,7 @@ cat > "$W/P.md" <<'MD'
 - [ ] Fix NEW ghost/marker.py
 - [ ] human decision needed on ghost/x.py
 - [ ] AUTO-SKIP ghost/y.py
-- [ ] retired-something ghost/z.py
+- [ ] (retired-vague) something ghost/z.py
 - [ ] top.py alone (no slash) kept
 - [x] checked ghost/w.py untouched
 MD
@@ -165,7 +165,7 @@ ok "per-class lines printed" "$(echo "$out" | grep -q 'retired 1 vague from P.md
 ok "vague item moved to retired section" "$(grep -qxF -- '- [x] (retired-vague) vague item with no file at all' "$W/P.md" && echo 1 || echo 0)"
 ok "dead item moved to retired section" "$(grep -qxF -- '- [x] (retired-dead-path) dead ghost/none.py is gone' "$W/P.md" && echo 1 || echo 0)"
 ok "both retired headers written" "$(grep -q '^### Retired (vague' "$W/P.md" && grep -q '^### Retired (dead-path' "$W/P.md" && echo 1 || echo 0)"
-kept=1; for s in 'keeps src/real.py' 'myrepo/src/real.py' 'tests/t.py::test_x' 'Create a new ghost/newfile.py' 'Add a new component' 'Fix NEW ghost/marker.py' 'human decision' 'AUTO-SKIP ghost/y.py' 'retired-something' 'top.py alone' '- [x] checked ghost/w.py'; do grep -qF -- "$s" "$W/P.md" || { kept=0; echo "    lost: $s"; }; done
+kept=1; for s in 'keeps src/real.py' 'myrepo/src/real.py' 'tests/t.py::test_x' 'Create a new ghost/newfile.py' 'Add a new component' 'Fix NEW ghost/marker.py' 'human decision' 'AUTO-SKIP ghost/y.py' '(retired-vague) something' 'top.py alone' '- [x] checked ghost/w.py'; do grep -qF -- "$s" "$W/P.md" || { kept=0; echo "    lost: $s"; }; done
 ok "all keep-cases survive (existing, prefixed, app-root, create-intent, NEW, skip words, no-slash, checked)" "$kept"
 ok "retired items no longer unchecked" "$(! grep -qE '^- \[ \] (vague item|dead ghost)' "$W/P.md" && echo 1 || echo 0)"
 out="$(cd "$W" && python3 "$RV" P.md)"

@@ -79,7 +79,7 @@ for r in $REPOS; do
       # of the pipeline already uses for "doable" counting).
       case "$line" in "- [ ]"*) ;; *) continue ;; esac
       case "$line" in *VERIFY:*) ;; *) continue ;; esac
-      echo "$line" | grep -qiE 'HUMAN-ONLY|AUTO-SKIP|BLOCKED ITEM|retired-|\[CLAUDE\]' && continue
+      echo "$line" | grep -qiE 'HUMAN-ONLY|AUTO-SKIP|BLOCKED ITEM|\(retired-|\[CLAUDE\]' && continue
 
       # 2026-09-29 FIX: was a bare md5/md5sum of the raw line, independently reimplementing the
       # same "hash this roadmap line for identity" job scripts/lib_item_select.sh's ovn_item_hash()

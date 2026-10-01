@@ -22,7 +22,7 @@ Prints RETAGGED=<n> for the caller to detect.
 import re
 import sys
 
-PARKED_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|BLOCKED|retired-")
+PARKED_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|BLOCKED|\(retired-")
 SWIFT_RE = re.compile(r"\.swift\b")
 
 

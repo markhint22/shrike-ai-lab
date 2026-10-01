@@ -21,7 +21,7 @@ printf '%s\n' '## Next Steps' \
   '- [ ] [T3] ios/Parked.swift — AUTO-SKIP already parked' \
   '- [ ] [T3] ios/H.swift — HUMAN-ONLY' \
   '- [ ] [T3] ios/B.swift — BLOCKED on x' \
-  '- [ ] [T3] ios/R.swift — retired-vague' \
+  '- [ ] [T3] ios/R.swift — (retired-vague)' \
   '- [ ] [T2] Package.swiftpm notes — not a swift source' \
   '- [ ] [T4] ios/Other.swift and ios/Two.swift — two mentions' \
   '  - [ ] indented sub-item ios/Sub.swift' \
@@ -33,7 +33,7 @@ ok "original tier tag and text kept after the prefix" "$(grep -q '^- \[ \] \[AUT
 ok "second swift item also retagged (only first checkbox occurrence replaced)" "$([ "$(grep -c '\[AUTO-SKIP swift' "$P")" = 2 ] && grep 'Other.swift' "$P" | grep -q '^- \[ \] \[AUTO-SKIP' && echo 1 || echo 0)"
 ok "python item untouched" "$(grep -qxF -- '- [ ] [T1] app/foo.py — python item' "$P" && echo 1 || echo 0)"
 ok "checked swift item untouched" "$(grep -qxF -- '- [x] [T2] ios/Done.swift — already checked' "$P" && echo 1 || echo 0)"
-ok "AUTO-SKIP/HUMAN-ONLY/BLOCKED/retired- items are skipped (not double-tagged)" "$([ "$(grep -c 'AUTO-SKIP' "$P")" = 3 ] && grep -qxF -- '- [ ] [T3] ios/H.swift — HUMAN-ONLY' "$P" && grep -qxF -- '- [ ] [T3] ios/B.swift — BLOCKED on x' "$P" && grep -qxF -- '- [ ] [T3] ios/R.swift — retired-vague' "$P" && echo 1 || echo 0)"
+ok "AUTO-SKIP/HUMAN-ONLY/BLOCKED/retired- items are skipped (not double-tagged)" "$([ "$(grep -c 'AUTO-SKIP' "$P")" = 3 ] && grep -qxF -- '- [ ] [T3] ios/H.swift — HUMAN-ONLY' "$P" && grep -qxF -- '- [ ] [T3] ios/B.swift — BLOCKED on x' "$P" && grep -qxF -- '- [ ] [T3] ios/R.swift — (retired-vague)' "$P" && echo 1 || echo 0)"
 ok ".swiftpm is not treated as a .swift target" "$(grep -qxF -- '- [ ] [T2] Package.swiftpm notes — not a swift source' "$P" && echo 1 || echo 0)"
 ok "indented sub-item and prose lines ignored (must start with '- [ ] ')" "$(grep -qxF -- '  - [ ] indented sub-item ios/Sub.swift' "$P" && grep -qxF 'plain prose mentioning x.swift' "$P" && echo 1 || echo 0)"
 ok "file line count preserved" "$([ "$(grep -c '' "$P")" = 12 ] && echo 1 || echo 0)"

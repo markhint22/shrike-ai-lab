@@ -19,7 +19,7 @@ active="$(jq -r 'map(select(.enabled != false)) | .[].repo // empty' "$DIR/tasks
 for r in $active; do
   prog="$DIR/repos/$r/OVERNIGHT_PROGRESS.md"
   [ -f "$prog" ] || continue
-  d=$(grep -E '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|retired-' | wc -l | tr -d ' ')
+  d=$(grep -E '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|\(retired-' | wc -l | tr -d ' ')
   [ "${d:-0}" -lt "$MIN_DOABLE" ] && low="${low}${r}=${d} "
 done
 if [ -n "$low" ]; then

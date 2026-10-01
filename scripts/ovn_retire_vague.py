@@ -22,7 +22,7 @@ EXT = r"(py|vue|ts|tsx|js|jsx|kts|kt|gd|swift|gradle|toml|ya?ml|json|cfg|ini|sh|
 HAS_FILE  = re.compile(r"[A-Za-z0-9_./-]+\." + EXT + r"\b")
 # a relative path with a slash AND a known code extension -> existence-checkable
 SLASH_FILE = re.compile(r"[A-Za-z0-9_.-]*/[A-Za-z0-9_./-]*\." + EXT + r"\b")
-SKIP      = re.compile(r"human|HUMAN|AUTO-SKIP|decision|DELETE:|retired-", re.I)
+SKIP      = re.compile(r"human|HUMAN|AUTO-SKIP|decision|DELETE:|\(retired-", re.I)
 # A file-CREATION item legitimately names a path that does not exist yet.
 # 2026-09-25 FIX: this vocabulary was too narrow and silently ate real, correctly-
 # authored creation items across the fleet - confirmed live on gitlark: "Add a new

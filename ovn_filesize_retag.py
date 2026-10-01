@@ -27,7 +27,7 @@ import sys
 import os
 
 LINE_RE = re.compile(r"^- \[ \] \[(T[12])\]")
-PARKED_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|BLOCKED|retired-")
+PARKED_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|BLOCKED|\(retired-")
 PATH_TOKEN_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}")
 
 
