@@ -231,6 +231,8 @@ echo; echo "===== vercel state check ====="; bash test_vercel_state_check.sh || 
 echo; echo "===== deploy_health runs ====="; bash test_deploy_health_runs.sh || rc=1
 echo; echo "===== GUT report green check (root failures) ====="; bash test_gut_xml.sh || rc=1
 echo; echo "===== autotest base-sha (in-loop test feedback) ====="; bash test_autotest_basesha.sh || rc=1
+echo; echo "===== stage scope guard lists new files (-uall) ====="; bash test_stage_scope_uall.sh || rc=1
+echo; echo "===== Tier-2 fix-up direction (own test vs source broke green) ====="; bash test_fixup_direction.sh || rc=1
 echo; echo "===== QA common library + replay ====="; python3 test_qa_common.py || rc=1
 echo; echo "===== QA shadow runner ====="; bash test_qa_run_shadow.sh || rc=1
 echo; echo "===== QA mode switch ====="; bash test_qa_mode.sh || rc=1

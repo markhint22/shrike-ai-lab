@@ -129,6 +129,8 @@ source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ re
 # shellcheck source=scripts/lib_autotest_base.sh
 # 2026-10-01: per-repo switch so aider's --auto-test sees the model's auto-COMMITTED edits (state/autotest_basesha_repos.txt; default: nobody listed = unchanged behaviour).
 source "$SCRIPT_DIR/scripts/lib_autotest_base.sh" 2>/dev/null || ovn_autotest_base_export(){ unset OVN_BASE_SHA; }
+# shellcheck source=scripts/lib_fixup.sh
+source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ echo "own-test"; }; ovn_fixup_direction(){ echo "Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug."; }; }
 
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
@@ -2648,12 +2650,15 @@ Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code 
             case " ${_fixup_fileargs[*]} " in *" $_ff "*) continue;; esac
             [ "${#_fixup_fileargs[@]}" -lt 8 ] && _fixup_fileargs+=(--file "$_ff")
           done
-          echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting: ${_fixup_summary:0:200}" >> "$task_log"
+          _fixup_newtests="$(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -E '(^|/)(tests?/|__tests__/)|\.(test|spec)\.[A-Za-z]+$|(^|/)test_[^/]*$' || true)"
+          _fixup_kind="$(ovn_fixup_kind "$_fixup_summary" "$_fixup_newtests")"
+          _fixup_dir="$(ovn_fixup_direction "$_fixup_kind")"
+          echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting [${_fixup_kind}]: ${_fixup_summary:0:200}" >> "$task_log"
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_fixup_fileargs[@]}" \
             --message "The test suite is failing after your last change: ${_fixup_summary}
 
 Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your change as-is if it's working.
-All files you need are already in the chat. You cannot run commands or call tools - reply with a udiff only. Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug." \
+All files you need are already in the chat. You cannot run commands or call tools - reply with a udiff only. ${_fixup_dir}" \
             >> "$task_log" 2>&1
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then

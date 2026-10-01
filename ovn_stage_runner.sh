@@ -480,7 +480,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       # exits before the timeout. Refuse to count a killed-mid-edit change as a pass (the T4 false-pass).
       fa="timeout"; rc=1
       excerpt="aider hit the ${STEP_TIMEOUT}s step timeout (wandered/incomplete) — not a clean pass"
-    elif [ -z "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
+    elif [ -z "$(git -C "$wt" status --porcelain -uall 2>/dev/null)" ]; then
       # 2026-09-09 FIX: this used to be `git diff --quiet "$base" HEAD && git diff --quiet`, which is
       # BLIND to untracked files - `git diff` never shows a brand-new file until it's `git add`ed, so
       # a step whose ENTIRE job was creating a new file (very common: "Create backend/app/utils/x.py")
@@ -506,7 +506,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
             { printf '%s\n' "$files" | tr ' ' '\n'
               printf '%s' "$item" | sed -E 's/^\[T[0-9]\] //' | grep -oE '^[A-Za-z0-9_./-]+\.[A-Za-z0-9]+'
             } | grep -vE '^$' | sort -u)"
-          _touched="$(git -C "$wt" status --porcelain 2>/dev/null | awk '{print $2}' | sort -u)"
+          _touched="$(git -C "$wt" status --porcelain -uall 2>/dev/null | awk '{print $2}' | sort -u)"
           _extra=""
           while IFS= read -r _tf; do
             [ -z "$_tf" ] && continue
