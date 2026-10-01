@@ -25,7 +25,7 @@ _osr_stub(){ printf '%s\n' "$2" > "$1"; chmod +x "$1"; }
 osr_new(){   # build a fresh fake tree. sets T H Q O RD
   T="$(mktemp -d)"; H="$T/home"; Q="$H/overnight-queue"; O="$T/origin.git"; RD="$Q/repos/$OSR_REPO"
   mkdir -p "$Q/scripts" "$Q/state" "$Q/logs" "$Q/assets" "$H/aider-venv/bin" "$H/godot" "$T/scn" "$T/llm" "$Q/repos"
-  cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$Q/scripts/"
+  cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$REALQ/scripts/lib_gut_xml.sh" "$Q/scripts/"
   cp "$REALQ/ovn_classify_fail.sh" "$Q/"
   echo '# godot4 rules' > "$Q/assets/GODOT4.md"; echo '{}' > "$Q/model-metadata.json"
   _osr_stub "$Q/scripts/ovn_log_tokens.sh" '#!/usr/bin/env bash

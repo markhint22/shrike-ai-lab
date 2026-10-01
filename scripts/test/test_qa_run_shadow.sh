@@ -26,7 +26,7 @@ ok "slow gate was cut off by the timeout" "$(grep -qE 'slow: NO-OUTPUT .* [0-9]s
 ok "all three gates ran" "$(grep -q 'done (3 gate' "$L" && echo 1 || echo 0)"
 ( cd "$Q/qa" && env -i HOME="$HOME" PATH=/usr/bin:/bin OVN_DIR="$T/ovn" QA_GATE_TIMEOUT=2 bash ./qa_run_shadow.sh ) >/dev/null 2>&1
 ok "missing arguments: prints usage, exits 0" "$([ $? = 0 ] && echo 1 || echo 0)"
-OVN_QA_SHADOW=off bash "$T/ovn/qa/qa_run_shadow.sh" demo a b; ok "kill switch OVN_QA_SHADOW=off exits 0 without running" "$(tail -1 "$L" | grep -q 'disabled' && echo 1 || echo 0)"
+OVN_DIR="$T/ovn" OVN_QA_SHADOW=off bash "$T/ovn/qa/qa_run_shadow.sh" demo a b; ok "kill switch OVN_QA_SHADOW=off exits 0 without running" "$(tail -1 "$L" | grep -q 'disabled' && echo 1 || echo 0)"
 # lock contention (works with either flock or the mkdir fallback): hold the lock the same way the script does, second run must skip
 if PATH=/usr/bin:/bin command -v flock >/dev/null 2>&1; then
   ( exec 8>"$T/ovn/state/qa_shadow.lock"; flock 8; env -i HOME="$HOME" PATH=/usr/bin:/bin QA_LOCK_WAIT=1 bash "$T/ovn/qa/qa_run_shadow.sh" demo x y )

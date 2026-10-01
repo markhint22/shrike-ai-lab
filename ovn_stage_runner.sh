@@ -86,6 +86,8 @@ source scripts/lib_lock.sh
 source scripts/lib_pytest_parallel.sh 2>/dev/null || ovn_pytest_par_args(){ :; }
 # shellcheck source=scripts/lib_tree_guard.sh
 source scripts/lib_tree_guard.sh 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
+# 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites.
+source scripts/lib_gut_xml.sh 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
@@ -627,7 +629,7 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     ( cd "$wt" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >>"$vlog" 2>&1
     local xml; xml="$(mktemp)"
     ( cd "$wt" && timeout 90 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit "-gjunit_xml_file=$xml" ) >> "$vlog" 2>&1
-    { [ -s "$xml" ] && grep -q 'failures="0"' "$xml" && ! grep -q 'status="no asserts"' "$xml"; } || vok=0
+    { [ -s "$xml" ] && gut_xml_green "$xml"; } || { vok=0; echo "-- GUT RED: $(gut_xml_summary "$xml") --" >> "$vlog"; }
     grep -qiE 'Failed to load script|Failed to compile|Parse Error' "$vlog" && vok=0; rm -f "$xml"
   fi
   # WEB: vitest full run (reuse provisioned node_modules)

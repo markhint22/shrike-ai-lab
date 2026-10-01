@@ -123,6 +123,9 @@ STATE_DIR="$SCRIPT_DIR/state"
 source "$SCRIPT_DIR/scripts/lib_item_select.sh" 2>/dev/null || true
 # shellcheck source=scripts/lib_tree_guard.sh
 source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
+# shellcheck source=scripts/lib_gut_xml.sh
+# 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites (xlite main red since 09-29).
+source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
 
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
@@ -608,8 +611,9 @@ run_repo_verification() {
         # (Risky) rather than a failure - the JUnit failures count stays 0 even
         # though the test proved nothing. Treat any no-asserts testcase as a
         # real failure too.
-        if [ ! -s "$XML_OUT" ] || ! grep -qE 'failures="0"' "$XML_OUT" || grep -qE 'status="no asserts"' "$XML_OUT"; then
+        if [ ! -s "$XML_OUT" ] || ! gut_xml_green "$XML_OUT"; then
           any_failed=1
+          echo "--- GUT RED: $(gut_xml_summary "$XML_OUT")" >> "$task_log"
         fi
         # GUT only tests res://tests - a genuine compile error elsewhere in the
         # project (confirmed live: a new script with a bad type annotation broke

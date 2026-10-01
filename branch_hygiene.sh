@@ -50,6 +50,9 @@ source "$SCRIPT_DIR/scripts/lib_lock.sh"
 source "$SCRIPT_DIR/scripts/lib_pytest_parallel.sh" 2>/dev/null || ovn_pytest_par_args(){ :; }
 # shellcheck source=./scripts/lib_tree_guard.sh
 source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_abs_symlinks(){ :; }
+# shellcheck source=./scripts/lib_gut_xml.sh
+# 2026-10-01: correct GUT green check (root <testsuites failures/errors) - the old grep 'failures="0"' matched any per-file line and passed red suites.
+source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
 FEAT="${HYGIENE_FEATURE_BRANCH:-overnight/feature}"  # land which agent branch: overnight/feature (27B) | claude/feature (Claude)
 NOW_EPOCH="$(date +%s)"
 
@@ -280,7 +283,7 @@ run_gate() {
       # battle.gd compile break. Scan for the load/compile-failure signatures.
       # (NOT bare "SCRIPT ERROR": vendored gut_loader.gd emits a benign one each run.)
       if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
-      if [ ! -s "$xml" ] || ! grep -qE 'failures="0"' "$xml" || grep -qE 'status="no asserts"' "$xml"; then rm -f "$xml" "$gout"; return 1; fi
+      if [ ! -s "$xml" ] || ! gut_xml_green "$xml"; then log "  GUT RED: $(gut_xml_summary "$xml")"; rm -f "$xml" "$gout"; return 1; fi
       rm -f "$xml"
     fi
     rm -f "$gout"; ran=1

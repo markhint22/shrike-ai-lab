@@ -229,5 +229,10 @@ echo; echo "===== retired filter ====="; bash test_retired_filter.sh || rc=1
 echo; echo "===== park unworkable ====="; bash test_park_unworkable.sh || rc=1
 echo; echo "===== vercel state check ====="; bash test_vercel_state_check.sh || rc=1
 echo; echo "===== deploy_health runs ====="; bash test_deploy_health_runs.sh || rc=1
+echo; echo "===== GUT report green check (root failures) ====="; bash test_gut_xml.sh || rc=1
+echo; echo "===== QA common library + replay ====="; python3 test_qa_common.py || rc=1
+echo; echo "===== QA shadow runner ====="; bash test_qa_run_shadow.sh || rc=1
+echo; echo "===== QA mode switch ====="; bash test_qa_mode.sh || rc=1
+echo; echo "===== QA manual notes loop ====="; python3 test_qa_manual_notes.py || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

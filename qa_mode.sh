@@ -25,7 +25,7 @@ case "$cmd" in
     [ -f "$S" ] && jq -e '.mode=="qa"' "$S" >/dev/null 2>&1 && { echo "already in QA mode"; exit 0; }
     mapfile -t lanes < <(enabled_lanes)
     [ "${#lanes[@]}" -gt 0 ] || { echo "no enabled dev lanes found"; exit 1; }
-    printf '%s\n' "${lanes[@]}" | jq -R . | jq -s --arg ts "$(date -Is)" '{mode:"qa",since:$ts,disabled_lanes:.,temp_lanes:[]}' > "$S"
+    printf '%s\n' "${lanes[@]}" | jq -R . | jq -s --arg ts "$(date '+%Y-%m-%dT%H:%M:%S%z')" '{mode:"qa",since:$ts,disabled_lanes:.,temp_lanes:[]}' > "$S"
     set_enabled false "${lanes[@]}" && echo "QA mode ON - disabled ${#lanes[@]} dev lane(s): ${lanes[*]}" ;;
   off)
     [ -f "$S" ] || { echo "not in QA mode"; exit 0; }
