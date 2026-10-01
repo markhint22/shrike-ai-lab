@@ -271,6 +271,36 @@ def queue_depths():
     return out
 
 
+def _pass_counts(rows):
+    """(good, bad) over outcome rows, using the canonical severity axis (benign/skip/error excluded)."""
+    good = sum(1 for r in rows if r.get("severity") == "good")
+    bad = sum(1 for r in rows if r.get("severity") == "bad")
+    return good, bad
+
+
+def _pct(good, bad):
+    return "%d%%" % round(100.0 * good / (good + bad)) if (good + bad) else "-"
+
+
+def stats_line(t, rows_hour):
+    """'Pass rate: last hour 5/6 (83%) · today 40/46 (87%)' + a per-tier split for today."""
+    lt = time.localtime(t)
+    midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    today = _outcomes_since(midnight)
+    gh, bh = _pass_counts(rows_hour)
+    gd, bd = _pass_counts(today)
+    out = "Pass rate: last hour %d/%d (%s) · today %d/%d (%s)" % (gh, gh + bh, _pct(gh, bh), gd, gd + bd, _pct(gd, bd))
+    tiers = {}
+    for r in today:
+        sev = r.get("severity")
+        if sev in ("good", "bad"):
+            g, b = tiers.get(str(r.get("tier") or "?"), (0, 0))
+            tiers[str(r.get("tier") or "?")] = (g + (sev == "good"), b + (sev == "bad"))
+    if tiers:
+        out += "\nBy tier today: " + " · ".join("T%s %d/%d" % (k, g, g + b) for k, (g, b) in sorted(tiers.items()))
+    return out
+
+
 def compose_update(window=3600, at=None):
     """Return (title, body, needs_count). Pure function of state + the clock (`at` for tests)."""
     t = at or now()
@@ -297,7 +327,7 @@ def compose_update(window=3600, at=None):
         needs.append(n)
     recovered = [n["title"] for n in needs if re.search(r"recover", n["title"], re.I)]
     needs = [n for n in needs if not re.search(r"recover|start|complete|fixed|\bok\b", n["title"], re.I)]
-    lines = []
+    lines = [stats_line(t, rows)]
     tot = sum(landed.values())
     if tot:
         lines.append("Landed %d: %s" % (tot, " · ".join("%s %d" % (k, v) for k, v in sorted(landed.items(), key=lambda kv: -kv[1]))))

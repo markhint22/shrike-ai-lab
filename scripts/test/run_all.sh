@@ -226,5 +226,6 @@ echo; echo "===== ovn notify ====="; bash test_ovn_notify.sh || rc=1
 echo; echo "===== retired filter ====="; bash test_retired_filter.sh || rc=1
 echo; echo "===== park unworkable ====="; bash test_park_unworkable.sh || rc=1
 echo; echo "===== vercel state check ====="; bash test_vercel_state_check.sh || rc=1
+echo; echo "===== deploy_health runs ====="; bash test_deploy_health_runs.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

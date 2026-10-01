@@ -126,7 +126,7 @@ merge_sanity_ok(){
       *.sh) bash -n "$wt/$f" >/dev/null 2>&1 || { bad="$f: shell syntax error"; break; } ;;
       *.json) python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$wt/$f" >/dev/null 2>&1 || { bad="$f: invalid json"; break; } ;;
     esac
-  done < <(comm -12 <(git -C "$wt" diff --name-only "$base" "origin/${tgt}" 2>/dev/null | sort) <(git -C "$wt" diff --name-only "$base" "origin/${src}" 2>/dev/null | sort))
+  done < <(LC_ALL=C comm -12 <(git -C "$wt" diff --name-only "$base" "origin/${tgt}" 2>/dev/null | LC_ALL=C sort) <(git -C "$wt" diff --name-only "$base" "origin/${src}" 2>/dev/null | LC_ALL=C sort))
   [ -z "$bad" ] && return 0
   echo "$bad"; return 1
 }

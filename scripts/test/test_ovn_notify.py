@@ -92,6 +92,9 @@ ok("quiet hour: 'all good' title", t == "✅ Shrike hourly — all good" and n =
 ok("landed line counts per repo, biggest first, old rows excluded", "Landed 4: gitlark 3 · billwatch 1" in b and "old" not in b)
 ok("reverts are shown in plain words", "Undone (broke tests): gitlark 1" in b)
 ok("low queue is named with its count (website ignored)", "Queues low: gitlark (3)" in b and "website" not in b)
+ok("pass counts use the canonical severity axis (neutral/benign excluded)", N._pass_counts([{"severity": "good"}] * 5 + [{"severity": "bad"}] + [{"severity": "neutral"}] * 3) == (5, 1))
+ok("percent helper: 5/6 -> 83%, no data -> '-'", N._pct(5, 1) == "83%" and N._pct(0, 0) == "-")
+ok("every hourly update carries a pass-rate line (last hour + today)", "Pass rate: last hour" in b and "today" in b)
 for ti, bo, pr in (("Hygiene stalled — gate red on a feature branch", "gitlark has not merged in 3h. More.", "high"), ("Hygiene stalled — gate red on a feature branch", "dup", "high"), ("Deploy failed: x (human)", "needs you", "urgent"), ("✅ Recovered: gitlark-backend", "ok", "low"), ("a", "b", "default"), ("c", "d", "default"), ("e", "f", "low")):
     N.add_note(ti, bo, pr)
 t, b, n = N.compose_update(at=now)
