@@ -8,7 +8,16 @@ set -uo pipefail
 root="${1:-.}"
 cd "$root" 2>/dev/null || exit 0
 
-changed="$( { git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard; } 2>/dev/null | sort -u )"
+# 2026-10-01 FIX (feedback-loops analysis): run_overnight.sh lets aider AUTO-COMMIT each edit, and aider runs --test-cmd AFTER that commit,
+# so the tree is clean and the plain `git diff` list below was EMPTY -> this script exited 0 on every edit: the in-loop test/type-check
+# feedback never reached the model for T1/T2 and the ongoing-* lanes (~2,600 cycles/14d; 400 NO-NEW-RED + 237 build-break reverts followed).
+# Diff against the pre-implement SHA (OVN_BASE_SHA, exported per repo by run_overnight.sh via scripts/lib_autotest_base.sh) so committed AND
+# uncommitted edits are both seen. No/invalid OVN_BASE_SHA (the staged runner uses --no-auto-commits) -> behaviour unchanged.
+if [ -n "${OVN_BASE_SHA:-}" ] && git rev-parse -q --verify "${OVN_BASE_SHA}^{commit}" >/dev/null 2>&1; then
+  changed="$( { git diff --name-only "$OVN_BASE_SHA" -- .; git ls-files --others --exclude-standard; } 2>/dev/null | sort -u )"
+else
+  changed="$( { git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard; } 2>/dev/null | sort -u )"
+fi
 [ -z "$changed" ] && exit 0
 
 # ---- GODOT (gdscript): validate every changed .gd so the model gets a real feedback loop ----

@@ -126,6 +126,9 @@ source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_unstage_abs_sy
 # shellcheck source=scripts/lib_gut_xml.sh
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites (xlite main red since 09-29).
 source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
+# shellcheck source=scripts/lib_autotest_base.sh
+# 2026-10-01: per-repo switch so aider's --auto-test sees the model's auto-COMMITTED edits (state/autotest_basesha_repos.txt; default: nobody listed = unchanged behaviour).
+source "$SCRIPT_DIR/scripts/lib_autotest_base.sh" 2>/dev/null || ovn_autotest_base_export(){ unset OVN_BASE_SHA; }
 
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
@@ -2006,6 +2009,7 @@ ${full_prompt}"
       ARCH_ARGS=(--architect --auto-accept-architect)
       echo "--- architect mode ON for this hard item ---" >> "$task_log"
     fi
+    ovn_autotest_base_export "$(basename "$PWD")" "$BEFORE_SHA" "$SCRIPT_DIR/state"   # in-loop test feedback fix (per-repo opt-in)
     ATTEMPT=1
     while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
       echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
