@@ -11,7 +11,7 @@ for r in "$@"; do
   out=$(python3 strip_repo_prefix.py "$r" "$f" 2>&1)
   n=$(echo "$out" | grep -oE 'STRIPPED=[0-9]+' | cut -d= -f2); n=${n:-0}
   if [ "$n" -gt 0 ]; then
-    ( cd "repos/$r" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "fix(queue): strip wrong '$r/' path prefix from $n in-flight items" && (git push -q origin overnight/feature || (git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature)) ) && echo "$r: fixed $n in-flight items" || echo "$r: push failed"
+    ( cd "repos/$r" && git add OVERNIGHT_PROGRESS.md && git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "fix(queue): strip wrong '$r/' path prefix from $n in-flight items" && (git push -q origin overnight/feature || (git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature)) ) && echo "$r: fixed $n in-flight items" || echo "$r: push failed"
   else
     echo "$r: no prefixed items (clean)"
   fi

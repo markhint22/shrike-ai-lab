@@ -109,7 +109,7 @@ PYEOF
 )"
   if [ "$changed" = "CHANGED" ]; then
     ( cd "$wt" && git add OVERNIGHT_PROGRESS.md \
-      && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): dedupe + credit already-satisfied items (health sweep)" )
+      && git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): dedupe + credit already-satisfied items (health sweep)" )
     if [ "$(wt_push "$wt" overnight/feature)" = ok ]; then
       say "$r: dedupe/credit changes committed and pushed"
     else

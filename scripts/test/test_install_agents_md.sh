@@ -52,7 +52,7 @@ cd "$T"; bash "$SUT" > "$T/out" 2> "$T/err"; rc=$?
 ok "script exits 0 regardless of per-repo outcomes" "$([ $rc = 0 ] && echo 1 || echo 0)"
 warn "KNOWN-BUG: billwatch: repo WITHOUT an AGENTS.md: new file installed, reports line count (install_agents_md.sh:~17: 'git diff --quiet -- AGENTS.md' is 0 for an UNTRACKED file, so a first-time install is reported 'unchanged' and never committed)" "$(grep -qx 'billwatch: installed AGENTS.md (3 lines)' "$T/out" && echo 1 || echo 0)"
 warn "KNOWN-BUG: billwatch: first-time AGENTS.md content reached origin/overnight/feature" "$([ "$(remote_file billwatch AGENTS.md | head -1)" = '# billwatch agents' ] && echo 1 || echo 0)"
-warn "KNOWN-BUG: billwatch: first-time install commit authored by shrike-fleet with docs(agents) message" "$(remote_log billwatch | head -1 | grep -q '^shrike-fleet|fleet@shrike.local|docs(agents): tight AGENTS.md' && echo 1 || echo 0)"
+warn "KNOWN-BUG: billwatch: first-time install commit authored by shrike-fleet with docs(agents) message" "$(remote_log billwatch | head -1 | grep -q '^shrike-fleet|22970726+markhint22@users.noreply.github.com|docs(agents): tight AGENTS.md' && echo 1 || echo 0)"
 ok "billwatch: local dirty tracked file reset to origin state" "$([ "$(cat "$Q/repos/billwatch/other.txt")" = other ] && echo 1 || echo 0)"
 warn "KNOWN-BUG: billwatch: only AGENTS.md changed in the new commit" "$([ "$(g --git-dir="$T/origin_billwatch.git" show --name-only --format= overnight/feature)" = AGENTS.md ] && echo 1 || echo 0)"
 ok "gitlark: identical content -> 'unchanged (N lines)', no new commit" "$(grep -qx 'gitlark: AGENTS.md unchanged (1 lines)' "$T/out" && [ "$(remote_log gitlark | wc -l | tr -d ' ')" = 1 ] && echo 1 || echo 0)"

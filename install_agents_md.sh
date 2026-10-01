@@ -19,7 +19,7 @@ for r in billwatch gitlark iptv_apps test-automation-agent shrike-notify shrike-
   else
     ( cd "repos/$r"
       git add AGENTS.md
-      git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "docs(agents): tight AGENTS.md (<=150 lines) for the coding model (repo map + commands + conventions + gotchas)"
+      git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "docs(agents): tight AGENTS.md (<=150 lines) for the coding model (repo map + commands + conventions + gotchas)"
       git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
     ) && echo "$r: installed AGENTS.md ($lines lines)" || echo "$r: push failed"
   fi

@@ -31,7 +31,7 @@ for r in $repos; do
   if [ "$retagged" -gt 0 ]; then
     ( cd "repos/$r"
       git add OVERNIGHT_PROGRESS.md
-      git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): retag $retagged large-file item(s) T1/T2->T3 (routes to staged pipeline)"
+      git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): retag $retagged large-file item(s) T1/T2->T3 (routes to staged pipeline)"
       git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
     ) && log "$r: retagged $retagged large-file item(s)" || log "$r: retag push FAILED"
   else

@@ -16,7 +16,7 @@ for r in "$@"; do
   if [ "$moved" -gt 0 ]; then
     ( cd "repos/$r"
       git add OVERNIGHT_PROGRESS.md OVERNIGHT_DONE.md
-      git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): archive $moved completed items out of OVERNIGHT_PROGRESS.md (keep fed context small)"
+      git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): archive $moved completed items out of OVERNIGHT_PROGRESS.md (keep fed context small)"
       git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
     ) && echo "$r: archived $moved done items ($before -> $(wc -l < "$f") lines)" || echo "$r: push failed"
   else

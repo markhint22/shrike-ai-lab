@@ -297,7 +297,7 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
     wt="$(wt_open "$rd" overnight/feature)"
     if [ -n "$wt" ]; then
       sed -i -E "${lnno}s/\[(AUTO-SKIP|HUMAN-ONLY BLOCKED ITEM)/[\1 recovery:none/" "$wt/OVERNIGHT_PROGRESS.md" 2>/dev/null
-      ( cd "$wt" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): mark $r parked item recovery-attempted (no decomposition)" >/dev/null 2>&1 )
+      ( cd "$wt" && git add OVERNIGHT_PROGRESS.md && git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): mark $r parked item recovery-attempted (no decomposition)" >/dev/null 2>&1 )
       wt_push "$wt" overnight/feature >/dev/null 2>&1 || say "$r: recovery:none tag push failed (non-fatal — next run re-derives the same tag)"
       wt_close "$rd" "$wt"
     else
@@ -336,7 +336,7 @@ lines[ln:ln] = [""] + [hdr] + items
 open(f, "w", encoding="utf-8").write("\n".join(lines))
 PY
     rm -f "$items_file" "$hdr_file"
-    ( cd "$wt" && git add OVERNIGHT_PROGRESS.md && git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "feat(queue): recover parked $r item -> ${cnt} smaller sub-item(s)" >/dev/null 2>&1 )
+    ( cd "$wt" && git add OVERNIGHT_PROGRESS.md && git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "feat(queue): recover parked $r item -> ${cnt} smaller sub-item(s)" >/dev/null 2>&1 )
     if [ "$(wt_push "$wt" overnight/feature)" = ok ]; then
       say "$r: replaced parked item with ${cnt} recovered sub-item(s)"
       did=$((did+1))

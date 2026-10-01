@@ -58,7 +58,7 @@ PY
 )"
   [ "${n:-0}" -gt 0 ] || return 0
   ( cd "repos/$r" && git add OVERNIGHT_PROGRESS.md &&
-    git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): route $n godot(.gd) items to Claude — 27B can't do Godot; keep it on code it can land" &&
+    git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): route $n godot(.gd) items to Claude — 27B can't do Godot; keep it on code it can land" &&
     { git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } ) &&
     echo "$(date '+%F %T') stage-sweep: routed $n godot $r items to Claude" >> logs/ovn_stage_runner.log
 }

@@ -52,7 +52,7 @@ open(pf, "w", encoding="utf-8").write("".join(out))
 PY
   ( cd "repos/$repo"
     git add OVERNIGHT_PROGRESS.md
-    git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "fix(queue): [EMERGENCY] ${area} suite red — triage+fix queued by test-watch"
+    git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "fix(queue): [EMERGENCY] ${area} suite red — triage+fix queued by test-watch"
     git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
   ) && log "$repo/$area: EMERGENCY fix item queued + pushed"
   curl -fsS --max-time 8 -H "Title: ${repo} ${area} tests are red" -H "Tags: rotating_light" -H "Priority: high" \

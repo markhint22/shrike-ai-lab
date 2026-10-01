@@ -28,7 +28,7 @@ for r in $repos; do
   if [ "$retagged" -gt 0 ]; then
     ( cd "repos/$r"
       git add OVERNIGHT_PROGRESS.md
-      git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): AUTO-SKIP $retagged swift item(s) — no Linux build-check path, route to Claude"
+      git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): AUTO-SKIP $retagged swift item(s) — no Linux build-check path, route to Claude"
       git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
     ) && log "$r: AUTO-SKIPped $retagged swift item(s)" || log "$r: retag push FAILED"
   else

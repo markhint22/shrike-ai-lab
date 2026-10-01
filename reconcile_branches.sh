@@ -95,7 +95,7 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
   run_gate "$abs_repo" "$wt" > "$HOME/overnight-queue/logs/reconcile_gate_last.log" 2>&1; local grc=$?
   [ "$grc" -ne 0 ] && return 1   # reject on FAIL(1) and on NOTHING-TO-CHECK(2) alike - no gate, no trust
   git -C "$wt" add -A
-  git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q \
+  git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q \
     -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard, LLM-assisted conflict resolution, gate=tests-green)" >/dev/null 2>&1
 }
 
@@ -163,7 +163,7 @@ merge_into(){
   # never the unrelated shared local ref.
   git -C "$wt" checkout -B "$tgt" "origin/${tgt}" --quiet 2>/dev/null
   local rc=conflict
-  if git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet merge --no-ff --no-edit -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard)" "origin/${src}" >/dev/null 2>&1; then
+  if git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet merge --no-ff --no-edit -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard)" "origin/${src}" >/dev/null 2>&1; then
     # timeout on every network call (2026-09-15): an unbounded git push/pull
     # here used to be able to hang indefinitely while holding fd 202
     # (run.lock) from the fleet_autofix.sh caller - see that script's own

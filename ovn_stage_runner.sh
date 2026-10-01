@@ -539,7 +539,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       '{run:$r,step:$i,desc:$d,files:$f,attempt:$a,verdict:$v,fail_reason:$fr,duration_s:$dur,tokens_sent:$ts,tokens_recv:$tr,tok_s:$tps,diffstat:$ds,excerpt:$ex}')"
     if [ "$rc" -eq 0 ]; then
       say "  step $idx PASS (att $att, ${dur}s, ${dstat:-nostat}): ${desc:0:55}"
-      git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "feat($repo): staged step $idx — ${desc:0:60}" 2>/dev/null
+      git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "feat($repo): staged step $idx — ${desc:0:60}" 2>/dev/null
       return 0
     fi
     say "  step $idx att $att FAIL ($fa, ${dur}s): ${excerpt:0:90}"
@@ -827,7 +827,7 @@ try_regen(){  # $1 = verify log
   ( cd "$rundir" && timeout 120 bash -c "$cmd" ) >> "$vlog" 2>&1 || return 1
   git -C "$wt" add -A 2>/dev/null; ovn_unstage_abs_symlinks "$wt"
   git -C "$wt" diff --cached --quiet 2>/dev/null && return 1   # nothing actually regenerated
-  git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore($repo): regenerate stale artifact so verification passes" 2>/dev/null
+  git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore($repo): regenerate stale artifact so verification passes" 2>/dev/null
   return 0
 }
 
@@ -872,7 +872,7 @@ $reason"
           ${repair_fargs[@]+"${repair_fargs[@]}"} --message "$rmsg" ) >> "$local_vlog" 2>&1
       if full_verify; then
         VERIFIED=1; passed="$NSTEPS"
-        git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "fix($repo): repair staged item to pass verification (round $_rr)" 2>/dev/null
+        git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "fix($repo): repair staged item to pass verification (round $_rr)" 2>/dev/null
         say "REPAIR PASSED (round $_rr) — verified after fixing the flagged failure"
       fi
     done
@@ -927,7 +927,7 @@ for i,ln in enumerate(lines):
 PY
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {
       git add OVERNIGHT_PROGRESS.md
-      git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): mark staged T$tier item ($passed/$NSTEPS) so it isn't re-run"
+      git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): mark staged T$tier item ($passed/$NSTEPS) so it isn't re-run"
       git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
 elif [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -eq 0 ] && [ -z "$item_arg" ]; then
@@ -952,7 +952,7 @@ for i,ln in enumerate(lines):
 PY
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {
       git add OVERNIGHT_PROGRESS.md
-      git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): escalate staged T$tier item to Claude (27B couldn't land it)"
+      git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): escalate staged T$tier item to Claude (27B couldn't land it)"
       git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
   say "escalated to Claude (staged pipeline landed 0/$NSTEPS — beyond the 27B)"

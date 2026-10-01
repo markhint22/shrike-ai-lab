@@ -32,7 +32,7 @@ for r in $repos; do
   if [ "$moved" -gt 0 ]; then
     ( cd "repos/$r"
       git add OVERNIGHT_PROGRESS.md
-      git -c user.email=fleet@shrike.local -c user.name=shrike-fleet commit -q -m "chore(queue): sweep $moved parked (AUTO-SKIP/HUMAN-ONLY) item(s) out of the active flow"
+      git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): sweep $moved parked (AUTO-SKIP/HUMAN-ONLY) item(s) out of the active flow"
       git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
     ) && log "$r: swept $moved parked item(s)" || log "$r: sweep push FAILED"
   else
