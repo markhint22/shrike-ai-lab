@@ -64,6 +64,7 @@ pystub(){ # $1=repo dir  $2=mode  [$3=subdir]
     red)     printf '#!/usr/bin/env bash\necho "FAILED tests/test_a.py::test_x - AssertionError"\necho "ERROR tests/test_b.py"\necho "2 failed, 3 passed in 1s"\nexit 1\n' ;;
     errnolines) printf '#!/usr/bin/env bash\necho "3 error in 0.5s"\nexit 2\n' ;;
     timeout) printf '#!/usr/bin/env bash\nexit 124\n' ;;
+    flaky)   printf '#!/usr/bin/env bash\nc="$(dirname "$0")/.n"; n=$(cat "$c" 2>/dev/null || echo 0); echo $((n+1)) > "$c"\nif [ "$n" = 0 ]; then echo "FAILED tests/test_flaky.py::t"; echo "1 failed in 1s"; exit 1; fi\necho "4 passed in 1s"; exit 0\n' ;;
   esac > "$d/.venv/bin/pytest"
   chmod +x "$d/.venv/bin/pytest"
 }
@@ -77,6 +78,7 @@ webpkg(){ # $1=repo $2=mode(red|green|timeout) $3=vitest?(1/0) $4=provisioned?(1
 # ---------------- repos ----------------
 mkclone r_py_red;     pystub r_py_red red
 mkclone r_py_green;   pystub r_py_green green
+mkclone r_py_flaky;   pystub r_py_flaky flaky
 mkclone r_py_timeout; pystub r_py_timeout timeout
 mkclone r_py_errnl;   pystub r_py_errnl errnolines
 mkclone r_py_nested;  pystub r_py_nested red backend
@@ -96,7 +98,7 @@ mkdir -p "$R/repos/r_nosync"; ( cd "$R/repos/r_nosync" && git init -q -b main &&
 git -C "$R/repos/r_py_red" config user.email t@t >/dev/null
 
 # sanity: untracked stubs survive reset; commit progress (already in base). Run the watchdog with explicit repo list.
-ALL="r_missing r_nosync r_py_red r_py_green r_py_timeout r_py_errnl r_py_nested r_py_nohdr r_py_closed r_py_noprog r_web_red r_web_timeout r_web_green r_web_noprov r_web_novitest r_gd_red r_gd_green r_gd_nogut"
+ALL="r_missing r_nosync r_py_red r_py_flaky r_py_green r_py_timeout r_py_errnl r_py_nested r_py_nohdr r_py_closed r_py_noprog r_web_red r_web_timeout r_web_green r_web_noprov r_web_novitest r_gd_red r_gd_green r_gd_nogut"
 run(){ OUT="$(cd "$H" && HOME="$H" bash "$TW" "$@" 2>&1)"; RC=$?; }
 run $ALL
 ok "run 1 exits 0" "$([ "$RC" = 0 ] && echo 1 || echo 0)"
@@ -105,6 +107,7 @@ ok "missing clone skipped" "$(has 'r_missing: no clone — skip')"
 ok "git sync failure skipped" "$(has 'r_nosync: git sync failed — skip')"
 ok "pytest green logged with pass count" "$(has 'r_py_green: pytest green in r_py_green (12 passed)')"
 ok "pytest red logged with FAILED/ERROR detail" "$(has 'r_py_red: pytest RED in r_py_red — FAILED tests/test_a.py::test_x')"
+ok "flaky red (green on re-run) is NOT filed as an emergency" "$([ "$(has 're-running once to rule out contention')" = 1 ] && [ "$(has 'r_py_flaky: pytest green in r_py_flaky (4 passed)')" = 1 ] && ! git -C "$ORG/r_py_flaky.git" show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q EMERGENCY && echo 1 || echo 0)"
 ok "pytest timeout is RED not green" "$(has 'pytest TIMED OUT in r_py_timeout after 600s')"
 ok "pytest 'N error' without FAILED lines falls back to summary line" "$(has 'r_py_errnl: pytest RED in r_py_errnl — 3 error in 0.5s')"
 ok "nested .venv (backend/) discovered, area uses basename" "$(has 'r_py_nested: pytest RED in backend')"
@@ -119,6 +122,7 @@ ok "godot project without addons/gut ignored" "$(printf '%s' "$OUT" | grep -q 'r
 
 fetch_prog(){ git -C "$ORG/$1.git" show "overnight/feature:OVERNIGHT_PROGRESS.md" 2>/dev/null; }
 ok "EMERGENCY item pushed to origin for pytest red, inserted right under '## Next Steps'" "$(fetch_prog r_py_red | sed -n '/## Next Steps/{n;p;}' | grep -q '\[EMERGENCY\]\[T2\] r_py_red pytest suite is RED' && echo 1 || echo 0)"
+ok "EMERGENCY item names the failing test file so the fleet preloads it" "$(fetch_prog r_py_red | grep -q 'Files to read and fix: `tests/test_a.py`' && echo 1 || echo 0)"
 ok "EMERGENCY detail carries the failing tests" "$(fetch_prog r_py_red | grep -q 'Failing: FAILED tests/test_a.py::test_x' && echo 1 || echo 0)"
 ok "timeout EMERGENCY text mentions 600s" "$(fetch_prog r_py_timeout | grep -q 'did not finish within 600s' && echo 1 || echo 0)"
 ok "vitest timeout EMERGENCY text mentions 400s" "$(fetch_prog r_web_timeout | grep -q 'did not finish within 400s' && echo 1 || echo 0)"
@@ -140,7 +144,7 @@ ok "run 2: open emergency already queued -> skipped" "$([ "$(has 'emergency alre
 # ---- run 3: lock not acquirable -> bail out cleanly ----
 touch "$FLOCK_FAIL"
 run r_py_green
-ok "run.lock timeout -> skip pass, exit 0" "$([ "$RC" = 0 ] && [ "$(has 'could not acquire run.lock in 20min')" = 1 ] && [ "$(has 'sweep start')" = 0 ] && echo 1 || echo 0)"
+ok "run.lock timeout -> skip pass, exit 0" "$([ "$RC" = 0 ] && [ "$(has 'could not acquire run.lock in 60min')" = 1 ] && [ "$(has 'sweep start')" = 0 ] && echo 1 || echo 0)"
 rm -f "$FLOCK_FAIL"
 
 # ---- run 4: default REPOS list (no args) is iterated; absent clones just skip ----

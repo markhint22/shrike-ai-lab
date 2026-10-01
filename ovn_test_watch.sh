@@ -19,14 +19,21 @@ log(){ echo "$(date '+%F %T') $*"; }
 
 # ---- serialize on the cycle lock: WAIT for a running cycle, never interrupt it ----
 exec 200>state/run.lock
-if ! flock -w 1200 200; then log "could not acquire run.lock in 20min — skipping this health pass"; exit 0; fi
+if ! flock -w 3600 200; then log "could not acquire run.lock in 60min — skipping this health pass"; exit 0; fi
 log "=== test-health sweep start ==="
 
+# backticked repo-relative paths of the failing test files found in $2 (subdir prefix $1), so the fleet's
+# preloader hands them to the model - an item naming no file left the 27B "unable to guess their contents".
+files_from(){
+  local sub="${1:-}" pre=""; sub="${sub#/}"; [ -n "$sub" ] && pre="${sub}/"
+  printf '%s' "$2" | grep -oE '(src|tests?|app)/[A-Za-z0-9_./@-]+\.(py|ts|tsx|js|vue|gd)' | sort -u | head -3 | sed "s#^#\`${pre}#; s#\$#\`#" | paste -sd' ' -
+}
+
 emergency_enqueue(){ # $1=repo $2=area $3=failing-detail
-  local repo="$1" area="$2" detail="$3"
+  local repo="$1" area="$2" detail="$3" files="${4:-}"
   local pf="repos/$repo/OVERNIGHT_PROGRESS.md"
   [ -f "$pf" ] || return 0
-  local item="- [ ] [EMERGENCY][T2] ${area} suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing: ${detail}"
+  local item="- [ ] [EMERGENCY][T2] ${area} suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing: ${detail}${files:+ Files to read and fix: ${files}}"
   # already filed an OPEN emergency for this area? don't pile duplicates. 2026-09-16 FIX: this
   # used to grep -F the whole file, matching RETIRED/closed items too (a "- [x] (retired-...)"
   # line from a stale-clone auto-retirement sweep counted as "already queued" forever after) —
@@ -53,7 +60,7 @@ PY
   ( cd "repos/$repo"
     git add OVERNIGHT_PROGRESS.md
     git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "fix(queue): [EMERGENCY] ${area} suite red — triage+fix queued by test-watch"
-    git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
+    git push -q origin overnight/feature || { git pull -q --rebase --autostash origin overnight/feature && git push -q origin overnight/feature; }
   ) && log "$repo/$area: EMERGENCY fix item queued + pushed"
   curl -fsS --max-time 8 -H "Title: ${repo} ${area} tests are red" -H "Tags: rotating_light" -H "Priority: high" \
     -d "The full-suite watchdog found ${area} failing in ${repo}. An [EMERGENCY] triage+fix item was queued at the top of its Next Steps — the fleet will work it first next cycle. Failing: ${detail:0:300}" \
@@ -79,6 +86,12 @@ for r in $REPOS; do
     # separately from the tail-for-logging step, so a timeout is its own explicit branch
     # instead of falling through to "no failures seen" -> green.
     raw="$( cd "$d" && timeout 600 ./.venv/bin/pytest -q --no-cov 2>&1 )"; rc=$?
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 5 ]; then
+      # one confirmation re-run under the same lock (fleet paused) before filing an EMERGENCY: a timeout or a
+      # red seen once is usually contention/flake - 2026-09-30 billwatch "timed out" at 600s but runs in 90s alone
+      log "$r: pytest not green (rc=$rc) in ${d##*/} - re-running once to rule out contention/flake"
+      raw="$( cd "$d" && timeout 900 ./.venv/bin/pytest -q --no-cov 2>&1 )"; rc=$?
+    fi
     out="$(printf '%s' "$raw" | tail -25)"
     if [ "$rc" -eq 124 ]; then
       log "$r: pytest TIMED OUT in ${d##*/} after 600s (suite may have grown too slow, or something hung) — treating as RED, not green"
@@ -87,7 +100,7 @@ for r in $REPOS; do
       fails="$(printf '%s' "$out" | grep -E 'FAILED|ERROR ' | head -5 | sed 's/  */ /g' | paste -sd'; ' -)"
       [ -z "$fails" ] && fails="$(printf '%s' "$out" | grep -E '[0-9]+ (failed|error)' | tail -1)"
       log "$r: pytest RED in ${d##*/} — $fails"
-      emergency_enqueue "$r" "$(basename "$d") pytest" "${fails:-see log}"
+      emergency_enqueue "$r" "$(basename "$d") pytest" "${fails:-see log}" "$(files_from "${d#$rd}" "$fails")"
     else
       log "$r: pytest green in ${d##*/} ($(printf '%s' "$out" | grep -oE '[0-9]+ passed' | tail -1))"
     fi
@@ -100,6 +113,10 @@ for r in $REPOS; do
     [ -d "$wd/node_modules/vitest" ] || { log "$r: ${wd##*/} not provisioned (no node_modules) — skip web"; continue; }
     # 2026-09-16 FIX: same pipe-swallows-exit-code + false-green-on-timeout fix as pytest above.
     raw="$( cd "$wd" && CI=true timeout 400 npx vitest run 2>&1 )"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+      log "$r: vitest not green (rc=$rc) in ${wd##*/} - re-running once to rule out contention/flake"
+      raw="$( cd "$wd" && CI=true timeout 600 npx vitest run 2>&1 )"; rc=$?
+    fi
     out="$(printf '%s' "$raw" | tail -25)"
     if [ "$rc" -eq 124 ]; then
       log "$r: vitest TIMED OUT in ${wd##*/} after 400s — treating as RED, not green"
@@ -107,7 +124,7 @@ for r in $REPOS; do
     elif printf '%s' "$out" | grep -qE '[0-9]+ failed|✖|FAIL '; then
       fails="$(printf '%s' "$out" | grep -E 'FAIL |✖' | head -5 | paste -sd'; ' -)"
       log "$r: vitest RED in ${wd##*/}"
-      emergency_enqueue "$r" "$(basename "$wd") vitest" "${fails:-see log}"
+      emergency_enqueue "$r" "$(basename "$wd") vitest" "${fails:-see log}" "$(files_from "${wd#$rd}" "$fails")"
     else
       log "$r: vitest green in ${wd##*/} ($(printf '%s' "$out" | grep -oE '[0-9]+ passed' | tail -1))"
     fi
