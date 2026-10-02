@@ -9,7 +9,11 @@ cat > "$D/covrc" <<RC
 parallel = True
 data_file = $D/py/.coverage
 source = $Q
-omit = */scripts/test/*,*/scripts/cov/*,*/repos/*,*/proposals*/*
+# 2026-10-02: */qa/* omitted - the QA gates' entry-point tests run under `env -i` (spec rule 6), which strips COVERAGE_PROCESS_START/PYTHONPATH, so
+# their subprocess runs are NOT measured (qa/gate_scanners.py showed 21% although its tests pass). Re-include once env -i tests pass the cov vars through.
+omit = */scripts/test/*,*/scripts/cov/*,*/repos/*,*/proposals*/*,*/qa/*
+[report]
+omit = */qa/*
 RC
 export OVN_COV_DIR="$D" BASH_ENV="$Q/scripts/cov/cov_env.sh" COVERAGE_PROCESS_START="$D/covrc" PYTHONPATH="$Q/scripts/cov/pysite${PYTHONPATH:+:$PYTHONPATH}"
 cd "$Q/scripts/test" || exit 1

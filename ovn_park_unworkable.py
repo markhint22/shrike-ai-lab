@@ -33,7 +33,28 @@ def banned_list(root):
     return out
 
 
+def _check(tok, root, banned, max_bytes):
+    path = os.path.join(root, tok)
+    if tok.endswith(".md") or not os.path.isfile(path):
+        return None
+    for b in banned:
+        if tok == b or tok.startswith(b):
+            return "hard-banned file %s" % tok
+    size = os.path.getsize(path)
+    if size > max_bytes:
+        return "%s is %dKB (~%dk tokens) - exceeds the model context" % (tok, size // 1024, size // 3500)
+    return None
+
+
 def why_unworkable(line, root, banned, max_bytes):
+    # 2026-10-02: an item that lists "FILES: a, b" gets EVERY listed file added to the aider chat, so any one of them being banned/too big makes the
+    # item unworkable even when the first path in the text is small (xlite: "tests/test_battle_persistence.gd ... FILES: scripts/battle/battle.gd" was
+    # never parked and overflowed the 65k context 4 cycles in a row).
+    if "FILES:" in line:
+        for tok in PATH_RE.findall(line.split("FILES:", 1)[1]):
+            why = _check(tok, root, banned, max_bytes)
+            if why:
+                return why
     for tok in PATH_RE.findall(line):
         if tok.endswith(".md"):
             continue

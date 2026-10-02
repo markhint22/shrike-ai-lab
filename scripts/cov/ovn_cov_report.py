@@ -125,8 +125,10 @@ def main():
     for f, ls in seen.items():
         by_base.setdefault(os.path.basename(f), set()).update(ls)
     rows = []
+    # 2026-10-02: "qa" excluded - the QA gates' entry-point tests run under `env -i`, which strips BASH_ENV/COVERAGE_PROCESS_START, so their
+    # shell/python subprocess runs are unmeasurable (tests pass; qa_ledger_cron.sh shows 0/26). Re-include once those tests pass the cov vars through.
     for dp, dn, fns in os.walk(root):
-        dn[:] = [d for d in dn if d not in (".git", "test", "attic", "cov", "proposals-2026-09-29", "__pycache__", "state", "logs", "repos", "backlog", "roadmap", "prework", "art", "assets", "systemd", "tests") and not d.startswith(".bak")]
+        dn[:] = [d for d in dn if d not in (".git", "test", "attic", "cov", "qa", "proposals-2026-09-29", "__pycache__", "state", "logs", "repos", "backlog", "roadmap", "prework", "art", "assets", "systemd", "tests") and not d.startswith(".bak")]
         for fn in fns:
             p = os.path.join(dp, fn)
             rel = os.path.relpath(p, root)
@@ -146,7 +148,10 @@ def main():
             os.remove(pyjson)
         env = {k: v for k, v in os.environ.items() if k != "COVERAGE_FILE"}
         subprocess.run(["python3", "-m", "coverage", "combine", "--keep", "--data-file=" + comb, pydata], env=env, capture_output=True)
-        subprocess.run(["python3", "-m", "coverage", "json", "--data-file=" + comb, "-o", pyjson, "--ignore-errors"], env=env, capture_output=True)
+        # 2026-10-02: honour the run's covrc so its `omit` (e.g. */qa/*, unmeasurable under env -i) also applies at report time
+        _rc = os.path.join(cov_dir, "covrc")
+        _rcarg = ["--rcfile=" + _rc] if os.path.isfile(_rc) else []
+        subprocess.run(["python3", "-m", "coverage", "json", *_rcarg, "--data-file=" + comb, "-o", pyjson, "--ignore-errors"], env=env, capture_output=True)
         if os.path.exists(pyjson):
             d = json.load(open(pyjson))
             for f, v in d.get("files", {}).items():

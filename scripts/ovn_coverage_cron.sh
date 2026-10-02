@@ -43,7 +43,8 @@ PY
 if [ "${bash_pct%%.*}" = "-1" ] || [ "${py_pct%%.*}" = "-1" ]; then
   alert "coverage run produced no usable report (see $STATE/coverage_latest.txt)"; exit 0
 fi
-failed="$(grep -cE '❌|^  FAIL |failed, [1-9]' "$D/run_all.log" 2>/dev/null)"; failed="${failed:-0}"
+# 2026-10-02: was `failed, [1-9]`, which also matched "0 failed, 2 known-bug warning(s)" (a passing summary) - 34 false alerts on 10-01. Now only a NONZERO failed count.
+failed="$(grep -cE '❌|^  FAIL |(^|[^0-9])[1-9][0-9]* failed' "$D/run_all.log" 2>/dev/null)"; failed="${failed:-0}"
 [ "$failed" -gt 0 ] && alert "$failed failing test line(s) in the instrumented suite run (see $D/run_all.log)"
 below=""
 python3 -c "import sys; sys.exit(0 if float('$bash_pct') >= float('$min_b') else 1)" || below="$below bash ${bash_pct}% < floor ${min_b}%"

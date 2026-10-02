@@ -18,6 +18,7 @@ GODOT="$HOME/godot/godot4"
 log(){ echo "$(date '+%F %T') $*"; }
 
 # ---- serialize on the cycle lock: WAIT for a running cycle, never interrupt it ----
+source "$(dirname "$0")/scripts/lib_pytest_parallel.sh" 2>/dev/null || ovn_pytest_par_args(){ :; }
 exec 200>state/run.lock
 if ! flock -w 3600 200; then log "could not acquire run.lock in 60min — skipping this health pass"; exit 0; fi
 log "=== test-health sweep start ==="
@@ -85,12 +86,15 @@ for r in $REPOS; do
     # (360->600s, real worst case seen was 383s) AND now capture the real exit code
     # separately from the tail-for-logging step, so a timeout is its own explicit branch
     # instead of falling through to "no failures seen" -> green.
-    raw="$( cd "$d" && timeout 600 ./.venv/bin/pytest -q --no-cov 2>&1 )"; rc=$?
+    # 2026-10-02: xdist (allowlisted repos only, import-guarded; see scripts/lib_pytest_parallel.sh). iptv_apps ran serially here, took >600s under
+    # load, was filed RED (false EMERGENCY) and then re-ran for up to 900s while holding run.lock - ~25 min of idle GPU per sweep.
+    XD="$(ovn_pytest_par_args "${r##*/}" "$d/.venv/bin")"
+    raw="$( cd "$d" && timeout 600 ./.venv/bin/pytest -q --no-cov $XD 2>&1 )"; rc=$?
     if [ "$rc" -ne 0 ] && [ "$rc" -ne 5 ]; then
       # one confirmation re-run under the same lock (fleet paused) before filing an EMERGENCY: a timeout or a
       # red seen once is usually contention/flake - 2026-09-30 billwatch "timed out" at 600s but runs in 90s alone
       log "$r: pytest not green (rc=$rc) in ${d##*/} - re-running once to rule out contention/flake"
-      raw="$( cd "$d" && timeout 900 ./.venv/bin/pytest -q --no-cov 2>&1 )"; rc=$?
+      raw="$( cd "$d" && timeout 900 ./.venv/bin/pytest -q --no-cov $XD 2>&1 )"; rc=$?
     fi
     out="$(printf '%s' "$raw" | tail -25)"
     if [ "$rc" -eq 124 ]; then
