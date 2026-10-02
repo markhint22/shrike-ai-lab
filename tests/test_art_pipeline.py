@@ -84,6 +84,21 @@ def test_downed_standing_pose_flagged():
     assert not res["ok"] and "standing_pose" in reasons(res)
 
 
+def test_downed_kneeling_pose_passes():
+    # Kneeling-on-one-knee canon (2026-09-02): taller than wide but well short of
+    # a standing figure's aspect — must NOT be rejected as "still standing".
+    res = art_qa_gate.inspect(blob(30, 42), "downed")
+    assert res["ok"] is True
+
+
+def test_downed_lying_pose_flagged():
+    # Negative prompt for downed explicitly excludes "lying flat" — a downed
+    # sprite that came out fully lying (wider than tall, like a dead corpse)
+    # must still be rejected, just with a pose-specific reason.
+    res = art_qa_gate.inspect(blob(46, 20), "downed")
+    assert not res["ok"] and "lying_pose" in reasons(res)
+
+
 def test_two_figures_flagged_multiple():
     a = np.zeros((64, 64, 4), dtype=np.uint8)
     for (cx, w) in [(16, 14), (46, 14)]:                 # two separated figures

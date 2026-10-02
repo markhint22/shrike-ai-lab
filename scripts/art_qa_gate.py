@@ -98,14 +98,32 @@ def inspect(arr, role):
         if blobs >= 2:
             reasons.append(f"multiple_figures({blobs} large masses — 2 people / stray pile)")
 
-    # pose_aspect: a corpse/downed must be LYING (bbox wider than tall)
-    if role in ("dead", "downed"):
+    # pose_aspect: DEAD must be LYING (bbox wider than tall). DOWNED canon changed
+    # 2026-09-02 to KNEELING-wounded (see gen_from_brief.build_prompt's downed
+    # prompt: "kneeling on one knee" / negative "lying flat") — a kneeling figure
+    # is shorter than standing but still taller than wide, so it needs its OWN
+    # band: reject bboxes tall enough to read as still-standing AND bboxes wide
+    # enough to read as fully lying (the old dead-only rule falsely rejected
+    # correctly-kneeling downed output).
+    if role == "dead":
         ys, xs = np.where(opaque)
         if len(ys):
             bw = xs.max() - xs.min() + 1
             bh = ys.max() - ys.min() + 1
             if bh > bw * 1.05:
                 reasons.append(f"standing_pose(bbox {bw}x{bh}, taller than wide — must lie down)")
+        else:
+            reasons.append("empty")
+    elif role == "downed":
+        ys, xs = np.where(opaque)
+        if len(ys):
+            bw = xs.max() - xs.min() + 1
+            bh = ys.max() - ys.min() + 1
+            ratio = bh / bw
+            if ratio > 1.9:
+                reasons.append(f"standing_pose(bbox {bw}x{bh}, too tall for kneeling — reads as standing)")
+            elif ratio < 0.85:
+                reasons.append(f"lying_pose(bbox {bw}x{bh}, wider than tall — must kneel, not lie flat)")
         else:
             reasons.append("empty")
 
