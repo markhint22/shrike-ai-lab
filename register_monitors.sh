@@ -16,6 +16,12 @@
 # No-op unless SHRIKE_MONITOR_URL is configured (production secrets for
 # shrike-monitor/shrike-notify haven't been provisioned yet — see HUMAN_QUEUE.md).
 #
+# `--heartbeats` additionally registers one HEARTBEAT (dead-man's-switch) monitor per pipeline job
+# (branch_hygiene / reconcile_branches / promote_to_prod). The ping token is shown by shrike-monitor
+# exactly once, so the resulting ping URLs are written (mode 600) to state/heartbeat_urls.env, which
+# shrike_monitor_heartbeat() in shrike_notify_lib.sh reads. A monitor that already exists is left alone
+# (its token cannot be re-read: delete it in shrike-monitor and re-run to re-issue).
+#
 # Safe to re-run: GET /monitors first and skip any name that's already registered.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +44,7 @@ is_discontinued(){ local r="$1" d; for d in $DISCONTINUED_REPOS; do [ "$r" = "$d
 # Pull the SURFACES heredoc-style block straight out of deploy_watch.sh (between
 # the `SURFACES="` line and the closing `"` line) so this script can never drift
 # from the list deploy_watch.sh itself actually polls.
+WANT_HB=0; [ "${1:-}" = "--heartbeats" ] && WANT_HB=1
 SURFACES="$(sed -n '/^SURFACES="$/,/^"$/p' "$DEPLOY_WATCH" | sed '1d;$d')"
 [ -n "$SURFACES" ] || { echo "FATAL: couldn't extract SURFACES table from $DEPLOY_WATCH" >&2; exit 1; }
 
@@ -71,6 +78,23 @@ while IFS='|' read -r key repo label provider target health fleet; do
     failed=$((failed + 1))
   fi
 done <<< "$SURFACES"
+
+if [ "$WANT_HB" = 1 ]; then
+  HB_FILE="${SHRIKE_HEARTBEAT_FILE:-$DIR/state/heartbeat_urls.env}"
+  mkdir -p "$(dirname "$HB_FILE")"
+  # job|monitor name|interval_seconds|grace_seconds  (hygiene hourly, reconcile every ~20min, promote daily)
+  for row in "BRANCH_HYGIENE|fleet-branch-hygiene|3600|3600" "RECONCILE|fleet-reconcile-branches|1800|1800" "PROMOTE|fleet-promote-to-prod|86400|10800"; do
+    IFS='|' read -r job hname hint hgrace <<< "$row"
+    if printf '%s\n' "$existing_names" | grep -qxF "$hname"; then echo "skip (already registered): $hname"; continue; fi
+    payload="$(python3 -c 'import json, sys; print(json.dumps({"name": sys.argv[1], "type": "heartbeat", "interval_seconds": int(sys.argv[2]), "grace_seconds": int(sys.argv[3])}))' "$hname" "$hint" "$hgrace")"
+    resp="$(curl -fsS --max-time 8 "${hdr[@]}" -d "$payload" "$MURL/monitors" 2>/dev/null)" || { echo "FAILED to register: $hname" >&2; failed=$((failed + 1)); continue; }
+    ping="$(printf '%s' "$resp" | python3 -c 'import sys, json; d = json.load(sys.stdin); print("%s/heartbeat/%s?token=%s" % (sys.argv[1], d["id"], d["ping_token"]))' "$MURL" 2>/dev/null)"
+    if [ -z "$ping" ]; then echo "FAILED to parse ping token for $hname" >&2; failed=$((failed + 1)); continue; fi
+    ( umask 077; grep -v "^SHRIKE_HEARTBEAT_URL_${job}=" "$HB_FILE" 2>/dev/null > "$HB_FILE.tmp"; echo "SHRIKE_HEARTBEAT_URL_${job}=$ping" >> "$HB_FILE.tmp"; mv "$HB_FILE.tmp" "$HB_FILE" )
+    echo "registered heartbeat: $hname (ping URL stored in $HB_FILE)"
+    registered=$((registered + 1))
+  done
+fi
 
 echo "register_monitors: $registered registered, $skipped already present, $failed failed"
 [ "$failed" -eq 0 ]

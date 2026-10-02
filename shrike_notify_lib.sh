@@ -53,3 +53,31 @@ print(json.dumps({
   [ -n "$payload" ] || return 0
   curl -fsS --max-time 8 "${hdr[@]}" -d "$payload" "$base/$topic" >/dev/null 2>&1 || true
 }
+
+# shrike_monitor_heartbeat <job>
+# Dead-man's-switch ping to a shrike-monitor heartbeat monitor on each SUCCESSFUL cycle of a
+# pipeline script, so a stalled cron surfaces in shrike-monitor instead of only in incident
+# review. <job> is one of: BRANCH_HYGIENE, RECONCILE, PROMOTE (any [A-Z_]+ token works).
+#
+# The full ping URL (".../heartbeat/<id>?token=<ping_token>") comes from, in order:
+#   1. env var SHRIKE_HEARTBEAT_URL_<JOB>
+#   2. a line "SHRIKE_HEARTBEAT_URL_<JOB>=<url>" in ${SHRIKE_HEARTBEAT_FILE:-<lib dir>/state/heartbeat_urls.env}
+#      (written, mode 600, by `register_monitors.sh --heartbeats`)
+# Neither set -> silent no-op. Best-effort: never fails the caller, short timeout. This is NOT a
+# phone notification (nothing goes through ovn_notify.py / ntfy) - a ping is only a signal to
+# shrike-monitor, which alerts on SILENCE, so the notification policy (emergencies + one hourly
+# update) is unaffected and a healthy fleet generates zero pushes.
+_SN_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+shrike_monitor_heartbeat() {
+  local job="${1:-}" var url file
+  case "$job" in ""|*[!A-Z_]*) return 0;; esac
+  var="SHRIKE_HEARTBEAT_URL_${job}"
+  url="${!var:-}"
+  if [ -z "$url" ]; then
+    file="${SHRIKE_HEARTBEAT_FILE:-$_SN_LIB_DIR/state/heartbeat_urls.env}"
+    [ -f "$file" ] && url="$(sed -n "s/^${var}=//p" "$file" 2>/dev/null | tail -1)"
+  fi
+  [ -n "$url" ] || return 0
+  curl -fsS --max-time 8 -X POST "$url" >/dev/null 2>&1 || true
+  return 0
+}

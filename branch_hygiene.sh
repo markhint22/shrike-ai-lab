@@ -531,3 +531,5 @@ for repo in "${REPOS[@]}"; do
 done
 
 log "branch hygiene complete"
+# dead-man's-switch ping (no-op unless a heartbeat URL is configured; see shrike_notify_lib.sh)
+[ "$DRY_RUN" = "1" ] || { [ -f "$SCRIPT_DIR/shrike_notify_lib.sh" ] && source "$SCRIPT_DIR/shrike_notify_lib.sh" && shrike_monitor_heartbeat BRANCH_HYGIENE; }

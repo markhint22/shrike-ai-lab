@@ -79,3 +79,6 @@ for repo in "${args[@]}"; do
   fi
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
 done
+
+# dead-man's-switch ping once the loop finished (no-op unless a heartbeat URL is configured)
+[ "$DRY" = "1" ] || { [ -f "$DIR/shrike_notify_lib.sh" ] && . "$DIR/shrike_notify_lib.sh" && shrike_monitor_heartbeat PROMOTE; }
