@@ -28,3 +28,19 @@ gut_xml_summary() {
   root="$(head -c 8000 "$x" 2>/dev/null | tr '\n\r' '  ' | grep -oE '<testsuites[^>]*>' | head -1)"
   echo "root: ${root:-<none>} | failing: $(grep -B1 -E '<failure|<error' "$x" 2>/dev/null | grep -oE '<testcase[^>]*name="[^"]*"' | grep -oE 'name="[^"]*"' | head -5 | tr '\n' ' ')"
 }
+
+# gut_log_skips_note LOGFILE REPO [STATE_DIR] - SHADOW check (2026-10-03): GUT silently skips a test script it cannot parse ("Ignoring script",
+# "Parse Error") and still exits 0 with a green junit xml, so tests that were never run count as passing (xlite had 3 such scripts: an
+# 'extends GUTTest' typo, assert_le, an empty file). Never blocks: appends ONE alerts.log warn line per (repo, distinct skip set), deduped via
+# state/gut_skip_seen.txt, and always returns 0. Missing/unreadable log or state dir -> silently nothing.
+gut_log_skips_note() {
+  local log="${1:-}" repo="${2:-?}" sd="${3:-${STATE_DIR:-state}}" n sig
+  [ -n "$log" ] && [ -s "$log" ] && [ -d "$sd" ] || return 0
+  n="$(grep -cE 'Ignoring script|Parse Error' "$log" 2>/dev/null)"; n="${n:-0}"
+  [ "$n" -gt 0 ] 2>/dev/null || return 0
+  sig="$repo:$(grep -E 'Ignoring script|Parse Error' "$log" | sort -u | md5sum | cut -c1-12)"
+  grep -qxF "$sig" "$sd/gut_skip_seen.txt" 2>/dev/null && return 0
+  echo "$sig" >> "$sd/gut_skip_seen.txt" 2>/dev/null
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] warn | gut-skips:$repo | GUT ignored/failed to parse $n script(s) yet exited green - those tests are NOT running: $(grep -E 'Ignoring script|Parse Error' "$log" | sort -u | head -3 | tr '\n' ';' | cut -c1-200)" >> "$sd/alerts.log" 2>/dev/null
+  return 0
+}

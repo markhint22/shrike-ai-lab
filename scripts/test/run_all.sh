@@ -287,5 +287,6 @@ echo; echo "===== Bug pipeline hygiene (2026-10-03): 'fixed' needs evidence, clo
 echo; echo "===== bug ground stage ====="; bash test_bug_ground_stage.sh || rc=1
 echo; echo "===== qa h11 gates ====="; bash test_qa_h11_gates.sh || rc=1
 echo; echo "===== observability ====="; bash test_observability.sh || rc=1
+echo; echo "===== gut skips note ====="; bash test_gut_skips_note.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

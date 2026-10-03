@@ -290,6 +290,7 @@ run_gate() {
       # (NOT bare "SCRIPT ERROR": vendored gut_loader.gd emits a benign one each run.)
       if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
       if [ ! -s "$xml" ] || ! gut_xml_green "$xml"; then log "  GUT RED: $(gut_xml_summary "$xml")"; rm -f "$xml" "$gout"; return 1; fi
+      declare -F gut_log_skips_note >/dev/null 2>&1 && gut_log_skips_note "$gout" "${name:-$(basename "$dir")}" "$STATE_DIR"   # shadow: warn about silently skipped GUT scripts, never blocks
       rm -f "$xml"
     fi
     rm -f "$gout"; ran=1
