@@ -46,10 +46,16 @@ echo "$(date '+%F %T') stage-sweep: GPU idle (0 aiders), starting dedicated" >> 
 escalate_godot(){ # $1=repo $2=file  -> tag doable GODOT T3+ items route-to-Claude, commit+push
   local r="$1" f="$2" n
   n="$(python3 - "$f" <<'PY'
-import re,sys
+import os,re,sys
 f=sys.argv[1]; L=open(f,encoding="utf-8").read().split("\n"); n=0
+BUGFIRST=os.environ.get("OVN_BUG_FIRST","on")!="off"
+BUGRE=re.compile(r"\[feat:[^\]]*-manual-[0-9a-f]{8}(\.r[0-9]+)?\]|Manual-test bug \(reported by Mark.*src:manual")
 for i,l in enumerate(L):
     if l.startswith("- [ ] ") and re.search(r"\[T[1-5]\]|·T[1-5]·",l) and not re.search(r"AUTO-SKIP|HUMAN-ONLY|BLOCKED",l):
+        # 2026-10-02 (bugs-first): a manual-test bug on a .gd file is NOT routed away - xlite is a priority lane and its bugs ('[T3] x.gd - Manual-test bug ...')
+        # used to be silently AUTO-SKIPped here before the fleet ever saw them (no escalation record, no relay note, never reached the 2-attempt cap).
+        # Leave it open: the loop works it, the guard/runner count the attempts and escalate it VISIBLY at the cap. OVN_BUG_FIRST=off restores the old routing.
+        if BUGFIRST and BUGRE.search(l): continue
         if re.search(r"\.gd\b",l,re.I):
             L[i]=l.replace("- [ ] ","- [ ] [AUTO-SKIP godot(.gd) — 27B measured 0%, route to CLAUDE] ",1); n+=1
 if n: open(f,"w",encoding="utf-8").write("\n".join(L))

@@ -1,0 +1,37 @@
+{
+  "repo": "iptv_apps",
+  "flow": "Home Page Categories",
+  "date": "2026-10-02",
+  "platform": "backend",
+  "note": "The 00s Replay channel was listed as movie instead of live.",
+  "root_cause": {
+    "hypothesis": "classify_channel_type() treats every channel whose name contains the word replay as a movie, so the live channel 00s Replay is listed as a movie and shows the download button instead of the record button.",
+    "evidence": [
+      {"file": "iptv-backend/app/services/channel_service.py", "line": 4, "quote": "if \"replay\" in lowered:"}
+    ]
+  },
+  "approach": "Remove the name-based movie rule; keep the group-based rule. One test reproduces the bug, one guards the neighbouring behaviour.",
+  "steps": [
+    {
+      "kind": "test_first",
+      "file": "iptv-backend/tests/test_channel_service_replay_live.py",
+      "function": "test_replay_channel_is_live",
+      "change": "NEW test file: call classify_channel_type('00s Replay') and assert it returns 'live'. It fails on today's code because the function returns 'movie'.",
+      "verify": "cd iptv-backend && python -m pytest tests/test_channel_service_replay_live.py -q"
+    },
+    {
+      "kind": "fix",
+      "file": "iptv-backend/app/services/channel_service.py",
+      "function": "classify_channel_type",
+      "change": "Delete the `if \"replay\" in lowered: return \"movie\"` branch in classify_channel_type so a replay channel falls through to 'live'.",
+      "verify": "cd iptv-backend && python -m pytest tests/test_channel_service_replay_live.py -q"
+    },
+    {
+      "kind": "guard",
+      "file": "iptv-backend/tests/test_channel_service_guard.py",
+      "function": "test_news_still_live",
+      "change": "NEW test file: classify_channel_type('CNN News') still returns 'live' and classify_channel_type('Movie Night', 'movies') still returns 'movie'.",
+      "verify": "cd iptv-backend && python -m pytest tests/test_channel_service_guard.py -q"
+    }
+  ]
+}

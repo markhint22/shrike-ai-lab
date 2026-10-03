@@ -17,11 +17,22 @@ CODE = (".py", ".ts", ".tsx", ".js", ".vue", ".kt", ".gd", ".swift", ".sh", ".sq
 DELETE = re.compile(r"(?i)^(delete|remove|drop|prune|retire)\b")
 
 
-def check(line, repo_dir="."):
+def leading_body(line):
+    """The item text with the checkbox / (tags) / [T2] prefixes stripped."""
     body = re.sub(r"^- \[[ xX]\] ", "", line.strip())
     body = re.sub(r"^\([^)]*\) ", "", body)
-    body = re.sub(r"^(\[[^\]]*\]\s*)+", "", body)
-    tgt = (body.split(" ")[0] if body else "").replace("`", "").split(":")[0]
+    return re.sub(r"^(\[[^\]]*\]\s*)+", "", body)
+
+
+def leading_target(line):
+    """The item's own named path token (first word of the body), no backticks / :line suffix."""
+    body = leading_body(line)
+    return (body.split(" ")[0] if body else "").replace("`", "").split(":")[0]
+
+
+def check(line, repo_dir="."):
+    body = leading_body(line)
+    tgt = leading_target(line)
     if not tgt.endswith(CODE) or "*" in tgt or "?" in tgt or "[" in tgt or tgt.startswith(("http", "/")):
         return ("NA", "")
     desc = re.sub(r"^[^ ]+\s*(—|-|–)?\s*", "", body)[:120]

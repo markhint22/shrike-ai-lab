@@ -23,17 +23,23 @@ ok "A: runner-owned progress bookkeeping ran" 'logged "progress bookkeeping:"'
 ok "A: auto-credit item-hash line logged" 'logged "auto-credit: item-hash"'
 ok "A: no alerts" '[ -z "$ALERTS" ]'
 
-# ---------- B: auto-credit by filename (no DONE trailer), 0/0 skip, binary file ----------
+# ---------- B: auto-credit by EXACT named path + passing VERIFY (no DONE trailer), 0/0 skip, binary file ----------
+# 2026-10-02 (harness-X): was "credit the first item whose text contains the touched file name"; now the item must NAME the touched path
+# and its own VERIFY must pass (see test_auto_credit_gate.sh for the refusal cases).
 mk_case credit
 scout_ok
-aplan 2 'gc app.py "def h3(): return 3" "feat: touch app"; : > empty.py; printf "\x89PNG\x00\x01" > img.png; git add -A; git commit -q -m "chore: add empty + binary"
-sed -i "s/^- \[ \] Polish README wording/- [ ] Replace img.png asset and empty.py/" OVERNIGHT_PROGRESS.md; git add -A; git commit -q -m "chore: note assets"'
+aplan 2 "$(cat <<'EOS'
+gc app.py "def h3(): return 3" "feat: touch app"; : > empty.py; printf "\x89PNG\x00\x01" > img.png; git add -A; git commit -q -m "chore: add empty + binary"
+printf '%s\n' '- [ ] empty.py — Add empty. VERIFY: `true`' '- [ ] img.png — Add asset. VERIFY: `true`' '- [ ] app.py — Touch app. VERIFY: `grep -q h3 app.py`' >> OVERNIGHT_PROGRESS.md; git add -A; git commit -q -m "chore: note assets"
+EOS
+)"
 run_case
 ok "B: pushed" '[[ "$OUT" == pushed* ]]'
 ok "B: auto-credit skipped the 0/0 empty file" 'logged "auto-credit: SKIPPED empty.py"'
-ok "B: auto-credit checked off the item naming app.py" 'logged "checked off the item naming app.py"'
-ok "B: auto-credit of binary file never blocked (img.png considered)" '! logged "SKIPPED img.png"'
-ok "B: progress file now has a [x] line pushed" 'git -C "$REPO" show HEAD:OVERNIGHT_PROGRESS.md | grep -q "^- \[x\] Fix"'
+ok "B: auto-credit checked off the item naming app.py after its VERIFY passed" 'logged "VERIFY passed for line" && git -C "$REPO" show HEAD:OVERNIGHT_PROGRESS.md | grep -q "^- \[x\] app.py — Touch app"'
+ok "B: auto-credit of binary file never blocked (img.png credited)" '! logged "SKIPPED img.png" && git -C "$REPO" show HEAD:OVERNIGHT_PROGRESS.md | grep -q "^- \[x\] img.png"'
+ok "B: the empty.py item stays open" 'git -C "$REPO" show HEAD:OVERNIGHT_PROGRESS.md | grep -q "^- \[ \] empty.py"'
+ok "B: the unrelated first item (which merely MENTIONS app.py) is NOT ticked any more" 'git -C "$REPO" show HEAD:OVERNIGHT_PROGRESS.md | grep -q "^- \[ \] Fix .hello. in app.py"'
 
 # ---------- C: aider exit != 0 after a commit -> error(exit=N) ; transient variant ----------
 mk_case exitcode

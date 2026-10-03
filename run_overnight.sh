@@ -121,6 +121,12 @@ STATE_DIR="$SCRIPT_DIR/state"
 # this instead of its own independent top-of-file re-grep.
 # shellcheck source=scripts/lib_item_select.sh
 source "$SCRIPT_DIR/scripts/lib_item_select.sh" 2>/dev/null || true
+# 2026-10-02 (bugs-first): the selectors below pipe through ovn_bug_first_order; if the lib failed to source these must degrade to the OLD behaviour
+# (identity filter, no bug ever detected) instead of "command not found" emptying every selector.
+command -v ovn_bug_first_order >/dev/null 2>&1 || ovn_bug_first_order() { cat; }
+command -v ovn_has_bug_line >/dev/null 2>&1 || ovn_has_bug_line() { return 1; }
+command -v ovn_is_manual_bug_text >/dev/null 2>&1 || ovn_is_manual_bug_text() { return 1; }
+command -v ovn_open_bug_count >/dev/null 2>&1 || ovn_open_bug_count() { printf '0'; }
 # shellcheck source=scripts/lib_tree_guard.sh
 source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
 # shellcheck source=scripts/lib_gut_xml.sh
@@ -131,12 +137,19 @@ source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ re
 source "$SCRIPT_DIR/scripts/lib_autotest_base.sh" 2>/dev/null || ovn_autotest_base_export(){ unset OVN_BASE_SHA; }
 # shellcheck source=scripts/lib_fixup.sh
 source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ echo "own-test"; }; ovn_fixup_direction(){ echo "Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug."; }; }
+# shellcheck source=scripts/lib_fixup_prompt.sh
+# 2026-10-02 (harness-X X3): fix-up prompts built from FACTS (the committed diff, failing ids + assertions), never the old "last change" wording.
+source "$SCRIPT_DIR/scripts/lib_fixup_prompt.sh" 2>/dev/null || { ovn_fixup_prompt(){ printf '%s\n\nThe following change was just committed. Ignore any example from your instructions (is_prime/sympy/mathweb).\n\n%s\n\n%s' "$1" "$4" "$5"; }; ovn_fixup_failure_facts(){ printf '%s' "${2:-}"; }; ovn_fixup_extra_files(){ :; }; }
+# shellcheck source=scripts/lib_auto_credit.sh
+# 2026-10-02 (harness-X X1): auto-credit needs exact path + passing VERIFY + clean tree; without the lib NOTHING is credited (fail closed).
+source "$SCRIPT_DIR/scripts/lib_auto_credit.sh" 2>/dev/null || { ovn_auto_credit(){ OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD)"; echo "--- auto-credit: lib_auto_credit.sh missing - nothing credited ---" >> "${4:-/dev/null}"; return 0; }; ovn_tree_matches_sha(){ return 0; }; }
 
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
 record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s $9=repo_dir
-  local tier cat cls sev st attempt tl src dur repo_dir item_hash feat_tag
-  attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"; repo_dir="${9:-}"; feat_tag=""
+  local tier cat cls sev st attempt tl src dur repo_dir item_hash feat_tag bn_stop
+  attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"; repo_dir="${9:-}"; feat_tag=""; bn_stop="$(printf '%s' "${10:-}" | tr -cd 'a-z0-9_-')"
+  case "$attempt" in ''|*[!0-9]*) attempt=1;; esac
   # Per-item identity (2026-09-23): outcomes.jsonl's `id` field is always the generic
   # "ongoing-<repo>" task id, never the specific backlog item — so a T1/T2 item that
   # gets retried across several cycles before landing (confirmed live: billwatch's
@@ -254,7 +267,9 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     # near-zero-cost non-event as a real failure in every severity-based pass
     # rate (see scripts/ovn_tier_stats.py). Must be checked before the generic
     # no-op* pattern below, same as blocked/needs-decision are.
-    *blocked*|*needs-decision*|*needs_decision*|*already-done*) cls=noop; sev=neutral;;
+    # 2026-10-02: no-op(scout-unworkable[-unparked]) = the scout-file guard refused to run aider on a plan that needs a banned/oversize file (the cycle
+    # costs one scout call and the item is parked) - a benign, deterministic non-event like blocked/needs-decision, NOT a model failure.
+    *blocked*|*needs-decision*|*needs_decision*|*already-done*|*scout-unworkable*) cls=noop; sev=neutral;;
     no-op*|noop*)                  cls=noop;      sev=bad;;
     skip*exhausted*|skip*none*|skip*empty*) cls=skipped; sev=expected;;
     skip*)                         cls=skipped;   sev=neutral;;
@@ -298,7 +313,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # a research/decompose pass wrote, not a fixed constant - flatten anything that
   # could break the JSON line before it ever reaches printf.
   feat_tag="$(printf '%s' "${feat_tag:-}" | tr -d '"' | tr '\n\r\t' '   ')"
-  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
+  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"attempts":%s,"bestn_stop":"%s","fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${attempt:-1}" "${bn_stop:-}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
 }
 FAIL_DIR="$STATE_DIR/failures"
 NOOP_DIR="$STATE_DIR/noops"
@@ -714,16 +729,58 @@ run_redgreen_check() {
     fi
   done
 
-  # Revert ONLY the source to pre-fix (keep the new tests), run just the new
-  # tests, then restore. Cleanup restores source even if pytest is killed.
+  # Revert ONLY the source to pre-fix (keep the new tests), run just the new tests, then restore.
+  # 2026-10-02 (harness-X X2): this used `git checkout "$before" -- $src` / `git checkout "$after" -- $src`, which rewrites the INDEX as well as
+  # the worktree. When the restore half failed (2026-10-02 13:14 CDT billwatch) the next bare `git commit` swept the half-reverted index into
+  # history and reverted verified source. Now: worktree-only (`git restore --worktree`, the index is never touched), and the restore is VERIFIED
+  # against $after for every reverted path; if it cannot be confirmed we hard-reset to $after, flag the cycle (alerts.log) and echo
+  # "restore-failed" so the caller skips every credit path ("restore-failed-dirty" if even the hard reset left the tree wrong: do not push).
   echo "--- red-green: running new test(s) against pre-fix source ---" >> "$task_log"
-  git checkout "$before" -- $src 2>>"$task_log"
-  local rc=0
-  ( cd "$dir" && timeout 120 ./.venv/bin/pytest -q --no-cov $dtests ) >> "$task_log" 2>&1 || rc=$?
-  git checkout "$after" -- $src 2>>"$task_log"
+  local rc=0 reverted=1
+  git restore --source="$before" --worktree -- $src 2>>"$task_log" || reverted=0
+  if [ "$reverted" = 1 ]; then
+    ( cd "$dir" && timeout 120 ./.venv/bin/pytest -q --no-cov $dtests ) >> "$task_log" 2>&1 || rc=$?
+  fi
+  # 2026-10-02 (harness-X X2b): a fix commit may DELETE a source file. That path is in $src but absent at $after, so a pathspec
+  # restore from $after fails for the WHOLE list ("pathspec did not match") and the fallback `git show > file` would create a
+  # zero-byte stray. Restore only paths that exist at $after; paths absent at $after are simply removed again (worktree only).
+  local src_live="" src_gone="" sp
+  for sp in $src; do
+    if git cat-file -e "$after:$sp" 2>/dev/null; then src_live="$src_live $sp"; else src_gone="$src_gone $sp"; fi
+  done
+  [ -n "$src_live" ] && { git restore --source="$after" --worktree -- $src_live 2>>"$task_log" || true; }
+  for sp in $src_gone; do rm -f -- "$sp" 2>>"$task_log" || true; done
+  if ! _redgreen_restored "$after" $src; then
+    echo "--- red-green: RESTORE NOT CONFIRMED for: $src - writing the ${after:0:12} blobs directly, then hard-resetting if still wrong ---" >> "$task_log"
+    # fallback 1: write the AFTER content straight into the worktree (needs no index lock; the index was never changed)
+    local rf
+    for rf in $src_live; do
+      [ -d "$rf" ] && continue
+      git cat-file -e "$after:$rf" 2>/dev/null && git show "$after:$rf" > "$rf" 2>>"$task_log"
+    done
+    for rf in $src_gone; do rm -f -- "$rf" 2>>"$task_log" || true; done
+    # fallback 2: hard reset to the cycle commit
+    _redgreen_restored "$after" $src || git reset --hard -q "$after" 2>>"$task_log" || true
+    if _redgreen_restored "$after" $src && [ "$(git rev-parse HEAD 2>/dev/null)" = "$after" ]; then
+      emit_alert warn "${id:-redgreen}" "red-green restore could not be confirmed; tree hard-reset to the cycle commit and credit skipped"
+      echo "restore-failed"
+    else
+      emit_alert warn "${id:-redgreen}" "red-green restore FAILED and the hard reset did not restore the tree; cycle held, nothing credited or pushed"
+      echo "restore-failed-dirty"
+    fi
+    return
+  fi
+  # the check could not run (revert failed): no verdict, tree is verified restored
+  [ "$reverted" = 1 ] || { echo "n/a"; return; }
 
   # rc==0 means the new tests PASSED without the fix -> they don't exercise it.
   if [ "$rc" -eq 0 ]; then echo "suspect"; else echo "ok"; fi
+}
+
+# 0 when every given path equals $1 (a commit) in BOTH the worktree and the index.
+_redgreen_restored() {
+  local after="$1"; shift
+  git diff --quiet "$after" -- "$@" 2>/dev/null && git diff --cached --quiet "$after" -- "$@" 2>/dev/null
 }
 
 # Lint/format check (2026-08-25 improvement #5, advisory). Runs the repo's own
@@ -807,7 +864,7 @@ run_aider_fix_task() {
   # already matched.
   _ovn_top_progress_item=""
   if [ -f "$repo/OVERNIGHT_PROGRESS.md" ]; then
-    _ovn_top_progress_item="$(grep -E '^- \[ \]' "$repo/OVERNIGHT_PROGRESS.md" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+    _ovn_top_progress_item="$(grep -E '^- \[ \]' "$repo/OVERNIGHT_PROGRESS.md" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | head -1)"   # 2026-10-02: bugs-first order
   fi
   if printf '%s\n%s' "$prompt" "$_ovn_top_progress_item" | grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b'; then
     prompt="IMPORTANT: this task deletes/removes a file. Do NOT try to delete it via a diff/patch (a \"--- x\" / \"+++ /dev/null\" hunk always fails here with \"'/dev/null' is not in the subpath of ...\" — that path is never valid in this environment, don't retry it or argue with the error). Instead, just end your commit message with this trailer: DELETE: <path> — that is the ONLY mechanism that works here to remove a file.
@@ -1111,6 +1168,17 @@ STUB
       fi
     fi
 
+    # Fold a "create migration" item into its model-column sibling (2026-10-02, harness Y1): the alembic autogen hook generates the migration in
+    # the same step that edits the model, so a separate migration item can only fork the chain. See scripts/ovn_fold_migration_items.py.
+    if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" ]; then
+      _FM="$(python3 "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" OVERNIGHT_PROGRESS.md "$PWD" "$(basename "$PWD")" 2>>"$task_log" | grep -E 'folded [1-9]' || true)"
+      if [ -n "$_FM" ] && ! git diff --quiet -- OVERNIGHT_PROGRESS.md 2>/dev/null; then
+        echo "--- sanitizer: ${_FM} migration item(s) folded into the model item (autogen hook creates the migration) ---" >> "$task_log"
+        git add OVERNIGHT_PROGRESS.md
+        git commit -m "chore(queue): fold migration item into its model-column sibling (autogen hook creates it)" --quiet 2>>"$task_log" || true
+      fi
+    fi
+
     # Self-generation low-water-mark (Option C, 2026-08-30): when a repo is
     # running low on genuine work, deterministically generate SAFE mechanical
     # items ($0, no LLM, no hallucination) so it doesn't idle/no-op. Backstops
@@ -1166,7 +1234,7 @@ STUB
     # checks it off. godot's own former exclusion here was removed the same day, same reasoning.
     if [ "${OVN_INLINE_STAGE:-1}" = 1 ] && [ -f "OVERNIGHT_PROGRESS.md" ] \
        && grep -E '^- \[ \] ' OVERNIGHT_PROGRESS.md 2>/dev/null \
-          | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | grep -qE '\[T[345]\]|·T[345]·'; then
+          | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | ovn_bug_first_order | grep -qE '\[T[345]\]|·T[345]·'; then   # 2026-10-02: lane focus - while a manual bug is open only ITS tier decides
       echo "--- higher-tier sub-flow (inline in fleet slot; no pause, no contention) ---" >> "$task_log"
       _STAGE_OUT="$(mktemp)"
       # 2026-09-16 FIX (round 2): this outer `timeout` used to be 1500s, SHORTER than
@@ -1192,7 +1260,7 @@ STUB
       # budget formula). This outer timeout must stay above THAT ceiling, not the old fixed value,
       # so ovn_stage_runner.sh's own whole-descendant-tree-killing watchdog is always what actually
       # fires — this one stays a last-resort backstop that should essentially never trigger.
-      ( cd "$SCRIPT_DIR" && OVN_STAGE_DEDICATE=0 timeout 12900 bash ovn_stage_runner.sh "$(basename "$repo")" ) > "$_STAGE_OUT" 2>&1
+      ( cd "$SCRIPT_DIR" && OVN_STAGE_DEDICATE=0 OVN_STAGE_OUTCOME_BY_CALLER=1 timeout 12900 bash ovn_stage_runner.sh "$(basename "$repo")" ) > "$_STAGE_OUT" 2>&1
       cat "$_STAGE_OUT" >> "$task_log"
       # 2026-09-09 FIX: this used to unconditionally echo "stage(higher-tier)" regardless of what
       # the stage runner actually did. That string matches none of record_outcome's known status
@@ -1279,7 +1347,14 @@ STUB
         if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
           echo "pushed(tests:pass) stage(higher-tier)"
         else
-          echo "no-op(stage-unverified) stage(higher-tier)"
+          # 2026-10-02 (bugs-first review fix): when the runner itself counted/escalated a manual bug this cycle (bug_attempt journal event), tag the
+          # status 'bug-handled' (the 'no-op(stage-unverified)' text stays, so classification/stats are unchanged): ovn_item_guard.sh then neither
+          # double-counts the attempt nor re-resolves 'top' and bills the failure to an unrelated roadmap item once the bug is parked.
+          if [ -n "$_STAGE_JSONL" ] && grep -q '"event":"bug_attempt"' "$_STAGE_JSONL" 2>/dev/null; then
+            echo "no-op(stage-unverified) stage(higher-tier) bug-handled"
+          else
+            echo "no-op(stage-unverified) stage(higher-tier)"
+          fi
         fi
         return
       fi
@@ -1303,7 +1378,7 @@ STUB
     case "$id" in
       ongoing-*)
         if [ "${OVN_DELETE_EXECUTOR:-on}" != "off" ] && [ -f "$SCRIPT_DIR/scripts/ovn_delete_executor.py" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
-          _de_item="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+          _de_item="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | head -1)"   # 2026-10-02: bugs-first order
           _de_hash="$(ovn_item_hash "$_de_item" 2>/dev/null)"
           if [ -n "$_de_item" ] && [ -n "$_de_hash" ] && [ ! -e "$SCRIPT_DIR/state/delete_exec_failed/$_de_hash" ]; then
             _de_out="$(timeout 60 python3 "$SCRIPT_DIR/scripts/ovn_delete_executor.py" check "$PWD" "$_de_item" 2>>"$task_log")"
@@ -1319,7 +1394,7 @@ STUB
                     if [ -n "$_de_ln" ]; then
                       sed -i "${_de_ln}s/^- \[ \] /- [x] (deleted by delete-executor, verified) /" OVERNIGHT_PROGRESS.md
                       git add OVERNIGHT_PROGRESS.md
-                      git commit -q -m "chore(queue): credit deterministic delete (${_de_targets})" >>"$task_log" 2>&1
+                      git commit -q -m "chore(queue): credit deterministic delete (${_de_targets})" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1
                     fi
                     if timeout 30 git push origin "$branch" --quiet 2>>"$task_log" || { timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; }; then
                       echo "--- DELETE-EXECUTOR: verified green and pushed ---" >> "$task_log"
@@ -1359,7 +1434,9 @@ STUB
       # disk / in git history — only the aider context is bounded) so this
       # can't recur as these files keep growing.
       PROGRESS_MAX_BYTES="${OVN_PROGRESS_MAX_BYTES:-20000}"
-      if [ "$(wc -c < OVERNIGHT_PROGRESS.md | tr -d ' ')" -gt "$PROGRESS_MAX_BYTES" ]; then
+      # 2026-10-02 (bugs-first): a small file is normally handed to the model whole, in FILE order - which would let it pick a roadmap item above an
+      # open manual bug. While a manual bug is open always use the ordered 'Doable Next Steps' slice below (bug first, lane focus applied).
+      if [ "$(wc -c < OVERNIGHT_PROGRESS.md | tr -d ' ')" -gt "$PROGRESS_MAX_BYTES" ] || [ "$(ovn_open_bug_count . 2>/dev/null)" -gt 0 ] 2>/dev/null; then
         # 2026-09-16 FOLLOW-UP FIX: this header used to name the source file
         # literally ("...bytes of OVERNIGHT_PROGRESS.md..."). aider scans
         # EVERY loaded read-only file's own CONTENT (not just the human
@@ -1403,6 +1480,7 @@ STUB
           echo "## Doable Next Steps (unchecked, not parked/escalated/claude-tagged)"
           grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null \
             | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' \
+            | ovn_bug_first_order \
             | python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" head "$DOABLE_BUDGET" \
             | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
           echo
@@ -1619,6 +1697,9 @@ IMPORTANT: your last attempt on this exact item was reverted or produced nothing
         case "$ADDED_FILES" in
           *"|${cand}|"*) continue ;;
         esac
+        # 2026-10-02 scout-guard: this scan reads the WHOLE task_log, which echoes the scout's FILES: list (and the guard's own "dropped" log line), so it
+        # would silently re-load the very banned/oversize file the guard just dropped from the force-load list (found by the guard's own e2e test).
+        case " ${_ovn_scout_dropped:-} " in *" $cand "*) continue ;; esac
         if is_protected_file "$cand"; then
           echo "--- skipping protected file mentioned in log: ${cand} ---" >> "$task_log"
           continue
@@ -1796,7 +1877,7 @@ PYEOF
     # from planfiles= (the file the model actually worked on that cycle). Root
     # cause: this selector was never updated when the [CLAUDE] exclusion was
     # added to the other selectors. Apply the same exclusion here.
-    _CS_TOP="$(grep -E "^- \[ \]" OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1 | grep -oE "\`[^\`]+\`" | head -1 | tr -d '\`')"
+    _CS_TOP="$(grep -E "^- \[ \]" OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | head -1 | grep -oE "\`[^\`]+\`" | head -1 | tr -d '\`')"
     mkdir -p "$SCRIPT_DIR/state" 2>/dev/null
     # classify the item the model actually planned (its chosen file) for stats
     _CS_PF="$(echo $OVN_SCOUT_FILES | tr ' ' '\n' | grep -E '\.[A-Za-z]' | head -1)"
@@ -1849,6 +1930,8 @@ PYEOF
       # origin, so the item kept re-facing the scout every cycle at ~14k tokens a shot
       # forever. Push (with one rebase-retry, matching the main push path's pattern)
       # immediately after each credit commit so it can never be silently lost this way.
+      # 2026-10-02 (harness-X X1): every credit commit below is a PATHSPEC commit (`git commit ... -- OVERNIGHT_PROGRESS.md`): a bare `git commit` commits
+      # the whole index, which is how a half-restored tree was swept into a "chore" commit on 2026-10-02 13:14 CDT.
       _credit_push() {
         timeout 30 git push origin "$branch" --quiet 2>>"$task_log" && return 0
         echo "--- credit-push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
@@ -1873,7 +1956,7 @@ PYEOF
             esac
             sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, scout-verified) /" OVERNIGHT_PROGRESS.md
             git add OVERNIGHT_PROGRESS.md
-            if git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet >>"$task_log" 2>&1; then
+            if git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then
               _credit_push
               echo "--- credited already-done item at line ${_ad_ln} (matched ${_df_base}) ---" >> "$task_log"
             else
@@ -1892,13 +1975,116 @@ PYEOF
         _SKC="$(bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
         if echo "$_SKC" | grep -qE 'CREDITED=[1-9]'; then
           git add OVERNIGHT_PROGRESS.md
-          if git commit -q -m "chore(queue): credit already-satisfied item (scout verdict path)" >>"$task_log" 2>&1; then   # 2026-09-30: was 2>> only - "nothing to commit" went to stdout and became the status string
+          if git commit -q -m "chore(queue): credit already-satisfied item (scout verdict path)" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then   # 2026-09-30: was 2>> only - "nothing to commit" went to stdout and became the status string
             _credit_push
           fi
         fi
       fi
       echo "no-op(${OVN_VERDICT})"
       return
+    fi
+    # SCOUT FILE GUARD (2026-10-02): the planner's "FILES:" is force-loaded into aider below with NO size/ban check, so a plan that lists a
+    # hard-banned or oversize file (xlite: item "tests/test_battle_persistence.gd - add a test", planner FILES: scripts/battle/battle.gd =
+    # 227KB, on .queue-hard-banned-files) builds an 80,456-token request against a 65,536 context -> ContextWindowExceededError, 4 cycles in a
+    # row, ~80k tokens burned each, no code ever tried. ovn_park_unworkable.py already parks such items when the ITEM TEXT names the file;
+    # this closes the other door (the PLANNER names it). Same banned_list prefix match + size rule, via that script's --scout-guard mode:
+    #  - a dropped file is simply never force-loaded (and removed from OVN_SCOUT_FILES);
+    #  - if the item cannot proceed without it (its own target is the dropped file, or nothing workable is left in the plan) do NOT run aider:
+    #    park the item "[CLAUDE] [unworkable: ...]" (the exact tag the sweep writes) and return no-op(scout-unworkable).
+    # Kill switch: OVN_SCOUT_GUARD=off. Size limit: OVN_MAX_FILE_BYTES (default 120000, same as the sweep).
+    _ovn_scout_dropped=""
+    if [ "${OVN_SCOUT_GUARD:-on}" != "off" ] && [ -f "$SCRIPT_DIR/ovn_park_unworkable.py" ] && { [ -n "$OVN_PLAN" ] || [ -n "$OVN_SCOUT_FILES" ]; }; then
+      _sg_item_f="$(mktemp 2>/dev/null || echo "/tmp/ovn_sg_item.$$")"
+      _sg_top=""; command -v ovn_resolve_top_item >/dev/null 2>&1 && _sg_top="$(ovn_resolve_top_item "." "$task_log" 2>/dev/null)"
+      printf '%s\n%s\n' "${_sg_top#*:}" "$prompt" > "$_sg_item_f"
+      _sg_out="$( { echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}"; echo "$OVN_SCOUT_FILES"; } | grep -v '^$' | sort -u \
+        | python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --scout-guard "$PWD" "${OVN_MAX_FILE_BYTES:-120000}" "$_sg_item_f" 2>>"$task_log")"
+      rm -f "$_sg_item_f"
+      # ...and the files ALREADY queued for aider: scan_for_new_files() ran right after the scout and loads every existing file named anywhere in the
+      # scout reply (its echoed FILES: list included), alphabetically, BEFORE this guard - so a banned/oversize file in the reply is already in
+      # FILE_ARGS. Same rules, drop-only (these were not "planned", so they never make the item unworkable).
+      if [ "${#FILE_ARGS[@]}" -gt 0 ]; then
+        _sg_out="${_sg_out}"$'\n'"$(printf '%s\n' "${FILE_ARGS[@]}" | grep -vxF -e '--file' | grep -v '^$' \
+          | python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --scout-guard "$PWD" "${OVN_MAX_FILE_BYTES:-120000}" /dev/null 2>>"$task_log" | grep '^DROP')"
+      fi
+      _sg_why=""
+      while IFS=$'\t' read -r _sg_kind _sg_a _sg_b; do
+        case "$_sg_kind" in
+          DROP) _ovn_scout_dropped="${_ovn_scout_dropped} ${_sg_a}"
+                echo "--- scout-guard: dropped planned file ${_sg_a} (${_sg_b}) - not force-loaded ---" >> "$task_log";;
+          UNWORKABLE) _sg_why="$_sg_a";;
+        esac
+      done <<< "$_sg_out"
+      if [ -n "$_ovn_scout_dropped" ]; then
+        OVN_SCOUT_FILES="$(printf '%s\n' "$OVN_SCOUT_FILES" | grep -vxF -f <(printf '%s\n' $_ovn_scout_dropped) || true)"
+        _sg_fa=(); _sg_i=0
+        while [ "$_sg_i" -lt "${#FILE_ARGS[@]}" ]; do
+          if [ "${FILE_ARGS[$_sg_i]}" = "--file" ] && case " $_ovn_scout_dropped " in *" ${FILE_ARGS[$((_sg_i+1))]:-} "*) true;; *) false;; esac; then
+            _sg_i=$((_sg_i+2)); continue
+          fi
+          _sg_fa+=("${FILE_ARGS[$_sg_i]}"); _sg_i=$((_sg_i+1))
+        done
+        FILE_ARGS=("${_sg_fa[@]+"${_sg_fa[@]}"}")
+        # the plan TEXT is pasted into the implement prompt and aider silently auto-adds any repo file named in the message text (see the
+        # OVERNIGHT_PROGRESS.md note above), so break the dropped path token itself (scripts/battle/battle.gd -> scripts/battle/battle_gd)
+        for _sg_d in $_ovn_scout_dropped; do OVN_PLAN="${OVN_PLAN//"$_sg_d"/${_sg_d//./_}}"; done
+      fi
+      if [ -n "$_sg_why" ]; then
+        echo "--- scout-guard: item is unworkable without the dropped file (${_sg_why}); skipping implement + parking the item ---" >> "$task_log"
+        _sg_parked=0
+        if [ -f OVERNIGHT_PROGRESS.md ] && [ -n "$_sg_top" ]; then
+          # the line ovn_item_guard.sh/record_outcome resolve for this cycle (scout-file match, else the top open line - the ongoing lanes are told
+          # to work the top item, and in the xlite incident the planner's battle.gd is in NO item line, so a name-match requirement would never park it)
+          _sg_ln="${_sg_top%%:*}"
+          if [ "$(python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --park-line OVERNIGHT_PROGRESS.md "$_sg_ln" "$_sg_why" 2>>"$task_log")" = "PARKED=1" ]; then
+            git add OVERNIGHT_PROGRESS.md
+            if git commit -q -m "chore(queue): park unworkable item (scout planned a banned/oversize file)" >>"$task_log" 2>&1; then
+              timeout 30 git push origin "$branch" --quiet 2>>"$task_log" \
+                || { timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; } \
+                || { git rebase --abort >/dev/null 2>&1 || true; echo "--- scout-guard: park push failed; the tag may be lost on the next reset ---" >> "$task_log"; }
+              echo "--- scout-guard: parked item at line ${_sg_ln} ---" >> "$task_log"
+              _sg_parked=1
+            fi
+          else
+            echo "--- scout-guard: not parking (resolved line missing/already parked; the fail/no-op streak caps still apply) ---" >> "$task_log"
+          fi
+        fi
+        # parked -> the item left the doable set, so ovn_item_guard.sh must NOT bill this cycle to whatever line is now on top (it exits early on the
+        # exact string below); not parked -> the "-unparked" variant keeps counting on the normal no-op streak so the item still ends up AUTO-SKIPped.
+        if [ "$_sg_parked" = 1 ]; then echo "no-op(scout-unworkable)"; else echo "no-op(scout-unworkable-unparked)"; fi
+        return
+      fi
+    fi
+    # SCOUT GROUNDING (2026-10-02, harness Y2): the scout's FILES: list is checked against the repo before anything is force-loaded. A planned file that
+    # does not exist is substituted when exactly one real file matches (path suffix / same basename / close basename), dropped when none or several
+    # match, and an item-named new file is kept; if the scout listed files and none is workable (and nothing else is loaded) the cycle no-ops with
+    # reason scout-ungrounded instead of editing a fiction. Symbol resolution adds the defining file of a function/class the item names but the scout
+    # omitted (bounded: <=6 extra files, <=120KB each and in total). Kill switch: OVN_SCOUT_GROUND=off. Python helper: ovn_scout_ground.py.
+    if [ "${OVN_SCOUT_GROUND:-on}" != "off" ] && [ -f "$SCRIPT_DIR/ovn_scout_ground.py" ] && [ "$OVN_VERDICT" != "NEEDS-DECISION" ]; then
+      _sgr_item_f="$(mktemp 2>/dev/null || echo "/tmp/ovn_sgr_item.$$")"
+      _sgr_top=""; command -v ovn_resolve_top_item >/dev/null 2>&1 && _sgr_top="$(ovn_resolve_top_item "." "$task_log" 2>/dev/null)"
+      printf '%s\n%s\n' "${_sgr_top#*:}" "$prompt" > "$_sgr_item_f"
+      _sgr_out="$(python3 "$SCRIPT_DIR/ovn_scout_ground.py" "$PWD" "$task_log" "$_sgr_item_f" "${OVN_MAX_FILE_BYTES:-120000}" 2>>"$task_log")"
+      rm -f "$_sgr_item_f"
+      _sgr_ungrounded=""
+      while IFS=$'\t' read -r _sgr_kind _sgr_a _sgr_b; do
+        case "$_sgr_kind" in
+          SUBST) echo "--- scout-grounding: planned file ${_sgr_a} does not exist; substituted the one real match ${_sgr_b} ---" >> "$task_log"
+                 OVN_SCOUT_FILES="$(printf '%s\n' "$OVN_SCOUT_FILES" | grep -vxF -- "$_sgr_a" || true)"$'\n'"${_sgr_b}"
+                 OVN_PLAN="${OVN_PLAN//"$_sgr_a"/$_sgr_b}";;
+          DROP)  echo "--- scout-grounding: dropped planned file ${_sgr_a} (${_sgr_b}) ---" >> "$task_log"
+                 OVN_SCOUT_FILES="$(printf '%s\n' "$OVN_SCOUT_FILES" | grep -vxF -- "$_sgr_a" || true)"
+                 OVN_PLAN="${OVN_PLAN//"$_sgr_a"/${_sgr_a//./_}}";;
+          ADD)   echo "--- scout-grounding: added ${_sgr_a} (${_sgr_b}) ---" >> "$task_log"
+                 OVN_SCOUT_FILES="${OVN_SCOUT_FILES}"$'\n'"${_sgr_a}";;
+          UNGROUNDED) _sgr_ungrounded="$_sgr_a";;
+        esac
+      done <<< "$_sgr_out"
+      if [ -n "$_sgr_ungrounded" ] && [ "${#FILE_ARGS[@]}" -eq 0 ]; then
+        echo "--- scout-grounding: ${_sgr_ungrounded}; no workable file anywhere - skipping implement this cycle ---" >> "$task_log"
+        echo "no-op(scout-ungrounded)"
+        return
+      fi
     fi
     # Force-load the file(s) the PLAN names so the model can actually execute its own
     # plan. scan_for_new_files loads alphabetically-first path tokens up to a cap and
@@ -1929,6 +2115,7 @@ PYEOF
       for _pf in $( { echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}"; echo "$OVN_SCOUT_FILES"; } | sort -u); do
         [ -f "$_pf" ] || continue
         case "$_pf" in *.md) continue;; esac
+        case " $_ovn_scout_dropped " in *" $_pf "*) continue;; esac   # 2026-10-02 scout-guard: banned/oversize planned file
         case " ${FILE_ARGS[*]} " in *" $_pf "*) continue;; esac
         if [ -n "$protected_files" ]; then case " $protected_files " in *" $_pf "*) continue;; esac; fi
         FILE_ARGS+=(--file "$_pf")
@@ -2153,7 +2340,7 @@ ${full_prompt}"
       echo "$_AC_OUT" >> "$task_log"
       if echo "$_AC_OUT" | grep -qE 'CREDITED=[1-9]'; then
         git add OVERNIGHT_PROGRESS.md
-        git commit -q -m "chore(queue): credit item(s) the implement pass found already satisfied in code" 2>>"$task_log" || true
+        git commit -q -m "chore(queue): credit item(s) the implement pass found already satisfied in code" -- OVERNIGHT_PROGRESS.md 2>>"$task_log" || true
         AFTER_SHA="$(git rev-parse HEAD)"
       fi
     fi
@@ -2426,9 +2613,7 @@ ${full_prompt}"
             for _mf in $_migfix_touched; do [ -f "$_mf" ] && _migfix_fileargs+=(--file "$_mf"); done
             echo "--- MIGRATION-SAFETY fix-up: one bounded attempt at the migration-chain break before reverting: ${_migfix_summary:0:200}" >> "$task_log"
             timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_migfix_fileargs[@]}" \
-              --message "Your last change broke the Alembic migration chain: ${_migfix_summary}
-
-Fix this SPECIFIC migration-chain error (correct down_revision / resolve the multiple-heads or duplicate-revision-id / fix the FK column type) so 'alembic upgrade head' resolves to a single linear chain again. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
+              --message "$(ovn_fixup_prompt "The change below was just committed and it broke the Alembic migration chain." "$BEFORE_SHA" "$AFTER_SHA" "$_migfix_summary" "Fix this SPECIFIC migration-chain error (correct down_revision / resolve the multiple-heads or duplicate-revision-id / fix the FK column type) so 'alembic upgrade head' resolves to a single linear chain again. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.")" \
               >> "$task_log" 2>&1
             _migfix_after="$(git rev-parse HEAD)"
             if [ "$_migfix_after" != "$AFTER_SHA" ]; then
@@ -2592,11 +2777,8 @@ Fix this SPECIFIC migration-chain error (correct down_revision / resolve the mul
           echo "--- BUILD-GATE fix-up: evidence=$(printf '%s' "$_buildfix_evidence" | wc -c)B extra_files=${_buildfix_nextra} ---" >> "$task_log"
           echo "--- BUILD-GATE fix-up: one bounded attempt at the structural break before reverting: ${_buildfix_summary:0:200}" >> "$task_log"
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_buildfix_fileargs[@]}" \
-            --message "Your last change broke the build. Here is the REAL failing output from the verify run (verbatim; you already have every file it names in the chat):
-
-${_buildfix_evidence:-$_buildfix_summary}
-
-Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code loads again. Do not ask for more output - the error above is complete. If it is 'No module named X' / 'cannot import name X': either create X or remove the import that needs it. If your change deleted a file, also update or delete the tests/imports that still reference it. Do not touch unrelated files. Keep the rest of your change as-is if it's working." \
+            --message "$(ovn_fixup_prompt "The change below was just committed and it broke the build." "$BEFORE_SHA" "$AFTER_SHA" "REAL failing output from the verify run (verbatim; you already have every file it names in the chat):
+${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code loads again. Do not ask for more output - the error above is complete. If it is 'No module named X' / 'cannot import name X': either create X or remove the import that needs it. If the committed change deleted a file, also update or delete the tests/imports that still reference it. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.")" \
             >> "$task_log" 2>&1
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
@@ -2653,12 +2835,20 @@ Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code 
           _fixup_newtests="$(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -E '(^|/)(tests?/|__tests__/)|\.(test|spec)\.[A-Za-z]+$|(^|/)test_[^/]*$' || true)"
           _fixup_kind="$(ovn_fixup_kind "$_fixup_summary" "$_fixup_newtests")"
           _fixup_dir="$(ovn_fixup_direction "$_fixup_kind")"
+          # 2026-10-02 (harness-X X3): pre-load the FAILING test files too (they are often not in the commit: an older test the source change broke),
+          # within a byte budget, and build the message from facts (see lib_fixup_prompt.sh for the is_prime contamination incident).
+          _fixup_loaded=" ${_fixup_touched//$'\n'/ } $OVN_SCOUT_FILES "
+          for _ff in $(ovn_fixup_extra_files "$task_log" $_fixup_touched $OVN_SCOUT_FILES); do
+            case "$_fixup_loaded" in *" $_ff "*) continue;; esac
+            _fixup_fileargs+=(--file "$_ff")
+          done
+          _fixup_evidence="$(ovn_fixup_failure_facts "$task_log" "$_fixup_summary")"
+          _fixup_msg="$(ovn_fixup_prompt "The test suite is failing after the change below was committed." "$BEFORE_SHA" "$AFTER_SHA" "$_fixup_evidence" "Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.
+All files you need are already in the chat. You cannot run commands or call tools - reply with a udiff only. ${_fixup_dir}")"
+          echo "--- Tier-2 fix-up: prompt=${#_fixup_msg}B files=$(( ${#_fixup_fileargs[@]} / 2 )) ---" >> "$task_log"
           echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting [${_fixup_kind}]: ${_fixup_summary:0:200}" >> "$task_log"
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_fixup_fileargs[@]}" \
-            --message "The test suite is failing after your last change: ${_fixup_summary}
-
-Fix this SPECIFIC failure. Do not touch unrelated files. Keep the rest of your change as-is if it's working.
-All files you need are already in the chat. You cannot run commands or call tools - reply with a udiff only. ${_fixup_dir}" \
+            --message "$_fixup_msg" \
             >> "$task_log" 2>&1
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then
@@ -2711,6 +2901,16 @@ All files you need are already in the chat. You cannot run commands or call tool
       # Red-green check (2026-08-25 Tier-3): did a bugfix's new test earn its
       # pass? Runs on the code state before the bookkeeping doc commit.
       REDGREEN="$(run_redgreen_check "$BEFORE_SHA" "$AFTER_SHA")"
+      _skip_credit=0
+      case "$REDGREEN" in
+        restore-failed-dirty)
+          echo "--- RED-GREEN RESTORE FAILED and the tree could not be reset to ${AFTER_SHA:0:12}: holding the cycle, nothing credited or pushed ---" >> "$task_log"
+          echo "error(redgreen-restore-failed - tree not restorable, held unpushed)"
+          return ;;
+        restore-failed)
+          echo "--- RED-GREEN RESTORE not confirmed: tree hard-reset to ${AFTER_SHA:0:12}; cycle flagged, crediting skipped ---" >> "$task_log"
+          _skip_credit=1 ;;
+      esac
       if [ "$REDGREEN" = "suspect" ]; then
         echo "--- RED-GREEN SUSPECT: new test(s) passed WITHOUT the fix (vacuous or mirrors the bug) ---" >> "$task_log"
         emit_alert warn "$id" "red-green: a new test passed without the fix (possible vacuous/mirror test) — review the diff on ${branch}"
@@ -2721,79 +2921,37 @@ All files you need are already in the chat. You cannot run commands or call tool
       # apply them to OVERNIGHT_PROGRESS.md deterministically here. Gated on
       # verification NOT failing — a broken build must never mark an item done.
       # The tiny doc commit rides the same push below (no extra push).
-      if [ "$VERIFY_RESULT" != "fail" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
+      if [ "$VERIFY_RESULT" != "fail" ] && [ "$_skip_credit" = 0 ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
         PROG_MSGS="$(git log --format=%B "${BEFORE_SHA}..${AFTER_SHA}")"
         PROG_OUT="$(printf '%s' "$PROG_MSGS" | python3 "$SCRIPT_DIR/update_progress.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
         if [ "$PROG_OUT" != "unchanged" ]; then
           echo "--- progress bookkeeping: ${PROG_OUT} ---" >> "$task_log"
-          git add OVERNIGHT_PROGRESS.md
-          if ! git diff --cached --quiet; then
-            git commit -m "docs: runner-owned progress bookkeeping" --quiet
-            AFTER_SHA="$(git rev-parse HEAD)"
+          # 2026-10-02 (harness-X X1): refuse if the tree is not exactly the cycle's commit, and commit ONLY the progress file
+          # (pathspec commit): a bare `git commit` here swept a half-restored index into history on 2026-10-02 13:14 CDT.
+          if _bk_bad="$(ovn_tree_matches_sha "$AFTER_SHA" OVERNIGHT_PROGRESS.md "$BEFORE_SHA" 2>/dev/null)" || [ -z "$_bk_bad" ]; then
+            git add -- OVERNIGHT_PROGRESS.md
+            if ! git diff --cached --quiet; then
+              git commit -m "docs: runner-owned progress bookkeeping" --quiet -- OVERNIGHT_PROGRESS.md
+              AFTER_SHA="$(git rev-parse HEAD)"
+            fi
+          else
+            echo "--- progress bookkeeping: REFUSED - tree differs from ${AFTER_SHA:0:12} (${_bk_bad}) ---" >> "$task_log"
+            git checkout -q -- OVERNIGHT_PROGRESS.md 2>/dev/null   # drop only OUR uncommitted edit; leave the unexpected paths for the flagged cycle
+            emit_alert warn "$id" "progress bookkeeping refused: working tree differs from the cycle commit (${_bk_bad})"
           fi
         fi
       fi
 
-      # Auto-credit (2026-08-29, per-file): the 27B almost never emits DONE: trailers, so
-      # the bookkeeping above can't check items off - the model then re-faces finished work
-      # forever (no-op) until the item-guard wrongly blocks it. The model does NOT always do
-      # the TOP item, so credit ANY unchecked, non-blocked item whose EXACT named file this
-      # green commit touched. Single-file items name their target file, so a green change to
-      # that file is that item's completion.
-      #
-      # REAL-DIFF GUARD (2026-09-20 hardening): "touched" used to mean merely appearing in
-      # `git diff --name-only` between BEFORE_SHA/AFTER_SHA - which a file satisfies even
-      # when it was newly added with ZERO content (0 insertions/0 deletions), e.g. a stray
-      # aider --file placeholder that a later dedupe/cleanup step commits as an empty stub.
-      # Caught live on shrike-notify: the model wrote a real 53-line notify_cli.py during
-      # the read-only scout pass, that content was correctly discarded (scout must never
-      # leak into implement), the implement pass then worked on a DIFFERENT file and
-      # committed only that - but a same-cycle "auto-remove duplicate Python class/function
-      # definition(s)" commit separately added notify_cli.py to git as a brand-new, fully
-      # EMPTY file (0/0 diff), and this gate then marked the real "create notify_cli.py"
-      # roadmap item [x] done off the back of that empty add, permanently losing the real
-      # work (never re-attempted). Require the named file's OWN diff for this cycle to have
-      # at least one real inserted or deleted line before crediting it - a 0/0 diff (pure
-      # rename/mode-change/no-op add) no longer counts as "done." Binary files report "-"
-      # for both counts in --numstat; treated as a real change since line-counting doesn't
-      # apply (can't be the empty-file case this guard targets).
-      _ac_has_real_diff() {
-        local _f="$1" _stat _add _del
-        _stat="$(git diff --numstat "$BEFORE_SHA" "$AFTER_SHA" -- "$_f" 2>/dev/null)"
-        [ -z "$_stat" ] && return 1
-        _add="$(printf '%s' "$_stat" | awk '{print $1}')"
-        _del="$(printf '%s' "$_stat" | awk '{print $2}')"
-        if [ "$_add" = "-" ] || [ "$_del" = "-" ]; then
-          return 0  # binary file - can't line-count, don't block on it
-        fi
-        [ "${_add:-0}" -gt 0 ] || [ "${_del:-0}" -gt 0 ]
-      }
-      if [ "$VERIFY_RESULT" != "fail" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
-        _ac_changed="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . | grep -v '^$')"
-        _ac_hit=0
-        if [ -n "$_ac_changed" ]; then
-          while IFS= read -r _cf; do
-            [ -z "$_cf" ] && continue
-            case "$_cf" in OVERNIGHT_PROGRESS.md) continue;; esac
-            if ! _ac_has_real_diff "$_cf"; then
-              echo "--- auto-credit: SKIPPED ${_cf} - it's in the diff but has a 0/0 (empty) change, not real work ---" >> "$task_log"
-              continue
-            fi
-            _ac_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | grep -F "$_cf" | head -1 | cut -d: -f1)"
-            if [ -n "$_ac_ln" ]; then
-              sed -i "${_ac_ln}s/^- \[ \] /- [x] /" OVERNIGHT_PROGRESS.md
-              _ac_hit=1
-              echo "--- auto-credit: checked off the item naming ${_cf} (green change touched it) ---" >> "$task_log"
-            fi
-          done <<< "$_ac_changed"
-          if [ "$_ac_hit" = "1" ]; then
-            git add OVERNIGHT_PROGRESS.md 2>/dev/null
-            if ! git diff --cached --quiet; then
-              git commit -q -m "chore(queue): auto-credit item(s) whose file this green change touched"
-              AFTER_SHA="$(git rev-parse HEAD)"
-            fi
-          fi
-        fi
+      # Auto-credit (2026-08-29, per-file; REBUILT 2026-10-02, harness-X X1). The 27B almost never emits DONE: trailers, so the bookkeeping
+      # above can't check items off. A green commit may credit an item ONLY when (a) the touched path EQUALS the item's own named path,
+      # (b) the touched file is real work (real diff, not a 0/0 add, not a placeholder stub), (c) the item's own VERIFY: clause exists, is safe
+      # to run, and PASSES, (d) the tree equals AFTER_SHA, and (e) the tick commit stages ONLY OVERNIGHT_PROGRESS.md. The old block credited the
+      # first item whose TEXT merely contained a touched file name and never ran VERIFY (false credits 2026-10-02: TAA T1/T2 sync-Anthropic-client,
+      # billwatch articles.py via article_relevance.py) and committed with a bare `git commit -q` / `git add`. Full rationale: scripts/lib_auto_credit.sh.
+      # The earlier 2026-09-20 REAL-DIFF guard (a 0/0 empty add is not work) lives on as ovn_ac_has_real_diff.
+      if [ "$VERIFY_RESULT" != "fail" ] && [ "$_skip_credit" = 0 ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
+        ovn_auto_credit "$BEFORE_SHA" "$AFTER_SHA" "OVERNIGHT_PROGRESS.md" "$task_log" || true
+        AFTER_SHA="$(git rev-parse HEAD)"
       fi
 
       if timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
@@ -2803,6 +2961,7 @@ All files you need are already in the chat. You cannot run commands or call tool
           *) PUSH_STATUS="pushed" ;;
         esac
         [ "$REDGREEN" = "suspect" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:SUSPECT]"
+        [ "$REDGREEN" = "restore-failed" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:RESTORE-FAILED]"
         LINT_ISSUES="$(run_lint_check "$BEFORE_SHA" "$AFTER_SHA")"
         [ "${LINT_ISSUES:-0}" -gt 0 ] && PUSH_STATUS="${PUSH_STATUS} [lint:${LINT_ISSUES}]"
         [ "$(run_coverage_check "$BEFORE_SHA" "$AFTER_SHA")" = "untested" ] && PUSH_STATUS="${PUSH_STATUS} [untested-change]"
@@ -2839,7 +2998,10 @@ All files you need are already in the chat. You cannot run commands or call tool
           echo "error-transient(push-diverged - resynced, retry next cycle)"
         fi
       fi
-    elif grep -qE "ContextWindowExceededError|BadRequestError|APIError|RateLimitError|Traceback \(most recent call last\)" "$task_log"; then
+    elif { command -v ovn_log_has_api_error >/dev/null 2>&1 && ovn_log_has_api_error "$task_log"; } \
+         || { ! command -v ovn_log_has_api_error >/dev/null 2>&1 && grep -qE "ContextWindowExceededError|BadRequestError|APIError|RateLimitError|Traceback \(most recent call last\)" "$task_log"; }; then
+      # 2026-10-02 (harness Y3): narrowed to REAL API/transport markers; aider's own '# Fix any errors below' lint tracebacks no longer match
+      # (see ovn_log_has_api_error in scripts/lib_item_select.sh). The lib-missing fallback keeps the old pattern.
       # Aider often exits 0 even after an internal API exception (e.g. the
       # model asking for more files than fit in context) - it just prints the
       # error and stops, which looks identical to a genuine "nothing needed
@@ -3184,11 +3346,51 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
     STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES" "$PROTECTED_FILES" "$TIMEOUT_SECS")"
     # Best-of-N pilot (2026-09-04, gated OVN_BESTOF_N>1): a HARD item that did not land gets
     # re-solved from a fresh baseline up to N times; the test gate keeps the first that lands.
-    _bestn="${OVN_BESTOF_N:-1}"; _btry=1
+    _bestn="${OVN_BESTOF_N:-1}"; _btry=1; _bn_stop=""
     if [ "$_bestn" -gt 1 ] && grep -qiE '\[T[345]\]|refactor|multi-file|multiple files' "$TASK_LOG" 2>/dev/null; then
-      while [ "$_btry" -lt "$_bestn" ] && echo "$STATUS" | grep -qiE 'revert|no-op|noop|error' && ! echo "$STATUS" | grep -qiE 'oversized|blocked|needs-decision|exhausted|skip'; do
+      # 2026-10-02: schema/migration/model items get a larger N (OVN_BESTOF_N_SCHEMA, default N+2; ovn_schema_budget in lib_item_select.sh): measured
+      # gitlark oauth item converged 195F+292E -> 14F -> 1F across attempts then died at 3/3 one failing test short. Other items: N unchanged.
+      if command -v ovn_schema_budget >/dev/null 2>&1; then
+        _bon_top="$(ovn_resolve_top_item "${REPO:-.}" "$TASK_LOG" 2>/dev/null)"
+        _bestn="$(ovn_schema_budget bestn "$_bestn" "${_bon_top#*:} ${PROMPT:-}")"
+      fi
+      # 2026-10-02 (harness Y1): a DETERMINISTIC failure repeated is not luck. iptv 'add last_event_ms column' spent 5 inner attempts in one row
+      # (fork, drift, drift, drift, fork) under the schema budget. (a) After a migration-drift/fork failure the budget is capped at 2
+      # (OVN_BESTOF_N_DRIFT_CAP); (b) REPEAT BREAKER: the same non-empty failing test-id set on OVN_REPEAT_BREAKER_N (default 2) consecutive attempts
+      # of the same item stops the retries and leaves a marker in the log that ovn_item_guard.sh turns into a needs-human park.
+      _bn_prevkey=""; _bn_streak=1; _bn_eff="$_bestn"
+      # 2026-10-02 (bugs-first): a manual-test bug gets at most OVN_BUG_ATTEMPT_CAP (default 2) tries in total - best-of-N may not stretch it to N, and
+      # the guard counts every try (OVN_GUARD_ATTEMPTS below). The schema N+2 above never applies to a bug (ovn_is_schema_item excludes it).
+      [ -n "${_bon_top:-}" ] || _bon_top="$(ovn_resolve_top_item "${REPO:-.}" "$TASK_LOG" 2>/dev/null)"
+      if ovn_is_manual_bug_text "${_bon_top#*:}"; then
+        _bugcap="${OVN_BUG_ATTEMPT_CAP:-2}"; case "$_bugcap" in ''|*[!0-9]*|0) _bugcap=2;; esac
+        [ "$_bestn" -gt "$_bugcap" ] && _bestn="$_bugcap"
+      fi
+      # scout-unworkable (2026-10-02): the guard refused the plan deterministically - retrying from a fresh baseline just repeats it
+      while [ "$_btry" -lt "$_bestn" ] && ! echo "$STATUS" | grep -qF 'bug-handled' && echo "$STATUS" | grep -qiE 'revert|no-op|noop|error' && ! echo "$STATUS" | grep -qiE 'oversized|blocked|needs-decision|exhausted|skip|scout-unworkable'; do   # bug-handled (2026-10-02): the staged runner already counted/escalated the bug; a retry would re-run it and double-count
+        if command -v ovn_attempt_signature >/dev/null 2>&1; then
+          _bn_sig="$(ovn_attempt_signature "$STATUS" "$TASK_LOG")"
+          _bn_eff="$(ovn_bestn_after_failure "$_bestn" "$_bn_sig")"
+          _bn_h=""
+          if command -v ovn_item_hash >/dev/null 2>&1; then
+            _bn_top="$(ovn_resolve_top_item "${REPO:-.}" "$TASK_LOG" 2>/dev/null)"; _bn_h="$(ovn_item_hash "${_bn_top#*:}")"
+          fi
+          _bn_key="$(ovn_repeat_key "$_bn_h" "$TASK_LOG" "${REPO:-.}" "${STATE_DIR:-$SCRIPT_DIR/state}")"
+          _bn_streak="$(ovn_repeat_streak "$_bn_prevkey" "$_bn_key" "$_bn_streak")"; _bn_prevkey="$_bn_key"
+          if [ -n "$_bn_key" ] && [ "$_bn_streak" -ge "${OVN_REPEAT_BREAKER_N:-2}" ]; then
+            _bn_stop="repeat-breaker"
+            log "best-of-N: item ${ID} stopped after attempt ${_btry}: the same failing test set repeated ${_bn_streak}x (deterministic, not luck)"
+            echo "--- repeat-breaker: same failing tests on ${_bn_streak} consecutive attempts of the same item: $(ovn_failing_ids "$TASK_LOG" | python3 "$SCRIPT_DIR/scripts/ovn_repeat_ids.py" filter "$(basename "${REPO:-.}")" "${STATE_DIR:-$SCRIPT_DIR/state}" "$_bn_h" 2>/dev/null | head -5 | tr '\n' ' ')---" >> "$TASK_LOG"
+            break
+          fi
+          if [ "$_btry" -ge "$_bn_eff" ]; then
+            _bn_stop="drift-cap"
+            log "best-of-N: item ${ID} stopped after attempt ${_btry}/${_bn_eff}: migration-chain failure is deterministic (budget ${_bestn} capped)"
+            break
+          fi
+        fi
         _btry=$((_btry+1))
-        log "best-of-N: item ${ID} attempt ${_btry}/${_bestn} (prev: ${STATUS})"
+        log "best-of-N: item ${ID} attempt ${_btry}/${_bn_eff} (prev: ${STATUS})"
         STATUS="$(run_aider_fix_task "$ID" "$REPO" "$PROMPT" "$BRANCH" "$PERSISTENT" "$TASK_LOG" "$MAP_TOKENS" "$SKIP_AGENTS_MD" "$MAX_FILES" "$PROTECTED_FILES" "$TIMEOUT_SECS")"
       done
     fi
@@ -3198,14 +3400,15 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   _TASK_DURATION_S=$(( $(date +%s) - ${_TASK_START_TS:-$(date +%s)} ))
   log "Task ${ID}: ${STATUS} (${_TASK_DURATION_S}s)"
   echo "| ${ID} | ${TYPE} | ${STATUS} | ${VERSION_OR_BRANCH} | ${TASK_LOG} | ${_TASK_DURATION_S}s |" >> "$REPORT_FILE"
-  record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}" "${REPO:-}"
+  record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}" "${REPO:-}" "${_bn_stop:-}"
   # Per-item fail cap runs FIRST (2026-08-30): if ONE bad item hits the cap it
   # parks itself AND resets the task-valve counter, so a single broken item can't
   # auto-disable the whole repo (the double-jeopardy that kept disabling shrike).
   # check_and_record_failure runs AFTER and sees the reset counter -> only a repo
   # where MANY DIFFERENT items fail still trips the valve.
+  # 2026-10-02 (bugs-first): OVN_GUARD_ATTEMPTS = how many tries this cycle used (best-of-N), so a manual bug's 2-attempt cap counts tries, not just cycles.
   [ "$TYPE" != "train_job" ] && [ -x "$SCRIPT_DIR/scripts/ovn_item_guard.sh" ] && \
-    "$SCRIPT_DIR/scripts/ovn_item_guard.sh" "$REPO" "$STATUS" "$STATE_DIR" "$ID" "${TASK_LOG:-}" 2>/dev/null || true
+    OVN_GUARD_ATTEMPTS="${_btry:-1}" "$SCRIPT_DIR/scripts/ovn_item_guard.sh" "$REPO" "$STATUS" "$STATE_DIR" "$ID" "${TASK_LOG:-}" 2>/dev/null || true
   check_and_record_failure "$ID" "$STATUS"
   [ "$TYPE" != "train_job" ] && [ -x "$SCRIPT_DIR/scripts/ovn_cycle_triage.sh" ] && \
     "$SCRIPT_DIR/scripts/ovn_cycle_triage.sh" "$REPO" "$STATUS" "$TASK_LOG" "$STATE_DIR" "$ID" 2>/dev/null || true

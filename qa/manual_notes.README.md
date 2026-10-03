@@ -47,6 +47,7 @@ Check status any time on the box: `python3.12 ~/overnight-queue/qa/manual_notes_
 | `qa/manual_notes_ingest.py add\|sweep\|list` | box | locate, build item, enqueue, track, notify |
 | `qa/manual_notes_cron.sh` | box | cron-safe wrapper for `sweep` (`*/10 * * * *`) |
 | `qa/manual_locator.py` | box (next to the ingest) | locator v2 blocks: platform layout, product-only filter, agentic loop (deploy it WITH the ingest) |
+| `qa/bug_brief.py` + `qa/bug_brief.README.md` | box | **bug brief (2026-10-02)**: research + plan + decompose the enqueued bug into a test-first list of single-file steps and REPLACE the single item (kill switch `OVN_BUG_BRIEF=off`; any failure leaves the single item untouched); `import-brief` takes a brief written by Claude or a human |
 | `qa/locator_eval.py` + `qa/locator_eval_set.json` | box | benchmark harness + the 100-case set (see Benchmark) |
 | `scripts/test/test_qa_manual_notes.py` | both | 153 checks, runs on Mac and box |
 | `scripts/test/test_qa_locator_v2.py` | both | 109 checks for locator v2 (layout, filter, agentic loop with a stub model, bridge formats) |
@@ -105,6 +106,11 @@ Env: `OVN_SSH` (default `mhintermeister@100.79.64.64`, the tailscale address the
    -> insert -> `git add OVERNIGHT_PROGRESS.md` (explicit path) -> commit as `shrike-fleet` -> push (rebase-retry) ->
    **`queue.sh release` in a `finally`**. On any failure the clone is reset to origin and the entry is kept as `pending-enqueue`
    (the sweep retries it).
+7b. **Bug brief** (2026-10-02, `qa/bug_brief.README.md`): once the single item is enqueued the entry is marked `brief:pending` and `manual_notes_ingest.py brief --id <id>` is spawned
+   detached (the sweep retries leftovers). It collects deterministic evidence (functions with exact line numbers, callers, existing tests and how they are written), asks the local Qwen
+   (<= 4 calls) for a strict-JSON brief, validates EVERY field mechanically (quotes verbatim, one file per step, banned / > 120 KB files, real test-run VERIFYs, the test-first test is run
+   on the current code), and replaces the single item by the ordered steps (one shared `[feat:]` tag, the test-first step fused with the first fix because a red test cannot land alone).
+   Model dead / invalid / vacuous / item already taken => the single item stays exactly as enqueued.
 8. **Auto-lane**: QA mode turns every dev lane off, so a queued bug would sit unworked. If `state/qa_mode.json` exists (mode qa) and
    `OVN_MANUAL_AUTOLANE != off`, `qa_mode.sh lane <repo>` enables that one lane and we record `lane_enabled_by_us`. A lane someone
    else already enabled is left alone.
@@ -123,6 +129,29 @@ every line carrying the entry's `[feat:...]` tag:
 
 When a repo has no open manual items left, a lane we enabled is released with `qa_mode.sh unlane` (only while QA mode is still on, so
 `qa_mode.sh off` is never undone by us). Safety valve: a lane we enabled is released after 24 h (`OVN_MANUAL_LANE_TTL_H`) regardless.
+
+## Bugs first (2026-10-02 - decision from Mark: quality over new development)
+A bug you logged by hand is worked RIGHT AWAY, ahead of every roadmap / refill / self-gen item, while Chickadee and xlite are being taken to release.
+All switches default ON; `OVN_BUG_FIRST=off` restores the old behaviour everywhere (kill switch). With no manual bug in a repo nothing changes
+(proved by the unchanged existing selection / item-guard / run_overnight / stage-runner tests plus identity checks in `test_bug_first_select.sh`).
+
+| rule | where | detail |
+|---|---|---|
+| **One ordering** | `scripts/lib_item_select.sh` `ovn_bug_first_order` / `ovn_resolve_top_item` | EMERGENCY lines first (existing precedence), then manual-bug lines in file order, then everything else. Enforced where the loop *selects*: `ovn_resolve_top_item` (guard + record_outcome + scout-unworkable + best-of-N), the `Doable Next Steps` slice the scout is shown (a small file is also given as the ordered slice while a bug is open, never raw file order), the delete-hint / delete-executor peeks, the inline T3+ stage trigger, the stage runner's own picker (python-preference skipped for a bug). Insertion order is irrelevant (queue_refill appends at the end, the ingest inserts at the top, EMERGENCY goes above everything). A "bug line" = open `- [ ]` line with `[feat:<repo>-<date>-manual-<8 hex>[.rN]]` or `Manual-test bug (reported by Mark ... src:manual`; the steps of a decomposed brief share that one feat tag, so they all count. |
+| **Lane focus** | same filter | while a repo has an open (not parked / escalated) manual bug its lane sees ONLY bug items (+ EMERGENCY). Parked/escalated bugs stop counting, so the lane returns to normal work. `OVN_BUG_FOCUS=off` keeps the order but also shows the rest after the bugs. A T2 bug leaves no T3+ item for the stage runner, so the cycle falls through to the scout flow that works the bug. |
+| **Attempt cap** | `scripts/ovn_item_guard.sh` | a bug (or one step of its brief; a landing clears the counter) gets `OVN_BUG_ATTEMPT_CAP` (default **2**) failed attempts, counting best-of-N tries (`OVN_GUARD_ATTEMPTS`, best-of-N is capped at the same number for a bug) - not the generic 3-4, never the schema +2 budget. Every non-landing status counts except `skip*`/`held*`. Spend cap (`OVN_ITEM_TOKEN_CAP`, base, no schema multiplier) also escalates. |
+| **Escalation, never AUTO-SKIP** | same | every still-open line of the bug becomes `[CLAUDE] [bug-escalated: <reason>]` (the loop ignores `[CLAUDE]`), one JSON line is appended to `state/bug_escalations.jsonl` (repo, note, item hash, feat, attempts, last status + failure, brief location = `state/bug_briefs/<feat>*` if one exists, else empty), and ONE relay note `Manual bug escalated: <repo>` (default priority => buffered by the notification policy, never urgent) goes out. JSONL line + note happen at most once per item hash. |
+| **Every park path honours it** | `scripts/lib_bug_escalate.sh` (shared), `ovn_stage_runner.sh`, `ovn_stage_sweep.sh` | the guard is not the only thing that parks lines. Every manual bug is tier T3, so the staged runner sees it first: on a 0/n or partial run it counts ONE attempt itself (`state/item_fails/stage-<repo>.<hash>.bugcount`; the cron sweep path runs no guard) and escalates at the same cap through the same helper (tag + `bug_escalations.jsonl` + one relay note) - it never writes `[AUTO-SKIP staged ...]` on a bug. It journals `bug_attempt`, `run_overnight.sh` tags the status `bug-handled`, and the guard skips such a cycle (no double count, no billing to an unrelated roadmap item). The sweep's godot router (`escalate_godot`) exempts bug lines, so xlite `.gd` bugs reach the fleet. Without the helper lib everything falls back to the old generic caps. `OVN_BUG_FIRST=off` restores all old behaviour. |
+| **Retest loop** | `manual_notes_ingest.py retest`, `scripts/qa-retest`, bridge | the fleet's green tests are not the end: a landed bug is `fixed (awaiting your retest)` until you say so. `scripts/qa-retest <repo> <flow> ok` closes it (status `closed`); `scripts/qa-retest <repo> <flow> still-broken "what you saw"` reopens it at the TOP of the queue with your note attached and a fresh attempt counter (new `[feat:...rN]` tag => new item hash; the item tells the fleet to read the earlier attempt and not repeat it). It works for `fixed`, `escalated` and `needs-human` bugs. A `still-broken` that matches no bug is filed as a normal new bug. |
+| **Statuses** | `list` / `scripts/qa-status` | `open`, `pending-enqueue`, `fixed` (= awaiting your retest), `escalated` (fleet gave up, Claude session takes it), `needs-human`, `needs-triage`, `closed`. `qa-status` shows counts per status per repo (it asks the box over ssh, 6 s connect timeout, and caches the answer in `~/.qa_notes_bridge/status.json`; box unreachable => the cache, labelled with its age; `QA_STATUS_LIVE=off` => cache only; the bridge itself makes no extra ssh call) and, for one plan, what is waiting for a retest with the exact command to run. |
+
+Retest mechanism (smallest thing that works): `qa-retest` appends an ordinary 6-column line to `qa/manual_logs/<repo>.txt`:
+`date | other | <flow> | 0 | ok|bug | [retest:ok|still-broken HH:MM] note`. The bridge recognises the marker and calls `manual_notes_ingest.py retest`
+(rc 0 applied / DUPLICATE, rc 2 permanent reject, rc 3 = unmatched still-broken -> filed as a new bug). An older bridge ignores the `ok` line and files
+the `still-broken` one as a new bug, so nothing is lost. Deploy order: box (guard, lib, ingest, run_overnight.sh, stage runner) then Mac (bridge, qa-retest, qa-status).
+Not changed on purpose: stage-internal per-step attempts (`OVN_STAGE_MAX_ATTEMPTS`, repair rounds) - the cap counts fleet cycles and best-of-N tries, so one staged cycle
+can still spend its own internal retries on the bug; `ovn_stage_sweep.sh` (cron path) keeps its own pre-check, harmless because the runner it starts applies the order.
+The ingest also defuses the words `blocked`, `human/` and `hard file ban` in a note (every selector drops lines containing them, which would hide the bug's own item).
 
 ## Benchmark (locator v2, measured 2026-10-01 - `qa/locator_eval.py`, set `qa/locator_eval_set.json`, raw results `qa/locator_eval_results_2026-10-01.json`)
 100 cases from REAL fix commits of billwatch (28), gitlark (27), iptv_apps (45) on the box clones. A case = a fix commit whose

@@ -18,7 +18,7 @@ ovn_fixup_kind() {
 # ovn_fixup_direction <kind> -> the sentence appended to the fix-up prompt
 ovn_fixup_direction() {
   case "${1:-}" in
-    own-test) echo "The failing test is one YOU just added: prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug." ;;
-    *) echo "This failing test PASSED before your change, so YOUR change broke existing behaviour. Fix your SOURCE change so the existing test passes again (restore the old behaviour). Only edit that existing test if the item text explicitly says this behaviour must change." ;;
+    own-test) echo "The failing test is one that the committed change just added: prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug." ;;
+    *) echo "This failing test PASSED before the committed change, so that change broke existing behaviour. Fix the SOURCE change so the existing test passes again (restore the old behaviour). Only edit that existing test if the item text explicitly says this behaviour must change." ;;
   esac
 }

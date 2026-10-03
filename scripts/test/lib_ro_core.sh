@@ -46,7 +46,7 @@ ro_init(){
   export HOME="$T/home" RO_STUB="$T/stub"
   mkdir -p "$T/home/aider-venv/bin" "$T/stub" "$T/tree/scripts" "$T/repos" "$T/origin"
   # libs the real script sources unconditionally / uses in the record_outcome + verification paths
-  ro_link scripts/lib_lock.sh scripts/lib_item_select.sh scripts/lib_gut_xml.sh scripts/lib_autotest_base.sh scripts/lib_fixup.sh
+  ro_link scripts/lib_lock.sh scripts/lib_item_select.sh scripts/lib_bug_escalate.sh scripts/lib_gut_xml.sh scripts/lib_autotest_base.sh scripts/lib_fixup.sh
   echo '[]' > "$T/tree/tasks.json"
   # ---- curl: health/models/coder-routing all controlled by marker files in $RO_STUB -------------------------------
   ro_stub curl <<'EOF'

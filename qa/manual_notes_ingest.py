@@ -12,6 +12,14 @@ Box side of the manual-notes loop (the Mac side is scripts/qa-notes-bridge.sh). 
   sweep  refresh every open entry from OVERNIGHT_PROGRESS.md on origin/overnight/feature (fixed / needs-human / open), publish ONE
          relay note per status change, release lanes we enabled (queue drained, or the 24h safety valve).
   list   table of all entries.
+  retest (2026-10-02, bugs-first policy) apply Mark's retest verdict: 'ok' closes a bug the fleet fixed ('fixed (awaiting your retest)' ->
+         'closed'); 'still-broken' reopens it at the top of Next Steps with his note attached and a FRESH attempt counter (new [feat:..rN] tag =>
+         new item hash => the loop's per-item counters start at zero). Fed by scripts/qa-retest -> the bridge. Statuses: open, fixed (awaiting
+         your retest), escalated (fleet gave up after 2 attempts -> '[CLAUDE] [bug-escalated: ..]', see state/bug_escalations.jsonl),
+         needs-human, needs-triage, closed.
+  brief  [--id ID] [--force]   (2026-10-02) research + plan + decompose the claimed bug(s) into a test-first brief of single-file steps and replace the
+         single item with them (qa/bug_brief.py; kill switch OVN_BUG_BRIEF=off). `add` marks the entry brief:pending and spawns this detached; the sweep
+         retries leftovers. A failed / invalid / slow brief leaves the single item exactly as enqueued.
 
 Why the locator exists: scripts/ovn_retire_vague.py retires any '- [ ]' item that names no existing file. An item without a real
 path is dead on arrival, so a note we cannot place becomes status 'needs-triage' (one relay note, NOT enqueued).
@@ -56,6 +64,9 @@ PLAUSIBLE_RATIO = 0.5    # a candidate within this fraction of the top score is 
 MAX_FILES_PER_KW = 40    # a keyword hitting more files than this is not discriminative
 LANE_TTL_H_DEFAULT = 24.0
 OPEN_STATES = ("open", "pending-enqueue")
+# 2026-10-02 bugs-first: what a human reads. The stored value stays 'fixed' (older state files, tests and the sweep use it); only the display changes.
+STATUS_LABEL = {"fixed": "fixed (awaiting your retest)", "escalated": "escalated (Claude session)", "closed": "closed (retest ok)"}
+RETESTABLE = ("fixed", "escalated", "needs-human")      # a retest verdict applies to bugs in these states
 
 # ----------------------------------------------------------------------------------------------------------------------
 # paths / state
@@ -183,6 +194,11 @@ def sanitize_note(note):
     s = _TAGS.sub(lambda m: m.group(1).lower() + " -", s)
     s = re.sub(r"(?i)auto-skip", "auto skip", s)
     s = re.sub(r"(?i)human-only", "human only", s)
+    # 2026-10-02 (bugs-first): every queue selector drops a line that contains these park markers (case-insensitive) - a tester note such as
+    # "playback is blocked after login" would make its own bug item invisible to the loop forever (and to the lane-focus rule).
+    s = re.sub(r"(?i)blocked", "block-ed", s)
+    s = re.sub(r"(?i)human/", "human /", s)
+    s = re.sub(r"(?i)hard file ban", "hard file-ban", s)
     s = re.sub(r"\s+", " ", s).strip()
     if len(s) > NOTE_CAP:
         s = s[:NOTE_CAP - 3].rstrip() + "..."
@@ -833,6 +849,14 @@ def queue_sh(*args):
 def enqueue(repo, rp, line):
     """-> (ok, message). hold -> fetch -> verify branch -> reset to origin -> edit -> commit (explicit path) -> push(+rebase retry)
     -> release in finally. Any failure leaves the clone at origin/overnight/feature (best effort) and the hold released."""
+    return edit_progress(repo, rp, lambda text: insert_item(text, line),
+                         "chore(queue): add manual-test bug to the top of Next Steps (reported by Mark)")
+
+
+def edit_progress(repo, rp, edit_fn, commit_msg):
+    """The atomic OVERNIGHT_PROGRESS.md edit (the ovn_park_sweep.sh pattern) shared by enqueue and the bug brief (2026-10-02: the brief REPLACES the
+    single item by its decomposed items under the very same hold / reset / commit / push / release). edit_fn(text) -> (new_text|None, why): None = the
+    edit cannot be made (-> failure), new_text == text = nothing to do ('already...' / 'skip...': success, no commit)."""
     if os.path.exists(os.path.join(ovn_dir(), "state", "HOLD_" + repo)):
         # a human (or another job) is holding this repo: never take over or clear their hold - the sweep retries this entry later
         return False, "repo is on hold (state/HOLD_%s) - will retry" % repo
@@ -853,17 +877,18 @@ def enqueue(repo, rp, line):
                 text = fh.read()
         except OSError as ex:
             return False, "cannot read OVERNIGHT_PROGRESS.md: %s" % ex
-        new, why = insert_item(text, line)
+        new, why = edit_fn(text)
         if new is None:
             return False, why
         if why == "already-present":
             return True, "already present on %s" % OVN_BRANCH
+        if new == text:
+            return True, why
         with open(f, "w", encoding="utf-8") as fh:
             fh.write(new)
         rc, _, err = git(rp, "add", "OVERNIGHT_PROGRESS.md")
         if rc == 0:
-            rc, _, err = sh(["git", "-C", rp] + COMMIT_ENV + ["commit", "-q", "-m",
-                            "chore(queue): add manual-test bug to the top of Next Steps (reported by Mark)"], timeout=60)
+            rc, _, err = sh(["git", "-C", rp] + COMMIT_ENV + ["commit", "-q", "-m", commit_msg], timeout=60)
         if rc != 0:
             _undo(rp)
             return False, "git commit failed: %s" % err.strip()[:160]
@@ -1015,7 +1040,20 @@ def decode_note(args):
     return args.note or ""
 
 
+_BRIEF_SPAWN = []      # entry ids that were enqueued by THIS `add` and want a bug brief (spawned after the state lock is released)
+
+
 def cmd_add(args):
+    rc = _cmd_add(args)
+    try:
+        while _BRIEF_SPAWN:
+            spawn_brief(_BRIEF_SPAWN.pop(0))
+    except Exception as ex:  # noqa: BLE001 - the brief is an enhancement; it can never fail an add
+        log("bug brief spawn failed (%s: %s) - the single item stays as enqueued; the sweep retries" % (type(ex).__name__, ex))
+    return rc
+
+
+def _cmd_add(args):
     repo, flow = args.repo, (args.flow or "other")
     rp = repo_path(repo)
     if not rp:
@@ -1100,6 +1138,11 @@ def cmd_add(args):
             entry["status"] = "open"
             entry["enqueued_at"] = time.time()
             maybe_enable_lane(repo, entry)
+            if brief_wanted(args):
+                # 2026-10-02: the single item is ALREADY at the top of the queue (right away, as before). The brief replaces it by a test-first
+                # list of single-file steps when it is ready (minutes); if it never is, nothing changes.
+                entry["brief"] = {"status": "pending", "since": time.time()}
+                _BRIEF_SPAWN.append(eid)
         else:
             entry["status"] = "pending-enqueue"
             log("%s: enqueue failed (%s) - kept as pending-enqueue, the sweep retries" % (repo, msg))
@@ -1136,8 +1179,190 @@ def _print_entry(e, dry=False):
         print("  also look at: %s" % ", ".join(e["also"]))
     if e.get("ranked_by"):
         print("  ranked_by=%s risk=%s lang=%s" % (e["ranked_by"], e.get("risk", "-"), e.get("language", "-")))
+    if e.get("brief"):
+        print("  brief: %s%s" % (e["brief"].get("status"), ("  (%s)" % e["brief"]["why"]) if e["brief"].get("why") else ""))
     if e.get("item"):
         print("  item: " + e["item"])
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# bug brief (2026-10-02): research + plan + decompose the enqueued bug; replace the single item. See qa/bug_brief.py.
+# ----------------------------------------------------------------------------------------------------------------------
+BRIEF_STALE_S = 1800        # a 'running' claim older than this is taken over (the claiming process died)
+BRIEF_MAX_TRIES = 3         # apply failures (hold / push races) before the entry is left as the single item
+
+
+def _bb():
+    """The bug_brief module, or None (not deployed / broken / OVN_BUG_BRIEF=off): today's single-item behaviour."""
+    try:
+        import bug_brief
+        return bug_brief if bug_brief.enabled() else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def brief_wanted(args=None):
+    return (not getattr(args, "no_model", False)) and model_enabled() and _bb() is not None
+
+
+def spawn_brief(eid):
+    """Run `brief --id <eid>` detached (the bridge's ssh budget is 120 s; a brief takes minutes). OVN_BUG_BRIEF_SPAWN=off => the sweep does it."""
+    if os.environ.get("OVN_BUG_BRIEF_SPAWN", "on") == "off":
+        return
+    logd = os.path.join(ovn_dir(), "logs")
+    os.makedirs(logd, exist_ok=True)
+    lf = open(os.path.join(logd, "bug_brief.log"), "a")
+    try:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "brief", "--id", eid], stdin=subprocess.DEVNULL, stdout=lf, stderr=lf,
+                         start_new_session=True, close_fds=True, env=dict(os.environ))
+    finally:
+        lf.close()
+
+
+def _brief_claim(eid=None, force=False, limit=1):
+    """Under the state lock: pick open entries whose brief is pending (or a stale 'running' claim) and mark them running. -> [entry copies]"""
+    out = []
+    with StateLock():
+        st = load_state()
+        now = time.time()
+        for k, e in sorted(st["entries"].items(), key=lambda kv: kv[1].get("created", 0)):
+            if eid and k != eid:
+                continue
+            b = e.get("brief") or {}
+            if e.get("status") != "open" or not e.get("path") or not e.get("feat"):
+                continue
+            stale = b.get("status") == "running" and now - b.get("claimed_at", 0) > BRIEF_STALE_S
+            if not (b.get("status") == "pending" or stale or (force and b.get("status") in ("done", "fallback", "skipped", "running", None))):
+                continue
+            e["brief"] = dict(b, status="running", claimed_at=now, tries=b.get("tries", 0))
+            out.append(json.loads(json.dumps(e)))
+            if len(out) >= limit:
+                break
+        if out:
+            save_state(st)
+    return out
+
+
+def _brief_finish(eid, patch, items=None):
+    with StateLock():
+        st = load_state()
+        e = st["entries"].get(eid)
+        if e is None:
+            return
+        e["brief"] = dict(e.get("brief") or {}, **patch)
+        if items is not None:
+            e["brief_items"] = items
+        e["updated"] = time.time()
+        save_state(st)
+
+
+def _brief_run_one(e):
+    """Compute the brief OUTSIDE the state lock (minutes of model + test time), then apply under it. Never raises; every outcome is recorded."""
+    eid, repo = e["id"], e["repo"]
+    bb = _bb()
+    t0 = time.time()
+    try:
+        if bb is None:
+            return _brief_finish(eid, {"status": "skipped", "why": "bug brief disabled or not deployed", "at": time.time()})
+        rp = repo_path(repo)
+        if not rp:
+            return _brief_finish(eid, {"status": "pending", "why": "clone missing; will retry"})
+        git(rp, "fetch", "-q", "origin", OVN_BRANCH, timeout=120)
+        ref = ref_for(rp)
+        if not ref:
+            return _brief_finish(eid, {"status": "pending", "why": "no %s ref; will retry" % OVN_BRANCH})
+        res = bb.make_brief(rp, ref, e["note"], e["flow"], e["path"], e.get("also", []), e.get("platform") or None, repo_name=repo, feat=e["feat"],
+                            date=e["date"])
+        bb.save_brief_record(e["feat"], res, ovn_dir())
+        info = {"calls": res.get("calls", 0), "seconds": round(time.time() - t0, 1), "at": time.time(),
+                "red_proof": (res.get("red_proof") or {}).get("status")}
+        if res["status"] != "ok":
+            log("%s: bug brief fell back to the single item (%s)" % (repo, res.get("why")))
+            return _brief_finish(eid, dict(info, status="fallback", why=str(res.get("why"))[:300]))
+        with StateLock():
+            ok, msg = edit_progress(repo, rp, lambda t: bb.apply_to_text(t, e["feat"], res["items"]),
+                                    "chore(queue): decompose manual-test bug into a test-first brief of %d step(s) (%s)" % (len(res["items"]), e["feat"]))
+        if not ok:
+            tries = (e.get("brief") or {}).get("tries", 0) + 1
+            log("%s: bug brief apply failed (%s) try %d" % (repo, msg, tries))
+            return _brief_finish(eid, dict(info, status="pending" if tries < BRIEF_MAX_TRIES else "fallback", tries=tries,
+                                           why="apply failed: %s" % msg[:200]))
+        st_ = "done" if msg.startswith("pushed") or msg.startswith("replaced") or msg == "replaced" else "skipped"
+        log("%s: bug brief %s: %s (%d item(s))" % (repo, st_, msg, len(res["items"])))
+        return _brief_finish(eid, dict(info, status=st_, why=msg[:200], **({"items": len(res["items"])} if st_ == "done" else {})),
+                             items=res["items"] if st_ == "done" else None)
+    except Exception as ex:  # noqa: BLE001
+        log("%s: bug brief error (%s: %s) - single item stays" % (repo, type(ex).__name__, ex))
+        try:
+            _brief_finish(eid, {"status": "fallback", "why": "error: %s" % type(ex).__name__, "at": time.time()})
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _pending_brief_ids(limit=1):
+    """Ids of open entries whose brief is pending (or a stale 'running' claim). Read only."""
+    with StateLock():
+        st = load_state()
+    now = time.time()
+    out = []
+    for k, e in sorted(st["entries"].items(), key=lambda kv: kv[1].get("created", 0)):
+        b = e.get("brief") or {}
+        if e.get("status") == "open" and e.get("path") and e.get("feat") and (
+                b.get("status") == "pending" or (b.get("status") == "running" and now - b.get("claimed_at", 0) > BRIEF_STALE_S)):
+            out.append(k)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def sweep_briefs():
+    """The sweep's brief pass. A brief takes minutes (model + test run) and the cron wrapper runs ONE sweep at a time with a 600 s hard timeout, so the
+    sweep must not do it inline: it spawns the pending brief detached (the child claims it under the state lock; a fresh claim is never taken twice).
+    OVN_BUG_BRIEF_SPAWN=off (tests, manual use) runs it inline instead."""
+    if _bb() is None:
+        return
+    if os.environ.get("OVN_BUG_BRIEF_SPAWN", "on") == "off":
+        brief_run_pending()
+        return
+    for eid in _pending_brief_ids():
+        spawn_brief(eid)
+
+
+def brief_run_pending(eid=None, force=False, limit=1):
+    """Claim + run pending briefs, ONE at a time (a global non-blocking lock keeps two model/test jobs from running together)."""
+    lockf = None
+    try:
+        os.makedirs(state_dir(), exist_ok=True)
+        lockf = open(os.path.join(state_dir(), "bug_brief.lock"), "a")
+        try:
+            fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            log("another bug brief is running - leaving the pending entries for the next sweep")
+            return 0
+        n = 0
+        for e in _brief_claim(eid, force, limit):
+            _brief_run_one(e)
+            n += 1
+        return n
+    except TimeoutError as ex:
+        log("bug brief: %s" % ex)
+        return 0
+    finally:
+        if lockf:
+            try:
+                fcntl.flock(lockf, fcntl.LOCK_UN)
+                lockf.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def cmd_brief(args):
+    if _bb() is None:
+        print("bug brief is off (OVN_BUG_BRIEF=off) or bug_brief.py is not deployed: nothing to do")
+        return 0
+    n = brief_run_pending(args.id, args.force, limit=(1 if args.id else 2))
+    print("brief: %d entr%s processed" % (n, "y" if n == 1 else "ies"))
+    return 0
 
 
 def read_ref_file(rp, ref, name):
@@ -1159,6 +1384,9 @@ def classify_lines(lines):
     if any(not d and not p for d, p, _ in states):
         return "open", "still queued"
     if any(p for _, p, _ in states):
+        # 2026-10-02: ovn_item_guard.sh tags a bug that used up its attempts '[CLAUDE] [bug-escalated: ...]' (never a silent AUTO-SKIP)
+        if any("[bug-escalated" in l for l in lines):
+            return "escalated", "fleet gave up after its attempt cap; handed to a Claude fix session (state/bug_escalations.jsonl)"
         return "needs-human", "parked by the fleet (AUTO-SKIP / [CLAUDE] / retired)"
     if all(sat for _, _, sat in states):
         return "needs-human", "fleet judged it already satisfied in code - the bug may not be in this file"
@@ -1197,6 +1425,8 @@ def cmd_sweep(args):
                         e["status"] = "open"
                         e["enqueued_at"] = time.time()
                         maybe_enable_lane(repo, e)
+                        if brief_wanted() and not e.get("brief"):
+                            e["brief"] = {"status": "pending", "since": time.time()}      # same as `add`: the retry enqueue also gets its brief
                         changed += 1
                         log("%s: pending item enqueued on retry (%s)" % (repo, e["id"]))
                     continue
@@ -1219,13 +1449,19 @@ def cmd_sweep(args):
                     if status == "fixed":
                         if not args.no_notify:
                             notify_once(e, "fixed", "Manual bug fixed: %s" % repo,
-                                        "Fleet says it landed (retest it): %s" % trim(e["note"]))
+                                        "Fleet says it landed (retest it with scripts/qa-retest): %s" % trim(e["note"]))
+                    # status == "escalated": NO note here - ovn_item_guard.sh already sent the one 'Manual bug escalated' relay note
                     elif status == "needs-human":
                         if not args.no_notify:
                             notify_once(e, "needs-human", "Manual bug needs a human: %s" % repo,
                                         "The fleet could not fix it (%s): %s" % (e["language"] if e.get("language") else "?", trim(e["note"])))
         release_lanes(st)
         save_state(st)
+    if not args.no_brief:
+        try:
+            sweep_briefs()               # AFTER the state lock is released: a brief takes minutes of model + test time (spawned detached)
+        except Exception as ex:  # noqa: BLE001
+            log("bug brief pass failed (%s: %s)" % (type(ex).__name__, ex))
     log("sweep done: %d status change(s)" % changed)
     return 0
 
@@ -1243,7 +1479,122 @@ def cmd_list(args):
     for e in es:
         files = e.get("path") or ", ".join(c["path"] for c in e.get("candidates", [])[:2]) or "-"
         print("%-20s %-10s %-14s %-6s %-44s %s" % (e["repo"], e["date"], e["status"], e.get("risk", "-"), trim(files, 44), trim(e["note"], 70)))
+    # 2026-10-02: the human-readable meaning of the statuses that ask something of Mark (stored values stay as printed above)
+    shown = sorted({e["status"] for e in es if e["status"] in STATUS_LABEL})
+    if shown:
+        print("status key: " + "; ".join("%s = %s" % (k, STATUS_LABEL[k]) for k in shown))
     return 0
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# retest (2026-10-02, bugs-first): Mark's verdict on a bug the fleet reported fixed (or gave up on)
+# ----------------------------------------------------------------------------------------------------------------------
+
+def norm_flow(f):
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9._]", "-", (f or "").lower())).strip("-") or "other"
+
+
+def retest_key(repo, date, flow, result, note):
+    return hashlib.sha256(("retest|%s|%s|%s|%s|%s" % (repo, date, norm_flow(flow), result, re.sub(r"\s+", " ", note).strip().lower())).encode("utf-8")).hexdigest()[:16]
+
+
+def build_retest_item(entry, note, n, date):
+    """The ORIGINAL queue line with a new [feat:...rN] tag (=> a new item hash => fresh per-item attempt counters in the loop) and the retest
+    note attached. Works on whatever line the ingest wrote (also tolerant of an item that no longer has the standard wording)."""
+    line = entry["item"]
+    old = entry["feat"]
+    base = re.sub(r"\.r\d+$", "", old)
+    new = "%s.r%d" % (base, n)
+    line = line.replace("[feat:%s]" % old, "[feat:%s]" % new)
+    # NEVER write a literal "[feat:" in the retest text: the loop's ovn_item_hash takes the FIRST [feat:..] tag in the line, which would then be the OLD
+    # one (same hash as the original item => the attempt counter would NOT be fresh). The real, new tag is the trailing one.
+    rt = "RETEST FAILED %s: Mark retested the fleet's earlier fix and the bug is STILL THERE%s. The earlier attempt is in the git log under feat tag %s - read it first, do NOT repeat the same change." % (
+        date, (" (his words: %s)" % note.rstrip(".;:! ")) if note else "", base)
+    if " First write a failing test" in line:
+        line = line.replace(" First write a failing test", " " + rt + " First write a failing test", 1)
+    elif " VERIFY:" in line:
+        line = line.replace(" VERIFY:", " " + rt + " VERIFY:", 1)
+    else:
+        line = line.rstrip() + " " + rt
+    return line
+
+
+def cmd_retest(args):
+    repo, result = args.repo, args.result
+    flow = norm_flow(args.flow)
+    rp = repo_path(repo)
+    if not rp:
+        print("ERROR: unknown repo '%s' (no clone under %s)" % (repo, repos_root()))
+        return 2
+    if result not in ("ok", "still-broken"):
+        print("ERROR: --result must be ok or still-broken")
+        return 2
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date or ""):
+        print("ERROR: --date must be YYYY-MM-DD")
+        return 2
+    try:
+        raw = base64.b64decode(args.note_b64).decode("utf-8", "replace") if args.note_b64 else (args.note or "")
+        note = sanitize_note(raw) if raw.strip() else ""
+    except Exception:  # noqa: BLE001
+        print("ERROR: --note-b64 is not valid base64")
+        return 2
+    note = note[:300]
+    rid = retest_key(repo, args.date, flow, result, note)
+    with StateLock():
+        st = load_state()
+        for e in st["entries"].values():                       # idempotent: the bridge may re-send a verdict after a lost ack
+            if any(r.get("key") == rid for r in e.get("retests", [])):
+                print("DUPLICATE retest id=%s status=%s" % (e["id"], e["status"]))
+                return 0
+        cands = [e for e in st["entries"].values() if e["repo"] == repo and norm_flow(e.get("flow")) == flow and e["status"] in RETESTABLE
+                 and (not args.id or e["id"].startswith(args.id))]
+        if not cands:
+            print("NOMATCH no bug in %s / flow '%s' is awaiting a retest (statuses: %s)" % (
+                repo, flow, ", ".join(RETESTABLE)))
+            return 2 if result == "ok" else 3         # 3 = the bridge files an unmatched 'still-broken' as a normal new bug instead
+        now = time.time()
+        if result == "ok":
+            for e in cands:
+                e.setdefault("retests", []).append({"ts": now, "date": args.date, "result": "ok", "note": note, "key": rid, "from_status": e["status"]})
+                e["status"] = "closed"
+                e["status_reason"] = "retest ok (confirmed by Mark %s)" % args.date
+                e["closed_at"] = now
+                e["updated"] = now
+            save_state(st)
+            print("RETESTED result=ok closed=%d ids=%s" % (len(cands), ",".join(e["id"] for e in cands)))
+            return 0
+        prio = {"fixed": 0, "escalated": 1, "needs-human": 2}
+        e = sorted(cands, key=lambda x: (prio.get(x["status"], 9), -x.get("updated", 0)))[0]
+        if not e.get("item") or not e.get("feat"):
+            print("NOMATCH entry %s has no stored queue item to reopen" % e["id"])
+            return 3
+        n = int(e.get("retest_count", 0)) + 1
+        e.setdefault("retests", []).append({"ts": now, "date": args.date, "result": "still-broken", "note": note, "key": rid, "from_status": e["status"]})
+        e.setdefault("feat_history", []).append(e["feat"])
+        e["retest_count"] = n
+        e["item"] = build_retest_item(e, note, n, args.date)
+        e["feat"] = re.sub(r"\.r\d+$", "", e["feat"]) + ".r%d" % n
+        e["notified"] = []                                     # the next fixed / needs-human / escalated transition notifies again
+        e["updated"] = now
+        e["status_reason"] = "reopened by retest %s (still broken)" % args.date
+        e.pop("lane_released", None)
+        if args.dry_run:
+            print("DRY-RUN reopen id=%s feat=%s" % (e["id"], e["feat"]))
+            print("  item: " + e["item"])
+            return 0
+        ok, msg = enqueue(repo, rp, e["item"])
+        e["enqueue_result"] = msg
+        if ok:
+            e["status"] = "open"
+            e["enqueued_at"] = now
+            maybe_enable_lane(repo, e)
+        else:
+            e["status"] = "pending-enqueue"                    # the sweep retries it (same as a first enqueue that failed)
+            log("%s: reopen enqueue failed (%s) - kept as pending-enqueue, the sweep retries" % (repo, msg))
+        save_state(st)
+        print("REOPENED id=%s repo=%s status=%s feat=%s attempts=reset" % (e["id"], repo, e["status"], e["feat"]))
+        return 0
+
 
 
 def main(argv=None):
@@ -1262,11 +1613,24 @@ def main(argv=None):
     a.add_argument("--dry-run", action="store_true")
     s = sub.add_parser("sweep")
     s.add_argument("--no-notify", action="store_true")
+    s.add_argument("--no-brief", action="store_true")
+    b = sub.add_parser("brief")
+    b.add_argument("--id", default="")
+    b.add_argument("--force", action="store_true")
     l = sub.add_parser("list")
     l.add_argument("--json", action="store_true")
+    r = sub.add_parser("retest")
+    r.add_argument("--repo", required=True)
+    r.add_argument("--date", required=True)
+    r.add_argument("--flow", required=True)
+    r.add_argument("--result", required=True, choices=["ok", "still-broken"])
+    r.add_argument("--id", default="", help="entry id (prefix) when several bugs share a flow")
+    r.add_argument("--note-b64", default="")
+    r.add_argument("--note", default="")
+    r.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
     try:
-        return {"add": cmd_add, "sweep": cmd_sweep, "list": cmd_list}[args.cmd](args)
+        return {"add": cmd_add, "sweep": cmd_sweep, "list": cmd_list, "retest": cmd_retest, "brief": cmd_brief}[args.cmd](args)
     except TimeoutError as ex:
         print("ERROR: %s" % ex)
         return 1

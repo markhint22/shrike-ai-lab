@@ -138,6 +138,9 @@ ok "stage path never calls aider itself" "$([ ! -d "$T/stage_pushed/scn/calls" ]
 run stage_unverified
 ok "stage with 0 pushed -> no-op(stage-unverified)" "$([ "$(res stage_unverified)" = 'no-op(stage-unverified) stage(higher-tier)' ] && echo 1 || echo 0)"
 ok "0-pushed stage recorded as noop:flail" "$(has "$(cat "$T/stage_unverified/sd/state/task_stats.log")" 'noop:flail')"
+run stage_unverified_bug
+ok "stage that counted/escalated a manual bug itself (bug_attempt event) -> status carries 'bug-handled' (2026-10-02: guard must not re-count it)" "$([ "$(res stage_unverified_bug)" = 'no-op(stage-unverified) stage(higher-tier) bug-handled' ] && echo 1 || echo 0)"
+ok "bug-handled status still classifies as stage-unverified (stats unchanged)" "$([ "$(bash "$HERE/../../ovn_classify_fail.sh" "$T/stage_unverified_bug/task.log" "$(res stage_unverified_bug)" 2>/dev/null | tail -1)" = stage-unverified ] && echo 1 || echo 0)"
 run stage_nojsonl
 ok "stage with no jsonl at all -> honest no-op(stage-unverified), no token line" "$([ "$(res stage_nojsonl)" = 'no-op(stage-unverified) stage(higher-tier)' ] && [ "$(b2i "$(has "$(tlog stage_nojsonl)" 'Tokens:')")" = 1 ] && echo 1 || echo 0)"
 run stage_nodoable

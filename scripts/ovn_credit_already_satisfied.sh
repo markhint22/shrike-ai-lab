@@ -82,144 +82,9 @@ SHADOW_LOG="${OVN_VERIFY_SHADOW_LOG:-$HOME/overnight-queue/state/verify_gate_sha
 mkdir -p "$(dirname "$SHADOW_LOG")" 2>/dev/null
 _REPO_LABEL="$(basename "$PWD")"
 
-# Substitute a nearby repo .venv's python for a bare `python`/`python3` token, so a
-# VERIFY clause that omits the .venv/ prefix (some do, some don't - an authoring
-# inconsistency, not something this shadow check should mistake for a false credit)
-# runs with the repo's actual installed deps instead of whatever's on PATH.
-_resolve_tool_paths(){
-  local cmd="$1" vpy vpytest vgradlew cddir="."
-
-  # godot: never resolvable bare on this box (verified: no symlink/alias/PATH
-  # entry anywhere, including a login shell) - the real pipeline always uses
-  # $HOME/godot/godot4. Substitute unconditionally when present as a bare
-  # command word (start of string, or after && / ;).
-  cmd="$(printf '%s' "$cmd" | sed -E "s#(^|&& |; )godot #\1${HOME}/godot/godot4 #g")"
-
-  # If the command starts with "cd <dir> && ...", resolve venv search from
-  # THAT directory - it's where the rest of the command actually runs, and
-  # it's also where a "cd backend && ./backend/.venv/..." double-prefix
-  # mistake needs to be searched from to self-heal (searching from repo root
-  # would just re-find the same non-existent nested path).
-  case "$cmd" in
-    "cd "*" && "*) cddir="$(printf '%s' "$cmd" | sed -E 's#^cd ([^ ]+) && .*#\1#')" ;;
-  esac
-
-  # 2026-09-27 FIX (round 3): two real gaps found in live shadow data even
-  # after round 2's fix.
-  #   (1) `find` without `-L` cannot descend into a SYMLINKED .venv at all -
-  #       it never even attempts to read what the link points to, so a repo
-  #       whose .venv is (correctly, by design) a symlink got zero matches
-  #       here regardless of whether the symlink target was actually healthy.
-  #       Confirmed live on iptv_apps: `.venv -> .../.venv` is a symlink even
-  #       in its intended-healthy shape, not just when self-corrupted. `-L`
-  #       fixes the general case; a genuinely BROKEN symlink still correctly
-  #       yields no match either way (out of scope here - that corruption bug
-  #       is tracked separately, not something this checker should paper over).
-  #   (2) $vpy was being substituted back into the command as the SAME
-  #       relative-to-repo-root path `find` returned (e.g. "backend/.venv/bin/
-  #       python3") even when the command already had a "cd backend && "
-  #       prefix - after that cd, that path is interpreted relative to
-  #       backend/, silently doubling to a nonexistent "backend/backend/.venv/
-  #       ...". Converting to an ABSOLUTE path once, right after finding it,
-  #       makes the substitution correct regardless of any cd prefix already
-  #       in the command - the actual root fix, not another special case for
-  #       one more path shape.
-  vpy="$(find -L "$cddir" -maxdepth 4 \( -path '*/.venv/bin/python3' -o -path '*/.venv/bin/python' \) 2>/dev/null | head -1)"
-  if [ -n "$vpy" ]; then
-    vpy="$(cd "$(dirname "$vpy")" 2>/dev/null && pwd)/$(basename "$vpy")"
-    # Authoritatively replace ANY existing venv-python path reference (correct
-    # or not) plus any bare python/python3 token with the one just verified to
-    # actually exist - a no-op if the text was already right, a self-heal if
-    # it wasn't (e.g. a duplicated "backend/backend/.venv" segment).
-    cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/python3?#${vpy}#g; s#(^|&& |; )python3? #\1${vpy} #g")"
-  fi
-
-  vpytest="$(find -L "$cddir" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
-  if [ -n "$vpytest" ]; then
-    vpytest="$(cd "$(dirname "$vpytest")" 2>/dev/null && pwd)/$(basename "$vpytest")"
-    cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/pytest#${vpytest}#g; s#(^|&& |; )pytest #\1${vpytest} #g")"
-  fi
-
-  # (3) `./gradlew` VERIFY clauses are authored assuming the repo root as cwd,
-  # but this checker's own cwd is wherever it was invoked from and may not be
-  # the actual repo root, or a "cd <subdir> &&" prefix may have moved it
-  # elsewhere first - confirmed live on billwatch (3 distinct FAILs, "No such
-  # file or directory"). Find the real gradlew and always substitute an
-  # absolute path, same self-healing approach as the python/pytest case above.
-  case "$cmd" in
-    *gradlew*)
-      vgradlew="$(find . -maxdepth 3 -name gradlew -type f 2>/dev/null | head -1)"
-      if [ -n "$vgradlew" ]; then
-        local vgdir gargs
-        vgdir="$(cd "$(dirname "$vgradlew")" 2>/dev/null && pwd)"
-        # gradlew must run with ITS OWN project directory as $PWD (it looks for
-        # settings.gradle/build.gradle relative to the CURRENT directory, not
-        # relative to the script's own location on disk) - unlike the python/
-        # pytest case above, substituting an absolute path in place isn't
-        # enough (confirmed live: BUILD FAILED, missing settings.gradle,
-        # because it ran from the repo root instead of the android subdir).
-        # Extract everything after the LAST gradlew token (the real args,
-        # dropping any existing likely-wrong "cd ... &&" prefix) and rebuild.
-        gargs="$(printf '%s' "$cmd" | sed -E 's#^.*gradlew##')"
-        cmd="cd ${vgdir} && ./gradlew${gargs}"
-      fi
-      ;;
-  esac
-
-  printf '%s' "$cmd"
-}
-
-# True (0) if $1 contains a redirect to something other than /dev/null (a real
-# destructive write this shadow check should refuse to execute), false (1) if the
-# only redirects present are the standard `>/dev/null` / `2>/dev/null` idiom.
-_has_real_redirect(){
-  local stripped
-  stripped="$(printf '%s' "$1" | sed -E 's/[0-9]*>>?[[:space:]]*\/dev\/null//g')"
-  case "$stripped" in
-    *">"*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-_LAST_VERIFY_RESULT=""
-shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_VERIFY_RESULT.
-  local ln="$1" line vcmd rc out tail_out ts
-  ts="$(date -u +%FT%TZ)"
-  _LAST_VERIFY_RESULT=""
-  line="$(sed -n "${ln}p" "$PROG" 2>/dev/null)"
-  # VERIFY clause convention across this fleet: VERIFY: `<cmd>`. (backtick-delimited)
-  vcmd="$(printf '%s' "$line" | grep -oE 'VERIFY:[[:space:]]*`[^`]+`' | head -1 | sed -E 's/^VERIFY:[[:space:]]*`//; s/`$//')"
-  if [ -z "$vcmd" ]; then
-    echo "$ts repo=$_REPO_LABEL line=$ln result=NO_VERIFY_CLAUSE" >> "$SHADOW_LOG"
-    _LAST_VERIFY_RESULT="NO_VERIFY_CLAUSE"
-    return
-  fi
-  # Defense in depth: this is trusted-origin text (the fleet's own research/decomposition
-  # output, same trust level as the diffs it already commits unattended) but shadow mode
-  # is read-only observation, not a mutation - skip anything destructive/networked rather
-  # than risk it, same spirit as ovn_stage_runner.sh's try_regen allowlist.
-  case "$vcmd" in
-    *"rm -rf"*|*"sudo "*|*"git push"*|*"git reset"*|*"curl "*|*"wget "*)
-      echo "$ts repo=$_REPO_LABEL line=$ln result=SKIPPED_DENYLIST cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
-      _LAST_VERIFY_RESULT="SKIPPED_DENYLIST"
-      return ;;
-  esac
-  if _has_real_redirect "$vcmd"; then
-    echo "$ts repo=$_REPO_LABEL line=$ln result=SKIPPED_DENYLIST cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
-    _LAST_VERIFY_RESULT="SKIPPED_DENYLIST"
-    return
-  fi
-  vcmd="$(_resolve_tool_paths "$vcmd")"
-  out="$(timeout 60 bash -c "$vcmd" 2>&1)"; rc=$?
-  tail_out="$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"
-  if [ "$rc" -eq 0 ]; then
-    echo "$ts repo=$_REPO_LABEL line=$ln result=PASS cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
-    _LAST_VERIFY_RESULT="PASS"
-  else
-    echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
-    _LAST_VERIFY_RESULT="FAIL"
-  fi
-}
+# _resolve_tool_paths / _has_real_redirect / shadow_check live in lib_verify_clause.sh (shared with the runner's auto-credit, 2026-10-02).
+# shellcheck source=lib_verify_clause.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_verify_clause.sh"
 
 # TARGET-PATH GATE (2026-09-30): the VERIFY gate above only protects items that HAVE a runnable VERIFY clause.
 # The 2026-09-24 audit found 5-21% of credits wrong (billwatch 21%, gitlark 16%) and the remaining exposure is
@@ -287,8 +152,10 @@ for f in $FILES; do
     _LAST_PATH_RESULT="NA"
     # the path gate covers exactly what the VERIFY gate cannot: items with no runnable VERIFY clause
     case "$_LAST_VERIFY_RESULT" in NO_VERIFY_CLAUSE|SKIPPED_DENYLIST) path_gate "$ln" ;; esac
-    if [ "$VERIFY_GATE_MODE" = "enforce" ] && [ "$_LAST_VERIFY_RESULT" = "FAIL" ]; then
-      echo "REFUSED credit at line ${ln} (matched ${b}) - VERIFY clause failed, left open for review"
+    # (2026-10-02 harness-X: TIMEOUT / UNRUNNABLE used to be reported as FAIL by shadow_check and were refused here; they are now distinct results
+    # but this caller keeps refusing them - an unverified already-satisfied claim must not be credited. It keeps the 60s cap: it sets no VERIFY_TIMEOUT_*.)
+    if [ "$VERIFY_GATE_MODE" = "enforce" ] && { [ "$_LAST_VERIFY_RESULT" = "FAIL" ] || [ "$_LAST_VERIFY_RESULT" = "TIMEOUT" ] || [ "$_LAST_VERIFY_RESULT" = "UNRUNNABLE" ]; }; then
+      echo "REFUSED credit at line ${ln} (matched ${b}) - VERIFY clause failed${_LAST_VERIFY_WHY:+ ($_LAST_VERIFY_WHY)}, left open for review"
     elif [ "$PATH_GATE_MODE" = "enforce" ] && { [ "$_LAST_PATH_RESULT" = "MISSING" ] || [ "$_LAST_PATH_RESULT" = "STILL_EXISTS" ]; }; then
       echo "REFUSED credit at line ${ln} (matched ${b}) - item's own target path check: ${_LAST_PATH_RESULT}, left open for review"
     else

@@ -22,7 +22,7 @@ export AIDER1_SCN="$SC"
 
 # ---- fake tree: symlink the real helper scripts (so they are the real code), stub what must be controlled ----
 for f in "$Q"/scripts/*.sh "$Q"/scripts/*.py; do [ -f "$f" ] && ln -s "$f" "$SD/scripts/$(basename "$f")"; done
-for f in dedupe_progress_headers.py ovn_classify_fail.sh; do [ -f "$Q/$f" ] && ln -s "$Q/$f" "$SD/$f"; done
+for f in dedupe_progress_headers.py ovn_classify_fail.sh ovn_park_unworkable.py; do [ -f "$Q/$f" ] && ln -s "$Q/$f" "$SD/$f"; done
 echo '{}' > "$SD/model-metadata.json"; echo '[]' > "$SD/tasks.json"
 cat > "$SD/ovn_stage_runner.sh" <<'STUB'
 #!/bin/bash
@@ -32,7 +32,7 @@ echo "stub stage runner invoked mode=$m repo=$1"
 case "$m" in
   nodoable) echo "no doable T3+ item found" ;;
   lock)     echo "another stage runner holds the lock" ;;
-  pushed|unverified|nojsonl)
+  pushed|unverified|unverified_bug|nojsonl)
     if [ "$m" != nojsonl ]; then
       mkdir -p state/stage_runs
       n=1; [ "$m" = pushed ] && n=2
@@ -40,6 +40,8 @@ case "$m" in
         echo '{"event":"decomposed","item":"- [ ] [T3] app/foo.py — rework foo heavily (cat:python)"}'
         echo '{"event":"step","tokens_sent":1200,"tokens_recv":300}'
         echo '{"event":"step","tokens_sent":800,"tokens_recv":200}'
+        # 2026-10-02: the real runner journals this when it counted/escalated a manual bug itself (stage_bug_attempt)
+        [ "$m" = unverified_bug ] && echo '{"run":"r","event":"bug_attempt","attempts":1,"cap":2}'
         echo "{\"event\":\"summary\",\"commits_pushed\":$([ "$m" = pushed ] && echo 2 || echo 0)}"
       } > "state/stage_runs/$1-$n.jsonl"
     fi ;;
@@ -255,6 +257,8 @@ RSTUB
 "; echo pushed > "$SC/stage.mode"; call ;;
   stage_unverified) progress "$TOP_PROG- [ ] [T3] app/foo.py — rework foo heavily (cat:python)
 "; echo unverified > "$SC/stage.mode"; call ;;
+  stage_unverified_bug) progress "$TOP_PROG- [ ] [T3] app/foo.py — rework foo heavily (cat:python)
+"; echo unverified_bug > "$SC/stage.mode"; call ;;
   stage_nojsonl)  progress "$TOP_PROG- [ ] [T3] app/foo.py — rework foo heavily (cat:python)
 "; echo nojsonl > "$SC/stage.mode"; call ;;
   stage_off)      progress "$TOP_PROG- [ ] [T3] app/foo.py — rework foo heavily (cat:python)
@@ -395,6 +399,37 @@ app/foo.py"
     PROMPT='Implement `compute_total` and `other_helper` plus `guarded_fn` and `only_in_tests` and `no_such_fn` properly.'
     PROT="app/guard.py"
     proceed "update app/ghost/zzz.py accordingly" "NONE"
+    call ;;
+  # ---------- scout file guard (2026-10-02) ----------
+  sg_*)
+    ( cd "$R" && mkdir -p tests && python3 -c "open('app/huge.py','w').write('x = 1\n' * 60000)"
+      printf 'def b():\n    return 1\n' > app/banned.py; printf 'app/banned.py\n' > .queue-hard-banned-files
+      git add -A && git commit -q -m sgfix && git push -q origin main 2>/dev/null )
+    SG_ITEM='- [ ] [T2] tests/test_persist.py — add a test that the autosave persists (cat:test)'
+    case "$SCN_NAME" in sg_target) SG_ITEM='- [ ] [T2] app/huge.py — add a helper (cat:python)';; esac
+    progress "# Overnight Progress
+
+## Next Steps
+$SG_ITEM
+- [ ] [T1] app/bar.py — tidy bar (cat:python)
+"
+    PROMPT="Work the single top not-yet-done item in the overnight progress log."
+    case "$SCN_NAME" in
+      sg_banned)   proceed "persist the autosave via the code in app/banned.py" "app/banned.py";;
+      sg_oversize) proceed "persist the autosave via the code in app/huge.py" "app/huge.py";;
+      sg_target)   proceed "edit app/huge.py to add the helper" "app/huge.py
+app/foo.py";;
+      sg_partial)  proceed "write tests/test_persist.py against app/huge.py and app/foo.py" "tests/test_persist.py
+app/huge.py
+app/foo.py";;
+      sg_benign)   proceed "write tests/test_persist.py against app/foo.py" "tests/test_persist.py
+app/foo.py";;
+      sg_off)      export OVN_SCOUT_GUARD=off; proceed "write tests/test_persist.py against app/huge.py" "tests/test_persist.py
+app/huge.py";;
+      sg_limit)    export OVN_MAX_FILE_BYTES=20; proceed "write tests/test_persist.py against app/foo.py" "tests/test_persist.py
+app/foo.py";;
+      sg_pushfail) reject_hook; proceed "persist the autosave via the code in app/banned.py" "app/banned.py";;
+    esac
     call ;;
   sc_proceed_plan)
     proceed "edit app/foo.py to fix the foo handling" "app/foo.py"; call ;;

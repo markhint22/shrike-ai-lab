@@ -5,7 +5,7 @@
 # Usage: ovn_classify_fail.sh <task_log> <status>   -> prints one of:
 #   context-exceeded | diff-not-applied | no-edit | api-mismatch | syntax-error |
 #   test-red | build-red | migration-fork | ts-regression | plan-only | timeout | oversized |
-#   needs-decision | model-api-error | queue-exhausted | stage-unverified | landed | unknown
+#   needs-decision | model-api-error | queue-exhausted | stage-unverified | scout-unworkable | landed | unknown
 #
 # Ordered most-specific-first; the FIRST signature that hits wins. Signatures are drawn from real
 # aider/gate output. Keep this cheap (greps only) — it runs once per item in record_outcome.
@@ -58,6 +58,10 @@ case "$status" in
   # live as of today, and the single largest chunk of the T3-T5 "unknown" bucket. The status
   # already names the cause precisely; trust it the same way the other *_status cases above do.
   *"no-op(stage-unverified)"*)        echo "stage-unverified"; exit 0;;
+  # 2026-10-02: the scout-file guard (run_overnight.sh) refused to run aider on a plan that needs a banned/oversize file; the status names the cause.
+  *"no-op(scout-unworkable"*)         echo "scout-unworkable"; exit 0;;
+  # 2026-10-02 (harness Y2): the scout's planned files were all fictional/ambiguous (ovn_scout_ground.py); the status names the cause.
+  *"no-op(scout-ungrounded)"*)        echo "scout-ungrounded"; exit 0;;
 esac
 
 # scan the tail of the log (the last attempt's output is what matters)

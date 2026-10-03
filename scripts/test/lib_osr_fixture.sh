@@ -54,12 +54,15 @@ f="$L/plan.$n"; [ -f "$f" ] || f="$L/plan.default"
 if [ ! -f "$f" ]; then [ -f "$L/fail" ] && exit 22; echo "{}"; exit 0; fi
 python3 -c "import json,sys; print(json.dumps({\"choices\":[{\"message\":{\"content\":open(sys.argv[1]).read()}}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7}}))" "$f"'
   # sleep: backoff / dedicate sleeps return at once; a big sleep is the watchdog: it lives only while its parent subshell does
-  # (bounded to 60s so watchdogs orphaned by the script's early exits cannot leak); OSR_WD_ARG fires a watchdog after 1s.
+  # (UNBOUNDED while the watchdog subshell AND the runner that spawned it live, ends within 0.5s of either's death, so nothing leaks; 2026-10-02 it was capped at 60s, and a runner that simply took
+  # longer than a minute under load had its stub watchdog "expire" and kill -9 the whole runner mid-test = the flaky 20/23 of test_harness_y_stage.sh);
+  # OSR_WD_ARG fires a watchdog after 1s.
   _osr_stub "$H/aider-venv/bin/sleep" '#!/usr/bin/env bash
 a="${1:-0}"
 if [ "$a" = "${OSR_WD_ARG:-x}" ]; then /bin/sleep 1; exit 0; fi
 case "$a" in ""|*[!0-9]*) exec /bin/sleep "$a";; esac
-if [ "$a" -ge 60 ]; then for _i in $(seq 1 120); do kill -0 "$PPID" 2>/dev/null || exit 0; /bin/sleep 0.5; done; exit 0; fi
+if [ "$a" -ge 60 ]; then gp="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d " ")"
+  while kill -0 "$PPID" 2>/dev/null && { [ -z "$gp" ] || kill -0 "$gp" 2>/dev/null; }; do /bin/sleep 0.5; done; exit 0; fi
 exit 0'
   _osr_stub "$H/aider-venv/bin/npx" '#!/usr/bin/env bash
 echo "npx $* @ $PWD link=$([ -L node_modules ] && echo y || echo n)" >> "$OSR_SCN/npx.calls"; echo "vitest run"; exit "$(cat "$OSR_SCN/npx.rc" 2>/dev/null || echo 0)"'
@@ -91,7 +94,18 @@ HOOK
   git -C "$RD" branch -q --set-upstream-to=origin/overnight/feature 2>/dev/null
   export OSR_SCN="$T/scn" OSR_LLM="$T/llm"
 }
-osr_cleanup(){ [ -n "${T:-}" ] && rm -rf "$T"; rm -rf /tmp/stage-${OSR_REPO}.* 2>/dev/null; return 0; }
+# 2026-10-02 (Y-f): this used to `rm -rf /tmp/stage-${OSR_REPO}.*` - EVERY runner worktree of that name on the box, including the ones belonging to a
+# CONCURRENT test process (another suite, a second copy of this one, the full run_all). Under concurrency each suite deleted the other's live worktree
+# mid-run: the other runner then lost its files and "failed" assertions (the flaky 20/23). It now removes only the worktrees registered in THIS fixture's
+# own repo ($RD), which is exactly what its own runner created.
+osr_cleanup(){
+  local wtp
+  if [ -n "${RD:-}" ] && [ -d "$RD/.git" ]; then
+    for wtp in $(git -C "$RD" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep "^/tmp/stage-${OSR_REPO}\."); do rm -rf "$wtp"; done
+  fi
+  [ -n "${T:-}" ] && rm -rf "$T"
+  return 0
+}
 
 osr_venv(){  # $1 = backend (default) | root | nopython : live-venv pytest (+python) stubs, untracked/ignored like the real thing
   local d="$RD/backend/.venv/bin"; [ "${1:-backend}" = root ] && d="$RD/.venv/bin"
@@ -102,6 +116,7 @@ mode="$(cat "$OSR_SCN/pytest.mode" 2>/dev/null || echo ok)"
 case "$mode" in
   ok) echo "5 passed"; exit 0;;
   fail) echo "FAILED tests/test_x.py::t - assert 1 == 2"; exit 1;;
+  fail-secret) echo "FAILED tests/test_x.py::t - OperationalError: could not connect to postgresql://appuser:s3cr3tPassw0rd@db.internal:5432/prod token=abcd1234efgh5678 Bearer eyAbCdEf0123456789xyz"; exit 1;;
   regen:*) cmd="${mode#regen:}"
      if [ -f generated.txt ] && grep -q fresh generated.txt; then echo "5 passed"; exit 0; fi
      echo "openapi is stale: re-run \`$cmd\` from backend/ and commit"; exit 1;;

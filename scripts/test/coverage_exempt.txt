@@ -1,0 +1,1 @@
+scripts/ovn_credit_items.py  # exercised through lib_auto_credit.sh by test_auto_credit_gate.sh and test_auto_credit_h9x3.sh

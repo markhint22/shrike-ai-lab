@@ -20,6 +20,7 @@ STEP_TIMEOUT="${OVN_STAGE_STEP_TIMEOUT:-350}"
 repo="${1:?repo required}"; item_arg="${2:-}"
 rd="repos/$repo"; [ -d "$rd/.git" ] || { echo "no clone $rd"; exit 1; }
 RUNID="$(date -u +%Y%m%d-%H%M%S)-$$"
+_ST0="$(date +%s)"
 mkdir -p state/stage_runs logs
 SLOG="state/stage_runs/${repo}-${RUNID}.jsonl"
 LOG="logs/ovn_stage_runner.log"; say(){ echo "$(date '+%F %T') [$repo] $*" | tee -a "$LOG"; }
@@ -81,11 +82,24 @@ capstone_escalate_on_failure() {
 # "stuck," not "briefly busy," signal. fd 209 is unchanged (the watchdog subshell below still
 # closes it the same way).
 source scripts/lib_lock.sh
+# 2026-10-02 (bugs-first): the picker below must order items the same way every other selector does (scripts/lib_item_select.sh). Identity fallbacks if the
+# lib is missing so the picker degrades to the old behaviour.
+source scripts/lib_item_select.sh 2>/dev/null || true
+command -v ovn_bug_first_order >/dev/null 2>&1 || ovn_bug_first_order() { cat; }
+command -v ovn_has_bug_line >/dev/null 2>&1 || ovn_has_bug_line() { return 1; }
+command -v ovn_is_manual_bug_text >/dev/null 2>&1 || ovn_is_manual_bug_text() { return 1; }
+# 2026-10-02 (bugs-first review fix): the park blocks at the bottom used to stamp '[AUTO-SKIP staged ...]' on a manual bug after ONE staged cycle - every
+# manual bug is tier T3, so it always comes through here - bypassing the 2-attempt cap with no escalation record and no relay note (it then read as
+# needs-human, the exact failure this policy removes). A bug is now counted + escalated through the SAME helper the guard uses.
+source scripts/lib_bug_escalate.sh 2>/dev/null || true
+command -v ovn_bug_escalate >/dev/null 2>&1 || ovn_is_manual_bug_text() { return 1; }   # no escalation helper => keep the old (AUTO-SKIP) behaviour, never an uncapped open loop
 # 2026-09-29: import-guarded pytest-xdist flag for full_verify's full-suite run (see the lib).
 # Falls back to serial if the lib is missing.
 source scripts/lib_pytest_parallel.sh 2>/dev/null || ovn_pytest_par_args(){ :; }
 # shellcheck source=scripts/lib_tree_guard.sh
 source scripts/lib_tree_guard.sh 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
+# 2026-10-02 (harness Y4): ovn_item_hash for the unverified-run outcome row comes from lib_item_select.sh, already sourced above. Do NOT source it again
+# here: that would redefine ovn_is_manual_bug_text after the fail-safe stub that follows lib_bug_escalate.sh.
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites.
 source scripts/lib_gut_xml.sh 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
@@ -198,10 +212,17 @@ else
   # defeating the whole point of escalating it. Matches the exclusion every other
   # "find the real doable item" selector in this codebase already carries (run_overnight.sh,
   # ovn_item_guard.sh, ovn_recover_parked.sh — see their own 2026-09-17 fix comments).
-  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED|\[CLAUDE\]' | grep -E '\[T[345]\]|·T[345]·' \
+  # 2026-10-02 (bugs-first): the bug-first order + lane focus is applied BEFORE the T3+ filter, so while a manual bug is open this picker only ever sees
+  # bug items (a T2 bug => nothing here => "no doable T3+ item found" => the cycle falls through to the scout flow, which works the bug); and when the
+  # picked set is bug items the python-preference below is skipped - a Kotlin/GDScript bug must not queue behind a python roadmap item.
+  _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | grep -E '\[T[345]\]|·T[345]·' \
               | grep -vE '\btests?/[A-Za-z0-9_./-]*\.gd\b|\btest_[A-Za-z0-9_]*\.gd\b')"
-  item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
-  [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
+  if printf '%s\n' "$_doable" | ovn_has_bug_line; then
+    item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
+  else
+    item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
+    [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
+  fi
 fi
 [ -z "$item" ] && { say "no doable T3+ item found"; exit 0; }
 tier="$(printf '%s' "$item" | grep -oE '\[T[1-5]\]|·T[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"; tier="${tier:-3}"
@@ -833,10 +854,90 @@ try_regen(){  # $1 = verify log
   return 0
 }
 
+# ---- QA S4 (SHADOW ONLY, 2026-10-02): baseline-relative verdict logged NEXT TO the runner's real verdict ----
+# Why: one pre-existing red test (e.g. the TAA stale-pricing tests, 2026-10-01) makes every staged step stage-unverified; qa/baseline_verify.py says
+# whether THIS change added a NEW failing id. This only MEASURES it (state/qa_shadow/baseline.jsonl, one row per red run, pairing the baseline verdict
+# with what the runner finally decided); the runner's verdict / exit code / pushes / output are unchanged - enforcing it is a separate, later decision.
+# Two phases because every full_verify() call truncates the verify log: (1) right after the FIRST red verify, compare the log (writes
+# <run>.baseline.json, NOT into verify.log: the repair loop greps that file); (2) after the repair flow, append the paired row with the real decision.
+# Hard rules: runs in a SUBSHELL (set -u / any error cannot touch the runner), every external call bounded (5s), every failure swallowed and logged
+# as UNVERIFIED to logs/qa_shadow.log + an UNVERIFIED row, no locks, no repo writes. Kill switch: OVN_BASELINE_SHADOW=off (or OVN_QA_BASELINE=off).
+_QA_BL_PENDING=0
+_qa_bl_log(){ echo "$(date '+%F %T') [$repo] baseline-shadow: $*" >> "$HOME/overnight-queue/logs/qa_shadow.log" 2>/dev/null; return 0; }
+qa_baseline_first_red(){   # call right after the FIRST full_verify went red
+  [ "${OVN_BASELINE_SHADOW:-on}" = off ] && return 0
+  [ "${OVN_QA_BASELINE:-}" = off ] && return 0
+  _QA_BL_PENDING=1
+  (
+    set +eu +o pipefail
+    export PYTHONDONTWRITEBYTECODE=1 OVN_DIR="$HOME/overnight-queue"
+    local qa="$OVN_DIR/qa" vlog="${SLOG%.jsonl}.verify.log" res="${SLOG%.jsonl}.baseline.json" chg py to
+    rm -f "$res"
+    py="$(command -v python3.12 || command -v python3)"
+    if [ -f "$qa/qa_timeout.py" ] && [ -n "$py" ]; then to=("$py" "$qa/qa_timeout.py" 5)
+    elif command -v timeout >/dev/null 2>&1; then to=(timeout 5)
+    else _qa_bl_log "UNVERIFIED: no timeout tool"; exit 0; fi
+    { [ -f "$qa/baseline_verify.py" ] && [ -n "$py" ] && [ -s "$vlog" ]; } || { _qa_bl_log "UNVERIFIED: baseline_verify.py, python or the verify log is missing"; exit 0; }
+    chg="$(mktemp 2>/dev/null)" || exit 0
+    git -C "$wt" diff --name-only origin/overnight/feature..HEAD 2>/dev/null | head -200 > "$chg"
+    "${to[@]}" "$py" "$qa/baseline_verify.py" compare --repo "$repo" --failing-file "$vlog" --format verify-log --runner-failed \
+      --changed-files-from "$chg" --worktree "$wt" --base-sha "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" --no-record \
+      2>>"$OVN_DIR/logs/qa_shadow.log" | tail -1 > "$res"
+    rm -f "$chg"
+    if ! jq -e '.verdict' "$res" >/dev/null 2>&1; then rm -f "$res"; _qa_bl_log "UNVERIFIED: compare produced no verdict (crash/timeout/parse failure)"; fi
+  ) >/dev/null 2>&1
+  return 0
+}
+qa_baseline_record(){   # $1 = the runner's FINAL VERIFIED (0/1); call once, after the whole verify/regen/repair flow
+  [ "$_QA_BL_PENDING" = 1 ] || return 0
+  _QA_BL_PENDING=0
+  (
+    set +eu +o pipefail
+    export PYTHONDONTWRITEBYTECODE=1 OVN_DIR="$HOME/overnight-queue"
+    local qa="$OVN_DIR/qa" res="${SLOG%.jsonl}.baseline.json" py to dec row
+    dec=not_verified; [ "$1" = 1 ] && dec=verified
+    py="$(command -v python3.12 || command -v python3)"
+    if [ -f "$qa/qa_timeout.py" ] && [ -n "$py" ]; then to=("$py" "$qa/qa_timeout.py" 5); elif command -v timeout >/dev/null 2>&1; then to=(timeout 5); else to=(); fi
+    row=""
+    if [ -n "$py" ] && [ -f "$qa/baseline_verify.py" ] && [ "${#to[@]}" -gt 0 ]; then
+      row="$("${to[@]}" "$py" "$qa/baseline_verify.py" shadow-log --repo "$repo" --result-file "$res" --runner-decision "$dec" \
+              --run "$(basename "${SLOG%.jsonl}")" --label first 2>>"$OVN_DIR/logs/qa_shadow.log" | tail -1)"
+    fi
+    # python path unusable (missing/crashed/timed out): still leave an UNVERIFIED row so the shadow data accounts for this red run
+    if ! printf '%s' "$row" | jq -e '.verdict' >/dev/null 2>&1; then
+      _qa_bl_log "UNVERIFIED: shadow-log produced no row; writing the fallback row"
+      mkdir -p "$OVN_DIR/state/qa_shadow" 2>/dev/null
+      jq -cn --arg repo "$repo" --arg run "$(basename "${SLOG%.jsonl}")" --arg dec "$dec" \
+        '{ts:(now|strftime("%Y-%m-%dT%H:%M:%SZ")),gate:"baseline",kind:"staged_shadow",repo:$repo,run:$run,label:"first",verdict:"UNVERIFIED",mode:"shadow",
+          summary:"baseline shadow hook error swallowed - runner unaffected",details:{},runner:{first:"not_verified",final:$dec},
+          would_have_rescued:false,real_rescue:false}' >> "$OVN_DIR/state/qa_shadow/baseline.jsonl" 2>/dev/null
+    fi
+  ) >/dev/null 2>&1
+  return 0
+}
+
+# ---- ALEMBIC AUTOGEN (2026-10-02): same deterministic hook run_overnight.sh runs after implement. A staged
+# schema item (model step, then a "create migration" step) hits the identical wall: the 27B has no shell so it
+# cannot run `alembic revision --autogenerate`, a model-only combined change fails test_migration_drift.py, and
+# its hand-written migration invents a stale down_revision and forks the chain. Runs BEFORE the independent
+# full_verify so a missing/forked migration is repaired (zero LLM) instead of burning repair rounds; the commit
+# lands in the worktree so it is pushed only if verification passes and discarded with the worktree otherwise.
+# The hook allowlists repos itself (default test-automation-agent + iptv_apps), refuses on anything doubtful,
+# always exits 0 and leaves the tree untouched on refusal. OVN_ALEMBIC_AUTOGEN_DISABLE=1 disables.
+if [ "$passed" -gt 0 ] && [ -x scripts/ovn_alembic_autogen.sh ]; then
+  # fleet identity via env (every other commit in this file passes -c user.*; the hook uses plain `git commit`)
+  _ag_out="$(OVN_ALEMBIC_AUTOGEN_NAME="$repo" OVN_ALEMBIC_AUTOGEN_VENV_ROOT="$(cd "$rd" && pwd)" \
+    GIT_AUTHOR_NAME=shrike-fleet GIT_COMMITTER_NAME=shrike-fleet \
+    GIT_AUTHOR_EMAIL=22970726+markhint22@users.noreply.github.com GIT_COMMITTER_EMAIL=22970726+markhint22@users.noreply.github.com \
+    bash scripts/ovn_alembic_autogen.sh "$wt" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" "$(git -C "$wt" rev-parse HEAD)" 2>>"$SLOG")"
+  [ -n "$_ag_out" ] && { say "$_ag_out"; jlog "$(jq -nc --arg r "$RUNID" --arg o "$_ag_out" '{run:$r,event:"alembic_autogen",out:$o}')"; }
+fi
+
 VERIFIED=0
 if [ "$passed" -gt 0 ]; then
   if full_verify; then VERIFIED=1; say "independent full-verify: PASSED — the combined result is real"
   else
+    qa_baseline_first_red   # SHADOW only (QA S4): never alters control flow, always returns 0
     # STALE-ARTIFACT REGEN (2026-09-08): before the model repair rounds, try the cheap mechanical fix —
     # if verify failed because a generated file is stale ("re-run `X` and commit"), run X + re-verify.
     if [ "${OVN_VERIFY_REGEN:-1}" = 1 ] && try_regen "${SLOG%.jsonl}.verify.log"; then
@@ -881,7 +982,32 @@ $reason"
     [ "$VERIFIED" = 0 ] && { say "independent full-verify: FAILED — NOT pushing, re-opening (see ${SLOG%.jsonl}.verify.log)"; passed=0; }
   fi
 fi
+qa_baseline_record "$VERIFIED"   # SHADOW only (QA S4): one paired row (baseline verdict vs the runner's final decision); no-op unless the first verify was red
 jlog "$(jq -nc --arg r "$RUNID" --argjson v "$VERIFIED" '{run:$r,event:"verify",verified:($v==1)}')"
+
+# stage_bug_attempt "<why>" - a staged run on a manual-test bug ($item) did NOT complete it. Never AUTO-SKIP a bug: count ONE attempt (state/item_fails/
+# stage-<repo>.<hash>.bugcount - the runner has no lane id; the sweep path runs no guard at all, so it must count itself) and at OVN_BUG_ATTEMPT_CAP
+# (default 2) escalate via ovn_bug_escalate ([CLAUDE] [bug-escalated: ...] + state/bug_escalations.jsonl + ONE relay note). Below the cap the line stays
+# OPEN so the next cycle retries. Journals a bug_attempt event: run_overnight.sh turns it into the 'bug-handled' status marker so the guard does not
+# double-count the cycle or bill it to another item. Caller already held the queue and reset $rd to origin/overnight/feature.
+stage_bug_attempt() {
+  local why="$1" h cap bc cf ln
+  h="$(ovn_item_hash "$item")"
+  cap="${OVN_BUG_ATTEMPT_CAP:-2}"; case "$cap" in ''|*[!0-9]*|0) cap=2;; esac
+  mkdir -p state/item_fails 2>/dev/null
+  cf="state/item_fails/stage-${repo}.${h}.bugcount"
+  bc=$(( $(cat "$cf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$bc" > "$cf"
+  jlog "$(jq -nc --arg r "$RUNID" --argjson b "$bc" --argjson c "$cap" '{run:$r,event:"bug_attempt",attempts:$b,cap:$c}')"
+  if [ "$bc" -ge "$cap" ]; then
+    ln="$(grep -nF -- "- [ ] ${item:0:55}" "$rd/OVERNIGHT_PROGRESS.md" | head -1 | cut -d: -f1)"
+    if [ -n "$ln" ] && command -v ovn_bug_escalate >/dev/null 2>&1; then
+      OVN_ESC_GIT_IDENTITY=fleet ovn_bug_escalate "$rd" "$rd/OVERNIGHT_PROGRESS.md" "$ln" "- [ ] $item" "$h" "stage-$repo" "$bc" "stage-runner: $why" "state" "${bc} failed attempts (cap ${cap})" "overnight/feature" | while IFS= read -r _l; do say "$_l"; done
+      rm -f "$cf"
+    fi
+  else
+    say "manual bug NOT parked: staged attempt ${bc}/${cap} ($why) - line stays open for the next cycle"
+  fi
+}
 
 # ---- push ONLY when independently verified ----
 ncommits=0
@@ -913,7 +1039,8 @@ fi
 if [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -gt 0 ] && [ -z "$item_arg" ]; then   # only auto-picked items live in the queue
   ./queue.sh hold "$repo" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
-  OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" python3 - <<'PY'
+  _is_bug=0; ovn_is_manual_bug_text "$item" && _is_bug=1
+  OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" OVN_BUG="$_is_bug" python3 - <<'PY'
 import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; p=int(os.environ["OVN_P"]); n=int(os.environ["OVN_N"])
 lines=open(f,encoding="utf-8").read().split("\n"); key=item[:55]
@@ -921,12 +1048,18 @@ for i,ln in enumerate(lines):
     if ln.startswith("- [ ] ") and key and key in ln:
         if p>=n:  # fully done -> check it off
             lines[i]=ln.replace("- [ ] ","- [x] ",1)+f"  <!-- staged {p}/{n} DONE -->"
+        elif os.environ.get("OVN_BUG") == "1":
+            pass  # a manual bug is NEVER AUTO-SKIPped (2026-10-02): stage_bug_attempt below counts the attempt and escalates at the cap
         elif "AUTO-SKIP staged" not in ln:  # partial -> park the remainder, but only tag it ONCE -
             # blindly re-prepending on every retry stacked duplicate tags without bound (found live:
             # 4 on a test-automation-agent item, 15 on a shrike-monitor item, 2026-09-22).
             lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) blocked; recover/review] ".format(p,n,n-p),1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
+  if [ "$_is_bug" = 1 ]; then
+    if [ "$passed" -ge "$NSTEPS" ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount"
+    else stage_bug_attempt "staged ${passed} of ${NSTEPS} landed"; fi
+  fi
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {
       git add OVERNIGHT_PROGRESS.md
       git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): mark staged T$tier item ($passed/$NSTEPS) so it isn't re-run"
@@ -943,6 +1076,12 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   # on it: tag it for Claude so the Mac bridge harvests it to the Claude queue.
   ./queue.sh hold "$repo" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
+  if ovn_is_manual_bug_text "$item"; then
+    # 2026-10-02: never AUTO-SKIP a manual bug - count the attempt, escalate at the cap (see stage_bug_attempt)
+    stage_bug_attempt "staged landed 0 of ${NSTEPS}"
+    ./queue.sh release "$repo" >/dev/null 2>&1
+    say "manual bug: staged pipeline landed 0/$NSTEPS - attempt counted, NOT AUTO-SKIPped"
+  else
   OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" python3 - <<'PY'
 import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; key=item[:55]
@@ -958,8 +1097,56 @@ PY
       git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
   say "escalated to Claude (staged pipeline landed 0/$NSTEPS — beyond the 27B)"
+  fi
 fi
 
 pct=$(( NSTEPS>0 ? 100*passed/NSTEPS : 0 ))
 say "DONE: $passed/$NSTEPS steps landed (${pct}%) for T$tier item. log: $SLOG"
 jlog "$(jq -nc --arg r "$RUNID" --argjson p "$passed" --argjson n "$NSTEPS" --argjson t "$tier" --argjson vf "$VERIFIED" '{run:$r,event:"summary",tier:$t,passed:$p,total:$n,verified:($vf==1),commits_pushed:'"${ncommits:-0}"'}')"
+
+# ---- UNVERIFIED RUN -> OUTCOME ROW (2026-10-02, harness Y4) ----------------------------------------------------------------------------
+# A staged run that ends unverified (0 of N steps pushed, ~15 min of GPU: iptv Android run 215550, 21:55Z) wrote NO row to state/outcomes.jsonl, so every
+# pass-rate dashboard simply never saw it. One row per such run: status "no-op(stage-unverified) stage(runner)" (the same prefix the inline caller uses,
+# so class/severity bucket as a real thrown-away attempt), fail_reason = the first error line of the verify log, plus repo / feat_tag / duration.
+# Not emitted when run_overnight.sh invoked us inline (OVN_STAGE_OUTCOME_BY_CALLER=1): it records its own row for that run, and a second one would
+# double count. Never fatal; OVN_STAGE_UNVERIFIED_ROW=off disables. (The item itself is already parked/escalated by the branches above.)
+# ovn_scrub_text: stdin -> stdout with credentials removed (URL user:pass@, Bearer, key=value secrets, sk-/ghp_ tokens, JWTs, long hex/base64 blobs).
+# Reuses the baseline gate's redact() (qa/baseline_verify.py) under a hard 5s cap - importing a qa module must never be able to stall the runner (a hung or
+# crashing import, a missing qa/ dir, python or `timeout` all fall through to the sed scrubber below, which covers the same credential shapes).
+ovn_scrub_text(){
+  local in out
+  in="$(cat)"
+  if command -v timeout >/dev/null 2>&1 && [ -f qa/baseline_verify.py ] \
+     && out="$(printf '%s' "$in" | timeout 5 python3 -c 'import sys; sys.path.insert(0,"qa"); import baseline_verify as b; sys.stdout.write(b.redact(sys.stdin.buffer.read().decode("utf-8","replace")))' 2>/dev/null)"; then
+    printf '%s' "$out"; return 0
+  fi
+  printf '%s' "$in" | sed -E 's#(://[^/ :@]*:)[^@/ ]+@#\1***@#g; s#([Bb]earer )[A-Za-z0-9._~+/=-]{8,}#\1***#g; s#((password|passwd|secret|token|api[_-]?key|authorization)[A-Za-z_]{0,6}[ ]*[=:][ ]*["'"'"']?)[A-Za-z0-9+/=_.~-]{6,}#\1***#Ig; s#\b(sk|pk|ghp|gho|ghs|xox[abp])[-_][A-Za-z0-9_-]{16,}#***#g; s#[A-Za-z0-9+/=]{32,}#***#g'
+}
+emit_unverified_outcome(){
+  [ "${OVN_STAGE_UNVERIFIED_ROW:-on}" = off ] && return 0
+  [ "${OVN_STAGE_OUTCOME_BY_CALLER:-0}" = 1 ] && return 0
+  [ "${VERIFIED:-0}" = 1 ] && return 0
+  local vlog="${SLOG%.jsonl}.verify.log" fr detail ih ft cat first_path tsent trecv nat now dur ust="no-op(stage-unverified) stage(runner)" cf
+  # fail_reason is a BOUNDED TAG (consumers Counter() it: ovn_t3_report.sh, ovn_godot_report.sh, ovn_failure_triage.py); the free-text excerpt goes in
+  # the separate, scrubbed + truncated "detail" field (verify output can carry connection strings / tokens).
+  cf="$vlog"; [ -f "$cf" ] || cf="$SLOG"
+  fr="$(bash ovn_classify_fail.sh "$cf" "$ust" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
+  [ -n "$fr" ] && [ "$fr" != unknown ] || fr="stage-unverified"
+  detail="$(grep -m1 -iE 'FAILED |QUALITY FAIL|SEMANTIC FAIL|Error|error:|assert' "$vlog" 2>/dev/null | tr -d '"\\' | tr '\n\r\t' '   ' | tr -s ' ' | cut -c1-400)"
+  [ -z "$detail" ] && detail="no step verified (${passed:-0}/${NSTEPS:-0} steps landed; no verify log)"
+  detail="$(printf '%s' "$detail" | ovn_scrub_text | cut -c1-160)"
+  ih=""; command -v ovn_item_hash >/dev/null 2>&1 && ih="$(ovn_item_hash "$item")"
+  ft="$(printf '%s' "$item" | grep -oE '\[feat:[^]]+\]' | head -1 | tr -d '[]' | sed 's/^feat://' | tr -d '"' )"
+  first_path="$(printf '%s' "$item" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | grep -vE '\.md$' | head -1)"
+  case "$first_path" in *.gd) cat=godot;; *.vue) cat=vue;; *.ts|*.tsx) cat=typescript;; *.py) cat=python;; *) cat=other;; esac
+  tsent="$(jq -s '[.[].tokens_sent // 0] | add // 0' "$SLOG" 2>/dev/null)"; trecv="$(jq -s '[.[].tokens_recv // 0] | add // 0' "$SLOG" 2>/dev/null)"
+  nat="$(grep -c '"verdict":"\(pass\|fail\)"' "$SLOG" 2>/dev/null)"; [ "${nat:-0}" -ge 1 ] 2>/dev/null || nat=1
+  now="$(date +%s)"; dur=$(( now - ${_ST0:-$now} ))
+  jq -nc --arg ts "$(date -u +%FT%TZ)" --arg repo "$repo" --arg id "ongoing-${repo//_/-}" --argjson tier "${tier:-3}" --arg cat "$cat" \
+    --argjson att "$nat" --arg fr "$fr" --arg detail "$detail" --argjson ts_ "${tsent:-0}" --argjson tr_ "${trecv:-0}" --argjson dur "$dur" --arg ih "$ih" --arg ft "$ft" --arg run "$RUNID" --arg ust "$ust" \
+    '{ts:$ts,repo:$repo,id:$id,type:"aider_fix",tier:($tier|tostring),category:$cat,class:"noop",severity:"bad",attempt:$att,attempts:$att,bestn_stop:"",
+      fail_reason:$fr,detail:$detail,status:$ust,tokens_sent:$ts_,tokens_recv:$tr_,duration_s:$dur,item_hash:$ih,feat_tag:$ft,stage_run:$run}' \
+    >> state/outcomes.jsonl 2>/dev/null || true
+  return 0
+}
+emit_unverified_outcome

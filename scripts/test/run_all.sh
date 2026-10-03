@@ -9,6 +9,8 @@ cd "$HERE_RA"
 # the suite must NEVER launch the real QA shadow gates (branch_hygiene.sh tests run the REAL script from the real tree; the hygiene hook would spawn
 # gates that write fake-repo rows into production state/qa_shadow) - 2026-10-01
 export OVN_QA_SHADOW=off
+# the device-lane suite must only ever use its stub emulator under the sweep: a real KVM emulator burns ~300% CPU next to the dev loop - 2026-10-02
+unset DL_REAL_EMULATOR_TEST
 rc=0
 echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
 echo; echo "===== lib_item_select (real-item resolver — scout-file match over blind top-of-file) ====="; bash test_lib_item_select.sh || rc=1
@@ -169,6 +171,7 @@ echo; echo "===== passrate_check ====="; bash test_passrate_check.sh || rc=1
 echo; echo "===== pipeline_lint ====="; bash test_pipeline_lint.sh || rc=1
 echo; echo "===== probe_tsc_cmd ====="; bash test_probe_tsc_cmd.sh || rc=1
 echo; echo "===== promote_to_prod_run ====="; bash test_promote_to_prod_run.sh || rc=1
+echo; echo "===== promote gate + release flow ====="; [ -f test_promote_gate.sh ] && { bash test_promote_gate.sh || rc=1; } || echo "  SKIP: test_promote_gate.sh missing"
 echo; echo "===== queue_health_full ====="; bash test_queue_health_full.sh || rc=1
 echo; echo "===== queue_refill_py_paths ====="; bash test_queue_refill_py_paths.sh || rc=1
 echo; echo "===== queue_sh_cli ====="; bash test_queue_sh_cli.sh || rc=1
@@ -239,6 +242,9 @@ echo; echo "===== Tier-2 fix-up direction (own test vs source broke green) =====
 echo; echo "===== QA common library + replay ====="; python3 test_qa_common.py || rc=1
 echo; echo "===== QA shadow runner ====="; bash test_qa_run_shadow.sh || rc=1
 echo; echo "===== hygiene -> QA shadow hook ====="; bash test_hygiene_qa_hook.sh || rc=1
+echo; echo "===== git identity guard (fixture local identity t<t@t> removed) ====="; bash test_identity_guard.sh || rc=1
+echo; echo "===== QA enforcement plumbing (pre-push gate enforcement, flip file, deadlock-safe block) ====="; bash test_hygiene_enforce.sh || rc=1
+echo; echo "===== QA-blocked repos escalate via the hygiene-stuck check ====="; bash test_qa_blocked_stuck.sh || rc=1
 echo; echo "===== QA mode switch ====="; bash test_qa_mode.sh || rc=1
 echo; echo "===== QA manual notes loop ====="; python3 test_qa_manual_notes.py || rc=1
 echo; echo "===== QA locator v2 (platform, agentic, hung-model budget) ====="; python3 test_qa_locator_v2.py || rc=1
@@ -246,7 +252,30 @@ echo; echo "===== QA gate: acceptance card lint ====="; python3 test_qa_acceptan
 echo; echo "===== QA gate: anti-gaming diff ====="; python3 test_qa_antigaming.py || rc=1
 echo; echo "===== QA gate: scanners ====="; python3 test_qa_scanners.py || rc=1
 echo; echo "===== QA gate: baseline-relative verify ====="; python3 test_qa_baseline.py || rc=1
+echo; echo "===== QA gate: baseline-relative verify - staged-runner SHADOW hook ====="; bash test_baseline_shadow_hook.sh || rc=1
+echo; echo "===== QA gate: baseline-relative verify - refresh cron ====="; bash test_baseline_refresh_cron.sh || rc=1
 echo; echo "===== QA gate: release candidate + staging ====="; python3 test_qa_release.py || rc=1
 echo; echo "===== QA: escape ledger + scorecard ====="; bash test_qa_ledger.sh || rc=1
+echo; echo "===== scout guard ====="; bash test_scout_guard.sh || rc=1
+echo; echo "===== schema budget ====="; bash test_schema_budget.sh || rc=1
+echo; echo "===== harness Y: schema-budget drift cap + repeat circuit-breaker, scout grounding, model/API-error classifier ====="; bash test_harness_y.sh || rc=1
+echo; echo "===== harness Y4: unverified staged run -> outcome row ====="; bash test_harness_y_stage.sh || rc=1
+echo; echo "===== Alembic autogen WIRING (hook runs after implement/before verify in run_overnight + staged runner, iptv_apps default-on, T2 sibling credit, revert drops generated migration) ====="; bash test_alembic_autogen_wiring.sh || rc=1
+echo; echo "===== Alembic autogen H6 follow-ups (deterministic drop/alter refusals, credit never covers data work, op names in commit+log, STEP B data-loss warning) ====="; bash test_alembic_autogen_h6b.sh || rc=1
+echo; echo "===== Alembic autogen inside the REAL staged runner, end to end (hermetic fixture: generate, verify+push together, credit, no duplicate, discard on red) ====="; bash test_ovn_stage_runner_alembic.sh || rc=1
+echo; echo "===== harness X: auto credit gate (exact path, VERIFY must pass, clean tree) ====="; if [ -f test_auto_credit_gate.sh ]; then bash test_auto_credit_gate.sh || rc=1; else echo "  skip (test_auto_credit_gate.sh not present)"; fi
+echo; echo "===== harness X: fixup prompt facts ====="; if [ -f test_fixup_prompt_facts.sh ]; then bash test_fixup_prompt_facts.sh || rc=1; else echo "  skip (test_fixup_prompt_facts.sh not present)"; fi
+echo; echo "===== harness X: redgreen restore ====="; if [ -f test_redgreen_restore.sh ]; then bash test_redgreen_restore.sh || rc=1; else echo "  skip (test_redgreen_restore.sh not present)"; fi
+echo; echo "===== harness X2: auto-credit VERIFY timeouts, stdin, tree-guard allowlist, item-guard indeterminate ====="; if [ -f test_auto_credit_indeterminate.sh ]; then bash test_auto_credit_indeterminate.sh || rc=1; else echo "  skip (test_auto_credit_indeterminate.sh not present)"; fi
+echo; echo "===== harness X3: CI-mode VERIFY, noglob benign matcher, bounded indeterminate landings, no output tail in alerts ====="; if [ -f test_auto_credit_h9x3.sh ]; then bash test_auto_credit_h9x3.sh || rc=1; else echo "  skip (test_auto_credit_h9x3.sh not present)"; fi
+echo; echo "===== harness X2 e2e: indeterminate VERIFY through the real runner + item guard ====="; if [ -f test_auto_credit_indeterminate_e2e.sh ]; then bash test_auto_credit_indeterminate_e2e.sh || rc=1; else echo "  skip (test_auto_credit_indeterminate_e2e.sh not present)"; fi
+echo; echo "===== QA gate: migrations + OpenAPI (S6; real postgres:16 where docker + a repo venv exist, SKIPs loudly otherwise) ====="; bash test_qa_migrations.sh || rc=1
+echo; echo "===== QA: S11 Android device lane (hermetic, stub emulator only) ====="; bash test_qa_devicelane.sh || rc=1
+echo; echo "===== QA gate: advisory Qwen reviewer + refuter (stub model) + label CLI ====="; if [ -f test_qa_reviewer.py ]; then python3 test_qa_reviewer.py || rc=1; else echo "  skip (test_qa_reviewer.py not present)"; fi
+echo; echo "===== Bugs-first (2026-10-02): selection order + lane focus + attempt cap/escalation (real guard) + staged-runner pick ====="; if [ -f test_bug_first_select.sh ]; then bash test_bug_first_select.sh || rc=1; else echo "  skip (test_bug_first_select.sh not present)"; fi
+echo; echo "===== Bugs-first (2026-10-02): run_overnight.sh wiring end to end (scout slice, best-of-N cap, guard attempts, escalation through the real loop) ====="; if [ -f test_bug_first_loop.sh ]; then bash test_bug_first_loop.sh || rc=1; else echo "  skip (test_bug_first_loop.sh not present)"; fi
+echo; echo "===== Bugs-first review fixes (2026-10-02): the real stage runner park blocks, guard 'bug-handled', sweep .gd exemption ====="; if [ -f test_bug_first_stage.sh ]; then bash test_bug_first_stage.sh || rc=1; else echo "  skip (test_bug_first_stage.sh not present)"; fi
+echo; echo "===== Bugs-first (2026-10-02): status vocabulary + retest loop (ingest retest, qa-retest, bridge, qa-status) ====="; if [ -f test_qa_retest.py ]; then python3 test_qa_retest.py || rc=1; else echo "  skip (test_qa_retest.py not present)"; fi
+echo; echo "===== QA: bug brief (research -> plan -> mechanical validation -> red proof -> test-first items; stub model, fake pytest, env -i) ====="; if [ -f test_qa_bug_brief.py ]; then python3 test_qa_bug_brief.py || rc=1; else echo "  skip (test_qa_bug_brief.py not present)"; fi
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

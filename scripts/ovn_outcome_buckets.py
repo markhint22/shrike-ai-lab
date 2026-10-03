@@ -112,7 +112,7 @@ def bucket_from_outcome_row(row):
         return "bad"
     if cls == "noop":
         status = str(row.get("status") or "").lower()
-        if "already-done" in status or "blocked" in status or "needs-decision" in status or "needs_decision" in status:
+        if "already-done" in status or "blocked" in status or "needs-decision" in status or "needs_decision" in status or "scout-unworkable" in status:
             return "benign"
         return "bad"  # bare no-op / gate-reverted / stage-unverified - a real thrown-away attempt
     return "benign"  # skipped, error, oversized, unknown, held, or an unrecognized class
@@ -184,3 +184,24 @@ def summarize(rows, oc_field="oc"):
         "bad_breakdown": oc_bad_breakdown(rows, oc_field),
         "benign_breakdown": oc_benign_breakdown(rows, oc_field),
     }
+
+
+def row_attempts(row):
+    """Model attempts behind ONE state/outcomes.jsonl row (2026-10-02).
+
+    A row is one finished item/cycle, but best-of-N runs several inner attempts inside it (iptv 'add last_event_ms column': 5 attempts, one row), so
+    counting rows undercounts real model work. run_overnight.sh now writes an explicit `attempts` field (older rows only have `attempt`, same value);
+    anything missing/garbled counts as 1. Use this wherever a dashboard reports "attempts" rather than "rows"."""
+    for k in ("attempts", "attempt"):
+        try:
+            v = int(row.get(k))
+            if v >= 1:
+                return v
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return 1
+
+
+def total_attempts(rows):
+    """Sum of row_attempts() over outcome rows."""
+    return sum(row_attempts(r) for r in rows)

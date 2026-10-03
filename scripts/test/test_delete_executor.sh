@@ -51,6 +51,7 @@ set -u
 SCRIPT_DIR="$T/sd"; id="ongoing-testrepo"; branch=main; task_log="$T/task.log"; : > "\$task_log"
 ovn_item_hash(){ printf '%s' "\$1" | md5sum | cut -c1-12; }
 run_repo_verification(){ echo "$1"; }
+ovn_bug_first_order(){ cat; }   # bug-first ordering lives in lib_item_select.sh, not loaded by this harness
 f(){
 BEFORE_SHA="\$(git rev-parse HEAD)"
 $blk

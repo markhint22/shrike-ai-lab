@@ -64,9 +64,20 @@ run_case
 eq "E: API error text, no commit -> error(model/API error - see log)" "$OUT" "error(model/API error - see log)"
 mk_case traceback
 scout_ok
+aplan 2 'printf "Traceback (most recent call last):\n  File x\nopenai.AuthenticationError: invalid api key\n"'
+run_case
+eq "E: python traceback of an API/transport exception, no commit -> error(model/API error - see log)" "$OUT" "error(model/API error - see log)"
+# 2026-10-02 (harness Y3): a BARE traceback (aider's own lint output for the model's IndentationError, a KeyError in a tool...) is not an API failure
+mk_case traceback_bare
+scout_ok
 aplan 2 'printf "Traceback (most recent call last):\n  File x\nValueError\n"'
 run_case
-eq "E: python traceback, no commit -> error(model/API error - see log)" "$OUT" "error(model/API error - see log)"
+eq "E: bare non-API python traceback, no commit -> NOT error(model/API error): plain no-op" "$OUT" "no-op"
+mk_case traceback_lint
+scout_ok
+aplan 2 'printf "# Fix any errors below, if possible.\n\nTraceback (most recent call last):\n  File x\nIndentationError: unexpected indent\n\nTokens: 1k sent, 5 received.\n"'
+run_case
+eq "E: aider lint-block traceback, no commit -> plain no-op, not an API error" "$OUT" "no-op"
 mk_case plain_noop
 scout_ok
 aplan 2 'echo "I looked at app.py but could not come up with a change."'

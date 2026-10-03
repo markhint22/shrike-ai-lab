@@ -55,6 +55,8 @@ fi
 _lib="$(dirname "$0")/lib_item_select.sh"
 # shellcheck source=scripts/lib_item_select.sh
 [ -f "$_lib" ] && . "$_lib"
+# shellcheck source=scripts/lib_bug_escalate.sh
+_elib="$(dirname "$0")/lib_bug_escalate.sh"; [ -f "$_elib" ] && . "$_elib"
 
 # A clean landing clears the fail/no-op streaks (+ grounded failure memory) for whichever
 # item(s) actually landed THIS cycle — identified via "item-hash <md5>" marker line(s) that
@@ -82,12 +84,44 @@ case "$status" in
         [ -z "$_lh" ] && continue
         rm -f "$state/item_fails/${id}.${_lh}.count" "$state/item_fails/${id}.${_lh}.toks" \
               "$state/item_fails/${id}.${_lh}.noopcount" "$state/item_fails/${id}.${_lh}.nooptoks" \
-              "$state/item_fails/${id}.${_lh}.lastfail" 2>/dev/null
+              "$state/item_fails/${id}.${_lh}.lastfail" "$state/item_fails/${id}.${_lh}.indet" "$state/item_fails/${id}.${_lh}.indetlands" "$state/item_fails/${id}.${_lh}.lastids" 2>/dev/null
       done < <(grep -ohE 'item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
+      # 2026-10-02 (harness-X X-a): "indet-hash <md5>" = the cycle landed green but the item's own VERIFY timed out / was not runnable, so the runner
+      # could neither credit nor fail it. The commit DID land: clear its failure/no-op streaks like a credited landing, and arm a bounded allowance
+      # (.indet, max OVN_INDET_NOOP_ALLOW=3 cycles) so the next cycles' benign ALREADY-DONE no-ops do not walk it toward the no-op AUTO-SKIP.
+      # follow-up 3: bound it ACROSS cycles. A VERIFY that is permanently unrunnable/hung would otherwise let the item land, clear its streaks and
+      # re-arm the allowance forever (never credited, never auto-skipped). After OVN_INDET_LAND_MAX (default 4) indeterminate landings of the same
+      # item the streaks are no longer cleared, so normal accounting resumes, and one alert asks for a human.
+      while IFS= read -r _ih; do
+        [ -z "$_ih" ] && continue
+        _il=$(( $(cat "$state/item_fails/${id}.${_ih}.indetlands" 2>/dev/null || echo 0) + 1 ))
+        printf '%s' "$_il" > "$state/item_fails/${id}.${_ih}.indetlands" 2>/dev/null
+        if [ "$_il" -gt "${OVN_INDET_LAND_MAX:-4}" ]; then
+          [ "$_il" -eq $(( ${OVN_INDET_LAND_MAX:-4} + 1 )) ] && echo "$(date '+%F %T') warn | item-guard | ${id} item ${_ih:0:8} landed $_il times but its VERIFY never concluded (timeout/unrunnable): fix or replace the VERIFY clause; streaks are no longer cleared" >> "$state/alerts.log" 2>/dev/null
+          continue
+        fi
+        rm -f "$state/item_fails/${id}.${_ih}.count" "$state/item_fails/${id}.${_ih}.toks" \
+              "$state/item_fails/${id}.${_ih}.noopcount" "$state/item_fails/${id}.${_ih}.nooptoks" \
+              "$state/item_fails/${id}.${_ih}.lastfail" 2>/dev/null
+        printf '0' > "$state/item_fails/${id}.${_ih}.indet" 2>/dev/null
+      done < <(grep -ohE 'indet-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
     fi
+    # 2026-10-02 (bugs-first): the higher-tier staged runner checks its items off itself and emits no item-hash marker (KNOWN GAP above), so a
+    # landed step of a manual bug's brief would leave that bug's attempt counter standing and the NEXT step would inherit it. While a manual bug
+    # is open the lane works ONLY bug items (lib_item_select.sh lane focus), so any landing here is a bug-step landing: clear this id's bug
+    # attempt counters (separate *.bugcount/*.bugtoks files - generic item counters are untouched). No bug counters exist otherwise.
+    [ "${OVN_BUG_FIRST:-on}" != off ] && rm -f "$state/item_fails/${id}."*.bugcount "$state/item_fails/${id}."*.bugtoks 2>/dev/null
     exit 0
     ;;
 esac
+
+# 2026-10-02: the scout-file guard already PARKED the item this cycle ([CLAUDE] [unworkable: ...]) - it left the doable set, so the fresh
+# top-item resolve below would bill this cycle (streak + lastfail memory) to whatever unrelated line is now on top. Nothing to track.
+case "$status" in "no-op(scout-unworkable)") exit 0;; esac
+# 2026-10-02 (review fix): the staged runner already counted/escalated THIS cycle's attempt on a manual bug itself ("bug-handled" marker in the status,
+# emitted by run_overnight.sh from the runner's bug_attempt journal event). Re-resolving "top" here would bill the cycle (streak + lastfail memory) to
+# an unrelated roadmap item once the bug has been parked - the same cross-item mis-attribution as scout-unworkable above. Nothing to track.
+case "$status" in *"bug-handled"*) exit 0;; esac
 
 # The top unchecked item that is NOT already tagged blocked/skipped.
 # 2026-09-17 fix: this was the ONE selector 383a2d9 missed when it added a
@@ -128,6 +162,13 @@ fi
 [ -z "$top" ] && exit 0
 lineno="${top%%:*}"
 text="${top#*:}"
+# 2026-10-02: schema/migration/model items get a larger fail + token budget (measured evidence in lib_item_select.sh ovn_schema_budget);
+# every other item keeps CAP/NCAP/TOKCAP exactly as configured above. OVN_SCHEMA_BUDGET=off restores the single budget for all.
+if command -v ovn_schema_budget >/dev/null 2>&1; then
+  CAP="$(ovn_schema_budget failcap "$CAP" "$text")"
+  NCAP="$(ovn_schema_budget noopcap "$NCAP" "$text")"
+  TOKCAP="$(ovn_schema_budget tokcap "$TOKCAP" "$text")"
+fi
 # Feature-scoped streak key (2026-09-22, date-strip hardened 2026-09-28): a multi-line
 # feature (e.g. an impl file + its paired test file, tagged with the same [feat:...] id)
 # used to get a FRESH fail/no-op streak budget every time the "top" unchecked line flipped
@@ -152,6 +193,49 @@ countf="$state/item_fails/${id}.${h}.count"; toksf="$state/item_fails/${id}.${h}
 ncountf="$state/item_fails/${id}.${h}.noopcount"; ntoksf="$state/item_fails/${id}.${h}.nooptoks"
 lastfailf="$state/item_fails/${id}.${h}.lastfail"
 
+# --- Repeat circuit-breaker (2026-10-02, harness Y1) ---------------------------------------------------------
+# The SAME failing test-id set on N=2 (OVN_REPEAT_BREAKER_N) consecutive attempts of the same item is a deterministic failure, not bad luck: more
+# samples only burn GPU (iptv 'add last_event_ms column': ~9 attempts / 65 min / 0 landed, drift test red with the identical id each time). Two
+# sources: (a) run_overnight.sh's inner best-of-N loop stopped on it and left a "repeat-breaker:" marker in the log; (b) across cycles, this guard
+# remembers the previous cycle's failing-id key per item (state/item_fails/<id>.<hash>.lastids = "<key> <streak>"). On a trip the item is parked with
+# the existing AUTO-SKIP tag, the note carrying "needs-human" + the repeated test ids. More than OVN_REPEAT_MAX_IDS (20) failing ids is a baseline /
+# env break, never an item signal (ovn_repeat_key returns empty). OVN_REPEAT_BREAKER=off disables it.
+lastidsf="$state/item_fails/${id}.${h}.lastids"
+case "$status" in
+  no-op\(BLOCKED\)|no-op\(ALREADY-DONE\)|no-op\(NEEDS-DECISION\)) : ;;
+  *)
+    if [ "${OVN_REPEAT_BREAKER:-on}" != off ] && command -v ovn_repeat_key >/dev/null 2>&1 && [ -n "$task_log" ] && [ -f "$task_log" ]; then
+      _rk="$(ovn_repeat_key "$h" "$task_log" "$repo" "$state")"
+      _rstreak=1
+      if [ -n "$_rk" ]; then
+        read -r _rprev _rps < "$lastidsf" 2>/dev/null || true
+        _rstreak="$(ovn_repeat_streak "${_rprev:-}" "$_rk" "${_rps:-1}")"
+        printf '%s %s' "$_rk" "$_rstreak" > "$lastidsf"
+      else
+        rm -f "$lastidsf" 2>/dev/null
+      fi
+      ovn_repeat_record "$repo" "$state" "$h" "$task_log"   # AFTER the key: "previous item" must mean the item before this one
+      _rbasis="$(ovn_repeat_basis "$repo" "$state")"
+      case "$_rbasis" in baseline) _rbasis="not red at the repo baseline";; *) _rbasis="not a repeat of the previous item's failures";; esac
+      _rmark="$(grep -m1 'repeat-breaker: same failing tests' "$task_log" 2>/dev/null)"
+      if [ -n "$_rmark" ] || { [ -n "$_rk" ] && [ "$_rstreak" -ge "${OVN_REPEAT_BREAKER_N:-2}" ]; }; then
+        _rids="$(ovn_failing_ids "$task_log" | python3 "$(dirname "$0")/ovn_repeat_ids.py" filter "$(basename "$repo")" "$state" "$h" 2>/dev/null | head -3 | tr '\n' ' ' | sed 's/ *$//' | tr -d '#[]')"
+        [ -z "$_rids" ] && _rids="$(printf '%s' "$_rmark" | sed -E 's/.*same item: //; s/ *-*$//' | tr -d '#[]')"
+        branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+        sed -i "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP needs-human: the same failing tests repeated on ${OVN_REPEAT_BREAKER_N:-2} consecutive attempts (${_rids:0:140}) - a repeat of the same failing ids (${_rbasis}) - deterministic, not luck; review] #" "$prog"
+        if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+          git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+          git -C "$repo" commit -q -m "chore(queue): park item - same failing tests repeated on consecutive attempts (needs-human)" 2>/dev/null
+          [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+          echo "AUTO-SKIPPED item (repeat circuit-breaker, needs-human): ${text:0:70}"
+        fi
+        rm -f "$state/failures/${id}.count" "$countf" "$toksf" "$ncountf" "$ntoksf" "$lastidsf" 2>/dev/null
+        exit 0
+      fi
+    fi
+    ;;
+esac
+
 # --- Tier-3 grounded failure memory (2026-09-16) ------------------------------
 # Persist what THIS attempt actually did wrong (real log output, keyed to the
 # CURRENT top item's hash) so run_overnight.sh's next cycle can tell the model what
@@ -173,11 +257,48 @@ case "$status" in
     ;;
 esac
 
+# --- BUGS FIRST attempt cap + escalation (2026-10-02, branch qa/h8-bug-first) ---------------------------------------------------------
+# A manual-test bug (Mark's hand-logged bug; see lib_item_select.sh) gets OVN_BUG_ATTEMPT_CAP (default 2) failed attempts - NOT the generic
+# 3-4 cycles, and never the schema budget - and is then NEVER silently AUTO-SKIPped (that tag parks it where nobody looks, which is exactly how 3
+# of 7 real Chickadee bugs sat as needs-human). Instead it is handed to a Claude fix session the same day, visibly:
+#   1. every still-open line of the bug (the item + the sibling steps of its brief, same [feat:] tag) becomes '[CLAUDE] [bug-escalated: <reason>]'
+#      (the loop already ignores [CLAUDE] items, so the lane moves on to the next bug / back to normal work);
+#   2. one JSON line is appended to state/bug_escalations.jsonl (repo, note, item hash, attempts, last failure reason, brief location);
+#   3. ONE low-priority relay note 'Manual bug escalated: <repo>' goes through the relay (buffered by the notification policy, never urgent).
+# 2 and 3 happen at most once per item hash. An "attempt" is one fleet cycle, or one best-of-N try (run_overnight.sh passes OVN_GUARD_ATTEMPTS).
+# Statuses where nothing was attempted (skip*/held*) do not count. Landings never reach this code (tests:pass exits above). Kill switch OVN_BUG_FIRST=off.
+is_bug=0
+# (needs the shared escalation helper too: without it the bug falls back to the generic caps rather than looping uncapped)
+if command -v ovn_is_manual_bug_text >/dev/null 2>&1 && command -v ovn_bug_escalate >/dev/null 2>&1 && ovn_is_manual_bug_text "$text"; then is_bug=1; fi
+if [ "$is_bug" = 1 ]; then
+  case "$status" in skip*|held*) exit 0;; esac
+  BUGCAP="${OVN_BUG_ATTEMPT_CAP:-2}"; case "$BUGCAP" in ''|*[!0-9]*|0) BUGCAP=2;; esac
+  att="${OVN_GUARD_ATTEMPTS:-1}"; case "$att" in ''|*[!0-9]*|0) att=1;; esac; [ "$att" -gt 10 ] && att=10
+  bcountf="$state/item_fails/${id}.${h}.bugcount"; btoksf="$state/item_fails/${id}.${h}.bugtoks"
+  bc=$(( $(cat "$bcountf" 2>/dev/null || echo 0) + att ))
+  bt=$(( $(cat "$btoksf" 2>/dev/null || echo 0) + cur_toks ))
+  printf '%s' "$bc" > "$bcountf"; printf '%s' "$bt" > "$btoksf"
+  if [ "$bc" -ge "$BUGCAP" ] || [ "$bt" -ge "$TOKCAP" ]; then
+    why="${bc} failed attempts (cap ${BUGCAP})"
+    [ "$bt" -ge "$TOKCAP" ] && [ "$bc" -lt "$BUGCAP" ] && why="${bt} tokens spent in ${bc} attempt(s) without a fix"
+    # the tag / commit / escalation record / relay note live in lib_bug_escalate.sh, SHARED with ovn_stage_runner.sh (2026-10-02 review fix)
+    ovn_bug_escalate "$repo" "$prog" "$lineno" "$text" "$h" "$id" "$bc" "$status" "$state" "$why"
+    rm -f "$bcountf" "$btoksf" "$state/failures/${id}.count" 2>/dev/null
+  fi
+  exit 0
+fi
+
 # --- No-op streak: park an item that keeps doing nothing ---------------------
 # Catch every "nothing landed, not a hard fail" shape: no-op(BLOCKED),
 # no-op(ALREADY-DONE), a bare <none>, or an empty status (a PROCEED that emitted
 # no diff). Reverts/errors deliberately fall through to the fail streak below.
 if [[ "$status" == no-op* || "$status" == "<none>"* || -z "$status" ]]; then
+  # indeterminate-credit allowance (see the tests:pass case above): an ALREADY-DONE no-op on an item whose landing could not be credited only because
+  # its VERIFY timed out is expected; do not count it (bounded, then it counts like any other no-op).
+  if [ "$status" = "no-op(ALREADY-DONE)" ] && [ -f "$state/item_fails/${id}.${h}.indet" ]; then
+    _ia=$(( $(cat "$state/item_fails/${id}.${h}.indet" 2>/dev/null || echo 0) + 1 ))
+    if [ "$_ia" -le "${OVN_INDET_NOOP_ALLOW:-3}" ]; then printf '%s' "$_ia" > "$state/item_fails/${id}.${h}.indet"; exit 0; fi
+  fi
   nc=$(( $(cat "$ncountf" 2>/dev/null || echo 0) + 1 ))
   ntoks=$(( $(cat "$ntoksf" 2>/dev/null || echo 0) + cur_toks ))
   printf '%s' "$nc" > "$ncountf"
