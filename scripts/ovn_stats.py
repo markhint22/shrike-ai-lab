@@ -8,7 +8,13 @@ Leads with THROUGHPUT (landed / no-op / failed / errored) — what a human actua
 cares about — then flags only the cells worth attention: what's producing, what's
 just spinning (all no-op = exhausted or unverifiable), and any real failures.
 
-Usage: ovn_stats.py [hours=24] [--ntfy]
+Usage: ovn_stats.py [hours=24] [--ntfy] [--since T] [--real] [--gpu-alert]
+  --since T    split the window at T (epoch | ISO | 'YYYY-MM-DD[ HH:MM]', UTC) and print the REAL
+               pass rate pre vs post (scripts/ovn_real_passrate.py: phantom `landed`-without-commit
+               rows excluded, suspected pre-existing-red reverts separated, honest-headline flag)
+  --real       print only the REAL pass-rate section and exit
+  --gpu-alert  evaluate the 24h GPU busy percentage and write the (6h-deduped) alerts.log line;
+               used by ovn_gpu_util_check.sh after each sample
 """
 import os, re, sys, time
 from collections import defaultdict
@@ -16,12 +22,111 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ovn_outcome_buckets import bucket, oc_bad_breakdown, oc_benign_breakdown, oc_pass_rate  # canonical GOOD/BAD/BENIGN split
 
-P = os.path.expanduser("~/overnight-queue/state/task_stats.log")
-args = [a for a in sys.argv[1:] if not a.startswith('--')]
-ntfy = '--ntfy' in sys.argv
+STATE_DIR = os.environ.get("OVN_STATE_DIR") or os.path.expanduser("~/overnight-queue/state")
+P = os.path.join(STATE_DIR, "task_stats.log")
+# --since takes a value, so pull it out of argv BEFORE the positional-hours parse below.
+_argv, _since_raw, _i = [], None, 1
+while _i < len(sys.argv):
+    _a = sys.argv[_i]
+    if _a == '--since' and _i + 1 < len(sys.argv):
+        _since_raw = sys.argv[_i + 1]; _i += 2; continue
+    if _a.startswith('--since='):
+        _since_raw = _a.split('=', 1)[1]
+    else:
+        _argv.append(_a)
+    _i += 1
+args = [a for a in _argv if not a.startswith('--')]
+ntfy = '--ntfy' in _argv
+real_only = '--real' in _argv
+gpu_alert_mode = '--gpu-alert' in _argv
 noop_headline = '--noop-headline' in sys.argv
 hours = float(args[0]) if args else 24.0
 cutoff = time.time() - hours * 3600
+
+# --- GPU utilization (2026-10-03): ovn_gpu_util_check.sh appends "<epoch> <util%>" to state/gpu_util.log.
+# The diagnosis measured 17 of 23 overnight samples under 5% (xlite VERIFY hangs idling the GPU) and nothing
+# reported it. A sample counts as busy at >= GPU_BUSY_MIN percent.
+GPU_BUSY_MIN = float(os.environ.get("OVN_GPU_BUSY_MIN", "5"))
+GPU_ALERT_BELOW = float(os.environ.get("OVN_GPU_ALERT_BELOW", "40"))
+GPU_MIN_SAMPLES = int(os.environ.get("OVN_GPU_MIN_SAMPLES", "12"))
+GPU_ALERT_DEDUP_S = 6 * 3600
+
+def gpu_busy(window_h=24.0, now=None):
+    """-> (busy_pct or None, n_samples) over the last window_h hours of state/gpu_util.log."""
+    now = now if now is not None else time.time()
+    n = busy = 0
+    try:
+        for ln in open(os.path.join(STATE_DIR, "gpu_util.log"), errors="replace"):
+            p = ln.split()
+            if len(p) < 2:
+                continue
+            try:
+                t, u = float(p[0]), float(p[1])
+            except ValueError:
+                continue
+            if t < now - window_h * 3600:
+                continue
+            n += 1
+            busy += 1 if u >= GPU_BUSY_MIN else 0
+    except OSError:
+        return None, 0
+    return (round(100.0 * busy / n, 1) if n else None), n
+
+def _any_lane_enabled():
+    import json
+    if os.path.exists(os.path.join(STATE_DIR, "PAUSED")):
+        return False   # deliberately paused (e.g. GPU testing): low util is expected
+    tf = os.environ.get("OVN_TASKS_FILE") or os.path.join(os.path.dirname(STATE_DIR.rstrip("/")) or ".", "tasks.json")
+    try:
+        tasks = json.load(open(tf))
+    except Exception:
+        return False   # cannot tell -> do not alert (infra uncertainty never alarms)
+    return any(isinstance(t, dict) and t.get("enabled") is not False for t in tasks)
+
+def gpu_alert(now=None):
+    """Write ONE alerts.log line (deduped GPU_ALERT_DEDUP_S) when 24h busy percentage is below
+    GPU_ALERT_BELOW while any lane is enabled and there are >= GPU_MIN_SAMPLES samples.
+    Returns the line or None."""
+    now = now if now is not None else time.time()
+    pct, n = gpu_busy(24.0, now)
+    if pct is None or n < GPU_MIN_SAMPLES or pct >= GPU_ALERT_BELOW or not _any_lane_enabled():
+        return None
+    stamp = os.path.join(STATE_DIR, ".gpu_util_alerted")
+    try:
+        if now - float(open(stamp).read().strip() or "0") < GPU_ALERT_DEDUP_S:
+            return None
+    except (OSError, ValueError):
+        pass
+    line = ("[%s] warn | gpu-util | GPU busy only %g%% over the last 24h (%d samples, busy = >=%g%% util) "
+            "while a lane is enabled - cycles are spending their time outside model generation"
+            % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), pct, n, GPU_BUSY_MIN))
+    try:
+        with open(os.path.join(STATE_DIR, "alerts.log"), "a") as f:
+            f.write(line + "\n")
+        with open(stamp, "w") as f:
+            f.write(str(now))
+    except OSError:
+        return None
+    return line
+
+def _real_section():
+    """REAL pass-rate (lines, result) - fail-safe: any error -> empty, never breaks the digest."""
+    try:
+        import ovn_real_passrate as rp
+        lines_, res_ = rp.build(STATE_DIR, hours, rp.parse_since(_since_raw))
+        w_ = res_["window"]
+        if w_["good"] + w_["bad"] == 0:
+            return [], {"flags": []}      # no outcomes.jsonl data in the window: print nothing
+        return lines_, res_
+    except Exception:
+        return [], {"flags": []}
+
+if gpu_alert_mode:
+    print(gpu_alert() or "")
+    sys.exit(0)
+if real_only:
+    print("\n".join(_real_section()[0]) or "no real pass-rate data")
+    sys.exit(0)
 
 rows = []
 if os.path.exists(P):
@@ -255,6 +360,16 @@ if ntfy:
     lines.append(head)
     if L + F:
         lines.append("pass-rate: %s%%  (%d good / %d good+bad)" % (oc_pass_rate(rows), L, L + F))
+    # 2026-10-03: only when the headline is NOT honest (or --since asked for the split) - quiet otherwise.
+    _rl, _rr = _real_section()
+    if _since_raw:
+        lines.extend(_rl)
+    elif _rr.get("flags"):
+        lines.extend(x.strip() for x in _rl[1:2] + [l for l in _rl if "HEADLINE NOT HONEST" in l])
+    _gp, _gn = gpu_busy(24.0)
+    if _gp is not None and _gn >= GPU_MIN_SAMPLES:
+        lines.append("GPU busy %g%% over 24h (%d samples)%s" % (
+            _gp, _gn, "  - LOW, cycles idle outside generation" if _gp < GPU_ALERT_BELOW else ""))
     if _benign_total:
         lines.append("ℹ️ %d benign, not counted (%d already-done, %d blocked, %d skip, %d error)" % (
             _benign_total, _benign_bd.get('noop:done', 0), _benign_bd.get('noop:blocked', 0), _skip_n, _benign_bd.get('error', 0)))
@@ -327,6 +442,12 @@ else:
         print("  pass-rate (of GOOD-or-BAD attempts): %s%%" % oc_pass_rate(rows))
         print("  wasted attempts: %d (%d revert, %d gate-reverted, %d flailed)" % (
             F, _revert_n, _gate_n, _flail_n))
+    _rl, _rr = _real_section()
+    if _rl:
+        print("\n".join(_rl))
+    _gp, _gn = gpu_busy(24.0)
+    if _gp is not None:
+        print("  GPU busy %g%% over 24h (%d samples, busy = >=%g%% util)" % (_gp, _gn, GPU_BUSY_MIN))
     if _benign_total:
         print("  excluded, not counted (benign): %d (%d already-done, %d blocked, %d skip, %d error)" % (
             _benign_total, _benign_bd.get('noop:done', 0), _benign_bd.get('noop:blocked', 0), _skip_n, _benign_bd.get('error', 0)))

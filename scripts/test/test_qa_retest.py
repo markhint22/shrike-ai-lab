@@ -153,8 +153,27 @@ class Fix:
 
     def mark_fixed(self, flow):
         e = self.entry(flow)
+        self.land_fix(e)
         self.origin_edit(lambda t: t.replace("- [ ] " + e["item"][len("- [ ] "):], "- [x] " + e["item"][len("- [ ] "):]), "fleet landed")
         return self.cli("sweep")
+
+    def land_fix(self, e):
+        """A REAL landed fix (2026-10-03): a source change to the located file + a test with a real assertion that names it. The sweep no longer says
+        'fixed' for a bare '[x]' (the closed-captions false credit: a placeholder test, no source change)."""
+        git(self.work, "pull", "-q", "--rebase", "origin", "overnight/feature")
+        src = e["path"]
+        stem = os.path.splitext(os.path.basename(src))[0]
+        with open(os.path.join(self.work, src), "a") as f:
+            f.write("\n// fixed\n")
+        if src.endswith(".py"):
+            tp, body = "backend/tests/test_landed_%s.py" % stem, "def test_landed_%s():\n    assert len('%s') > 0\n" % (stem, stem)
+        else:
+            tp, body = "app-web/src/views/__tests__/Landed%s.test.ts" % stem, "test('%s works', () => { expect(%s).toBeDefined() })\n" % (stem, stem)
+        os.makedirs(os.path.dirname(os.path.join(self.work, tp)), exist_ok=True)
+        open(os.path.join(self.work, tp), "w").write(body)
+        git(self.work, "add", src, tp)
+        git(self.work, "commit", "-q", "-m", "fix: land %s" % stem)
+        git(self.work, "push", "-q", "origin", "overnight/feature")
 
     def mark_escalated(self, flow, tag="[CLAUDE] [bug-escalated: 2 failed attempts (cap 2), last: no-op(x)] "):
         e = self.entry(flow)
@@ -267,6 +286,7 @@ C = Fix("c")
 C.add(NOTE_A, "shared-flow", date="2026-10-01")
 C.add(NOTE_B, "shared-flow", date="2026-10-02")
 ea, eb = [e for e in C.state().values() if "alerts.py" in e["note"]][0], [e for e in C.state().values() if "exports.py" in e["note"]][0]
+C.land_fix(ea)
 C.origin_edit(lambda t: t.replace("- [ ] " + ea["item"][6:], "- [x] " + ea["item"][6:]).replace("- [ ] " + eb["item"][6:], "- [ ] [AUTO-SKIP after 4 cycles] " + eb["item"][6:]))
 C.cli("sweep")
 sts = sorted(e["status"] for e in C.state().values())
@@ -277,6 +297,7 @@ D = Fix("d")
 D.add(NOTE_A, "shared-flow", date="2026-10-01")
 D.add(NOTE_B, "shared-flow", date="2026-10-02")
 ea, eb = [e for e in D.state().values() if "alerts.py" in e["note"]][0], [e for e in D.state().values() if "exports.py" in e["note"]][0]
+D.land_fix(ea)
 D.origin_edit(lambda t: t.replace("- [ ] " + ea["item"][6:], "- [x] " + ea["item"][6:]).replace("- [ ] " + eb["item"][6:], "- [ ] [AUTO-SKIP after 4 cycles] " + eb["item"][6:]))
 D.cli("sweep")
 rc, out = D.retest("shared-flow", "still-broken", "alerts still broken")

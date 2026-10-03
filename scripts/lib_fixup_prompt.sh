@@ -15,6 +15,10 @@
 #   ovn_fixup_failure_facts <task_log> [summary]   failing test ids + assertion/traceback lines (verbatim, capped)
 #   ovn_fixup_failing_test_files <task_log>        existing repo files named by FAILED ids / vitest lines
 #   ovn_fixup_extra_files <task_log> <already-listed files...>   failing test files to pre-load, within a byte budget
+# Baseline awareness (2026-10-03, integrity A5): run_overnight.sh exports OVN_FIXUP_BASELINE_FILE (the failing ids that were ALREADY failing at BEFORE_SHA,
+# one per line, '#' header lines ignored) and OVN_FIXUP_BASELINE_VERIFIED (1 = a baseline run proved the remaining ids passed before). Pre-existing ids are
+# dropped from the evidence / pre-loaded files and the model is told they are not its problem; when the baseline was NOT verified (0) the prompt no longer
+# claims the failing test "PASSED before". Both vars unset => the old text, byte for byte.
 #   ovn_fixup_prompt <headline> <before> <after> <evidence> <instructions>   the assembled message
 _FP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$_FP_DIR/lib_path_normalize.sh" ] && . "$_FP_DIR/lib_path_normalize.sh"
@@ -25,6 +29,17 @@ OVN_FIXUP_DIFF_FILE_LINES="${OVN_FIXUP_DIFF_FILE_LINES:-70}" # per-file line cap
 OVN_FIXUP_LINE_CHARS="${OVN_FIXUP_LINE_CHARS:-200}"          # per-line cap (a minified blob must not eat the budget)
 OVN_FIXUP_EVIDENCE_CHARS="${OVN_FIXUP_EVIDENCE_CHARS:-5000}"
 OVN_FIXUP_FILES_BYTES="${OVN_FIXUP_FILES_BYTES:-120000}"     # total bytes of --file content (~30k tokens)
+
+# stdin -> stdout minus the "FAILED|ERROR <id> ..." lines whose id is in the baseline file (no baseline file => passthrough)
+_fp_drop_baseline() {
+  local bf="${OVN_FIXUP_BASELINE_FILE:-}"
+  if [ -n "$bf" ] && [ -f "$bf" ]; then
+    awk 'NR==FNR { if ($0 !~ /^#/ && $0 != "") b[$0]=1; next } !(($1=="FAILED" || $1=="ERROR") && ($2 in b))' "$bf" -
+  else
+    cat
+  fi
+}
+_fp_baseline_n() { local bf="${OVN_FIXUP_BASELINE_FILE:-}"; [ -n "$bf" ] && [ -f "$bf" ] && grep -vc '^#' "$bf" 2>/dev/null | tr -d ' ' || printf 0; }
 
 ovn_fixup_diff_facts() {
   local before="$1" after="$2" budget="$OVN_FIXUP_DIFF_CHARS" used=0 f d n files omitted="" chunk
@@ -54,7 +69,7 @@ ovn_fixup_diff_facts() {
 ovn_fixup_failure_facts() {
   local log="$1" summary="${2:-}" tailtxt ids asserts out
   if [ -f "$log" ]; then
-    tailtxt="$(tail -n 700 "$log" 2>/dev/null | cut -c1-400)"
+    tailtxt="$(tail -n 700 "$log" 2>/dev/null | cut -c1-400 | _fp_drop_baseline)"
     ids="$(printf '%s\n' "$tailtxt" | grep -aE '^(FAILED|ERROR) ' | awk '!s[$0]++' | tail -n 10 | cut -c1-300)"
     asserts="$(printf '%s\n' "$tailtxt" | grep -aE '^(E +|>.*assert|.*AssertionError|.*Error: |.*Expected|.*Received| *❯ .*\.(test|spec)\.[jt]sx?)' | awk '!s[$0]++' | tail -n 16 | cut -c1-240)"
   fi
@@ -66,6 +81,10 @@ ${ids}"
 }Assertion / traceback lines:
 ${asserts}"
   [ -z "$out" ] && out="${summary}"
+  local bn; bn="$(_fp_baseline_n)"
+  [ "${bn:-0}" -gt 0 ] 2>/dev/null && out="${out}
+
+NOTE: ${bn} other test(s) were ALREADY failing before this change was committed. They are not caused by it and are not part of this task - ignore them."
   printf '%s' "$out" | head -c "$OVN_FIXUP_EVIDENCE_CHARS"
 }
 
@@ -73,7 +92,7 @@ ${asserts}"
 ovn_fixup_failing_test_files() {
   local log="$1" cand p real seen=""
   [ -f "$log" ] || return 0
-  cand="$(tail -n 700 "$log" 2>/dev/null | grep -aoE '^(FAILED|ERROR) [^: ]+\.py|❯ [^ ]+\.(test|spec)\.[jt]sx?|^ *(FAIL|✗|×) +[^ ]+\.(test|spec)\.[jt]sx?' \
+  cand="$(tail -n 700 "$log" 2>/dev/null | _fp_drop_baseline | grep -aoE '^(FAILED|ERROR) [^: ]+\.py|❯ [^ ]+\.(test|spec)\.[jt]sx?|^ *(FAIL|✗|×) +[^ ]+\.(test|spec)\.[jt]sx?' \
           | sed -E 's/^(FAILED|ERROR) //; s/^❯ //; s/^ *(FAIL|✗|×) +//' | awk '!s[$0]++' | head -n 8)"
   while IFS= read -r p; do
     [ -z "$p" ] && continue
@@ -102,6 +121,10 @@ ovn_fixup_extra_files() {
 
 ovn_fixup_prompt() {
   local headline="$1" before="$2" after="$3" evidence="$4" instr="$5"
+  # an UNVERIFIED baseline must not be presented as fact: "PASSED before" is only true when a baseline run said so (lib_fixup.sh's source-broke-green text)
+  if [ -n "${OVN_FIXUP_BASELINE_VERIFIED+x}" ] && [ "${OVN_FIXUP_BASELINE_VERIFIED}" != 1 ]; then
+    instr="${instr//This failing test PASSED before the committed change, so that change broke existing behaviour./This failing test may ALREADY have been failing before the committed change (not verified), so it may be unrelated to it.}"
+  fi
   printf '%s\n\n' "$headline"
   printf 'The following change was just committed to this repository. It was made in an EARLIER, separate session: you have no memory of it, and nothing from the examples in your instructions is part of it. This is the actual diff (long diffs are truncated; the full current files are in the chat):\n\n'
   ovn_fixup_diff_facts "$before" "$after"

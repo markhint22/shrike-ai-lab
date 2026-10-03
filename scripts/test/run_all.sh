@@ -277,5 +277,15 @@ echo; echo "===== Bugs-first (2026-10-02): run_overnight.sh wiring end to end (s
 echo; echo "===== Bugs-first review fixes (2026-10-02): the real stage runner park blocks, guard 'bug-handled', sweep .gd exemption ====="; if [ -f test_bug_first_stage.sh ]; then bash test_bug_first_stage.sh || rc=1; else echo "  skip (test_bug_first_stage.sh not present)"; fi
 echo; echo "===== Bugs-first (2026-10-02): status vocabulary + retest loop (ingest retest, qa-retest, bridge, qa-status) ====="; if [ -f test_qa_retest.py ]; then python3 test_qa_retest.py || rc=1; else echo "  skip (test_qa_retest.py not present)"; fi
 echo; echo "===== QA: bug brief (research -> plan -> mechanical validation -> red proof -> test-first items; stub model, fake pytest, env -i) ====="; if [ -f test_qa_bug_brief.py ]; then python3 test_qa_bug_brief.py || rc=1; else echo "  skip (test_qa_bug_brief.py not present)"; fi
+echo; echo "===== landing gates ====="; bash test_landing_gates.sh || rc=1
+echo; echo "===== run integrity e2e ====="; bash test_run_integrity_e2e.sh || rc=1
+echo; echo "===== run integrity lib ====="; bash test_run_integrity_lib.sh || rc=1
+echo; echo "===== run integrity sweep ====="; bash test_run_integrity_sweep.sh || rc=1
+echo; echo "===== promote alerting ====="; bash test_promote_alerting.sh || rc=1
+echo; echo "===== Bug pipeline hygiene (2026-10-03): bridge harvests [bug-escalated] + same-file bug signatures (real bridge.sh, stub ssh) ====="; python3 test_bridge_bug_harvest.py || rc=1
+echo; echo "===== Bug pipeline hygiene (2026-10-03): 'fixed' needs evidence, close/reopen, Fixes-manual-bug trailer ====="; python3 test_manual_notes_h11.py || rc=1
+echo; echo "===== bug ground stage ====="; bash test_bug_ground_stage.sh || rc=1
+echo; echo "===== qa h11 gates ====="; bash test_qa_h11_gates.sh || rc=1
+echo; echo "===== observability ====="; bash test_observability.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

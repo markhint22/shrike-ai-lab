@@ -24,7 +24,7 @@ Replay (measure flag rate on history, read-only):
 
 | verdict | when |
 |---|---|
-| FAIL | high confidence: frozen-test edit (D), all effective assertions gone from a test that remains (E), an assertion turned into a tautology while the effective count dropped (A_ASSERT_NOOP) |
+| FAIL | high confidence: frozen-test edit (D), all effective assertions gone from a test that remains (E), an assertion turned into a tautology while the effective count dropped (A_ASSERT_NOOP), a newly added test that proves nothing (A_VACUOUS) |
 | FLAG | anything uncertain: weakened/dropped assertions, deleted tests, new skips on existing tests, removed guards |
 | PASS | EVERY code file in the diff analysed, nothing found |
 | NA | empty diff, or no code files (docs/config only) and no frozen manifest hit |
@@ -40,6 +40,7 @@ Replay (measure flag rate on history, read-only):
 | A_ASSERT_DROPPED | FLAG | a test lost assertions and the file's total assertions fell |
 | A_PARAM_CASES_DROPPED | FLAG | `pytest.mark.parametrize` case count fell |
 | A_TEST_DELETED / A_TESTFILE_DELETED | FLAG | tests with assertions deleted, not found elsewhere, subject not removed |
+| A_VACUOUS | FAIL | a NEWLY ADDED test whose ONLY assertions are tautologies (`assert True`, `assert 1 == 1`, `assert x or True`, `assert_true(true)`, Kotlin `assert(true)`) or that has no assertion and a placeholder body (`pass` / `...` / docstring only / empty block / says "placeholder"). 3 of 3 true positives in the 2026-10-03 shadow data (iptv `assert True`, xlite `test_placeholder`, closed-captions Kotlin `assert(true)`). A test with one real assertion plus a stray tautology stays the weaker FLAG below; a test that asserts through a helper is never judged vacuous. Shadow like every gate. |
 | A_VACUOUS_ASSERT | FLAG | a new or edited test has an assertion that can never fail: `assert 1`, `assertTrue(True)`, `x or not x`, an assert inside `try/except AssertionError/Exception` that swallows it, `with pytest.raises(X): pass` |
 | B_SKIP_ADDED | FLAG | skip/xfail/skipif/`it.skip`/`xit`/`describe.skip`/`.only`/`@Ignore`/`@Disabled`/`XCTSkip` added to an EXISTING test |
 | B_COVERAGE_EXCLUDED | FLAG | `# pragma: no cover` / `istanbul ignore` / `c8 ignore` added to existing code |
@@ -109,3 +110,19 @@ The table below is the ORIGINAL pre-fix replay, kept for comparison.
   Same repo `29ecdf3c0` (a staged step cut 399 lines of test_scheduler.py and left `test_heartbeat_two_cycles` assertion-free) -> FAIL E_ZERO_ASSERTS;
   gitlark `f254a8d4c` (test body replaced by a comment and `pass`) -> FAIL.
 - Runtime per commit (5 replays in parallel on the box): p50 25-31 ms, p90 62-125 ms, max 5.1 s (very large commits). Python startup included.
+
+## 2026-10-03 false-positive fixes (diagnosis F4: 5 of 8 shadow flags were false positives; replay with `qa_replay.py --gold`, rows F1-F6)
+
+* `C_VALIDATION_REMOVED`: raises that disappeared from a function are also treated as delegated when the function gained a NEW FastAPI dependency
+  (`Depends(x)` / `Security(x)` in the signature or `dependencies=[...]` in the decorator that the old function did not reference), e.g. inline 401/403 raises
+  replaced by `Depends(require_admin)` (billwatch `d52bdaf9`). Previously only same-module helpers counted.
+* `C_ERRORHANDLING_REMOVED`: a guard that was WIDENED is not a removed guard: some old try whose protected statements all persist in a new try now has a strictly
+  wider handler (`except ValueError` -> `except (ValueError, TypeError)`), and no exception type the old function handled is lost (iptv `c4efb13d`). Honest limit: this
+  cannot tell "widened" from "one guard widened and another deleted" - the count drop is attributed to the widening. It stays a FLAG-only, shadow rule.
+* `A_ASSERT_WEAKENED`: a swapped assertion is only a weakening when the test's NET strength is lower (fewer effective assertions or a lower rank total); `pytest.raises`
+  replaced by three exact dict asserts is not (shrike-monitor `bd7d0346`).
+* `F_CLAIM_TEST_ONLY`: skipped when the subject names a touched test file (path, basename or stem >= 5 chars: the named file IS the test), or when the commit's diff of
+  its test files touches no assertion-like line and no test definition (a helper/resource edit, xlite `8da3d53f` `dir.free()`). A product-fix claim whose diff rewrites an
+  assertion still FLAGs (iptv `e590eef7`).
+* Kotlin/Swift backticked identifiers (`` fun `it's a name`() ``) no longer open a char literal in the masker: the file used to be UNVERIFIED "could not be parsed".
+  Kotlin `assert(true)` / `assert(x || true)` now rank 0 (tautology).

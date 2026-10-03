@@ -1,6 +1,6 @@
 # qa/baseline_verify.py - baseline-relative full-suite verification (gate S4, key `baseline`)
 
-Library + CLI. NOT wired into any runner (see `qa/patches/staged_verify_baseline.md` for the shadow-mode wiring patch).
+Library + CLI. Wired into `ovn_stage_runner.sh` in SHADOW only (2026-10-02, section "Staged-runner shadow wiring" below); enforcement is NOT wired and needs a separate decision.
 
 ## Why
 
@@ -135,3 +135,68 @@ compile error, rescues 13 iptv_apps runs whose steps touched only backend/web/iO
   excerpt format is from a real xlite log but only one failing-GUT example was available).
 * Not verified: behaviour inside the real `ovn_stage_runner.sh` (not wired); the patch helper was exercised against a fake `$HOME` on the box,
   not inside a live staged run.
+
+## Staged-runner shadow wiring (2026-10-02)
+
+**Behaviour change: none.** `ovn_stage_runner.sh` gained two functions and two call lines; the runner's verdict, exit code, pushes, output and
+journal are byte-for-byte what they were (proved by `scripts/test/test_baseline_shadow_hook.sh`, which diffs a hook-ON run against a kill-switch-OFF
+run, and against runs where the hook's tool crashes / exits 1 / prints garbage / hangs / is missing).
+
+* `qa_baseline_first_red` runs right after the FIRST red `full_verify` (every `full_verify` call truncates `verify.log`, so it cannot wait): in a
+  SUBSHELL (`set +eu`, so `set -u` cannot leak), every external call capped at 5 s (`qa/qa_timeout.py`), it runs
+  `compare --format verify-log --runner-failed --changed-files-from <step diff> --worktree $wt --base-sha <overnight/feature> --no-record` and writes
+  the JSON to `<run>.baseline.json` (NOT into `verify.log`: the repair loop greps that file).
+* `qa_baseline_record "$VERIFIED"` runs once, after the whole verify/regen/repair flow, and appends ONE row to `state/qa_shadow/baseline.jsonl`
+  (`baseline_verify.py shadow-log`): the canonical gate row plus `kind:"staged_shadow"`, `run`, `runner:{first,final}` (the runner's ACTUAL final
+  decision), `would_have_rescued` (baseline says no NEW failing id), `real_rescue` (that AND the runner finally rejected), `n_new`/`n_pre` and the
+  trimmed `new_failures`/`preexisting` id lists. A repair/regen that turns the run green is `runner.final=verified`, `real_rescue=false`.
+* Any error (missing tool/python, crash, timeout, unparseable output) is swallowed, logged to `logs/qa_shadow.log` as `baseline-shadow: UNVERIFIED ...`
+  and still leaves an UNVERIFIED row (fallback written by `jq`, so even a dead python leaves a trace). Never PASS, never a rescue.
+* Kill switches: `OVN_BASELINE_SHADOW=off` (or `OVN_QA_BASELINE=off`) in the runner's env; `qa_mode.sh`/`state/qa_modes.json` `baseline=off` stops the row.
+* Read it: `jq -r '[.runner.final,.verdict]|@tsv' state/qa_shadow/baseline.jsonl | sort | uniq -c` (rows with `.kind=="staged_shadow"`);
+  rescues: `select(.real_rescue)`; each has its `.baseline.json` and the lists to read by hand.
+
+**Refresh job** `qa/baseline_refresh_cron.sh` (cron line in `qa/baseline_refresh_cron.txt`, NOT installed): every 3 h, per python/pytest repo,
+`baseline_verify.py refresh --ref origin/develop` = the repo's own venv pytest over a detached worktree of `origin/develop` (removed afterwards), then the
+snapshot rules above (deterministic only, 24 h expiry, no auto-widen). Its own lock only (flock / mkdir), nice + ionice + `QA_CPUSET`, 900 s per suite,
+3300 s total, never `run.lock`/verify locks, no network, always exit 0. `origin/develop` (not `overnight/feature`) because develop only receives gated-green
+merges; a red that exists only on the fleet branch is conservatively NEW until it reaches develop. Fixed on the way: a repo-ROOT venv produced ids without
+the `[.] ` prefix the runner's verify.log uses, so no id would ever have matched (every red id read as NEW).
+
+## Replay over the box's real `state/stage_runs` (2026-10-02, 14 days to the newest run, read-only, same proxies A/C as above)
+
+899 staged runs: 507 verified, 392 not verified. 115 of the 392 never reached `full_verify` (no verify log): baseline cannot matter. 277 reached it and failed.
+
+| | proxy A (earlier failed runs) | proxy C (earlier or later failed runs) |
+|---|---|---|
+| verdicts on the 277 failed | 165 FAIL / 94 UNVERIFIED / **18 PASS (6.5%)** | 192 FAIL / 57 UNVERIFIED / **28 PASS (10.1%)** |
+| PASS that survive `--strict-overlap` | 12 | 16 |
+| agreement with the real verdict, all 784 that reached verify | 96.9% (97.7% if UNVERIFIED on an already-green run is harmless) | 95.7% (96.4%) |
+
+Verified runs: 501 PASS, 0 FAIL, 6 UNVERIFIED (4 xlite GUT logs whose "Failing N" lines the runner's XML check accepted as green - parser/runner disagree on GUT,
+xlite is not a baseline lane; 2 shrike logs with no recognizable stage). The hook only fires on a red run, so these do not matter for the shadow wiring.
+
+**Manual inspection of all 28 proxy-C rescues** (failing ids, the run's own plan/diffstat, and the pytest `E` assertion lines compared against the evidence runs):
+
+* 11 iptv_apps (backend/web/iOS-only changes; python suite fully green; red = the Android `FavoritesRepositoryTest.kt` compile error): legitimate rescues.
+* 3 gitlark (conversation.py items; red = unrelated `test_code_quality_suggest_refactoring`): plausible, unproven (the failure message changes between two phases).
+* 5 shrike-monitor/-notify and 2 TAA execution_engine: same failure message as the sibling runs, but the change edits the red tests/modules themselves (flagged by the overlap rule).
+* 4 TAA stale-pricing (the case that motivated this gate): rescued, but 2 of them change `model_constants.py` / `_MODEL_RATES` and the red tests' failure VALUES differ between runs
+  (`assert 0.0008 == 0.003` vs `0.001 == 0.003`): the change altered the behaviour of a red test and id-equality cannot see it; one of the two is NOT flagged by the overlap rule.
+* **3 TAA migration items (`0002_add_token_usage_columns`, `0002_add_duration_regressed_to_test_run`, `0004_add_user_token_version`): HIDDEN REAL NEW REGRESSIONS.** The red ids
+  (`test_alembic_*`) are the item's own broken migration (`KeyError: '0001'` vs the sibling's `KeyError: '001'`; `'0003'` vs `Could not determine revision id from filename 0004_...`
+  - the message names each item's OWN migration). The suite was green on the base each time (TAA verified runs 2026-09-26 23:37, 09-27 09:24 and 10-02 02:55 immediately before),
+  so with a TRUE clean-base baseline these ids are not in it and the run is FAIL. The proxies call them "pre-existing" only because sibling items made the same mistake in the
+  hours after the last green run. The overlap rule flags all three (`--strict-overlap` => UNVERIFIED).
+
+So: the proxy replay overstates rescues and, taken at face value, shows the gate hiding 3 real regressions; the live path with a clean-base `refresh` baseline does not have that flaw,
+but the replay cannot prove it. The shadow data (`real_rescue` rows, read by hand) is the evidence the plan asks for before enforcing.
+Enforcement preconditions this replay adds: (1) always `--strict-overlap`; (2) store a failure signature per baseline id (normalised `E` lines) and treat a changed signature as not-PASS,
+which is the only thing that catches the `model_constants` class; (3) baselines only from clean-base refresh (never proxies); (4) xlite GUT parser/runner disagreement fixed first.
+
+## 2026-10-03: the gate no longer echoes the runner (diagnosis F3)
+
+All 17 baseline FAILs in the first 1.6 days were the runner's own `QUALITY FAIL` / `SEMANTIC FAIL` line, which the runner already enforces, so they carried no
+independent signal (and polluted `release_candidate`). A hard (non-baselineable) gate failure alone is now **NA** (`details.runner_enforced` lists it). FAIL is reserved for what
+this gate alone can know: NEW failing tests against a live baseline (also when a gate failure is present too). The refresh cron for `iptv_apps` + `xlite` ships (not installed) in
+`scripts/cron.txt`; until it runs the store stays empty and failing runs read UNVERIFIED "no baseline".

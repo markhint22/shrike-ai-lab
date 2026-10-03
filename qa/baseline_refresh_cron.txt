@@ -1,0 +1,5 @@
+# baseline-relative verify (QA gate S4, SHADOW): refresh each python/pytest repo's clean-base red set from a detached worktree of origin/develop.
+# NOT installed (2026-10-02; 2026-10-03: scoped to iptv_apps + xlite, canonical copy now in scripts/cron.txt). Install on the box with:  (crontab -l; grep -v '^#' ~/overnight-queue/qa/baseline_refresh_cron.txt) | crontab -
+# Every 3h at :11 (offset from the :23 ledger, :50 daily shadow, */10 manual notes). 24h baseline expiry => 8 refreshes per validity window.
+# Rollback: remove the line, or OVN_BASELINE_REFRESH=off, or ~/overnight-queue/qa_mode ... baseline=off. Runtime: ~1-10 min total, nice+ionice, QA_CPUSET 10-15.
+11 */3 * * * OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/baseline_refresh_cron.sh >> /home/mhintermeister/overnight-queue/logs/baseline_refresh.out 2>&1

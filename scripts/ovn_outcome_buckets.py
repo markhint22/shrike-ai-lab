@@ -102,6 +102,10 @@ def bucket_from_outcome_row(row):
     no-op(NEEDS-DECISION)) apart from a real thrown-away attempt (bare no-op,
     no-op(reverted-red), no-op(stage-unverified)).
     """
+    # 2026-10-03 (integrity A6): a cycle that died on ContextWindowExceededError produced nothing and burned a full model call: BAD, whatever its
+    # status/severity said (it was recorded as error(...) = benign, which hid the overflow cycles from the pass rate).
+    if row.get("fail_reason") == "context-exceeded" and row.get("class") != "landed":
+        return "bad"
     severity = row.get("severity")
     if severity is not None:
         return bucket_from_severity(severity)

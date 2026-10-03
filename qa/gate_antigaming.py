@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -302,7 +303,7 @@ class PyUnits(ast.NodeVisitor):
 
 class FuncInfo:
     __slots__ = ("qual", "line", "end", "units", "calls", "names", "eff", "params", "norm", "src", "tries", "handler_breadth",
-                 "raises", "decorators", "uses_suppress", "try_lines")
+                 "raises", "decorators", "uses_suppress", "try_lines", "deps", "handlers", "trys")
 
 
 def _breadth(h):
@@ -318,6 +319,33 @@ def _breadth(h):
     if "Exception" in names:
         return 2
     return 1
+
+
+def _handler_names(h):
+    t = h.type
+    if t is None:
+        return frozenset(["*"])
+    out = set()
+    for x in (t.elts if isinstance(t, ast.Tuple) else [t]):
+        out.add(x.id if isinstance(x, ast.Name) else (x.attr if isinstance(x, ast.Attribute) else "?"))
+    return frozenset(out)
+
+
+def _handlers_widened(of, nf):
+    """True when a guard was WIDENED, not removed: some old try whose body statements all persist in a new try (extra guards inside are fine) now has a
+    strictly wider handler (`except ValueError` -> `except (ValueError, TypeError)`), and no exception type the old function handled is lost.
+    Requiring the protected statements to persist stops 'delete the try, and a different try elsewhere already catches the same type' from passing."""
+    old_t = set().union(*of.handlers) if of.handlers else set()
+    new_t = set().union(*nf.handlers) if nf.handlers else set()
+    if not nf.handlers or not (("*" in new_t) or (old_t <= new_t)):
+        return False
+    for obody, ohs in of.trys:
+        oh = set().union(*ohs) if ohs else set()
+        for nbody, nhs in nf.trys:
+            nh = set().union(*nhs) if nhs else set()
+            if obody and obody <= nbody and (oh < nh or ("*" in nh and "*" not in oh)):
+                return True
+    return False
 
 
 def _import_only(body):
@@ -380,6 +408,15 @@ class PyModule:
         fi.try_lines = [t.lineno for t in tries]
         fi.handler_breadth = max([_breadth(h) for t in tries for h in t.handlers] or [0])
         fi.raises = sum(1 for r in ast.walk(n) if isinstance(r, ast.Raise) and r.exc is not None)
+        fi.handlers = [_handler_names(h) for t in tries for h in t.handlers]
+        fi.trys = [(frozenset(ast.unparse(b) for b in t.body), [_handler_names(h) for h in t.handlers]) for t in tries]
+        # FastAPI-style dependencies (`x = Depends(require_admin)` in the signature or `dependencies=[Depends(..)]` in the decorator) run BEFORE the
+        # body: validation that moved there is delegated, not dropped
+        fi.deps = set()
+        for part in [n.args] + list(n.decorator_list):
+            for c in ast.walk(part):
+                if isinstance(c, ast.Call) and _call_name(c) in ("Depends", "Security") and c.args:
+                    fi.deps.add(ast.unparse(c.args[0]) if hasattr(ast, "unparse") else "?")
         body_txt = fi.src
         fi.uses_suppress = bool(re.search(r"suppress\(|@\w*(retry|catch|handle|guard|safe)\w*", body_txt, re.I)) or any(
             re.search(r"retry|catch|handle|guard|safe|suppress", d, re.I) for d in fi.decorators)
@@ -434,6 +471,16 @@ def mask_text(text, lang):
             for k in range(i + 1, min(j, n)):
                 out[k] = " "
             i = j + 1
+        elif c == "`" and lang in ("kt", "swift"):
+            # `fun \`it's a name\`()`: a backticked identifier is not a string; its apostrophe must not open a char literal
+            j = text.find("`", i + 1)
+            nl = text.find("\n", i + 1)
+            if j < 0 or (0 <= nl < j):
+                i += 1
+            else:
+                for k in range(i + 1, j):
+                    out[k] = " "
+                i = j + 1
         elif c == "`" and lang == "js":
             j = i + 1
             while j < n and text[j] != "`":
@@ -580,6 +627,8 @@ def _rank_named(table, name, stmt_orig):
         return 0
     if name in ("assertEquals", "assertSame", "assert_eq", "XCTAssertEqual") and re.search(r"\(\s*(true|false|True|False)\s*,|,\s*(true|false|True|False)\s*[,)]", stmt_orig):
         return 1  # assertEquals(false, x) == assertFalse(x)
+    if re.match(r"\s*(?:assert|require|check)\s*\(\s*(?:true|!\s*false|1\s*==\s*1|\w+\s*\|\|\s*true)\s*[,)]", stmt_orig):
+        return 0  # Kotlin assert(true) / assert(x || true): can never fail (2026-10-03: closed-captions 'placeholder test' false credit)
     m = re.match(r"\s*\w+\s*\(\s*([\w.\"'0-9]+)\s*,\s*([\w.\"'0-9]+)\s*[,)]", stmt_orig)
     if m and name in ("assertEquals", "assert_eq", "XCTAssertEqual") and m.group(1) == m.group(2):
         return 0
@@ -952,6 +1001,11 @@ def compare_test(path, qn, o, n, helper_gain, file_units_dropped, out):
         out.append(F("A_ASSERT_NOOP", "FAIL", path, b[0], "assertion in %s replaced by a tautology (was: %s)" % (qn, snip(a[2], 60)),
                      b[2], old_line=a[0]))
         return
+    # 2026-10-03 FP (shrike-monitor bd7d0346): `pytest.raises` replaced by three stronger dict asserts after a deliberate contract change. A swap is
+    # only a weakening when the test's NET assertion strength is lower: fewer effective assertions OR a lower rank total.
+    net_not_lower = n.eff >= o.eff and sum(u[1] for u in n.units) >= sum(u[1] for u in o.units)
+    if weak and net_not_lower:
+        weak = []
     if weak:
         a, b = weak[0]
         out.append(F("A_ASSERT_WEAKENED", "FLAG", path, b[0], "assertion in %s weakened (rank %d->%d; was: %s)" % (qn, a[1], b[1], snip(a[2], 60)),
@@ -1093,6 +1147,57 @@ def orphan_file_reason(repo, lang, path, old_text):
     return None
 
 
+PLACEHOLDER_RE = re.compile(r"placeholder|\bTODO\b.{0,40}\b(?:test|assert)|replace with (?:actual|real)|to be implemented|not implemented", re.I)
+
+
+def _only_trivial_body(lang, src):
+    """True when the test body makes no call (so 'placeholder'/'TODO' text can be trusted): a test that calls helpers (`check_response(f())  # TODO: add test`)
+    is under-detected, not a placeholder. Comments and string literals are masked first; js/kt/swift look only after the first '{'."""
+    if lang == "py":
+        try:
+            fn = ast.parse(textwrap.dedent(src)).body[0]
+            return not any(isinstance(n, ast.Call) for x in fn.body for n in ast.walk(x))
+        except (SyntaxError, IndexError, ValueError, AttributeError):
+            return False
+    inner = mask_text(src, lang)
+    i = inner.find("{")
+    return i >= 0 and not re.search(r"\b\w+\s*\(", inner[i + 1:])
+
+
+def vacuous_new_test(lang, t):
+    """Reason string when a NEWLY ADDED test `t` (FuncInfo/TInfo: .units .eff .src) cannot fail, else ''.
+      * it has assertions and EVERY one is a tautology (`assert True`, `assert 1 == 1`, `assert x or True`, `assert_true(true)`, `assert(true)`), or
+      * it has NO assertion and its body is a placeholder (pass / ... / docstring-only / empty block, or says 'placeholder').
+    A test that only asserts through helpers it calls (no recognised assertion, real body) is NOT judged: that is an under-detection, not a proof."""
+    if t.units:
+        if all(u[1] == 0 for u in t.units):
+            return "all %d assertion(s) are tautologies (%s)" % (len(t.units), snip(t.units[0][2], 50))
+        return ""
+    src = t.src or ""
+    if PLACEHOLDER_RE.search(src) and _only_trivial_body(lang, src):
+        return "no assertion and the body says it is a placeholder"
+    body = src
+    if lang == "py":
+        try:
+            fn = ast.parse(textwrap.dedent(src)).body[0]
+            stmts = [x for x in fn.body if not (isinstance(x, ast.Expr) and isinstance(x.value, ast.Constant) and isinstance(x.value.value, str))]
+            if all(isinstance(x, ast.Pass) or (isinstance(x, ast.Expr) and isinstance(x.value, ast.Constant)) for x in stmts):
+                return "no assertion and the body is empty (pass / ... / docstring only)"
+        except (SyntaxError, IndexError, ValueError, AttributeError):
+            return ""
+        return ""
+    if lang in ("js", "kt", "swift"):
+        inner = mask_text(body, lang)
+        if lang in ("kt", "swift"):  # src is the body from its '{' up to (excluding) the closing '}'
+            if inner.lstrip().startswith("{") and not inner.lstrip()[1:].strip():
+                return "no assertion and the body is empty"
+        else:
+            m = re.search(r"\{(.*)\}\s*\)?\s*;?\s*$", inner, re.S)
+            if m is not None and not m.group(1).strip():
+                return "no assertion and the body is empty"
+    return ""
+
+
 def analyze_tests(repo, diffs, status, out, deadline, notes):
     """A + E for every changed test file (all languages)."""
     removed_syms = _removed_syms(diffs)
@@ -1144,6 +1249,14 @@ def analyze_tests(repo, diffs, status, out, deadline, notes):
     for p, nt in new_tests.items():
         for q, n in nt.items():
             o = old_tests.get(p, {}).get(q)
+            if o is None and any(q in ot for ot in old_tests.values()):
+                o = next(ot[q] for ot in old_tests.values() if q in ot)   # moved/renamed test file: the test is not new
+            if o is None:
+                why = vacuous_new_test(lang_of(p), n)
+                if why:  # A_VACUOUS (FAIL): 3 of 3 true positives in the 2026-10-03 shadow data; supersedes the weaker A_VACUOUS_ASSERT for this test
+                    out.append(F("A_VACUOUS", "FAIL", p, n.units[0][0] if n.units else n.line,
+                                 "newly added test %s proves nothing: %s" % (q, why), n.units[0][2] if n.units else ""))
+                    continue
             old_zero = {u[2] for u in o.units if u[1] == 0} if o else set()
             zeros = [u for u in n.units if u[1] == 0 and u[2] not in old_zero]
             if o and len(zeros) <= sum(1 for u in o.units if u[1] == 0):
@@ -1270,7 +1383,15 @@ def rule_error_handling(repo, fd, old_text, new_text, added_all, out, notes, add
                     continue
                 # a newly called module function that itself has try/except = the guard was delegated, not dropped
                 delegated = any(nm.funcs[c].tries > 0 for c in _new_callees(nm, nf, of))
-                if nf.tries < of.tries and nm.file_tries < om.file_tries and not delegated:
+                # 2026-10-02: a raise that MOVED into a helper (same module, or a helper newly defined elsewhere in this diff) is delegated, not dropped.
+                # Real false positive: billwatch get_current_user's inline 'raise HTTPException(401 inactive)' became check_user_active(user), moved to
+                # core/dependencies.py in the same change.
+                new_names = (nf.calls | nf.names) - (of.calls | of.names)
+                delegated_raise = any(nm.funcs[c].raises > 0 for c in _new_callees(nm, nf, of)) or (
+                    any(re.match(r"(?:async\s+)?def\s+%s\s*\(" % re.escape(n), l) for n in new_names for l in added_all)
+                    and any(re.match(r"raise\b", l) for l in added_all))
+                widened = _handlers_widened(of, nf)  # 2026-10-03 FP: `except ValueError` -> `except (ValueError, TypeError)` (+ new isinstance guards)
+                if nf.tries < of.tries and nm.file_tries < om.file_tries and not delegated and not widened:
                     ol = of.try_lines[0] if of.try_lines else of.line
                     out.append(F("C_ERRORHANDLING_REMOVED", "FLAG", fd.path, nf.line,
                                  "%s lost %d try/except guard(s) (%d -> %d)" % (q, of.tries - nf.tries, of.tries, nf.tries),
@@ -1279,7 +1400,9 @@ def rule_error_handling(repo, fd, old_text, new_text, added_all, out, notes, add
                     out.append(F("C_HANDLER_NARROWED", "FLAG", fd.path, nf.line,
                                  "%s: exception handler narrowed (breadth %d -> %d)" % (q, of.handler_breadth, nf.handler_breadth),
                                  _first_removed_try(fd, of), old_line=of.line))
-                if nf.raises < of.raises and nm.file_raises < om.file_raises and not (nf.tries > of.tries) and not delegated \
+                delegated_dep = bool(nf.deps - of.deps)  # 2026-10-03 FP: inline 401/403 raises replaced by `Depends(require_admin)`
+                if nf.raises < of.raises and nm.file_raises < om.file_raises and not (nf.tries > of.tries) and not delegated and not delegated_raise \
+                        and not delegated_dep \
                         and _sim(of.norm, nf.norm) >= 0.7:  # surgical edit; a wholesale rewrite of the function is not judged here
                     out.append(F("C_VALIDATION_REMOVED", "FLAG", fd.path, nf.line,
                                  "%s lost %d raise statement(s) (%d -> %d)" % (q, of.raises - nf.raises, of.raises, nf.raises), "",
@@ -1310,6 +1433,83 @@ def _new_callees(nm, nf, of):
     for q, f in nm.funcs.items():
         by_last.setdefault(q.split(".")[-1], q)
     return [by_last[c] for c in ((nf.calls | nf.names) - (of.calls | of.names)) if c in by_last and by_last[c] != nf.qual]
+
+
+CLAIM_RE = re.compile(r"^(feat|fix|perf|refactor)(\([^)]*\))?!?:\s*(.*)$", re.I)
+# any 'test' substring (test_x.py, FavoritesRepositoryTest, tests, testing) or spec/fixture/mock/coverage/flaky = the subject itself says it is a test change.
+# AUTO_RE: the pipeline's own test-first scaffolding ('staged step N', 'repair staged item') - a step that only adds tests is normal there; the code lands in a later step.
+TESTY_RE = re.compile(r"test|\bspecs?\b|fixtures?|mocks?|coverage|flak(?:y|e|iness)", re.I)
+AUTO_RE = re.compile(r"staged step \d+|repair staged item", re.I)
+
+
+ASSERTY_RE = re.compile(r"\bassert|\bexpect\b|\bverify\b|\bshould|XCTAssert|\bfail\s*\(|\braises\b|\bpush_error\b|"
+                        r"\b(?:def|func|fun)\s+test|\b(?:it|test|describe)\s*\(|@Test\b|\.toBe|\.toEqual|\.to[A-Z]\w+\(|\bmock\.|\bpatch\b")
+
+
+LITERAL_LINE_RE = re.compile(r"""(?<![\w.])\d+(?:\.\d+)?(?![\w.])|["']""")
+
+
+def _subject_names_files(subject, tpaths):
+    """True when the commit subject names (full path or basename; NOT a bare stem like `models`) one of the touched test files."""
+    sl = subject.lower()
+    for t in tpaths:
+        base = os.path.basename(t).lower()
+        stem = os.path.splitext(base)[0]
+        if t.lower() in sl or base in sl:
+            return True
+    return False
+
+
+def _support_only_test_change(rd, sha, tpaths):
+    """True when the commit's diff of its test files adds/removes no assertion-ish line and no test definition (comments/blank ignored):
+    a helper / resource-cleanup / fixture-plumbing edit (xlite 8da3d53f 'fix: free DirAccess' only added `dir.free()` to a test helper)."""
+    if not tpaths:
+        return False
+    rc, out, _ = qc.git(rd, "show", "-U0", "--no-color", "--format=", sha, "--", *tpaths, timeout=60)
+    if rc != 0 or not out.strip():
+        return False
+    changed = 0
+    for l in out.splitlines():
+        if l[:1] not in ("+", "-") or l.startswith(("+++", "---")):
+            continue
+        body = l[1:].strip()
+        if not body or body.startswith(("#", "//", "/*", "*")):
+            continue
+        changed += 1
+        if ASSERTY_RE.search(body) or LITERAL_LINE_RE.search(body):   # an expected-value/fixture literal edit (`EXPECTED = 200` -> 500) changes what a test proves
+            return False
+    return changed > 0
+
+
+def rule_claim_vs_diff(rd, base, head, findings):
+    """F: a commit whose conventional-commit subject claims PRODUCT behaviour (feat/fix/perf/refactor) but whose diff touches only test files.
+    2026-10-02 real incident: iptv e590eef7 'fix: respect RATE_LIMIT_ENABLED env var in limiter initialization' changed only tests/test_limiter_core.py;
+    limiter.py never read the variable, and the next commit rewrote the test to assert just the default. A subject that itself says it is a test
+    change ('update limiter test ...') is honest and skipped; docs-only and test:/chore: commits are not this rule's business. Advisory FLAG only."""
+    rc, out, _ = qc.git(rd, "log", "--no-merges", "--format=%x1e%H%x1f%s", "--name-only", "%s..%s" % (base, head), timeout=60)
+    if rc != 0:
+        return
+    for block in out.split("\x1e"):
+        block = block.strip("\n")
+        if not block:
+            continue
+        head_line, _, files = block.partition("\n")
+        sha, _, subj = head_line.partition("\x1f")
+        m = CLAIM_RE.match(subj.strip())
+        if not m or TESTY_RE.search(m.group(3)) or AUTO_RE.search(subj):
+            continue
+        paths = [l.strip() for l in files.split("\n") if l.strip()]
+        if not paths or not any(is_test_path(x) for x in paths):
+            continue
+        if any(not (is_test_path(x) or x.lower().endswith((".md", ".txt", ".rst"))) for x in paths):
+            continue
+        tpaths = [x for x in paths if is_test_path(x)]
+        if _subject_names_files(m.group(3), tpaths):
+            continue  # 'fix: handle X in tests/test_x.py': the named file IS the test, so a test-only diff is what the subject says
+        if _support_only_test_change(rd, sha, tpaths):
+            continue  # helper/resource fix inside a test file (no assertion or test definition touched): there is no product claim to fake
+        findings.append(F("F_CLAIM_TEST_ONLY", "FLAG", "(commit %s)" % sha[:10], 0,
+                          "'%s' claims product behaviour but the commit changes only test files: %s" % (subj.strip()[:80], ", ".join(paths[:3]))))
 
 
 def _first_removed_try(fd, of):
@@ -1416,6 +1616,7 @@ def check(argv):
     if not rd:
         return qc.verdict("UNVERIFIED", GATE, name, ref, "no clone found for repo")
     shas = []
+    qc.ensure_commits(rd, (args["base"], args["head"]), wait=float(os.environ.get("QA_FETCH_WAIT", "15")))
     for r in (args["base"], args["head"]):
         rc, out, _ = qc.git(rd, "rev-parse", "--verify", "-q", r + "^{commit}")
         if rc != 0:
@@ -1486,6 +1687,7 @@ def check(argv):
     for p, s in status.items():
         if os.path.basename(p) in CONFIG_NAMES and s in ("M", "R") and p in diffs:
             rule_config(repo, diffs[p], None, repo.blob(head, p), findings)
+    rule_claim_vs_diff(rd, base, head, findings)
     # assemble
     order = {"FAIL": 0, "FLAG": 1}
     findings.sort(key=lambda f: (order[f["sev"]], f["file"], f["line"]))

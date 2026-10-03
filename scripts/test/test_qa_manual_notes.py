@@ -210,6 +210,24 @@ class Fix:
         git(self.work, "commit", "-q", "-m", msg)
         git(self.work, "push", "-q", "origin", "overnight/feature")
 
+    def land_fix(self, e):
+        """A REAL landed fix (2026-10-03): a source change to the located file + a test with a real assertion that names it. The sweep no longer says
+        'fixed' for a bare '[x]' (the closed-captions false credit: a placeholder test, no source change)."""
+        git(self.work, "pull", "-q", "--rebase", "origin", "overnight/feature")
+        src = e["path"]
+        stem = os.path.splitext(os.path.basename(src))[0]
+        with open(os.path.join(self.work, src), "a") as f:
+            f.write("\n// fixed\n")
+        if src.endswith(".py"):
+            tp, body = "backend/tests/test_landed_%s.py" % stem, "def test_landed_%s():\n    assert len('%s') > 0\n" % (stem, stem)
+        else:
+            tp, body = "app-web/src/views/__tests__/Landed%s.test.ts" % stem, "test('%s works', () => { expect(%s).toBeDefined() })\n" % (stem, stem)
+        os.makedirs(os.path.dirname(os.path.join(self.work, tp)), exist_ok=True)
+        open(os.path.join(self.work, tp), "w").write(body)
+        git(self.work, "add", src, tp)
+        git(self.work, "commit", "-q", "-m", "fix: land %s" % stem)
+        git(self.work, "push", "-q", "origin", "overnight/feature")
+
     def call_log(self):
         try:
             return open(self.calls).read().splitlines()
@@ -541,6 +559,7 @@ rc, out = L.sweep()
 ok("item still open => lane stays on, no relay note", "qa_mode unlane fx" not in L.call_log() and entry_of(L)["status"] == "open")
 relay.hits.clear()
 fk = el["feat"]
+L.land_fix(entry_of(L))
 L.origin_edit(lambda t: t.replace("- [ ] [T3] app-web/src/views/PaywallView.vue", "- [x] [T3] app-web/src/views/PaywallView.vue", 1), "fleet lands it")
 rc, out = L.sweep()
 el = entry_of(L)
@@ -575,6 +594,7 @@ ok("valve reason recorded", "24h" in list(st["entries"].values())[0]["lane_note"
 R = Fix("r", qa_on=True)
 rc, out = R.add('The "Restore Purchases" button does nothing', flow="paywall")
 os.remove(os.path.join(R.ovn, "state", "qa_mode.json"))      # someone ran `qa_mode.sh off` meanwhile (lanes restored to dev state)
+R.land_fix(entry_of(R))
 R.origin_edit(lambda t: t.replace("- [ ] [T3] app-web", "- [x] [T3] app-web", 1))
 rc, out = R.sweep()
 ok("after `qa_mode.sh off` we must NOT unlane (would disable a restored dev lane); flag cleared", "qa_mode unlane fx" not in R.call_log() and entry_of(R).get("lane_released") is True and entry_of(R)["status"] == "fixed")
@@ -634,6 +654,7 @@ ok("line vanished for >1h => needs-human (retired/removed), never silently fixed
 X = Fix("x")
 X.add('The "Restore Purchases" button does nothing', flow="paywall")
 fk = entry_of(X)["feat"]
+X.land_fix(entry_of(X))
 git(X.work, "pull", "-q", "--rebase", "origin", "overnight/feature")
 pr = open(os.path.join(X.work, "OVERNIGHT_PROGRESS.md")).read()
 ln = [l for l in pr.split("\n") if "[feat:%s]" % fk in l][0]
@@ -658,6 +679,7 @@ ok("sweep: fetch failure leaves statuses untouched, rc 0", rc == 0 and entry_of(
 print("== cron wrapper")
 K = Fix("k")
 K.add('The "Restore Purchases" button does nothing', flow="paywall")
+K.land_fix(entry_of(K))
 K.origin_edit(lambda t: t.replace("- [ ] [T3] app-web", "- [x] [T3] app-web", 1))
 # place a copy of qa/ next to the fixture OVN_DIR so the wrapper resolves its own dir the way it does on the box
 shutil.copytree(QA, os.path.join(K.ovn, "qa"), ignore=shutil.ignore_patterns("__pycache__"))
@@ -666,6 +688,7 @@ rc, out = sh(["env", "-i"] + ["%s=%s" % kv for kv in env.items()] + ["bash", os.
 ok("cron wrapper (absolute path, env -i, OVN_DIR derived from its own location) sweeps and exits 0", rc == 0 and entry_of(K)["status"] == "fixed", out)
 K2 = Fix("k2")
 K2.add('The "Restore Purchases" button does nothing', flow="paywall")
+K2.land_fix(entry_of(K2))
 K2.origin_edit(lambda t: t.replace("- [ ] [T3] app-web", "- [x] [T3] app-web", 1))
 shutil.copytree(QA, os.path.join(K2.ovn, "qa"), ignore=shutil.ignore_patterns("__pycache__"))
 rc, out = sh(["env", "-i"] + ["%s=%s" % kv for kv in env.items()] + ["bash", "qa/manual_notes_cron.sh"], cwd=K2.ovn)

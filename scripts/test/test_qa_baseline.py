@@ -161,9 +161,13 @@ ok("baseline 23h old still valid => PASS", js["verdict"] == "PASS", out)
 # hard failures are never baseline-tolerated
 hard_log = w("hard.log", "-- pytest FULL in backend --\n" + pytest_log([]).replace("tests/", "") + "-- QUALITY FAIL: app/x.py is a stub/placeholder --\n")
 rc, js, out = cli(["compare", "--repo", "demo", "--failing-file", hard_log])
-ok("QUALITY FAIL (non-baselineable) => FAIL even though suite has no red", js["verdict"] == "FAIL" and "non-baselineable" in js["summary"], out)
+ok("QUALITY FAIL alone (runner already enforces it) => NA, never FAIL (2026-10-03: 17/17 baseline FAILs were this echo)",
+   js["verdict"] == "NA" and "runner-enforced" in js["summary"] and js["details"]["runner_enforced"], out)
 rc, js, out = cli(["compare", "--repo", "demo", "--failing-file", os.path.join(FIX, "billwatch_quality_fail.verify.txt")])
-ok("real billwatch QUALITY FAIL log => FAIL", js["verdict"] == "FAIL", out)
+ok("real billwatch QUALITY FAIL log => NA (runner-enforced; still listed in details.hard_failures)", js["verdict"] == "NA" and js["details"]["hard_failures"], out)
+hard_new = w("hard_new.log", "-- pytest FULL in backend --\n" + pytest_log(["tests/test_brand_new.py::test_n"]).replace("tests/", "") + "-- QUALITY FAIL: app/x.py is a stub/placeholder --\n")
+rc, js, out = cli(["compare", "--repo", "demo", "--failing-file", hard_new])
+ok("NEGATIVE control: gate failure PLUS a NEW failing test vs a live baseline => still FAIL (independent signal)", js["verdict"] == "FAIL" and "NEW failing" in js["summary"], out)
 
 # unverified cases
 rc, js, out = cli(["compare", "--repo", "demo", "--failing-file", os.path.join(FIX, "iptv_truncated_300s.verify.txt")])
@@ -254,6 +258,62 @@ ok("unknown repo => UNVERIFIED", js["verdict"] == "UNVERIFIED", out)
 os.makedirs(os.path.join(REPOS, "nopy", ".git"))
 rc, js, out = cli(["refresh", "--repo", "nopy"], env_extra={"OVN_REPOS_DIR": REPOS})
 ok("repo without a venv pytest => NA (missing tool is not PASS)", js["verdict"] == "NA", out)
+
+# 2026-10-02: repo-ROOT venv. full_verify() labels that section "-- pytest FULL in . --" so verify-log ids are "[.] tests/..."; refresh used to
+# store them UNprefixed, so no id ever matched and every red id looked NEW (found while wiring the refresh cron).
+rr = os.path.join(REPOS, "rootrepo")
+os.makedirs(os.path.join(rr, ".venv", "bin")); os.makedirs(os.path.join(rr, "tests"))
+shutil.copy(fake, os.path.join(rr, ".venv", "bin", "pytest"))
+open(os.path.join(rr, "tests", "test_a.py"), "w").write("def test_x():\n    assert 1 == 2\n")
+open(os.path.join(rr, ".gitignore"), "w").write(".venv/\n")
+gr = lambda *a: subprocess.run(["git", "-C", rr] + list(a), capture_output=True, text=True)  # noqa: E731
+gr("init", "-q", "-b", "main"); gr("config", "user.email", "t@t"); gr("config", "user.name", "t")
+gr("add", "tests/test_a.py", ".gitignore"); gr("commit", "-q", "-m", "init"); gr("update-ref", "refs/remotes/origin/develop", "HEAD")
+rc, js, out = cli(["refresh", "--repo", "rootrepo", "--ref", "origin/develop"], env_extra={"OVN_REPOS_DIR": REPOS})
+ok("root-venv refresh stores '[.] '-prefixed ids (matches the runner's verify.log label for pkg '.')",
+   js["verdict"] == "PASS" and json.load(open(os.path.join(OVN, "state", "qa_baselines", "verify", "rootrepo.json")))["failing"] == ["[.] tests/test_a.py::test_x"], out)
+rc, js, out = cli(["compare", "--repo", "rootrepo", "--failing-file", w("rr.log", "-- pytest FULL in . --\n.F. [100%]\nFAILED tests/test_a.py::test_x - assert\n=== 1 failed, 2 passed in 1.0s ===\n"),
+                   "--format", "verify-log", "--runner-failed", "--changed-file", "app/other.py"])
+ok("root-venv: a runner verify.log with the same red id is PASS against that baseline (pre-existing, not NEW)", js["verdict"] == "PASS" and not js["details"]["new_failures"], out)
+
+# -------------------------------------------------------------------------------------------------- 5b. shadow-log (staged-runner hook row)
+print("== shadow-log (paired baseline-vs-runner row)")
+def shadow(res_text, decision, name, env_extra=None, extra=()):
+    rf = w(name, res_text) if res_text is not None else os.path.join(T, "no-such-result.json")
+    return cli(["shadow-log", "--repo", "taa", "--result-file", rf, "--runner-decision", decision, "--run", "taa-20261002-010101-1"] + list(extra),
+               env_extra=env_extra)
+cmp_pass = json.dumps({"gate": "baseline", "verdict": "PASS", "repo": "taa", "mode": "shadow", "summary": "no new failures", "ref": "r", "ts": "t", "ms": 3,
+                       "details": {"new_failures": [], "preexisting": ["[backend] a%d" % i for i in range(80)], "fixed": []}})
+cmp_fail = json.dumps({"gate": "baseline", "verdict": "FAIL", "repo": "taa", "mode": "shadow", "summary": "1 NEW", "ref": "r", "ts": "t", "ms": 3,
+                       "details": {"new_failures": ["[backend] n1"], "preexisting": ["[backend] a1"]}})
+rc, js, out = shadow(cmp_pass, "not_verified", "sl1.json")
+ok("shadow-log: baseline PASS + runner rejected => would_have_rescued and real_rescue, runner decision recorded",
+   js["verdict"] == "PASS" and js["would_have_rescued"] is True and js["real_rescue"] is True and js["runner"] == {"first": "not_verified", "final": "not_verified"}
+   and js["run"] == "taa-20261002-010101-1" and js["kind"] == "staged_shadow" and js["n_new"] == 0 and js["n_pre"] == 80, out)
+ok("shadow-log: long id lists are trimmed to 50 in the row (counts stay exact)", len(js["preexisting"]) == 50 and js["n_pre"] == 80 and len(js["details"]["preexisting"]) == 50, out)
+rc, js, out = shadow(cmp_pass, "verified", "sl2.json")
+ok("shadow-log: runner finally verified (repair/regen) => baseline PASS is NOT counted as a real rescue", js["would_have_rescued"] is True and js["real_rescue"] is False, out)
+rc, js, out = shadow(cmp_fail, "not_verified", "sl3.json")
+ok("shadow-log NEGATIVE control: baseline FAIL (new failure) => never a rescue", js["verdict"] == "FAIL" and js["would_have_rescued"] is False and js["real_rescue"] is False and js["n_new"] == 1, out)
+rc, js, out = shadow(None, "not_verified", "sl4.json")
+ok("shadow-log: missing result file => UNVERIFIED row (hook error is accounted for, never PASS)", rc == 0 and js["verdict"] == "UNVERIFIED" and js["would_have_rescued"] is False and js["real_rescue"] is False, out)
+rc, js, out = shadow("{not json", "not_verified", "sl5.json")
+ok("shadow-log: garbage result file => UNVERIFIED", js["verdict"] == "UNVERIFIED", out)
+rc, js, out = shadow(json.dumps({"verdict": "PASS!!"}), "not_verified", "sl6.json")
+ok("shadow-log: a result that is not a valid verdict => UNVERIFIED (cannot forge a rescue)", js["verdict"] == "UNVERIFIED" and js["would_have_rescued"] is False, out)
+rc, js, out = shadow(cmp_pass, "banana", "sl7.json")
+ok("shadow-log: unknown runner decision recorded as 'unknown', not guessed", js["runner"]["final"] == "unknown" and js["real_rescue"] is False, out)
+before_rows = os.path.join(OVN, "state", "qa_shadow", "baseline.jsonl")
+n0 = len(open(before_rows).read().splitlines()) if os.path.exists(before_rows) else 0
+env = dict(CLEAN_ENV)
+sl_args = [sys.executable, SCRIPT, "shadow-log", "--repo", "taa", "--result-file", w("sl8.json", cmp_pass), "--runner-decision", "not_verified", "--run", "r8"]
+subprocess.run(["env", "-i"] + ["%s=%s" % kv for kv in env.items()] + sl_args, cwd=T, capture_output=True, text=True)
+rows = open(before_rows).read().splitlines()
+ok("shadow-log (no --no-record) appends exactly ONE row to state/qa_shadow/baseline.jsonl carrying the runner decision",
+   len(rows) == n0 + 1 and json.loads(rows[-1])["runner"]["final"] == "not_verified" and json.loads(rows[-1])["run"] == "r8")
+env["OVN_QA_BASELINE"] = "off"
+subprocess.run(["env", "-i"] + ["%s=%s" % kv for kv in env.items()] + sl_args, cwd=T, capture_output=True, text=True)
+ok("shadow-log with the gate mode=off (rollback) writes NO row", len(open(before_rows).read().splitlines()) == n0 + 1)
 
 # --------------------------------------------------------------------------------------------------- 6. replay (synthetic)
 print("== replay (synthetic stage_runs)")
@@ -387,10 +447,12 @@ ok("NONBLOCK javac and legacy-kotlin compile errors get per-file ids", "javac:ap
 # ------------------------------------------------------------------------------------------------------ 8. recording
 print("== shadow recording")
 env = dict(CLEAN_ENV)
+_bj = os.path.join(OVN, "state", "qa_shadow", "baseline.jsonl")
+_n0 = len(open(_bj).read().splitlines()) if os.path.exists(_bj) else 0   # the shadow-log tests above already appended rows
 p = subprocess.run(["env", "-i"] + ["%s=%s" % kv for kv in env.items()] + [sys.executable, SCRIPT, "compare", "--repo", "taa", "--failing-file", f_green],
                    cwd=T, capture_output=True, text=True)
-rows = open(os.path.join(OVN, "state", "qa_shadow", "baseline.jsonl")).read().splitlines()
-ok("without --no-record a result row is appended to state/qa_shadow/baseline.jsonl", len(rows) == 1 and json.loads(rows[0])["gate"] == "baseline")
+rows = open(_bj).read().splitlines()
+ok("without --no-record a result row is appended to state/qa_shadow/baseline.jsonl", len(rows) == _n0 + 1 and json.loads(rows[-1])["gate"] == "baseline")
 
 shutil.rmtree(T, ignore_errors=True)
 print("\nqa_baseline: %d passed, %d failed" % (P, F))

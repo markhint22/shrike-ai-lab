@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """staging_smoke.py - gate S10c: REAL smoke test of a STAGING backend (shadow). Replaces the 3-check staging_smoke.sh.
 
-  python3 qa/staging_smoke.py check --repo <billwatch|gitlark|iptv_apps> [--base-url URL] [--config FILE] [--no-record]
+  python3 qa/staging_smoke.py check --repo <billwatch|gitlark|iptv_apps> [--base-url URL] [--config FILE] [--expect-sha SHA] [--no-record]
 
 Steps (declared per repo in qa/staging_smoke.conf):
   health      GET health path -> 2xx/307, JSON content-type, expected key
@@ -160,6 +160,7 @@ class Run:
         self.steps, self.token, self.token_state = [], "", "none"  # token_state: ok|na|unverified|fail|none
         self.vars = {"marker": time.strftime("%H%M%S") + "-" + secrets.token_hex(2)}
         self.creds_source = "none"
+        self.health_json = None
 
     def add(self, name, status, detail="", t0=None):
         self.steps.append({"name": name, "status": status, "ms": int((time.time() - t0) * 1000) if t0 else 0, "detail": str(detail)[:240]})
@@ -183,10 +184,28 @@ class Run:
         if not hd.get("content-type", "").startswith("application/json"):
             return self.add("health", "fail", "content-type %r - API is serving HTML/other, expected JSON" % hd.get("content-type", ""), t0)
         j = jload(txt)
+        self.health_json = j
         key = spec.get("json_has")
         if key and not (isinstance(j, dict) and key in j):
             return self.add("health", "fail", "JSON body lacks %r" % key, t0)
         return self.add("health", "ok", "HTTP %d json" % st, t0)
+
+    # -- provenance (2026-10-03): WHICH build answered /health? (only with --expect-sha; a healthy-but-stale deploy must not pass as the candidate)
+    def provenance(self, expect):
+        t0 = time.time()
+        served = ""
+        if isinstance(self.health_json, dict):
+            for k in ("commit", "commit_sha", "git_sha", "git_commit", "sha", "release"):
+                v = self.health_json.get(k)
+                if isinstance(v, str) and re.fullmatch(r"[0-9a-fA-F]{7,40}", v):
+                    served = v.lower()
+                    break
+        expect = expect.lower()
+        if not served:
+            return self.add("provenance", "na", "/health exposes no commit field: cannot prove the candidate %s is what answered (see qa/staging_check.py deploy status)" % expect[:10], t0)
+        if served.startswith(expect) or expect.startswith(served):
+            return self.add("provenance", "ok", "staging serves the candidate %s" % served[:10], t0)
+        return self.add("provenance", "fail", "staging serves %s but the candidate is %s: healthy but STALE deploy" % (served[:10], expect[:10]), t0)
 
     # -- login
     def login(self):
@@ -416,7 +435,7 @@ def is_staging(url):
 
 
 def args_of(argv):
-    o = {"repo": "", "base-url": "", "config": os.path.join(HERE, "staging_smoke.conf"), "base": "", "head": ""}
+    o = {"repo": "", "base-url": "", "config": os.path.join(HERE, "staging_smoke.conf"), "base": "", "head": "", "expect-sha": ""}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -454,6 +473,8 @@ def cmd_check(argv):
                 run.add(n, "skip", "health did not pass")
         # frontend + cors do not need a healthy backend session, but a dead backend makes them meaningless
     else:
+        if o["expect-sha"]:
+            run.provenance(o["expect-sha"])
         run.login()
         run.business()
         run.write_read()

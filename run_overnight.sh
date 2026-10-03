@@ -140,6 +140,10 @@ source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ ech
 # shellcheck source=scripts/lib_fixup_prompt.sh
 # 2026-10-02 (harness-X X3): fix-up prompts built from FACTS (the committed diff, failing ids + assertions), never the old "last change" wording.
 source "$SCRIPT_DIR/scripts/lib_fixup_prompt.sh" 2>/dev/null || { ovn_fixup_prompt(){ printf '%s\n\nThe following change was just committed. Ignore any example from your instructions (is_prime/sympy/mathweb).\n\n%s\n\n%s' "$1" "$4" "$5"; }; ovn_fixup_failure_facts(){ printf '%s' "${2:-}"; }; ovn_fixup_extra_files(){ :; }; }
+# shellcheck source=scripts/lib_run_integrity.sh
+# 2026-10-03 (integrity track A5/A6): NO-NEW-RED baseline subtraction, landed-commit reachability, per-repo cycle-active marker. Missing lib => OLD behaviour
+# (no subtraction, reachability assumed, no marker).
+source "$SCRIPT_DIR/scripts/lib_run_integrity.sh" 2>/dev/null || { ovn_ri_subtract(){ OVN_RI_STATUS=lib-missing; OVN_RI_NEW=""; OVN_RI_BASE_FILE=""; OVN_RI_BASE_N=0; return 1; }; ovn_ri_commit_reachable(){ return 0; }; ovn_ri_cycle_mark(){ :; }; ovn_ri_cycle_unmark(){ :; }; ovn_ri_revert_repeat(){ printf 1; }; ovn_ri_revert_reset(){ :; }; }
 # shellcheck source=scripts/lib_auto_credit.sh
 # 2026-10-02 (harness-X X1): auto-credit needs exact path + passing VERIFY + clean tree; without the lib NOTHING is credited (fail closed).
 source "$SCRIPT_DIR/scripts/lib_auto_credit.sh" 2>/dev/null || { ovn_auto_credit(){ OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD)"; echo "--- auto-credit: lib_auto_credit.sh missing - nothing credited ---" >> "${4:-/dev/null}"; return 0; }; ovn_tree_matches_sha(){ return 0; }; }
@@ -313,6 +317,21 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # a research/decompose pass wrote, not a fixed constant - flatten anything that
   # could break the JSON line before it ever reaches printf.
   feat_tag="$(printf '%s' "${feat_tag:-}" | tr -d '"' | tr '\n\r\t' '   ')"
+  # 2026-10-03 (integrity A12): every field goes through jq (--arg escapes quotes/backslashes/control bytes; numbers are digit-validated first), so a status
+  # or fail_reason can never produce an invalid JSON row (one live row was malformed). jq missing/failing => the old printf (same key order).
+  local _n_attempt _n_sent _n_recv _n_dur _row
+  case "${attempt:-1}" in ''|*[!0-9]*) _n_attempt=1;; *) _n_attempt="${attempt:-1}";; esac
+  case "${toks_sent:-0}" in ''|*[!0-9]*) _n_sent=0;; *) _n_sent="$toks_sent";; esac
+  case "${toks_recv:-0}" in ''|*[!0-9]*) _n_recv=0;; *) _n_recv="$toks_recv";; esac
+  case "${dur:-0}" in ''|*[!0-9]*) _n_dur=0;; *) _n_dur="$dur";; esac
+  _row="$(jq -nc --arg ts "$(date -u +%FT%TZ)" --arg repo "${2:-}" --arg id "${1:-}" --arg type "${5:-}" --arg tier "${tier:-?}" --arg category "$cat" --arg class "$cls" --arg severity "$sev" \
+      --argjson attempt "$_n_attempt" --arg bestn_stop "${bn_stop:-}" --arg fail_reason "${fail_reason:-}" --arg status "$st" \
+      --argjson tokens_sent "$_n_sent" --argjson tokens_recv "$_n_recv" --argjson duration_s "$_n_dur" --arg item_hash "${item_hash:-}" --arg feat_tag "${feat_tag:-}" \
+      '{ts:$ts,repo:$repo,id:$id,type:$type,tier:$tier,category:$category,class:$class,severity:$severity,attempt:$attempt,attempts:$attempt,bestn_stop:$bestn_stop,fail_reason:$fail_reason,status:$status,tokens_sent:$tokens_sent,tokens_recv:$tokens_recv,duration_s:$duration_s,item_hash:$item_hash,feat_tag:$feat_tag}' 2>/dev/null)"
+  if [ -n "$_row" ]; then
+    printf '%s\n' "$_row" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
+    return 0
+  fi
   printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"attempts":%s,"bestn_stop":"%s","fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${attempt:-1}" "${bn_stop:-}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
 }
 FAIL_DIR="$STATE_DIR/failures"
@@ -478,6 +497,9 @@ run_repo_verification() {
   # build and mislabels a green change as tests:FAIL.
   local _OVN_CHANGED
   _OVN_CHANGED="$(git diff --name-only "${BEFORE_SHA:-HEAD~1}" HEAD 2>/dev/null || true)"
+  # per-suite RED record (2026-10-03, run integrity): ovn_ri_subtract only subtracts a baseline when exactly ONE suite failed and it is pytest/.ovn-verify
+  # (the id-parsed kind); a red gradle/npm/GUT/second suite has no ids to compare and must never be hidden behind a pytest baseline.
+  _ovn_red_mark() { echo "--- verify-suite-red: $1 in ${2:-.} rc=${3:-?} ---" >> "$task_log"; }
   _ovn_touched() {
     local d="${1#./}"
     [ -z "$_OVN_CHANGED" ] && return 0    # unknown -> run (safe default)
@@ -524,6 +546,7 @@ run_repo_verification() {
     elif [ "$_ovnv_rc" -eq 0 ]; then
       echo "pass"
     else
+      _ovn_red_mark repo-script "." "$_ovnv_rc"
       echo "fail"
     fi
     return
@@ -548,13 +571,13 @@ run_repo_verification() {
       # 2026-09-09: same 240s->600s raise as the repo-root override path above (see that comment).
       echo "--- verify: .ovn-verify.sh override in ${dir} (600s cap) ---" >> "$task_log"
       ( cd "$dir" && OVN_CHANGED_FILES="$_OVN_CHANGED" timeout 600 ./.ovn-verify.sh ) >> "$task_log" 2>&1
-      [ $? -ne 0 ] && any_failed=1
+      _ovn_rc=$?; [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark ovn-verify "$dir" "$_ovn_rc"; }
       any_ran=1; py_ran=1
       continue
     fi
     echo "--- verify: pytest in ${dir} (240s cap) ---" >> "$task_log"
     ( cd "$dir" && timeout 240 ./.venv/bin/pytest -q --no-cov ) >> "$task_log" 2>&1
-    [ $? -ne 0 ] && any_failed=1
+    _ovn_rc=$?; [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark pytest "$dir" "$_ovn_rc"; }
     any_ran=1; py_ran=1
   done < <(find . -maxdepth 4 -type f -path "*/.venv/bin/pytest" -print0 2>/dev/null)
 
@@ -568,7 +591,7 @@ run_repo_verification() {
       # CI and would hang until the timeout kills it - vitest/Jest/CRA all
       # respect CI=true to run once and exit instead.
       ( cd "$dir" && CI=true timeout 120 npm test --silent ) >> "$task_log" 2>&1
-      [ $? -ne 0 ] && any_failed=1
+      _ovn_rc=$?; [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark npm "$dir" "$_ovn_rc"; }
       any_ran=1
     fi
   done < <(find . -maxdepth 4 -type f -name "package.json" -not -path "*/node_modules/*" -print0 2>/dev/null)
@@ -590,7 +613,7 @@ run_repo_verification() {
         [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
         timeout 240 ./gradlew test --console=plain
       ) >> "$task_log" 2>&1
-      [ $? -ne 0 ] && any_failed=1
+      _ovn_rc=$?; [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark gradle "$dir" "$_ovn_rc"; }
       any_ran=1
     fi
   done < <(find . -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
@@ -632,7 +655,7 @@ run_repo_verification() {
         # though the test proved nothing. Treat any no-asserts testcase as a
         # real failure too.
         if [ ! -s "$XML_OUT" ] || ! gut_xml_green "$XML_OUT"; then
-          any_failed=1
+          any_failed=1; _ovn_red_mark gut "$dir" 1
           echo "--- GUT RED: $(gut_xml_summary "$XML_OUT")" >> "$task_log"
         fi
         # GUT only tests res://tests - a genuine compile error elsewhere in the
@@ -640,7 +663,7 @@ run_repo_verification() {
         # battle.gd's loadability entirely) can coexist with a clean GUT run,
         # since GUT never touches that file. $GODOT_OUT already has the --import
         # step's own output (runs before GUT) - check it too.
-        { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; } && any_failed=1
+        { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; } && { any_failed=1; _ovn_red_mark gut "$dir" 1; }
         rm -f "$XML_OUT"
       else
         # No test framework yet: just confirm the project still parses/runs.
@@ -651,7 +674,7 @@ run_repo_verification() {
           timeout 30 "$HOME/godot/godot4" --headless --path . --quit-after 60
         ) > "$GODOT_OUT" 2>&1
         cat "$GODOT_OUT" >> "$task_log"
-        { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; } && any_failed=1
+        { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; } && { any_failed=1; _ovn_red_mark gut "$dir" 1; }
       fi
       rm -f "$GODOT_OUT"
       any_ran=1
@@ -880,6 +903,11 @@ ${prompt}"
 
   (
     cd "$repo" || exit 1
+    # 2026-10-03 (A6): mark this repo "cycle in flight" for the whole cycle so ovn_park_sweep.sh / deploy_watch.sh enqueue_fix skip it instead of
+    # `git reset --hard`-ing away a commit that is made but not yet pushed. $BASHPID = this cycle subshell; removed on every exit path.
+    _ovn_cyc_repo="$(basename "$repo")"
+    ovn_ri_cycle_mark "$STATE_DIR" "$_ovn_cyc_repo"
+    trap 'ovn_ri_cycle_unmark "$STATE_DIR" "$_ovn_cyc_repo"' EXIT
 
     DEFAULT_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
     DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
@@ -2540,6 +2568,8 @@ ${full_prompt}"
       # regression and an environment/flake-caused failure look identical
       # here, and auto-disabling a task over the latter would be worse than
       # just surfacing it for you to glance at in the report.
+      _ovn_land_sha="$AFTER_SHA"   # the model's commit as verified: must still be an ancestor of HEAD/origin at the push (A6: a park-sweep reset mid-cycle drops it)
+      _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"   # where THIS verify run's output starts (baseline subtraction parses only it)
       VERIFY_RESULT="$(run_repo_verification)"
 
       # VERIFY-SKIP GUARD (2026-09-29): a lock-contended .ovn-verify.sh (iptv_apps,
@@ -2590,6 +2620,13 @@ ${full_prompt}"
       # 017 string mismatch, iptv_apps's 019 with down_revision=None, billwatch's empty
       # 012_add_bill_embedding.py stub) - catching it here, the moment the bad commit is
       # made, means it never leaves this cycle instead of blocking hygiene for the fleet.
+      # 2026-10-03 (landing gates): drop an unfilled "Placeholder - the implement step fills in" migration stub
+      # first (STEP A of the autogen hook, standalone) so a stub the model never filled is deleted, not reverted
+      # (the stub commit can sit at/below BEFORE_SHA, where a revert would resurrect it). Fail-safe: no script = no-op.
+      if [ -x "$SCRIPT_DIR/scripts/ovn_alembic_autogen.sh" ]; then
+        "$SCRIPT_DIR/scripts/ovn_alembic_autogen.sh" --drop-stubs "$(pwd)" >> "$task_log" 2>&1
+        AFTER_SHA="$(git rev-parse HEAD)"
+      fi
       if [ -f "$SCRIPT_DIR/scripts/check_migrations.py" ]; then
         _migcheck_out="$(python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
         _migcheck_rc=$?
@@ -2630,10 +2667,29 @@ ${full_prompt}"
             echo "--- MIGRATION-SAFETY GATE: commit forked/broke the Alembic migration chain — reverting to ${BEFORE_SHA} ---" >> "$task_log"
             git reset --hard "$BEFORE_SHA" --quiet
             git clean -fd --quiet 2>/dev/null
+            [ -x "$SCRIPT_DIR/scripts/ovn_alembic_autogen.sh" ] && "$SCRIPT_DIR/scripts/ovn_alembic_autogen.sh" --drop-stubs "$(pwd)" >> "$task_log" 2>&1
             emit_alert warn "$id" "migration-safety gate reverted a commit that forked or broke the Alembic migration chain (bad/missing down_revision)"
             echo "reverted(migration-fork)"
             return
           fi
+        fi
+      fi
+
+      # DEP-IMPORT GATE (2026-10-03, landing gates): a requirements*.txt removal that code still imports, or an
+      # app that no longer imports in a venv built from requirements.txt alone (aiohttp incident, iptv_apps
+      # prod deploy). Only runs when this cycle's diff touched a dependency file; infra failure = proceed.
+      # Kill switch/shadow: OVN_DEP_GATE=off|shadow. Fail-safe: lib absent = no-op.
+      if [ -f "$SCRIPT_DIR/scripts/lib_dep_import_check.py" ] && git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" 2>/dev/null | grep -Eq '(^|/)(requirements[^/]*\.txt|pyproject\.toml)$'; then
+        _depgate_out="$(python3 "$SCRIPT_DIR/scripts/lib_dep_import_check.py" gate --repo "$(pwd)" --before "$BEFORE_SHA" --after "$AFTER_SHA" 2>&1)"
+        _depgate_rc=$?
+        printf '%s\n' "$_depgate_out" >> "$task_log"
+        if [ "$_depgate_rc" -ne 0 ]; then
+          echo "--- DEP-IMPORT GATE: commit removed/omitted a dependency the code still imports — reverting to ${BEFORE_SHA} ---" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          git clean -fd --quiet 2>/dev/null
+          emit_alert warn "$id" "dep-import gate reverted a commit that removed a requirements dependency still imported by the code"
+          echo "reverted(dep-import)"
+          return
         fi
       fi
 
@@ -2783,6 +2839,7 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
             AFTER_SHA="$_buildfix_after"
+            _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
             VERIFY_RESULT="$(run_repo_verification)"
             echo "--- BUILD-GATE fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
           else
@@ -2801,6 +2858,25 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
           return
         fi
       fi
+
+      # NO-NEW-RED BASELINE SUBTRACTION (2026-10-03, A5): a red full-suite run is only THIS commit's fault for the failing ids that were NOT already
+      # failing at BEFORE_SHA. One landed defect (iptv: a docstring-only alembic file) made 3 migration tests red for every later cycle, and the guard
+      # below reverted ~11 clean commits for it. Only runs when the red run has parseable failures; the baseline is one cached verify per BEFORE_SHA.
+      # Infra problems (no ids, no summary line, baseline could not run) leave VERIFY_RESULT=fail = the old behaviour.
+      OVN_FIXUP_BASELINE_FILE=""; OVN_FIXUP_BASELINE_VERIFIED=0; OVN_BASELINE_RED_N=0
+      _ovn_apply_baseline_subtraction() {
+        [ "$VERIFY_RESULT" = "fail" ] || return 0
+        if ovn_ri_subtract "$task_log" "${_ovn_voff:-0}" "$(basename "$PWD")" "$BEFORE_SHA" "$SCRIPT_DIR/state"; then
+          echo "--- NO-NEW-RED BASELINE: all ${OVN_RI_BASE_N} failing test(s) were ALREADY failing at ${BEFORE_SHA:0:12} - none introduced by this commit; not reverting ---" >> "$task_log"
+          emit_alert warn "$id" "baseline is red (${OVN_RI_BASE_N} pre-existing failing test(s) at ${BEFORE_SHA:0:12}); kept a commit that introduced no new failure - fix the baseline"
+          OVN_BASELINE_RED_N="$OVN_RI_BASE_N"; VERIFY_RESULT="pass"
+        else
+          echo "--- NO-NEW-RED BASELINE: status=${OVN_RI_STATUS} new=$(printf '%s' "${OVN_RI_NEW:-}" | grep -c .) baseline=${OVN_RI_BASE_N:-0} ---" >> "$task_log"
+          OVN_FIXUP_BASELINE_FILE="${OVN_RI_BASE_FILE:-}"
+          case "$OVN_RI_STATUS" in subtracted|baseline-green) OVN_FIXUP_BASELINE_VERIFIED=1;; *) OVN_FIXUP_BASELINE_VERIFIED=0;; esac
+        fi
+      }
+      _ovn_apply_baseline_subtraction
 
       # Tier-2 grounded fix-up (2026-09-16): before reverting a real test failure, give
       # the model ONE bounded shot at fixing the SPECIFIC failure with the actual
@@ -2853,6 +2929,7 @@ All files you need are already in the chat. You cannot run commands or call tool
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then
             AFTER_SHA="$_fixup_after"
+            _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
             VERIFY_RESULT="$(run_repo_verification)"
             echo "--- Tier-2 fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
           else
@@ -2860,6 +2937,8 @@ All files you need are already in the chat. You cannot run commands or call tool
           fi
         fi
       fi
+
+      _ovn_apply_baseline_subtraction   # the fix-up may have re-verified: re-subtract against the same cached baseline
 
       # NO-NEW-RED GUARD (2026-08-29): iptv + xlite are green at main and hygiene keeps
       # feature green, so ANY tests:FAIL here is red THIS commit introduced. The old behavior
@@ -2875,6 +2954,36 @@ All files you need are already in the chat. You cannot run commands or call tool
         OVN_NONTEST="$(echo "$OVN_CHANGED_ALL" | grep -vE '(^|/)(tests?|__tests__)/|\.test\.[jt]sx?$|\.spec\.[jt]sx?$|(^|/)test_[^/]*\.py$|_test\.py$|Test\.kt$|Tests?\.swift$' | grep -v '^$' || true)"
         if [ -n "$OVN_NONTEST" ]; then _redkind="a source change broke a previously-green test"; else _redkind="the model added failing tests"; fi
         echo "--- NO-NEW-RED GUARD: commit left the suite red (${_redkind}) — reverting so feature stays green and mergeable ---" >> "$task_log"
+        # NEEDS-DECISION rule (2026-10-03, A5): the SAME item reverted twice for the SAME new failing ids of an OLDER test (baseline-verified: it passed at
+        # BEFORE_SHA, and the commit is not what added it) asserts the opposite of what the item asks for (iptv vod.py case). More attempts only burn GPU:
+        # tag it so the selectors stop picking it (AUTO-SKIP is what every selector filters on) and a human decides which behaviour is right.
+        if [ "${OVN_FIXUP_BASELINE_VERIFIED:-0}" = 1 ] && [ -n "${OVN_RI_NEW:-}" ] && [ "${OVN_NEEDS_DECISION_AFTER:-2}" -gt 0 ] 2>/dev/null \
+           && [ -z "$(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- . 2>/dev/null | grep -F -f <(printf '%s\n' "$OVN_RI_NEW" | sed -E 's#::.*##; s#.*/##' | grep .) )" ]; then
+          # Resolve the item against the BEFORE tree: the model's commit has usually ticked its own item [x], so the post-commit tree's
+          # "top item" is the NEXT item (the wrong one would be parked and counted). The reset is the same one the revert path does anyway.
+          git reset --hard "$BEFORE_SHA" --quiet; git clean -fd --quiet 2>/dev/null
+          _nd_top="$(ovn_resolve_top_item "$PWD" "$task_log" 2>/dev/null)"
+          if [ -n "$_nd_top" ]; then
+            _nd_hash="$(ovn_item_hash "${_nd_top#*:}" 2>/dev/null)"
+            _nd_n="$(ovn_ri_revert_repeat "$SCRIPT_DIR/state" "$(basename "$PWD")" "$_nd_hash" "$OVN_RI_NEW")"
+            if [ "${_nd_n:-1}" -ge "${OVN_NEEDS_DECISION_AFTER:-2}" ]; then
+              _nd_ln="${_nd_top%%:*}"; _nd_ids="$(printf '%s' "$OVN_RI_NEW" | head -3 | tr '\n' ' ' | tr -d '#[]|' | cut -c1-140)"
+              _nd_ids_e="$(printf '%s' "$_nd_ids" | sed -e 's/[&\\#]/\\&/g')"   # & and \ are special in a sed replacement
+              sed -i "${_nd_ln}s#^- \[ \] #- [ ] [AUTO-SKIP NEEDS-DECISION: reverted ${_nd_n}x for the same older failing test (${_nd_ids_e}) - it passed before this item; the test may assert the opposite behaviour, a human must decide which is right] #" OVERNIGHT_PROGRESS.md
+              if ! git diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+                git add OVERNIGHT_PROGRESS.md && git commit -q -m "chore(queue): park item - repeatedly breaks an older failing test (NEEDS-DECISION)" 2>/dev/null
+                timeout 30 git push -q origin "$branch" 2>/dev/null || true
+                echo "--- NO-NEW-RED GUARD: item tagged NEEDS-DECISION (reverted ${_nd_n}x for the same older failing test(s)) ---" >> "$task_log"
+                emit_alert warn "$id" "NEEDS-DECISION: item reverted ${_nd_n}x for the same older failing test(s) (${_nd_ids}); parked for a human"
+              else
+                echo "--- NO-NEW-RED GUARD: NEEDS-DECISION tag did NOT apply (line ${_nd_ln} is not an open '- [ ]' item); plain revert ---" >> "$task_log"
+                emit_alert warn "$id" "reverted a commit that left tests red (NEEDS-DECISION tag could not be applied)"
+              fi
+              echo "no-op(reverted-red)"
+              return
+            fi
+          fi
+        fi
         git reset --hard "$BEFORE_SHA" --quiet
         git clean -fd --quiet 2>/dev/null
         emit_alert warn "$id" "reverted a commit that left tests red (${_redkind}); feature kept green for hygiene"
@@ -2979,8 +3088,19 @@ All files you need are already in the chat. You cannot run commands or call tool
           while IFS= read -r _landed_line; do
             [ -z "$_landed_line" ] && continue
             echo "--- auto-credit: item-hash $(ovn_item_hash "$_landed_line") ---" >> "$task_log"
+            ovn_ri_revert_reset "$SCRIPT_DIR/state" "$(basename "$PWD")" "$(ovn_item_hash "$_landed_line")" 2>/dev/null || true
           done < <(git diff "$BEFORE_SHA" "$AFTER_SHA" -- OVERNIGHT_PROGRESS.md 2>/dev/null | grep -E '^\+- \[[xX]\] ' | sed -E 's/^\+//')
         fi
+        # LANDED-COMMIT REACHABILITY (2026-10-03, A6): a push that exits 0 proves nothing when the cycle's commit was reset away before it ran
+        # ("Everything up-to-date" on a tree reset to BEFORE_SHA): xlite recorded "pushed" 3x for work origin never had. Require AFTER_SHA to be an
+        # ancestor of origin/<branch>; a fetch failure is unknown and keeps the old status.
+        if ! ovn_ri_commit_reachable "$AFTER_SHA" "$branch" || ! ovn_ri_commit_reachable "${_ovn_land_sha:-}" "$branch"; then
+          echo "--- LANDING CHECK: ${AFTER_SHA:0:12} is NOT reachable from origin/${branch} after the push - the commit was lost before it was pushed ---" >> "$task_log"
+          emit_alert warn "$id" "commit ${AFTER_SHA:0:12} not reachable from origin/${branch} after push (commit-lost-before-push); not counted as landed"
+          echo "error-transient(commit-lost-before-push)"
+          return
+        fi
+        [ "${OVN_BASELINE_RED_N:-0}" -gt 0 ] 2>/dev/null && PUSH_STATUS="${PUSH_STATUS} [baseline-red:${OVN_BASELINE_RED_N}]"
         echo "$PUSH_STATUS"
       else
         # Push rejected (usually non-fast-forward: origin advanced from a
@@ -2991,6 +3111,13 @@ All files you need are already in the chat. You cannot run commands or call tool
         # pushing). If the rebase-retry also fails, emit a transient status.
         echo "--- push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
         if timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
+          # rebase rewrote the commit(s): AFTER_SHA itself is no longer an ancestor, so check the rebased HEAD (which must also differ from BEFORE_SHA)
+          if [ "$(git rev-parse HEAD)" = "$BEFORE_SHA" ] || ! ovn_ri_commit_reachable "$(git rev-parse HEAD)" "$branch"; then
+            echo "--- LANDING CHECK (after-rebase): the rebased commit is NOT reachable from origin/${branch} ---" >> "$task_log"
+            emit_alert warn "$id" "after-rebase push: commit not reachable from origin/${branch} (commit-lost-before-push)"
+            echo "error-transient(commit-lost-before-push)"
+            return
+          fi
           echo "pushed(after-rebase)"
         else
           git rebase --abort >/dev/null 2>&1 || true

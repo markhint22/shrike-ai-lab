@@ -13,6 +13,10 @@
 # Timeouts (seconds), read from the CALLER's scope so a caller can raise them with `local`; defaults keep the historical 60s for every caller that sets nothing:
 #   VERIFY_TIMEOUT_SECS        (default 60)   every clause
 #   VERIFY_TIMEOUT_HEAVY_SECS  (default = VERIFY_TIMEOUT_SECS)  clauses _verify_is_heavy() recognises (gradlew/xcodebuild/mvn/npm run build/vitest/full pytest ...)
+# Godot GUT (2026-10-03, integrity A6): a `gut_cmdln` clause WITHOUT -gexit never quits (xlite: 3 x 900s VERIFY hangs in one cycle), so -gexit is appended
+# right after the gut_cmdln.gd token; a NARROWED run (-gtest / -gselect / -gunit_test_name) gets OVN_VERIFY_GUT_NARROW_SECS (default 120) instead of the
+# heavy cap; and because GUT exits 0 even when tests FAIL, a GUT clause only PASSes when its output has no "Failing Tests N>0" / "[Failed]" and (when the
+# clause writes a junit xml) the xml is green (scripts/lib_gut_xml.sh). Within ONE auto-credit call identical VERIFY commands run once (_VC_MEMO_ON=1).
 # After a call: _LAST_VERIFY_RC, _LAST_VERIFY_TIMEOUT (the cap that applied), _LAST_VERIFY_WHY (one-line reason for TIMEOUT/UNRUNNABLE).
 
 # Substitute a nearby repo .venv's python for a bare `python`/`python3` token, so a
@@ -131,6 +135,39 @@ _verify_is_heavy(){
   return 1
 }
 
+_VC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_gut_xml.sh
+[ -f "$_VC_DIR/lib_gut_xml.sh" ] && . "$_VC_DIR/lib_gut_xml.sh"
+declare -F gut_xml_green >/dev/null 2>&1 || gut_xml_green(){ return 0; }   # lib missing: the xml check simply does not add a verdict
+
+# append -gexit to a godot gut_cmdln clause that lacks it (prints the command unchanged for anything else)
+_verify_fix_gut_exit(){
+  local c="$1"
+  case "$c" in
+    *gut_cmdln*)
+      case "$c" in *-gexit*) ;; *) c="$(printf '%s' "$c" | sed -E 's#(gut_cmdln\.gd)#\1 -gexit#')" ;; esac ;;
+  esac
+  printf '%s' "$c"
+}
+_verify_is_gut(){ case "$1" in *gut_cmdln*) return 0;; esac; return 1; }
+_verify_is_narrow_gut(){ _verify_is_gut "$1" || return 1; case "$1" in *-gtest*|*-gselect*|*-gunit_test_name*) return 0;; esac; return 1; }
+# 0 (true) when GUT output reports failures. Real GUT 9.4.0 output (captured on the box): the summary is "  Failing         1" (printed only when
+# non-zero, no word "Tests") and each detail line is ANSI-coloured: ESC[31m    [Failed]:  ... - so strip ANSI first. Older/other layouts kept:
+# "Failing Tests  N", "---- N failing tests ----".
+_verify_gut_output_failed(){
+  local esc; esc="$(printf '\033')"
+  printf '%s' "$1" | sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | grep -aEq 'Failing Tests[[:space:]]+[1-9][0-9]*|^[[:space:]]*Failing[[:space:]]+[1-9][0-9]*|\[Failed\]:|^[[:space:]]*\* *\[Failed\]|-+ *[1-9][0-9]* failing tests? *-+'
+}
+# the junit xml a clause asks for (-gjunit_xml_file=res://x.xml or a plain path), resolved against the cwd; empty when none exists
+_verify_gut_xml_path(){
+  local c="$1" p
+  p="$(printf '%s' "$c" | grep -oE -- '-gjunit_xml_file=[^ ]+' | head -1 | sed 's/^-gjunit_xml_file=//; s/["'"'"']//g')"
+  [ -n "$p" ] || return 0
+  p="${p#res://}"
+  [ -f "$p" ] && printf '%s' "$p"
+}
+
+_VC_MEMO=""; _VC_MEMO_ON=0   # per-call memo of identical VERIFY commands (newline separated, fields split by \037: key RESULT RC TMO WHY)
 _LAST_VERIFY_RESULT=""
 _LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""
 shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_VERIFY_RESULT.
@@ -160,9 +197,22 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     _LAST_VERIFY_RESULT="SKIPPED_DENYLIST"
     return
   fi
+  # identical command already judged in THIS call (two items sharing one VERIFY): reuse the verdict, do not run it again
+  local _vckey=""
+  if [ "$_VC_MEMO_ON" = 1 ]; then
+    _vckey="$(printf '%s' "$vcmd" | md5sum 2>/dev/null | cut -d' ' -f1)"
+    local _vchit; _vchit="$(printf '%s\n' "$_VC_MEMO" | grep -m1 "^${_vckey}"$'\037')"
+    if [ -n "$_vckey" ] && [ -n "$_vchit" ]; then
+      IFS=$'\037' read -r _ _LAST_VERIFY_RESULT _LAST_VERIFY_RC _LAST_VERIFY_TIMEOUT _LAST_VERIFY_WHY <<< "$_vchit"
+      echo "$ts repo=$_REPO_LABEL line=$ln result=$_LAST_VERIFY_RESULT cached=1 cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+      return
+    fi
+  fi
   vcmd="$(_resolve_tool_paths "$vcmd")"
+  vcmd="$(_verify_fix_gut_exit "$vcmd")"
   tmo="${VERIFY_TIMEOUT_SECS:-60}"
   if [ -n "${VERIFY_TIMEOUT_HEAVY_SECS:-}" ] && _verify_is_heavy "$vcmd"; then tmo="$VERIFY_TIMEOUT_HEAVY_SECS"; fi
+  if _verify_is_narrow_gut "$vcmd"; then tmo="${OVN_VERIFY_GUT_NARROW_SECS:-120}"; fi
   case "$tmo" in ''|*[!0-9]*) tmo=60 ;; esac
   _LAST_VERIFY_TIMEOUT="$tmo"
   # a gradlew clause whose gradlew does not exist in this repo cannot run at all: that is "not runnable", not a failed check
@@ -180,6 +230,11 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   out="$(CI=true timeout "$tmo" bash -c "$vcmd" 2>&1 </dev/null)"; rc=$?
   _LAST_VERIFY_RC="$rc"
   tail_out="$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"
+  # GUT exits 0 on failing tests: the output summary / junit xml decide, not the exit code
+  if [ "$rc" -eq 0 ] && _verify_is_gut "$vcmd"; then
+    local _gx; _gx="$(_verify_gut_xml_path "$vcmd")"
+    if _verify_gut_output_failed "$out" || { [ -n "$_gx" ] && ! gut_xml_green "$_gx"; }; then rc=1; tail_out="GUT-reported-failures $tail_out"; fi
+  fi
   if [ "$rc" -eq 0 ]; then
     echo "$ts repo=$_REPO_LABEL line=$ln result=PASS cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="PASS"
@@ -195,4 +250,6 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="FAIL"
   fi
+  [ -n "$_vckey" ] && _VC_MEMO="${_VC_MEMO}${_vckey}"$'\037'"${_LAST_VERIFY_RESULT}"$'\037'"${_LAST_VERIFY_RC}"$'\037'"${_LAST_VERIFY_TIMEOUT}"$'\037'"${_LAST_VERIFY_WHY}"$'\n'
+  return 0
 }

@@ -14,6 +14,9 @@ set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 export PATH="$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 log(){ echo "$(date '+%F %T') $*"; }
+# shellcheck source=scripts/lib_run_integrity.sh
+# lib missing => ovn_ri_cycle_active undefined => the declare -F guards below keep the OLD behaviour
+. "$HOME/overnight-queue/scripts/lib_run_integrity.sh" 2>/dev/null || true
 
 repos="${*:-}"
 if [ -z "$repos" ]; then
@@ -23,7 +26,16 @@ fi
 for r in $repos; do
   f="repos/$r/OVERNIGHT_PROGRESS.md"
   [ -f "$f" ] || { log "$r: no progress file, skipping"; continue; }
+  # 2026-10-03 (integrity A6): never reset a repo whose cycle is in flight - the `git reset --hard origin/overnight/feature` below discarded a commit that
+  # was made but not yet pushed (xlite: "pushed" recorded for work origin never had). HOLD only stops a NEW cycle starting, so check the cycle marker /
+  # stage runner first, then again after taking the hold (a cycle may have started in between). Skip-if-busy, never a blocking wait: the next pass retries.
+  if declare -F ovn_ri_cycle_active >/dev/null 2>&1 && ovn_ri_cycle_active "$HOME/overnight-queue/state" "$r"; then
+    log "$r: a cycle/stage runner is in flight - skipping this pass (will retry next run)"; continue
+  fi
   ./queue.sh hold "$r" >/dev/null 2>&1 || true
+  if declare -F ovn_ri_cycle_active >/dev/null 2>&1 && ovn_ri_cycle_active "$HOME/overnight-queue/state" "$r"; then
+    log "$r: a cycle started while taking the hold - skipping this pass"; ./queue.sh release "$r" >/dev/null 2>&1 || true; continue
+  fi
   if ! ( cd "repos/$r" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ); then
     log "$r: git sync failed — skipping"; ./queue.sh release "$r" >/dev/null 2>&1 || true; continue
   fi

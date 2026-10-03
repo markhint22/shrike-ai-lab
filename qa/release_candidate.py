@@ -23,6 +23,7 @@ Safety: plan is read-only (no fetch - the clones are kept fresh by the pipeline;
 `git clone --shared` under /tmp so the live clone never gains a branch/worktree; it NEVER pushes unless --really-push AND the gate
 mode is `enforce` (then it pushes ONLY the new release branch, non-forced - never main, never a tag).
 """
+import calendar
 import json
 import os
 import re
@@ -75,11 +76,40 @@ def effective_status(chain):
     return out
 
 
+def _ts_epoch(ts):
+    try:
+        return calendar.timegm(time.strptime(str(ts)[:19], "%Y-%m-%dT%H:%M:%S"))   # the rows are UTC ('...Z')
+    except (ValueError, OverflowError):
+        return None
+
+
+def counts_as_fail(r, now=None, max_age_h=None):
+    """True when row `r` is a FAIL that may condemn a COMMIT on develop. Excluded (2026-10-03 diagnosis F2/A11):
+      * environment gates (NON_CODE_GATES);
+      * baseline `staged_shadow` rows: their ref is the clone HEAD at the time of the staged run (a queue bookkeeping commit), and the
+        failure they record was reverted or later verified, so the failing diff is never on develop;
+    A FAIL row is NEVER forgiven by age alone (an unfixed defect stays in main..develop, so a weekend must not release it). Opt-in only: env
+    QA_RELEASE_FAIL_MAX_AGE_H=<hours> (default 0 = off); a row with no parsable ts is always kept."""
+    if r.get("verdict") != "FAIL" or r.get("gate") in NON_CODE_GATES:
+        return False
+    if r.get("gate") == "baseline" and r.get("kind") == "staged_shadow":
+        return False
+    if max_age_h is None:
+        try:
+            max_age_h = float(os.environ.get("QA_RELEASE_FAIL_MAX_AGE_H", "0"))
+        except ValueError:
+            max_age_h = 0.0
+    ep = _ts_epoch(r.get("ts"))
+    if ep is not None and max_age_h > 0 and (now if now is not None else time.time()) - ep > max_age_h * 3600:
+        return False
+    return True
+
+
 def fail_tokens(record_rows, repo):
     """Hex tokens (7-40 chars) from FAIL rows for `repo` of code-facing gates: ref, details.head/commit, commit."""
     toks = []
     for r in record_rows:
-        if r.get("verdict") != "FAIL" or r.get("gate") in NON_CODE_GATES:
+        if not counts_as_fail(r):
             continue
         if r.get("repo") not in (repo, None, "?", ""):
             continue
@@ -103,8 +133,7 @@ def fail_tokens(record_rows, repo):
 
 def fail_rows(record_rows, repo):
     """FAIL rows of code-facing gates for `repo` (same filter as fail_tokens)."""
-    return [r for r in record_rows if r.get("verdict") == "FAIL" and r.get("gate") not in NON_CODE_GATES
-            and r.get("repo") in (repo, None, "?", "")]
+    return [r for r in record_rows if counts_as_fail(r) and r.get("repo") in (repo, None, "?", "")]
 
 
 def pick_release_name(date, existing):
@@ -211,21 +240,23 @@ def compute_plan(repo, o):
     plan["coverage"] = {"shadow_rows_total": len(rows), "shadow_rows_for_repo": len(repo_rows), "fail_commits_known": len(fail_commits),
                         "unresolved_fail_rows": len(unresolved), "no_fail_check_vacuous": not repo_rows}
     for idx, (sha, subj, is_merge) in enumerate(chain):
-        why = None
+        reasons = []  # ALL reasons this commit is not a candidate (one used to hide the others, e.g. the one real FAIL)
         if status[sha] != "green":
             why = "not a green hygiene merge (%s)" % ("gate=no-tests" if classify(subj) == "nogate" else "direct/ungated commit")
             if classify(subj, is_merge) == "sync":
                 why = "back-merge inherits non-green status"
+            reasons.append(why)
         elif _g(rd, "merge-base", "--is-ancestor", main_sha, sha)[0] != 0:
-            why = "does not contain main (main could not fast-forward to it)"
-        else:
-            rng = set(_g(rd, "rev-list", main_sha + ".." + sha, timeout=120)[1].split())
-            bad = sorted(set(rng) & set(fail_commits))
-            if bad:
-                why = "QA FAIL in range: %s@%s" % ("/".join(sorted(fail_commits[bad[0]])), bad[0][:10])
+            reasons.append("does not contain main (main could not fast-forward to it)")
+        rng = set(_g(rd, "rev-list", main_sha + ".." + sha, timeout=120)[1].split())
+        bad = sorted(set(rng) & set(fail_commits))
+        if bad:
+            reasons.append("QA FAIL in range: " + ", ".join("%s@%s" % ("/".join(sorted(fail_commits[b])), b[:10]) for b in bad[:8])
+                           + (" (+%d more)" % (len(bad) - 8) if len(bad) > 8 else ""))
+        why = "; ".join(reasons) if reasons else None
         if why is None:
             plan["candidate"] = sha
-            plan["held_back"] = [{"sha": c[0][:10], "subject": c[1][:90]} for c in chain[:idx]]
+            plan["held_back"] = [{"sha": c[0][:10], "subject": c[1][:90], "reason": plan["skipped"][i]["reason"]} for i, c in enumerate(chain[:idx])]
             break
         plan["skipped"].append({"sha": sha[:10], "subject": subj[:90], "reason": why})
     if plan["candidate"] is None:
@@ -268,7 +299,8 @@ def plan_verdict(plan, repo):
                           "falling back to develop tip %s as %s" % (len(plan["skipped"]), cand, plan["release_branch"]), plan)
     if plan["held_back"]:
         return qc.verdict("FLAG", GATE, repo, cand, ("[%d unresolved QA FAIL rows] " % len(unres) if unres else "") + "candidate %s is %d develop merge(s) behind the tip (held back: %s); would cut %s" % (
-            cand, len(plan["held_back"]), plan["held_back"][0]["sha"], plan["release_branch"]), plan)
+            cand, len(plan["held_back"]), plan["held_back"][0]["sha"], plan["release_branch"])
+            + " | reasons: " + " || ".join("%s: %s" % (h["sha"], h.get("reason", "?")) for h in plan["held_back"][:4]), plan)
     if unres:
         return qc.verdict("UNVERIFIED", GATE, repo, cand, "%d QA FAIL row(s) for this repo cannot be resolved to a commit (%s): the no-FAIL-in-range check "
                           "cannot be trusted for candidate %s (never PASS)" % (len(unres), ", ".join(unres[:3]), cand), plan)

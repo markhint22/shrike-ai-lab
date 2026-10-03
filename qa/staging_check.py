@@ -2,7 +2,9 @@
 """staging_check.py - gate S10b: does the STAGING backend actually serve the release-candidate SHA?  (read-only, shadow)
 
   python3 qa/staging_check.py check  --repo <name> [--sha <sha> | --release-plan] [--provider auto|railway|file|http] [--no-record]
-  python3 qa/staging_check.py export --repo <name>            # Mac only: writes state/staging_deploys/<repo>.json for the box to read
+  python3 qa/staging_check.py export --repo <name> [--env staging|production]
+                                                                # Mac only: writes state/staging_deploys/<repo>.json (or prod_deploys/ for --env production, read by
+                                                                # promote_postcheck.py) for the box to read
 
 Evidence providers (tried in this order with --provider auto; the first that yields a deployment list wins):
   http    GET <staging>/health (+ / ) and look for a commit field (commit|commit_sha|git_sha|sha|release). None of our backends
@@ -17,6 +19,7 @@ Evidence providers (tried in this order with --provider auto; the first that yie
 Relations (candidate C vs the SUCCESSFUL latest staging deploy S):
   MATCH            S == C
   MATCH_SUPERSET   C is an ancestor of S (staging runs C plus newer develop commits: smoke on S covers C; PASS but noted)
+  BUILDING         the latest deploy (of the candidate or a descendant) is still in progress: verdict UNVERIFIED, promote_gate HOLDS (enforce)
   MISMATCH_BEHIND  S is an ancestor of C (staging has not deployed the candidate yet)
   MISMATCH_DIVERGED / MISMATCH_FAILED (latest deploy FAILED/CRASHED: staging is silently serving an OLDER build - the billwatch 2026-09 incident)
   UNVERIFIED       no evidence, deploy still building, commit unknown to the local clone, ...
@@ -71,6 +74,14 @@ def decide(cand, deploys, is_ancestor):
         return "UNVERIFIED", "no staging deployments found", ""
     latest = deploys[0]
     if latest["status"] in IN_PROGRESS:
+        # 2026-10-03: a deploy of the candidate (or a descendant) still in flight is NOT "unknown": the healthy staging smoke would hit the OLD build, so
+        # promote_gate holds on BUILDING. Any other in-flight commit (unknown / unrelated) stays plain UNVERIFIED (proceeds).
+        c = latest["commit"]
+        if re.fullmatch(r"[0-9a-f]{7,40}", c or "") and re.fullmatch(r"[0-9a-f]{7,40}", cand.lower()):
+            cl = cand.lower()
+            if c == cl or c.startswith(cl) or cl.startswith(c) or is_ancestor(cl, c) is True:
+                return "BUILDING", "latest staging deploy %s of the candidate (or a descendant) is %s - staging still serves the previous build" % (
+                    latest["id"], latest["status"]), c
         return "UNVERIFIED", "latest staging deploy %s is %s (retry later)" % (latest["id"], latest["status"]), latest["commit"]
     if latest["status"] in DEAD:
         ok = next((d for d in deploys if d["status"] == "SUCCESS"), None)
@@ -99,7 +110,7 @@ def decide(cand, deploys, is_ancestor):
     return "MISMATCH_DIVERGED", "staging serves %s which does not contain the candidate and is not an ancestor of it" % s[:10], s
 
 
-VERDICT_OF = {"MATCH": "PASS", "MATCH_SUPERSET": "PASS", "MISMATCH_BEHIND": "FAIL", "MISMATCH_DIVERGED": "FAIL", "MISMATCH_FAILED": "FAIL", "UNVERIFIED": "UNVERIFIED"}
+VERDICT_OF = {"MATCH": "PASS", "MATCH_SUPERSET": "PASS", "MISMATCH_BEHIND": "FAIL", "MISMATCH_DIVERGED": "FAIL", "MISMATCH_FAILED": "FAIL", "BUILDING": "UNVERIFIED", "UNVERIFIED": "UNVERIFIED"}
 
 
 # ---------------------------------------------------------------- providers
@@ -129,8 +140,9 @@ def provider_http(repo):
     return None, "health exposes no commit field"
 
 
-def railway_fetch(repo):
-    """Returns (raw_list|None, note). Isolated cwd so we never disturb a human's `railway link` state."""
+def railway_fetch(repo, env="staging"):
+    """Returns (raw_list|None, note). Isolated cwd so we never disturb a human's `railway link` state.
+    env: "staging" (the gate's evidence) or "production" (promote_postcheck.py: did the PROMOTED sha deploy?). Read-only either way."""
     cfg = RAILWAY.get(repo)
     if not cfg:
         return None, "no railway config for %s" % repo
@@ -138,11 +150,11 @@ def railway_fetch(repo):
         return None, "railway CLI not installed on this host"
     cwd = tempfile.mkdtemp(prefix="qa-railway-")
     try:
-        rc, out, err = qc.run(["railway", "link", "--project", cfg["project"], "--environment", "staging", "--service", cfg["service"]],
+        rc, out, err = qc.run(["railway", "link", "--project", cfg["project"], "--environment", env, "--service", cfg["service"]],
                               cwd=cwd, timeout=60, polite=False)
         if rc != 0:
             return None, "railway link failed (rc=%s; login expired?)" % rc
-        rc, out, err = qc.run(["railway", "deployment", "list", "--json", "--environment", "staging", "--service", cfg["service"], "--limit", "8"],
+        rc, out, err = qc.run(["railway", "deployment", "list", "--json", "--environment", env, "--service", cfg["service"], "--limit", "8"],
                               cwd=cwd, timeout=60, polite=False)
         if rc != 0 or "[" not in out:
             return None, "railway deployment list failed (rc=%s)" % rc
@@ -154,8 +166,27 @@ def railway_fetch(repo):
         shutil.rmtree(cwd, ignore_errors=True)
 
 
-def deploys_file(repo):
-    return os.path.join(qc.state_dir(), "staging_deploys", repo + ".json")
+def deploys_file(repo, kind="staging_deploys"):
+    return os.path.join(qc.state_dir(), kind, repo + ".json")
+
+
+def has_staging(repo):
+    """True when the repo has a staging backend we can have evidence about (railway config, a staging url, or an exported deploy list)."""
+    return repo in RAILWAY or bool(staging_url(repo)) or os.path.exists(deploys_file(repo))
+
+
+def file_evidence_state(repo, kind="staging_deploys"):
+    """(state, age_s) of the exported deploy list: ok | stale | missing. A corrupt / empty / unreadable file is "missing" (unusable evidence).
+    promote_gate fails CLOSED (enforce mode) on stale/missing for a repo that has staging; everything else about this gate fails open."""
+    try:
+        with open(deploys_file(repo, kind)) as f:
+            j = json.load(f)
+        age = time.time() - float(j.get("fetched_at", 0))
+        if not j.get("deployments"):
+            return "missing", age
+        return ("ok" if age <= float(os.environ.get("QA_STAGING_MAX_AGE_S", "1800")) else "stale"), age
+    except (OSError, ValueError, TypeError, AttributeError):
+        return "missing", -1.0
 
 
 def provider_file(repo):
@@ -192,7 +223,7 @@ def gather(repo, provider):
 
 # ---------------------------------------------------------------- commands
 def args_of(argv):
-    o = {"repo": "", "sha": "", "provider": "auto", "base": "", "head": ""}
+    o = {"repo": "", "sha": "", "provider": "auto", "base": "", "head": "", "env": ""}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -255,12 +286,15 @@ def cmd_check(argv):
 def cmd_export(argv):
     o = args_of(argv)
     repo = o["repo"]
-    raw, note = railway_fetch(repo)
+    env = o.get("env") or "staging"
+    if env not in ("staging", "production"):
+        return qc.verdict("UNVERIFIED", GATE, repo or "?", "export", "bad --env %r (staging|production)" % env)
+    raw, note = railway_fetch(repo, env)
     if not raw:
         return qc.verdict("UNVERIFIED", GATE, repo or "?", "export", "could not fetch railway deployments: " + note)
     slim = [{"id": d.get("id"), "status": d.get("status"), "createdAt": d.get("createdAt"),
              "meta": {"commitHash": (d.get("meta") or {}).get("commitHash"), "branch": (d.get("meta") or {}).get("branch")}} for d in raw if isinstance(d, dict)]
-    path = deploys_file(repo)
+    path = deploys_file(repo, "staging_deploys" if env == "staging" else "prod_deploys")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:

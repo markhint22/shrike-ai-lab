@@ -47,6 +47,10 @@ ovn_derive_legacy_logs.py — read that file first if this one is unclear):
      script never writes "acknowledged" itself (no described trigger reaches it — left as a
      valid manual value for a future human/agent workflow).
 
+  3b. (2026-10-03) Two NON-outcomes sources feed the same registry: FAILED deploys read from
+     state/staging_deploys/*.json + state/deploy_status*.json (signature `deploy-failed:<env>`),
+     and `landed` rows with no commit behind them from state/qa_ledger.jsonl (signature
+     `landed-without-commit`). Same --ack / fixed-cluster-regression semantics as everything else.
   4. CLI: default invocation runs the detection pass and prints a short summary. `--ack <repo>
      <signature-or-partial> --commit <hash> --generator-addressed <yes|no|unsure>` transitions
      a cluster to "fixed" — supports fuzzy/partial signature matching, always prints the full
@@ -63,6 +67,7 @@ Usage:
 """
 import argparse
 import bisect
+import glob
 import hashlib
 import json
 import os
@@ -383,11 +388,218 @@ def extract_signature(text):
 # detection pass
 # ---------------------------------------------------------------------------
 
+def _upsert_cluster(registry, repo, sig, ts, item_hash, new_clusters, regressions):
+    """Create/refresh one cluster in the registry (shared by the outcomes pass and the
+    deploy-failure / landed-without-commit passes, so ALL of them get identical --ack and
+    fixed-cluster-regression semantics)."""
+    key = "%s::%s" % (repo, sig)
+    entry = registry.get(key)
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if entry is None:
+        entry = {
+            "first_seen": ts or now_iso,
+            "last_seen": ts or now_iso,
+            "count": 1,
+            "status": "new",
+            "fix_commit": None,
+            "generator_addressed": None,
+            "sample_item_hashes": [item_hash] if item_hash else [],
+        }
+        registry[key] = entry
+        new_clusters.append({"repo": repo, "signature": sig, "key": key})
+    else:
+        entry["last_seen"] = ts or now_iso
+        entry["count"] = entry.get("count", 0) + 1
+        if item_hash:
+            samples = entry.setdefault("sample_item_hashes", [])
+            if item_hash not in samples:
+                samples.append(item_hash)
+            entry["sample_item_hashes"] = samples[-5:]
+        if entry.get("status") == "fixed":
+            events = entry.setdefault("regression_events", [])
+            events.append({"ts": ts, "item_hash": item_hash})
+            entry["regression_events"] = events[-10:]
+            regressions.append({
+                "repo": repo, "signature": sig, "key": key,
+                "fix_commit": entry.get("fix_commit"), "count": entry["count"],
+            })
+
+
+# ---------------------------------------------------------------------------
+# non-outcomes sources (2026-10-03, Phase 6 observability): failures that never show up as a BAD
+# outcomes.jsonl row but cost the most. (a) a Railway/Vercel/Fly deploy that FAILED, (b) a
+# `landed` outcome that has no commit behind it (phantom landing). Both feed the SAME registry,
+# so --ack / fixed-cluster-regression behave exactly as for log-derived clusters.
+# ---------------------------------------------------------------------------
+
+# COVERAGE NOTE: staging deploys only (state/staging_deploys/, billwatch/gitlark/iptv_apps). Prod
+# is read from state/deploy_status*.json, which nothing writes yet - prod deploy failures (e.g. the
+# 2026-10-03 Chickadee one) are NOT clustered until a prod exporter feeds that shape.
+DEPLOY_FAIL_STATUSES = frozenset({"FAILED", "CRASHED", "BUILD_FAILED", "ERROR", "ERRORED", "FAILURE"})
+LANDED_NO_COMMIT_SIG = "landed-without-commit"
+
+
+def _deploy_seen_path(state_dir):
+    return os.path.join(state_dir, ".failure_triage_deploys_seen.json")
+
+
+def _iter_deploy_records(state_dir):
+    """Yield (repo, env, deploy_id, status, created_at, commit) from every exported deploy-state
+    file we know of: state/staging_deploys/*.json ({repo, deployments:[{id,status,createdAt,
+    meta:{commitHash}}]}) and state/deploy_status*.json (same shape, or a bare list of such
+    deployments, or a {repo: [...]} map). Missing/garbled files are skipped, never fatal."""
+    paths = []
+    sd = os.path.join(state_dir, "staging_deploys")
+    if os.path.isdir(sd):
+        paths += [("staging", p) for p in sorted(glob.glob(os.path.join(sd, "*.json")))]
+    paths += [("prod", p) for p in sorted(glob.glob(os.path.join(state_dir, "deploy_status*.json")))]
+    for env, path in paths:
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        base = os.path.splitext(os.path.basename(path))[0]
+        groups = []
+        if isinstance(data, dict) and isinstance(data.get("deployments"), list):
+            groups.append((data.get("repo") or base, data["deployments"]))
+        elif isinstance(data, list):
+            groups.append((base, data))
+        elif isinstance(data, dict):
+            for k, v in data.items():
+                if isinstance(v, list):
+                    groups.append((k, v))
+                elif isinstance(v, dict) and isinstance(v.get("deployments"), list):
+                    groups.append((v.get("repo") or k, v["deployments"]))
+        for repo, deps in groups:
+            for d in deps:
+                if not isinstance(d, dict):
+                    continue
+                meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+                yield (str(repo), env, str(d.get("id") or ""), str(d.get("status") or "").upper(),
+                       str(d.get("createdAt") or d.get("created_at") or ""),
+                       str(meta.get("commitHash") or d.get("commit") or ""))
+
+
+def seed_cursors(state_dir):
+    """Install-time seeding so the first run does not report history as NEW: ledger cursor =
+    current qa_ledger size, deploy seen-file = every FAILED deploy id in the current files.
+    (Prod deploys are only covered if something writes state/deploy_status*.json; nothing in the
+    queue does today, so prod deploy failures are NOT clustered - staging only.)"""
+    lp = os.path.join(state_dir, "qa_ledger.jsonl")
+    if os.path.exists(lp):
+        with open(os.path.join(state_dir, ".failure_triage_ledger.cursor"), "w") as f:
+            f.write(str(os.path.getsize(lp)))
+    seen = {}
+    for repo, env, did, status, created, commit in _iter_deploy_records(state_dir):
+        if status in DEPLOY_FAIL_STATUSES and did:
+            seen[did] = created or "?"
+    with open(_deploy_seen_path(state_dir), "w") as f:
+        json.dump(seen, f, sort_keys=True)
+    return len(seen)
+
+
+def process_deploy_failures(state_dir, registry, new_clusters, regressions):
+    """Cluster each NEWLY seen FAILED deploy (deploy id remembered in a seen-file so a re-run
+    counts it once) as `<repo>::deploy-failed:<env>`. Returns the number of new failures."""
+    try:
+        with open(_deploy_seen_path(state_dir)) as f:
+            seen = json.load(f)
+        if not isinstance(seen, dict):
+            seen = {}
+    except Exception:
+        seen = {}
+    n = 0
+    for repo, env, did, status, created, commit in _iter_deploy_records(state_dir):
+        if status not in DEPLOY_FAIL_STATUSES or not did or did in seen:
+            continue
+        seen[did] = created or "?"
+        n += 1
+        _upsert_cluster(registry, repo, "deploy-failed:%s" % env, created, commit[:8], new_clusters, regressions)
+    if n or not os.path.exists(_deploy_seen_path(state_dir)):
+        # keep the newest 500 ids so the file stays bounded
+        if len(seen) > 500:
+            seen = dict(sorted(seen.items(), key=lambda kv: kv[1])[-500:])
+        try:
+            tmp = _deploy_seen_path(state_dir) + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(seen, f, sort_keys=True)
+            os.replace(tmp, _deploy_seen_path(state_dir))
+        except OSError:
+            pass
+    return n
+
+
+def process_landed_without_commit(state_dir, registry, new_clusters, regressions):
+    """Cluster `landed` rows of state/qa_ledger.jsonl whose commit lookup came back empty
+    (commit_basis == "none": the repo clone was found, and NO commit exists in the cycle's
+    window). outcomes.jsonl itself carries no sha, so the ledger (qa_ledger.py) is the only
+    place this fact is recorded. "no-clone" is NOT counted: that is 'could not look', not 'looked
+    and found nothing'. Byte-offset cursor; an unterminated trailing line is left for next run."""
+    path = os.path.join(state_dir, "qa_ledger.jsonl")
+    cur_path = os.path.join(state_dir, ".failure_triage_ledger.cursor")
+    if not os.path.exists(path):
+        return 0
+    try:
+        with open(cur_path) as f:
+            start = int(f.read().strip() or "0")
+    except Exception:
+        start = 0
+    n = 0
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        end = f.tell()
+        if start > end:
+            start = 0
+        f.seek(start)
+        pos = start
+        for raw in f:
+            if not raw.endswith(b"\n"):
+                break
+            pos += len(raw)
+            try:
+                rec = json.loads(raw.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+            if not isinstance(rec, dict) or rec.get("kind") != "landed":
+                continue
+            if rec.get("commit_basis") != "none" or rec.get("commits"):
+                continue
+            # stage(higher-tier) rows are a handoff to the stage runner: no commit expected
+            if not str(rec.get("status") or "").startswith("pushed"):
+                continue
+            n += 1
+            _upsert_cluster(registry, rec.get("repo") or "?", LANDED_NO_COMMIT_SIG,
+                            rec.get("ts") or "", rec.get("item_hash") or "", new_clusters, regressions)
+    try:
+        with open(cur_path, "w") as f:
+            f.write(str(pos))
+    except OSError:
+        pass
+    return n
+
+
+def _extra_sources(state_dir, registry, new_clusters, regressions):
+    """Run the non-outcomes sources; each is isolated so one broken source can't kill the pass."""
+    n = 0
+    for fn in (process_deploy_failures, process_landed_without_commit):
+        try:
+            n += fn(state_dir, registry, new_clusters, regressions)
+        except Exception as e:  # pure observability: never raise
+            print("warning: %s failed: %s" % (fn.__name__, e), file=sys.stderr)
+    return n
+
+
 def process_new_records(state_dir, logs_dir):
     outcomes_path = _outcomes_path(state_dir)
     cursor_path = _cursor_path(state_dir)
     if not os.path.exists(outcomes_path):
-        return {"new_clusters": [], "regressions": [], "processed": 0}
+        registry = load_registry(state_dir)
+        nc, rg = [], []
+        extra = _extra_sources(state_dir, registry, nc, rg)
+        if extra:
+            save_registry(state_dir, registry)
+        return {"new_clusters": nc, "regressions": rg, "processed": extra}
 
     start_offset = 0
     if os.path.exists(cursor_path):
@@ -437,42 +649,13 @@ def process_new_records(state_dir, logs_dir):
                 st = normalize(rec.get("status") or "?")
                 sig = "no-log:fail_reason=%s;status=%s" % (fr, st)
 
-            key = "%s::%s" % (repo, sig)
-            entry = registry.get(key)
-            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            if entry is None:
-                entry = {
-                    "first_seen": ts or now_iso,
-                    "last_seen": ts or now_iso,
-                    "count": 1,
-                    "status": "new",
-                    "fix_commit": None,
-                    "generator_addressed": None,
-                    "sample_item_hashes": [item_hash] if item_hash else [],
-                }
-                registry[key] = entry
-                new_clusters.append({"repo": repo, "signature": sig, "key": key})
-            else:
-                entry["last_seen"] = ts or now_iso
-                entry["count"] = entry.get("count", 0) + 1
-                if item_hash:
-                    samples = entry.setdefault("sample_item_hashes", [])
-                    if item_hash not in samples:
-                        samples.append(item_hash)
-                    entry["sample_item_hashes"] = samples[-5:]
-                if entry.get("status") == "fixed":
-                    events = entry.setdefault("regression_events", [])
-                    events.append({"ts": ts, "item_hash": item_hash})
-                    entry["regression_events"] = events[-10:]
-                    regressions.append({
-                        "repo": repo, "signature": sig, "key": key,
-                        "fix_commit": entry.get("fix_commit"), "count": entry["count"],
-                    })
+            _upsert_cluster(registry, repo, sig, ts, item_hash, new_clusters, regressions)
         end_offset = f.tell()
 
     with open(cursor_path, "w") as f:
         f.write(str(end_offset))
 
+    n += _extra_sources(state_dir, registry, new_clusters, regressions)
     save_registry(state_dir, registry)
     return {"new_clusters": new_clusters, "regressions": regressions, "processed": n}
 
@@ -593,6 +776,9 @@ def main():
     parser.add_argument("--commit")
     parser.add_argument("--generator-addressed", dest="generator_addressed",
                          choices=["yes", "no", "unsure"])
+    parser.add_argument("--seed", action="store_true",
+                         help="install-time: mark the current qa_ledger and FAILED deploys as already "
+                              "seen (no NEW burst on first run), then exit")
     parser.add_argument("--yes", action="store_true",
                          help="skip interactive confirmation (required in non-interactive shells)")
     parser.add_argument("--digest", type=float, metavar="HOURS",
@@ -600,6 +786,9 @@ def main():
                               "detection (see cmd_digest docstring)")
     args = parser.parse_args()
 
+    if args.seed:
+        print("seeded: %d failed deploy id(s) marked seen, ledger cursor at end" % seed_cursors(args.state_dir))
+        return 0
     if args.ack:
         if not args.commit or not args.generator_addressed:
             parser.error("--ack requires both --commit and --generator-addressed")

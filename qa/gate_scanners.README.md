@@ -92,3 +92,17 @@ by absolute and relative path under `env -i` with a minimal PATH.
 * Line-text fingerprints change when the flagged line is edited (the finding then counts as new once).
 * Orphaned grandchild processes after a tool timeout are not killed (qa_common.run kills only the direct child); worktrees and scratch dirs are cleaned (tested).
 * mypy honours repo config and `# type: ignore` (advisory tool, so it cannot move the verdict anyway).
+
+## 2026-10-03 additions (diagnosis F7)
+
+* **Seeded-positive replay**: `python3 qa/gate_scanners.py selftest [--tools a,b]` builds a throwaway repo, commits a hardcoded secret (gitleaks), a vulnerable pin
+  (`requests==2.19.0`, pip-audit; needs network) and a bandit B602 `shell=True` call on top of a clean base, runs the real `check` on each plus a benign change, and prints
+  per-seed CAUGHT / MISSED / UNMEASURED with `recall` over the measurable seeds. A tool that cannot run leaves its seed UNMEASURED (never caught, never missed). Verdict:
+  PASS (all measurable seeds caught, benign not flagged) / FLAG (recall gap) / UNVERIFIED (nothing measurable). Never recorded to `state/qa_shadow`. Secret-shaped seeds are
+  assembled at run time so no secret literal is committed.
+* **Original mypy messages**: `redact_msg(strings=True)` now masks only string literals (`Literal[...]`, single-quoted text, free-text double-quoted text) and keeps
+  double-quoted identifiers/type names, so advisory output reads `Argument 1 to "make_token" has incompatible type "str"; expected "int"` instead of `<str>` everywhere.
+  Token-like runs (>= 24 chars) are still redacted. Baseline fingerprints never used the message, so nothing shifts.
+* **Paused repos are skipped** (NA "repo is paused"): `qa_common.paused_repos()` = env `QA_PAUSED_REPOS` (`none` = nothing) + `qa/qa_paused_repos.txt` (shrike-monitor,
+  shrike-notify) + `state/qa_paused_repos.txt` + (outside QA mode only) repos whose aider_fix lanes in `tasks.json` are all disabled.
+* Not done: weekly full-manifest `pip-audit`/`npm audit` (they still run only when a manifest is in the diff).

@@ -234,6 +234,9 @@ def cmd_report(argv):
     now = int(time.time())
     recs, evs = ql.load_ledger()
     recs = [r for r in recs if now - r["epoch"] <= days * DAY and (not repo or r["repo"] == repo)]
+    # 2026-10-03 (integrity A6): "landed" rows with NO commit never reached origin; they are reported separately and kept OUT of the escape-rate denominator
+    nocommit = [r for r in recs if "no-commit" in r.get("flags", [])]
+    recs = [r for r in recs if "no-commit" not in r.get("flags", [])]
     evm = events_by_rec(evs)
 
     def strong(e):
@@ -256,8 +259,9 @@ def cmd_report(argv):
     lines.append("mature features: %d   escaped (strong signals): %d   escaped (any signal): %d   -> per 100: strong %s, any %s"
                  % (len(mat), sum(x["strong"] for x in mat), sum(x["any"] for x in mat),
                     per100(sum(x["strong"] for x in mat), len(mat)), per100(sum(x["any"] for x in mat), len(mat))))
+    lines.append("landed-without-commit (excluded from the rates above): %d record(s)" % len(nocommit))
     lines.append("Escapes are UNDERCOUNTED: no prod telemetry; a signal needs a revert/fix/EMERGENCY commit or a manual mark-escape.")
-    out = {"days": days, "records": len(recs), "features": len(rows), "mature_features": len(mat)}
+    out = {"days": days, "records": len(recs), "features": len(rows), "mature_features": len(mat), "landed_no_commit": len(nocommit)}
 
     def table(title, keyfn):
         d = collections.defaultdict(lambda: [0, 0, 0, 0])

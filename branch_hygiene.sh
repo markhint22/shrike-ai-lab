@@ -136,6 +136,12 @@ run_gate() {
      ! python3 "$HOME/overnight-queue/scripts/check_migrations.py" "$dir" >/dev/null 2>&1; then
     log "  gate: MIGRATION SAFETY FAILED"; return 1
   fi
+  # dep/import gate (2026-10-03): app must import in a clean venv built from requirements.txt alone (cached by hash;
+  # UNVERIFIED/infra failure = pass). Fail-safe: lib absent = skip. OVN_DEP_GATE=off|shadow.
+  if [ -f "$HOME/overnight-queue/scripts/lib_dep_import_check.py" ] && \
+     ! _dg="$(python3 "$HOME/overnight-queue/scripts/lib_dep_import_check.py" clean-import --repo "$dir" 2>&1)"; then
+    log "  gate: DEP-IMPORT FAILED: $(printf '%s' "$_dg" | head -2 | tr '\n' ' ')"; return 1
+  fi
   # web build+test (self-provisions via npm ci in the worktree). 2026-08-25 #6:
   # scan root AND one-level subdirs (web/, billwatch-web/, ...) - the frontend
   # is rarely at the repo root, so the old root-only check silently gated nothing
@@ -318,6 +324,37 @@ run_gate() {
   [ "$ran" -eq 1 ] && return 0 || return 2
 }
 
+# --- QA enforcement (pre-push), 2026-10-02 ----------------------------------------------------------------------------------------------
+# qa_run_shadow.sh runs gates DETACHED after the push, so a gate FAIL there can never block anything. A gate flipped to enforce
+# (qa/qa_enforce.sh <gate> enforce -> state/qa_gate_modes.json) is instead run SYNCHRONOUSLY here, after the merge commit exists and the
+# build/test gate is green but BEFORE the push. Default behavior is unchanged: with no enforce-mode gate qa_enforce_run.py prints
+# {"action":"proceed"} immediately and the merge goes out exactly as before. Only a FAIL from an enforce-mode gate blocks; anything else
+# (UNVERIFIED/timeout/crash/missing helper) proceeds. On a block only the clean prefix before the first offending commit is merged, so
+# one bad commit cannot starve the unrelated good work behind it (the hygiene lock-starvation lesson). See qa/qa_enforce_run.py.
+# QA_GATES_DIR overrides where gate_*.py live (tests use stub gates); OVN_QA_ENFORCE=off disables enforcement entirely (rollback).
+_QE_HELPER="${QA_ENFORCE_HELPER:-$SCRIPT_DIR/qa/qa_enforce_run.py}"
+_qe_py="$(command -v python3.12 || command -v python3 || true)"
+# qa_enforce_precheck <repo> <tmp_main> <feature_tip_sha>: sets _qe_action (proceed|block), _qe_clean, _qe_gate, _qe_off, _qe_subject, _qe_finding, _qe_held.
+qa_enforce_precheck() {
+  _qe_action=proceed; _qe_clean=""; _qe_gate=""; _qe_off=""; _qe_subject=""; _qe_finding=""; _qe_held=0
+  [ "${OVN_QA_ENFORCE:-on}" = "off" ] && return 0
+  [ -f "$_QE_HELPER" ] && [ -n "$_qe_py" ] || return 0
+  local out base head
+  base="$(git -C "$2" rev-parse 'HEAD^1' 2>/dev/null)"; head="$(git -C "$2" rev-parse HEAD 2>/dev/null)"
+  [ -n "$base" ] && [ -n "$head" ] || return 0
+  out="$(PATH="$HOME/qa-venv/bin:$HOME/qa-tools/bin:$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:$PATH" OVN_DIR="$SCRIPT_DIR" QA_STATE_DIR="$STATE_DIR" \
+         "$_qe_py" "$_QE_HELPER" precheck --repo "$1" --name "$(basename "$1")" --base "$base" --head "$head" --tip "$3" --branch "$FEAT" 2>>"${HYGIENE_QA_ERR:-/dev/null}" | tail -1)"
+  if ! printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
+    log "  QA enforce: helper gave no usable answer - UNVERIFIED, proceeding (infra problems never block a merge)"; return 0
+  fi
+  _qe_action="$(printf '%s' "$out" | jq -r '.action // "proceed"')"
+  [ "$_qe_action" = "block" ] || { _qe_action=proceed; return 0; }
+  _qe_clean="$(printf '%s' "$out" | jq -r '.clean_ref // ""')"; _qe_gate="$(printf '%s' "$out" | jq -r '.gate // ""')"
+  _qe_off="$(printf '%s' "$out" | jq -r '.offender // ""')"; _qe_subject="$(printf '%s' "$out" | jq -r '.subject // ""')"
+  _qe_finding="$(printf '%s' "$out" | jq -r '.finding // ""')"; _qe_held="$(printf '%s' "$out" | jq -r '.held // 0')"
+  return 0
+}
+
 # --- per repo ----------------------------------------------------------------
 for repo in "${REPOS[@]}"; do
   name="$(basename "$repo")"
@@ -402,6 +439,9 @@ for repo in "${REPOS[@]}"; do
     # NOTE 2026-09-07: hygiene no longer pushes origin/$FEAT (it raced the fleet's own pushes and
     # forced diverged-heals). reconcile_branches.sh (every 20min, lock-free) owns develop->feature.
     [ "${behind:-0}" -gt 0 ] && log "  $FEAT is +$behind behind $mt — reconcile will sync it (hygiene no longer pushes $FEAT)"
+    # 2026-10-02: nothing left to hold, so THIS branch's QA-block record is stale. Keyed by repo+branch (same expansion as blocked_key in
+    # qa_enforce_run.py) so the claude/feature pass cannot delete the overnight/feature pass's record (that re-alerted every hour).
+    rm -f "$STATE_DIR/qa_blocked/${name}__${FEAT//[^A-Za-z0-9._-]/_}.json" 2>/dev/null
     log "  $FEAT already in $mt — nothing to land"
     report "| $name | in sync |"; continue
   fi
@@ -495,14 +535,61 @@ for repo in "${REPOS[@]}"; do
   # explicitly, which is correct regardless of the worktree's branch/detached state.
   git -C "$tmp_main" checkout -B "$mt" "origin/$mt" --quiet 2>/dev/null
   if git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT into $mt (branch-hygiene, gate=$([ $g -eq 0 ] && echo tests-green || echo no-tests))" origin/$FEAT >/dev/null 2>&1; then
+    # 2026-10-02 QA enforcement, pre-push (see qa_enforce_precheck above). _qe_hold=1 => do NOT push this merge (nothing landable, or the clean prefix failed its own gate).
+    _qe_hold=0; _qe_holdmsg=""
+    qa_enforce_precheck "$repo" "$tmp_main" "$(git -C "$repo" rev-parse "origin/$FEAT" 2>/dev/null)"
+    if [ "$_qe_action" = "block" ]; then
+      log "  QA ENFORCE: gate '$_qe_gate' FAILED commit ${_qe_off:0:12} ($_qe_subject): $_qe_finding"
+      if [ -n "$_qe_clean" ]; then
+        # land ONLY the clean prefix: redo the merge with the last commit before the offender, then re-run the build/test gate on exactly that prefix
+        # (the green gate above judged the whole branch, not this subset).
+        git -C "$tmp_main" reset --hard --quiet "origin/$mt" 2>/dev/null
+        if git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT (QA-clean prefix, ${_qe_held} commit(s) held by gate $_qe_gate) into $mt (branch-hygiene)" "$_qe_clean" >/dev/null 2>&1; then
+          wt3="$(mktemp -d "/tmp/hygiene-${name}-qaprefix.XXXX")"; g3=1
+          if git -C "$repo" worktree add --detach --quiet "$wt3" "$_qe_clean" 2>/dev/null; then
+            run_gate "$repo" "$wt3"; g3=$?
+            git -C "$repo" worktree remove --force "$wt3" >/dev/null 2>&1
+            # 2026-10-02: same one-retry-on-infra-flake as the whole-branch gate above (timeout / Gradle daemon crash / lock contention). Without it a
+            # single flake in this prefix re-gate wrote a review flag and held the whole merge.
+            if [ "$g3" -eq 1 ] && [ "${_GATE_TIMEOUT_HIT:-0}" = 1 ]; then
+              log "  QA ENFORCE: prefix gate hit a known infra flake - retrying once with a fresh worktree"
+              wt4="$(mktemp -d "/tmp/hygiene-${name}-qaprefix-retry.XXXX")"
+              if git -C "$repo" worktree add --detach --quiet "$wt4" "$_qe_clean" 2>/dev/null; then
+                run_gate "$repo" "$wt4"; g3=$?
+                git -C "$repo" worktree remove --force "$wt4" >/dev/null 2>&1
+              else rm -rf "$wt4"; fi
+            fi
+          else rm -rf "$wt3"; fi
+          if [ "$g3" -eq 0 ]; then
+            ahead="$(git -C "$tmp_main" rev-list --count "origin/$mt..HEAD" 2>/dev/null || echo "$ahead")"
+            log "  QA ENFORCE: landing the clean prefix only (${_qe_clean:0:12}); ${_qe_held} commit(s) from ${_qe_off:0:12} on stay on $FEAT"
+            _qe_holdmsg=""
+          else
+            _qe_hold=1; echo "QA-clean prefix failed the build/test gate (g=$g3) after gate $_qe_gate blocked ${_qe_off:0:12}: $FEAT $(date)" > "$flag"
+            _qe_holdmsg="🔴 QA-clean prefix failed build/test (g=$g3) - needs review"
+            log "  QA ENFORCE: the clean prefix did not pass the build/test gate (g=$g3) - NOT merging, flagged"
+          fi
+        else
+          git -C "$tmp_main" merge --abort >/dev/null 2>&1
+          _qe_hold=1; _qe_holdmsg="⚠️ QA-clean prefix merge failed - needs review"; echo "QA-clean prefix merge failed ($_qe_gate) $(date)" > "$flag"
+        fi
+      else
+        _qe_hold=1
+        _qe_holdmsg="⛔ QA-blocked (gate $_qe_gate: ${_qe_off:0:12}, nothing landable before it)"
+        log "  QA-blocked: $name - nothing can land before ${_qe_off:0:12}; exiting cleanly (no failure, no lock held; one alert already in alerts.log)"
+      fi
+    fi
     # push with a rebase-retry: while the fleet actively works a repo, $mt can advance
     # between our merge and our push (a transient non-ff). Rebasing the merge onto the new
     # tip and retrying once clears that WITHOUT flagging — otherwise every push race left a
     # stale "push failed" review flag (noise). The worktree shares refs with $repo.
     pushed=0
-    if git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1
+    if [ "$_qe_hold" = 1 ]; then :
+    elif git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1
     elif git -C "$tmp_main" pull --rebase --quiet origin "$mt" >/dev/null 2>&1 && git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1; fi
-    if [ "$pushed" = 1 ]; then
+    if [ "$_qe_hold" = 1 ]; then
+      report "| $name | $_qe_holdmsg |"
+    elif [ "$pushed" = 1 ]; then
       # 2026-09-07: do NOT push origin/$FEAT here — the old ff/force-push raced the fleet and could
       # CLOBBER commits the fleet pushed after our merge started. develop->feature is reconcile's job.
       rm -f "$flag"
@@ -516,7 +603,7 @@ for repo in "${REPOS[@]}"; do
           ( OVN_DIR="$SCRIPT_DIR" nohup bash "$SCRIPT_DIR/qa/qa_run_shadow.sh" "$name" "$_qa_base" "$_qa_head" >/dev/null 2>&1 < /dev/null & ) >/dev/null 2>&1 || true
         fi
       fi
-      report "| $name | ✅ merged +$ahead to $mt ($([ $g -eq 0 ] && echo gated || echo no-tests)) |"
+      report "| $name | ✅ merged +$ahead to $mt ($([ $g -eq 0 ] && echo gated || echo no-tests))$([ "$_qe_action" = block ] && echo " - partial, QA-held ${_qe_held} after ${_qe_off:0:8}") |"
     else
       log "  push to $mt failed (after rebase-retry) — flagging"; echo "push failed $(date)" > "$flag"
       report "| $name | ⚠️ +$ahead, push failed |"

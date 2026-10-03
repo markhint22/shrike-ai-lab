@@ -1,0 +1,7 @@
+# promote-time alerting (2026-10-03, A10). NOT installed. Install on the box with:
+#   (crontab -l; grep -v '^#' ~/overnight-queue/qa/promote_alerting_cron.txt) | crontab -
+# Hourly staging_check (SHADOW observation + ONE alerts.log WARN per (repo, candidate sha) on FAIL) at :20 - after the :00/:10/:30 hygiene passes pushed to develop and
+# staging had minutes to deploy; the Mac's 10-minutely export (scripts/qa-staging-export.sh) keeps state/staging_deploys fresh (<30 min or the promote gate fails closed).
+# NTFY_SERVER points at the notification relay so nothing here can reach ntfy.sh directly. Rollback: remove the line (the 08:50 daily run is unaffected).
+20 * * * * NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/qa_daily_shadow.sh --staging-only >> /home/mhintermeister/overnight-queue/logs/qa_daily_shadow.out 2>&1
+# Mac (deploy_watch.sh, every 20 min, already scheduled): now also watches the 3 Railway STAGING services and pushes an emergency on a FAILED staging/prod deploy.

@@ -1,0 +1,4 @@
+# Repos whose dev lane is paused: CPU-costly per-merge gates (scanners) skip them. One name per line; '#' starts a comment.
+# Extend or override per box with state/qa_paused_repos.txt or env QA_PAUSED_REPOS (comma list, 'none' = nothing paused).
+shrike-monitor
+shrike-notify

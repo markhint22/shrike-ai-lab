@@ -10,7 +10,10 @@
 # PATH entry, not even in a login shell) despite being how VERIFY clauses are
 # authored - the real pipeline always uses $HOME/godot/godot4.
 set -uo pipefail
-SCRIPT="${OVN_CREDIT_CHECK:-$HOME/overnight-queue/scripts/ovn_credit_already_satisfied.sh}"
+# 2026-10-03: _resolve_tool_paths moved to lib_verify_clause.sh (shared with the runner's auto-credit, harness X) - test the copy in THIS tree, not the live dir.
+_HERE="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT="${OVN_CREDIT_CHECK:-$_HERE/../lib_verify_clause.sh}"
+[ -f "$SCRIPT" ] || SCRIPT="$HOME/overnight-queue/scripts/lib_verify_clause.sh"
 [ -f "$SCRIPT" ] || { echo "  SKIP: $SCRIPT not found on this host"; echo "credit-verify tool-path resolution: 0 passed, 0 failed"; exit 0; }
 
 P=0; F=0

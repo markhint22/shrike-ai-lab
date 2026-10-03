@@ -1,0 +1,10 @@
+# scripts/cron.txt - crontab lines SHIPPED but NOT INSTALLED (the integrator installs after review; nothing here runs by itself).
+# Install on the box:  (crontab -l; grep -v '^#' ~/overnight-queue/scripts/cron.txt) | crontab -
+# Remove a line again with `crontab -e`. All paths are the box's (/home/mhintermeister/overnight-queue).
+
+# --- QA gate S4 baseline-relative verify: refresh the clean-base red-test set (diagnosis 2026-10-03 F3: the store was never populated, so every
+# baseline row was UNVERIFIED 'no baseline'). Every 3h at :11 (offset from the :23 ledger, :50 daily shadow, */10 manual notes). Deterministic writes
+# only (a complete pytest parse; timeouts/truncation leave the old baseline untouched; 24h expiry; never auto-widen). Scoped to the two focus repos:
+# iptv_apps (python/pytest) and xlite (GUT: reports NA 'no .venv/bin/pytest', costs nothing). Detached worktree of origin/develop, nice+ionice, QA_CPUSET.
+# Kill switches: OVN_BASELINE_REFRESH=off | qa mode baseline=off.  Rollback: delete the line.
+11 */3 * * * OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/baseline_refresh_cron.sh >> /home/mhintermeister/overnight-queue/logs/baseline_refresh.out 2>&1

@@ -188,4 +188,16 @@ newhome; export SHRIKE_NOTIFY_URL=http://notify.local SHRIKE_NOTIFY_TOKEN=nt RW_
 ok "shrike-notify publish hit with bearer" "$(has $FX/curl.log 'notify.local/fleet_billwatch_deploy')"
 ok "shrike-notify token header" "$(has $FX/curl.log 'Authorization: Bearer nt')"
 
+# 8. enqueue skipped because a fleet cycle is in flight (ssh rc 75): must NEVER be silent (integrity review)
+newhome; export RW_STATUS=FAILED RW_ID=b1 SSH_RC=75; run
+ok "busy: first pass alerts (high) that the fix is NOT queued yet, once per repo" "$([ "$(cnt $FX/curl.log 'NOT queued yet')" = 3 ] && echo 1 || echo 0)"
+ok "busy: attempt refunded and deploy un-marked (retry next pass)" "$([ ! -f $ST/billwatch-backend.id ] && [ "$(cat $ST/billwatch-backend.attempts)" = 0 ] && echo 1 || echo 0)"
+ok "busy: not reported as an enqueue error" "$([ "$(has $FX/curl.log "couldn't enqueue")" = 0 ] && echo 1 || echo 0)"
+run; run
+ok "busy: passes 2-3 do not re-alert (no spam)" "$([ "$(cnt $FX/curl.log 'NOT queued yet')" = 3 ] && echo 1 || echo 0)"
+run
+ok "busy: 4th consecutive busy pass escalates (urgent)" "$([ "$(cnt $FX/curl.log 'fix still not queued')" = 3 ] && has $FX/curl.log 'Priority: urgent' | grep -q 1 && echo 1 || echo 0)"
+unset SSH_RC; run
+ok "busy BENIGN: once the fleet is idle the fix is enqueued and the busy counter cleared" "$([ -s $FX/items.log ] && [ ! -f $ST/billwatch-backend.busy ] && echo 1 || echo 0)"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

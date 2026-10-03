@@ -178,8 +178,8 @@ llm(){ local pf="$1" body resp content i
 }
 
 # ---- pick the item ----
-if [ -n "$item_arg" ]; then item="$item_arg"
-else
+# 2026-10-03 (A8): the picker is a function so the lazy bug brief (below) can re-pick after it replaced the single bug line by its decomposed steps.
+_pick_item(){
   # PREFER the 27B's sweet spot (python) so a slot LANDS an item; then FALL BACK to the harder
   # items (frontend/wiring/T4/T5/godot) so the 27B keeps ATTEMPTING them (it lands some, and the
   # verify layer + escalation route the rest).
@@ -223,10 +223,16 @@ else
     item="$(printf '%s\n' "$_doable" | grep -iE '\.py\b' | grep -viE 'wire|integrate|\.vue\b|\.tsx?\b' | head -1 | sed -E 's/^- \[ \] //')"
     [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
   fi
-fi
+}
+if [ -n "$item_arg" ]; then item="$item_arg"; else _pick_item; fi
 [ -z "$item" ] && { say "no doable T3+ item found"; exit 0; }
 tier="$(printf '%s' "$item" | grep -oE '\[T[1-5]\]|·T[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"; tier="${tier:-3}"
 say "ITEM (T$tier): ${item:0:100}"
+# 2026-10-03 (A8, qa/h11-bug-pipeline): Kotlin/legacy bug grounding is ON only for a manual-test bug while OVN_BUG_FIRST != off (ovn_is_manual_bug_text is
+# false under OVN_BUG_FIRST=off, so the kill switch restores the old behaviour) and only when qa/bug_ground.py is deployed (fail-safe: absent => old behaviour).
+_bg_py="$HOME/overnight-queue/qa/bug_ground.py"
+_bg_on=0; [ -f "$_bg_py" ] && ovn_is_manual_bug_text "$item" && _bg_on=1
+_bg_plan_f=""; _bg_dropf=""
 
 # ---- FAST PATH: templated "run the full suite once to confirm no regressions" capstone item ----
 # 2026-09-26 FIX: every feature batch's LAST item is auto-generated in this exact shape — a pure
@@ -291,6 +297,47 @@ if printf '%s' "$item" | grep -qiE 'run the (full |whole )?.*(suite|tests) (once
   fi
 fi
 
+# ---- LAZY BUG BRIEF (2026-10-03, A8): a manual bug enqueued BEFORE the brief stage was deployed (all 7 Chickadee bugs of 10-01) carries no brief, so the
+# 27B planned it blind (3,2,4,2,1,2 steps for the same bug; every run died on invented symbols / duplicated types). On the FIRST attempt of such a bug, run
+# the brief now (qa/manual_notes_ingest.py brief --id), then re-pick: the single line has become the brief's single-file steps. Bounded + fail-safe:
+#   - only an auto-picked, still-OPEN bug (manual_notes status open) that has no state/bug_briefs/<feat>.json and was never lazily tried (marker state/bug_lazy/<feat>, kept out of bug_briefs/ so escalation never mistakes it for a brief), on its
+#     first attempt (no bugcount); never a brief step itself ('(brief:i/K)');
+#   - only when no other LLM consumer is running (a brief is minutes of GPU; an aider/prework/planner/brief process = skip, the old path runs);
+#   - OVN_BUG_BRIEF=off / OVN_BUG_LAZY_BRIEF=off / a missing ingest or `timeout`/`pgrep` => skip. Any failure leaves the single item exactly as it was.
+if [ "$_bg_on" = 1 ] && [ -z "$item_arg" ] && [ "${OVN_BUG_BRIEF:-on}" != off ] && [ "${OVN_BUG_LAZY_BRIEF:-on}" != off ] && [ -f qa/manual_notes_ingest.py ]; then
+  _bg_feat="$(printf '%s' "$item" | grep -oE '\[feat:[^]]+\]' | head -1 | sed -E 's/^\[feat://; s/\]$//')"
+  _bg_safe="$(printf '%s' "$_bg_feat" | tr -c 'A-Za-z0-9._-' '_')"
+  if [ -n "$_bg_feat" ] && ! printf '%s' "$item" | grep -qE '\(brief:[0-9]+/[0-9]+\)' \
+     && [ ! -f "state/bug_briefs/${_bg_safe}.json" ] && [ ! -f "state/bug_lazy/${_bg_safe}" ] \
+     && [ ! -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ]; then
+    _bg_id="$(python3 "$_bg_py" brief-id --ovn "$PWD" --feat "$_bg_feat" 2>/dev/null)"
+    if [ -z "$_bg_id" ]; then
+      say "lazy bug brief: skipped (no open manual_notes entry for $_bg_feat, or it was already briefed)"
+    elif ! command -v pgrep >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
+      say "lazy bug brief: skipped (pgrep/timeout unavailable - cannot check GPU contention)"
+    elif pgrep -f "${OVN_BUG_LAZY_BRIEF_BUSY_RE:-aider-venv/bin/aider|aider --yes-always|ovn_prework\.sh|ovn_planner\.sh|bug_brief\.py|manual_notes_ingest\.py (add|brief)}" >/dev/null 2>&1; then
+      say "lazy bug brief: skipped (another LLM consumer is active - GPU contention)"
+    else
+      mkdir -p state/bug_lazy; : > "state/bug_lazy/${_bg_safe}"
+      say "lazy bug brief: briefing $_bg_feat (entry $_bg_id) before the first attempt"
+      OVN_DIR="$PWD" timeout "${OVN_BUG_LAZY_BRIEF_TIMEOUT:-900}" python3 qa/manual_notes_ingest.py brief --id "$_bg_id" --force >> logs/bug_brief.log 2>&1
+      _bg_rc=$?
+      [ "$_bg_rc" = 124 ] && rm -f "state/bug_lazy/${_bg_safe}"      # timed out: allow ONE retry on the next first-attempt pick (marker lives outside the bug_briefs glob)
+      jlog "$(jq -nc --arg r "$RUNID" --arg f "$_bg_feat" --argjson rc "$_bg_rc" '{run:$r,event:"lazy_bug_brief",feat:$f,rc:$rc}')"
+      git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
+      if [ -f "state/bug_briefs/${_bg_safe}.json" ] && grep -q '"status": "ok"' "state/bug_briefs/${_bg_safe}.json" 2>/dev/null; then
+        git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null; _pick_item
+        [ -z "$item" ] && { say "lazy bug brief applied but nothing doable is left to pick"; exit 0; }
+        say "lazy bug brief applied (rc=$_bg_rc); re-picked: ${item:0:100}"
+        tier="$(printf '%s' "$item" | grep -oE '\[T[1-5]\]|·T[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"; tier="${tier:-3}"
+        _bg_on=0; ovn_is_manual_bug_text "$item" && _bg_on=1
+      else
+        say "lazy bug brief: no usable brief (rc=$_bg_rc) - continuing with the single item (see logs/bug_brief.log)"
+      fi
+    fi
+  fi
+fi
+
 # ---- worktree (all steps build on each other) ----
 git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
 wt="$(mktemp -d "/tmp/stage-${repo}.XXXX")"
@@ -316,6 +363,37 @@ done < <(find "$rd" -maxdepth 3 -name package.json -not -path '*/node_modules/*'
 # see Kotlin files exist when a doable item targets one). .swift deliberately NOT added — those
 # items are AUTO-SKIPped at the source (see ovn_swift_retag.py) since nothing here can verify them.
 layout="$(cd "$wt" && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' -o -name '*.kt' \) -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -100)"
+
+# (2026-10-03: moved above the decompose step so a bug whose plan was all 'no change required' can be counted too.)
+# stage_bug_attempt "<why>" - a staged run on a manual-test bug ($item) did NOT complete it. Never AUTO-SKIP a bug: count ONE attempt (state/item_fails/
+# stage-<repo>.<hash>.bugcount - the runner has no lane id; the sweep path runs no guard at all, so it must count itself) and at OVN_BUG_ATTEMPT_CAP
+# (default 2) escalate via ovn_bug_escalate ([CLAUDE] [bug-escalated: ...] + state/bug_escalations.jsonl + ONE relay note). Below the cap the line stays
+# OPEN so the next cycle retries. Journals a bug_attempt event: run_overnight.sh turns it into the 'bug-handled' status marker so the guard does not
+# double-count the cycle or bill it to another item. Caller already held the queue and reset $rd to origin/overnight/feature.
+stage_bug_attempt() {
+  local why="$1" h cap bc cf ln
+  h="$(ovn_item_hash "$item")"
+  cap="${OVN_BUG_ATTEMPT_CAP:-2}"; case "$cap" in ''|*[!0-9]*|0) cap=2;; esac
+  mkdir -p state/item_fails 2>/dev/null
+  cf="state/item_fails/stage-${repo}.${h}.bugcount"
+  bc=$(( $(cat "$cf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$bc" > "$cf"
+  jlog "$(jq -nc --arg r "$RUNID" --argjson b "$bc" --argjson c "$cap" '{run:$r,event:"bug_attempt",attempts:$b,cap:$c}')"
+  if [ "$bc" -ge "$cap" ]; then
+    ln="$(grep -nF -- "- [ ] ${item:0:55}" "$rd/OVERNIGHT_PROGRESS.md" | head -1 | cut -d: -f1)"
+    if [ -n "$ln" ] && command -v ovn_bug_escalate >/dev/null 2>&1; then
+      # 2026-10-03 (A8/BUG-9): the first compile/test error of this run + the run id travel with the escalation (jsonl row + relay body), so the Claude
+      # session that takes the bug can open the log; the old last_failure only said 'staged landed 0 of 2'.
+      local _verr _vl="${SLOG%.jsonl}.verify.log"
+      _verr="$(grep -m1 -E '^e: |Redeclaration|Unresolved reference|FAILED |QUALITY FAIL|SEMANTIC FAIL|error:|Error:' "$_vl" 2>/dev/null | sed -E 's#file://[^ ]*/##; s#://[^/ ]*@#://***@#g' | cut -c1-200)"
+      [ -n "$_verr" ] || _verr="$(jq -r 'select(.verdict=="fail") | .excerpt // empty' "$SLOG" 2>/dev/null | tail -1 | cut -c1-200)"
+      OVN_ESC_VERIFY_ERR="$_verr" OVN_ESC_RUN_ID="$RUNID" OVN_ESC_GIT_IDENTITY=fleet ovn_bug_escalate "$rd" "$rd/OVERNIGHT_PROGRESS.md" "$ln" "- [ ] $item" "$h" "stage-$repo" "$bc" "stage-runner: $why" "state" "${bc} failed attempts (cap ${cap})" "overnight/feature" | while IFS= read -r _l; do say "$_l"; done
+      rm -f "$cf"
+      [ -n "${_bg_plan_f:-}" ] && rm -f "$_bg_plan_f"      # the persisted first plan (A8) dies with the escalation
+    fi
+  else
+    say "manual bug NOT parked: staged attempt ${bc}/${cap} ($why) - line stays open for the next cycle"
+  fi
+}
 
 # ---- DECOMPOSE the item into ordered sub-steps (JSON) ----
 decompose(){ # $1=task text  -> writes JSON array of {desc,files[],verify} to stdout
@@ -386,12 +464,39 @@ try:
     a=json.loads(txt[i:j+1]) if i>=0 and j>i else []
     a=[s for s in a if isinstance(s,dict) and s.get('desc')]
     print(json.dumps(a[:$MAX_STEPS]))
-except Exception: print('[]')"
+except Exception: print('[]')" | _bg_filter
 }
+# 2026-10-03 (A8): on a manual bug, drop decomposed steps whose desc says 'no change required' / 'nothing to change' (the categories bug stored such a step
+# and the run "passed" it). The number dropped goes to $_bg_dropf so the caller can tell 'the model had nothing' from 'the LLM was down'.
+_bg_filter(){ if [ "$_bg_on" = 1 ]; then python3 "$_bg_py" filter-steps ${_bg_dropf:+--drop-file "$_bg_dropf"} 2>/dev/null; else cat; fi; }
 
-STEPS_JSON="$(decompose "$item")"
+# 2026-10-03 (A8): the plan used to be re-made by the model on EVERY attempt (3, 2, 4, 2, 1, 2 steps for the same bug), so attempt 2 never built on attempt 1.
+# A manual bug now persists its FIRST plan (state/bug_plans/<md5 of the item text>.json) and reuses it on the next attempt; removed on escalation / full pass.
+STEPS_JSON=""; _bg_reused=0
+if [ "$_bg_on" = 1 ]; then
+  _bg_dropf="$(mktemp)"; : > "$_bg_dropf"
+  _bg_plan_f="state/bug_plans/$(printf '%s' "$item" | md5sum | cut -d' ' -f1).json"
+  STEPS_JSON="$(python3 "$_bg_py" plan-load --file "$_bg_plan_f" 2>/dev/null | python3 "$_bg_py" filter-steps 2>/dev/null)"
+  if [ -n "$STEPS_JSON" ] && [ "$(printf '%s' "$STEPS_JSON" | jq 'length' 2>/dev/null || echo 0)" -ge 1 ] 2>/dev/null; then
+    _bg_reused=1; say "reusing the plan persisted by the first attempt ($(printf '%s' "$STEPS_JSON" | jq 'length') step(s))"
+  else STEPS_JSON=""; fi
+fi
+[ -n "$STEPS_JSON" ] || STEPS_JSON="$(decompose "$item")"
 NSTEPS="$(printf '%s' "$STEPS_JSON" | jq 'length' 2>/dev/null || echo 0)"
-if [ "${NSTEPS:-0}" -lt 1 ]; then say "decompose produced no steps — abort"; jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"decompose_failed\"}"; exit 1; fi
+if [ "${NSTEPS:-0}" -lt 1 ]; then
+  say "decompose produced no steps — abort"; jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"decompose_failed\"}"
+  # a bug whose every planned step was vacuous ('no change required') is the MODEL having nothing, not an outage: count it as an attempt (escalates at the cap)
+  if [ "$_bg_on" = 1 ] && [ "$(cat "$_bg_dropf" 2>/dev/null || echo 0)" -gt 0 ] 2>/dev/null; then
+    ./queue.sh hold "$repo" >/dev/null 2>&1
+    ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
+    stage_bug_attempt "plan had only 'no change required' steps"
+    ./queue.sh release "$repo" >/dev/null 2>&1
+  fi
+  [ -n "$_bg_dropf" ] && rm -f "$_bg_dropf"
+  exit 1
+fi
+[ -n "$_bg_dropf" ] && { rm -f "$_bg_dropf"; _bg_dropf=""; }
+[ "$_bg_on" = 1 ] && [ "$_bg_reused" = 0 ] && python3 "$_bg_py" plan-save --file "$_bg_plan_f" --plan-json "$STEPS_JSON" 2>/dev/null
 say "decomposed into $NSTEPS sub-steps"
 jlog "$(jq -nc --arg r "$RUNID" --arg repo "$repo" --argjson t "$tier" --arg it "$item" --argjson n "$NSTEPS" --argjson plan "$STEPS_JSON" '{run:$r,repo:$repo,tier:$t,item:$it,event:"decomposed",steps:$n,plan:$plan}')"
 
@@ -453,6 +558,13 @@ ${_tgtctx}
 --- end ---"
     fi
   fi
+  # 2026-10-03 (A8): real Kotlin definitions + the module's test dependencies for a Kotlin TEST step of a manual bug, and (after a rejected duplicate-type step)
+  # the real definition of the type the model tried to re-declare. Empty (=> the old prompt) unless _bg_on.
+  local _bgctx="" _bgre="" _bgdup=""
+  if [ "$_bg_on" = 1 ]; then
+    _bgctx="$(python3 "$_bg_py" kotlin-ctx --wt "$wt" --files "$files" --text "$desc $item" --desc "$desc" 2>/dev/null)"
+    [ -n "$_bgctx" ] && _bgctx=$'\n\n'"$_bgctx"
+  fi
   local slog="state/stage_runs/${repo}-${RUNID}-s${idx}.log"   # per-step aider session log for review
   # adaptive context: start rich (repo-map + architect + AGENTS.md), SHRINK if we blow the 27B window
   local mt=3072; local rdargs=(--read AGENTS.md); local archargs=(--architect --auto-accept-architect)
@@ -471,6 +583,7 @@ Make the minimal change to the named file(s), keep it compiling + all tests gree
 STEP: $desc
 VERIFY: $verify
 Make the minimal change to the named .gd file(s), valid Godot 4 that parses clean.${_tgtctx}"; fi
+    msg="${msg}${_bgctx}${_bgre}"
     # --no-auto-commits is CRITICAL: aider used to auto-commit each step, so by the time the post-gate
     # ran, git-diff was empty and ovn_autotest exited 0 WITHOUT testing anything (a T4 test with an
     # ImportError slipped through). Keeping the change uncommitted lets the scoped gate actually run the
@@ -513,6 +626,12 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       # when the worktree is genuinely unchanged. ($base == HEAD always holds here since nothing is
       # committed mid-attempt, so the old "$base" HEAD comparison was also always a no-op.)
       fa="no-edit"; rc=1
+    elif [ "$_bg_on" = 1 ] && _bgdup="$(python3 "$_bg_py" dupes --wt "$wt" 2>/dev/null)" && [ -n "$_bgdup" ]; then
+      # 2026-10-03 (A8): a NEW .kt file re-declaring a type that already exists (GroupedCategories.kt vs CategoryModels.kt, DiscoverModels.kt vs ChickadeeApi.kt)
+      # only surfaced as 'Redeclaration' at the final verify (a 15-25 min cycle). Reject it NOW and re-prompt with the real definition.
+      fa="duplicate-type"; rc=1; _bgre=$'\n\n'"$_bgdup"
+      excerpt="$(printf '%s' "$_bgdup" | head -1 | cut -c1-300)"
+      say "  step $idx REJECTED (duplicate type): ${excerpt:0:140}"
     else
       if ( cd "$wt" && bash "$HOME/overnight-queue/scripts/ovn_autotest.sh" "$wt" ) >> "$slog" 2>&1; then
         fa=""; rc=0
@@ -627,6 +746,20 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   # returned "verified" (2026-09-30 11:46-12:24: two red shrike-notify staged steps landed this way while the venv was broken).
   if [ -z "$vp" ] && [ "${OVN_VERIFY_FAIL_CLOSED:-1}" = 1 ] && find "$rd" -maxdepth 4 -path '*/tests/test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
     echo "-- python tests exist but no venv pytest found: CANNOT verify (fail-closed) --" >> "$vlog"; vok=0
+  fi
+  # LANDING GATES (2026-10-03): revision-less/placeholder alembic files + removed-but-still-imported requirements +
+  # clean-venv import of app.main (the iptv_apps 0011 stub / aiohttp prod-deploy incidents). Both helpers fail-safe:
+  # absent script or infra failure = no effect. The stub-drop runs first so an unfilled stub is deleted, not failed.
+  if [ -x scripts/ovn_alembic_autogen.sh ]; then
+    GIT_AUTHOR_NAME=shrike-fleet GIT_COMMITTER_NAME=shrike-fleet GIT_AUTHOR_EMAIL=22970726+markhint22@users.noreply.github.com \
+      GIT_COMMITTER_EMAIL=22970726+markhint22@users.noreply.github.com bash scripts/ovn_alembic_autogen.sh --drop-stubs "$wt" >> "$vlog" 2>&1
+  fi
+  if [ -f scripts/check_migrations.py ] && ! python3 scripts/check_migrations.py "$wt" >> "$vlog" 2>&1; then
+    echo "-- MIGRATION SAFETY FAIL (see above) --" >> "$vlog"; vok=0
+  fi
+  if [ -f scripts/lib_dep_import_check.py ]; then
+    python3 scripts/lib_dep_import_check.py gate --repo "$wt" --before "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" >> "$vlog" 2>&1 \
+      || { echo "-- DEP-IMPORT FAIL (see above) --" >> "$vlog"; vok=0; }
   fi
   # ANDROID (Gradle) — 2026-09-16 FIX: full_verify() had ZERO Kotlin/Android coverage, so a staged
   # multi-step item touching a .kt file got NO real re-check before being trusted/pushed — the
@@ -985,30 +1118,6 @@ fi
 qa_baseline_record "$VERIFIED"   # SHADOW only (QA S4): one paired row (baseline verdict vs the runner's final decision); no-op unless the first verify was red
 jlog "$(jq -nc --arg r "$RUNID" --argjson v "$VERIFIED" '{run:$r,event:"verify",verified:($v==1)}')"
 
-# stage_bug_attempt "<why>" - a staged run on a manual-test bug ($item) did NOT complete it. Never AUTO-SKIP a bug: count ONE attempt (state/item_fails/
-# stage-<repo>.<hash>.bugcount - the runner has no lane id; the sweep path runs no guard at all, so it must count itself) and at OVN_BUG_ATTEMPT_CAP
-# (default 2) escalate via ovn_bug_escalate ([CLAUDE] [bug-escalated: ...] + state/bug_escalations.jsonl + ONE relay note). Below the cap the line stays
-# OPEN so the next cycle retries. Journals a bug_attempt event: run_overnight.sh turns it into the 'bug-handled' status marker so the guard does not
-# double-count the cycle or bill it to another item. Caller already held the queue and reset $rd to origin/overnight/feature.
-stage_bug_attempt() {
-  local why="$1" h cap bc cf ln
-  h="$(ovn_item_hash "$item")"
-  cap="${OVN_BUG_ATTEMPT_CAP:-2}"; case "$cap" in ''|*[!0-9]*|0) cap=2;; esac
-  mkdir -p state/item_fails 2>/dev/null
-  cf="state/item_fails/stage-${repo}.${h}.bugcount"
-  bc=$(( $(cat "$cf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$bc" > "$cf"
-  jlog "$(jq -nc --arg r "$RUNID" --argjson b "$bc" --argjson c "$cap" '{run:$r,event:"bug_attempt",attempts:$b,cap:$c}')"
-  if [ "$bc" -ge "$cap" ]; then
-    ln="$(grep -nF -- "- [ ] ${item:0:55}" "$rd/OVERNIGHT_PROGRESS.md" | head -1 | cut -d: -f1)"
-    if [ -n "$ln" ] && command -v ovn_bug_escalate >/dev/null 2>&1; then
-      OVN_ESC_GIT_IDENTITY=fleet ovn_bug_escalate "$rd" "$rd/OVERNIGHT_PROGRESS.md" "$ln" "- [ ] $item" "$h" "stage-$repo" "$bc" "stage-runner: $why" "state" "${bc} failed attempts (cap ${cap})" "overnight/feature" | while IFS= read -r _l; do say "$_l"; done
-      rm -f "$cf"
-    fi
-  else
-    say "manual bug NOT parked: staged attempt ${bc}/${cap} ($why) - line stays open for the next cycle"
-  fi
-}
-
 # ---- push ONLY when independently verified ----
 ncommits=0
 if [ "$VERIFIED" = 1 ]; then
@@ -1057,7 +1166,7 @@ for i,ln in enumerate(lines):
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
   if [ "$_is_bug" = 1 ]; then
-    if [ "$passed" -ge "$NSTEPS" ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount"
+    if [ "$passed" -ge "$NSTEPS" ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
     else stage_bug_attempt "staged ${passed} of ${NSTEPS} landed"; fi
   fi
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {

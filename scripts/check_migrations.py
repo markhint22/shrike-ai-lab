@@ -12,6 +12,15 @@ Catches the two classes that crash-looped prod this session:
      its target id column is postgresql.UUID; Postgres rejects the FK
      (DatatypeMismatchError) at upgrade time. [gitlark: api_usage/notifications
      user_id String(36) -> users.id uuid]
+  3. REVISION-LESS FILE / UNFILLED PLACEHOLDER (2026-10-03) — a versions/*.py with no
+     `revision` identifier (e.g. the docstring-only stub run_overnight.sh commits before
+     implement, "Placeholder - the implement step fills in ...") makes alembic abort the
+     whole chain. [iptv_apps 0011_subscription_last_event_ms.py failed the Chickadee prod
+     deploy.] NOTE (iptv_apps/iptv-backend/start.sh, not edited here): start.sh runs
+     `alembic upgrade head` inside a heredoc python that catches CalledProcessError /
+     TimeoutExpired and prints "continuing startup", so a broken chain does NOT fail the
+     container or the Railway healthcheck - the app boots against an un-migrated schema.
+     That is why this must be caught statically before the merge.
 """
 import ast
 import os
@@ -55,6 +64,22 @@ def check_single_head(vdir, problems):
     heads = [r for r in revs if r not in downs]
     if len(heads) > 1:
         problems.append(f"{vdir}: MULTIPLE HEADS {sorted(heads)} — 'alembic upgrade head' will fail")
+
+
+PLACEHOLDER_MARKER = "Placeholder - the implement step fills in"
+
+
+def check_revision_ids(vdir, problems):
+    for f in sorted(os.listdir(vdir)):
+        if not f.endswith(".py") or f.startswith("__"):
+            continue
+        text = open(os.path.join(vdir, f), encoding="utf-8", errors="replace").read()
+        if PLACEHOLDER_MARKER in text and not rev_and_down(text)[0]:
+            problems.append(f"{vdir}/{f}: unfilled placeholder stub ('{PLACEHOLDER_MARKER}...') — "
+                            f"no revision identifiers, breaks 'alembic upgrade head'")
+        elif not rev_and_down(text)[0]:
+            problems.append(f"{vdir}/{f}: migration has no 'revision' identifier — "
+                            f"alembic cannot load it and the whole chain fails")
 
 
 def _type_str(node):
@@ -121,6 +146,7 @@ def main():
         return 0
     problems = []
     for vd in vdirs:
+        check_revision_ids(vd, problems)
         check_single_head(vd, problems)
         check_fk_types(vd, problems)
     if problems:

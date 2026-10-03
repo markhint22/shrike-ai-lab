@@ -434,7 +434,8 @@ ok("decide MISMATCH_DIVERGED", scm.decide("c" * 40, nd([dep("SUCCESS", ANC)]), l
 r = scm.decide(TIP, nd([dep("FAILED", TIP, "2026-10-01T11:00:00Z", "n"), dep("SUCCESS", ANC, "2026-10-01T10:00:00Z", "o")]), anc)
 ok("decide: latest deploy FAILED -> MISMATCH_FAILED naming the older build still served (the billwatch incident)", r[0] == "MISMATCH_FAILED" and r[2] == ANC, r)
 ok("decide: CRASHED counts as failed", scm.decide(TIP, nd([dep("CRASHED", TIP)]), anc)[0] == "MISMATCH_FAILED")
-ok("decide: building -> UNVERIFIED (retry later)", scm.decide(TIP, nd([dep("BUILDING", TIP)]), anc)[0] == "UNVERIFIED")
+ok("decide: the candidate's own deploy still building -> BUILDING (promote_gate holds; verdict stays UNVERIFIED)", scm.decide(TIP, nd([dep("BUILDING", TIP)]), anc)[0] == "BUILDING" and scm.VERDICT_OF["BUILDING"] == "UNVERIFIED")
+ok("decide: an unrelated in-flight deploy -> UNVERIFIED (retry later), never a hold", scm.decide(TIP, nd([dep("BUILDING", "e" * 40)]), lambda a, b: False)[0] == "UNVERIFIED")
 ok("decide: REMOVED/SKIPPED builds are never 'latest'", scm.decide(TIP, nd([dep("REMOVED", ANC, "2026-10-01T12:00:00Z"), dep("SUCCESS", TIP, "2026-10-01T10:00:00Z")]), anc)[0] == "MATCH")
 for bad in ("4", "bbb", "bbbbbb", "zzzzzzzz", "b" * 6):
     ok("decide: staging commit %r (too short/not hex) -> UNVERIFIED, never MATCH" % bad, scm.decide(TIP, nd([dep("SUCCESS", bad)]), anc)[0] == "UNVERIFIED", scm.decide(TIP, nd([dep("SUCCESS", bad)]), anc))

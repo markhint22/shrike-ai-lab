@@ -401,6 +401,8 @@ def derive_records(rows, existing_keys, claimed, stats=None):
                 st = r.get("status") or ""
                 flags = [n for n, pat in (("untested-change", "untested-change"), ("redgreen-suspect", "redgreen:SUSPECT"), ("after-rebase", "after-rebase"),
                                           ("stage", "stage(higher-tier)")) if pat in st]
+                if not mine and rd:   # 2026-10-03 (integrity A6): "landed" with NO commit in the window = a landing origin never received (or a bookkeeping-only row)
+                    flags.append("no-commit")
                 rc_, basis = risk_class(files, text, r.get("tier"), r.get("category"), [c["subject"] for c in mine])
                 out.append({"kind": "landed", "key": rkey(repo, r["ts"], r.get("id", ""), r.get("item_hash", "")), "ts": r["ts"], "epoch": e,
                             "repo": repo, "id": r.get("id", ""), "type": r.get("type", ""), "tier": str(r.get("tier", "?")),
@@ -415,6 +417,47 @@ def derive_records(rows, existing_keys, claimed, stats=None):
     for r in rows:
         prev[r["repo"]] = max(prev.get(r["repo"], 0), epoch(r["ts"]))
     return out, prev
+
+
+# ------------------------------------------------------------------ landed-without-commit alert
+NOCOMMIT_ALERT_MIN = 3
+
+
+def nocommit_repeats(recs):
+    """{(repo, item_hash): n} for item hashes landed >= NOCOMMIT_ALERT_MIN times where the record carries the no-commit flag (and a real hash)."""
+    c = {}
+    for r in recs:
+        if "no-commit" in r.get("flags", []) and r.get("item_hash"):
+            k = (r["repo"], r["item_hash"])
+            c[k] = c.get(k, 0) + 1
+    return {k: n for k, n in c.items() if n >= NOCOMMIT_ALERT_MIN}
+
+
+def alert_nocommit(recs):
+    """One alerts.log warn line per (repo, item hash) when its no-commit landing count first reaches NOCOMMIT_ALERT_MIN (and again at each further +3).
+    State: state/qa_ledger.nocommit_alerted.json. Returns the alert lines written. Never raises."""
+    sp = os.path.join(qc.state_dir(), "qa_ledger.nocommit_alerted.json")
+    done = read_json(sp, {})
+    done = done if isinstance(done, dict) else {}
+    lines = []
+    try:
+        for (repo, h), n in sorted(nocommit_repeats(recs).items()):
+            k = "%s|%s" % (repo, h)
+            if _is_int(done.get(k)) and n < done[k] + NOCOMMIT_ALERT_MIN:
+                continue
+            done[k] = n
+            lines.append("[%s] warn | qa-ledger:%s | item %s was recorded as landed %d times with NO commit reaching origin - the landing is not real "
+                         "(commit lost before push?); excluded from the escape-rate denominator" % (time.strftime("%Y-%m-%d %H:%M:%S"), repo, h[:12], n))
+        if lines:
+            os.makedirs(qc.state_dir(), exist_ok=True)
+            with open(os.path.join(qc.state_dir(), "alerts.log"), "a") as f:
+                f.write("\n".join(lines) + "\n")
+            with open(sp + ".tmp", "w") as f:
+                json.dump(done, f)
+            os.replace(sp + ".tmp", sp)
+    except OSError:
+        return []
+    return lines
 
 
 # ------------------------------------------------------------------ events
@@ -557,6 +600,7 @@ def cmd_derive(argv):
     new_recs, prev = derive_records(rows, existing, claimed, stats)
     append_lines(new_recs)
     recs += new_recs
+    nc_alerts = alert_nocommit(recs)
     new_evs = []
     scan_error = ""
     if "--no-events" not in argv:
@@ -575,7 +619,10 @@ def cmd_derive(argv):
         f.write(str(new_off))
     os.replace(p["cursor"] + ".tmp", p["cursor"])
     with_commits = sum(1 for r in new_recs if r["commits"])
-    summ = "outcomes+%d rows -> +%d landed (%d with commits) +%d events" % (len(rows), len(new_recs), with_commits, len(new_evs))
+    no_commit = sum(1 for r in new_recs if "no-commit" in r.get("flags", []))
+    summ = "outcomes+%d rows -> +%d landed (%d with commits, %d with NO commit) +%d events" % (len(rows), len(new_recs), with_commits, no_commit, len(new_evs))
+    if nc_alerts:
+        summ += "; ALERT: %d item(s) landed 3+ times with no commit" % len(nc_alerts)
     v = "PASS" if (new_recs or new_evs or not rows) else "NA"
     # a pass that could not check everything must say so: FLAG, never PASS
     if skipped:
@@ -586,7 +633,7 @@ def cmd_derive(argv):
         v = "FLAG"
         summ += "; EVENT SCAN FAILED (%s) - escape events were NOT updated this pass" % scan_error
     return qc.verdict(v, GATE, "*", "-", summ,
-                      {"rows": len(rows), "new_landed": len(new_recs), "new_landed_with_commits": with_commits,
+                      {"rows": len(rows), "new_landed": len(new_recs), "new_landed_with_commits": with_commits, "new_landed_no_commit": no_commit,
                        "new_events": len(new_evs), "ledger_records": len(recs), "skipped_rows": skipped, "bad_json": bad_json,
                        "malformed_rows": stats.get("malformed", 0), "failed_rows": stats.get("failed", 0), "event_scan_error": scan_error},
                       ms=int((time.time() - t0) * 1000))
@@ -648,7 +695,8 @@ def cmd_summary(argv):
     recs, evs = load_ledger()
     recs = [r for r in recs if not repo or r["repo"] == repo]
     return qc.verdict("PASS" if recs else "NA", GATE, repo or "*", "-", "%d landed records, %d events" % (len(recs), len(evs)),
-                      {"records": len(recs), "events": len(evs), "with_commits": sum(1 for r in recs if r["commits"])})
+                      {"records": len(recs), "events": len(evs), "with_commits": sum(1 for r in recs if r["commits"]),
+                       "no_commit": sum(1 for r in recs if "no-commit" in r.get("flags", []))})
 
 
 def main(argv):

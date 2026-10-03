@@ -10,6 +10,11 @@
 #     auto-fix isn't working -> stop churning, log a deeper-dive snapshot, and send a 🆘
 #     human-escalation ntfy (see "what if the fix fails" below).
 #
+# 2026-10-03 (A10): (1) Railway STAGING services are watched too (key *-staging, alert-only: no fix is enqueued from here);
+# (2) a FAILED staging OR prod deploy now pushes an EMERGENCY (Priority urgent => relay class "emergency") and writes ONE
+# alerts.log line, deduped per (repo, env, deploy sha) - before this the only signal was a model-fix enqueue at 09:20 and a "high" note the relay buffers;
+# (3) ripple/social-media-manager removed (discontinued 2026-09-09; task-manager was already gone).
+#
 # Non-fleet repos (task-manager, ripple, website) can't be auto-fixed by the 27B, so a
 # failure there ntfys as a human task instead of enqueuing a phantom item.
 #
@@ -54,6 +59,14 @@ alert(){
   curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
   command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${topic_repo}_deploy" "$1" "$2" "$3"
 }
+# alert_ok: same as alert() but returns 0 only when the push really went out (curl rc), so callers can write dedupe markers after success.
+alert_ok(){
+  local topic_repo="${4:-${repo:-queue}}" prio="${5:-default}" rc=0
+  [ "$DRYRUN" = 1 ] && { echo "  [ntfy] $1 :: $3" ; return 0; }
+  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || rc=$?
+  command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${topic_repo}_deploy" "$1" "$2" "$3"
+  return $rc
+}
 log(){ echo "$(date '+%F %T') $*"; }
 hc(){ curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null; }
 
@@ -83,8 +96,10 @@ gitlark-backend|gitlark|gitlark backend|railway|a6a9ae6b-8df9-4d05-8169-25bf13d9
 billwatch-frontend|billwatch|billwatch frontend|vercel|billwatch|https://billwatch.vercel.app|1
 chickadee-frontend|iptv_apps|chickadee frontend|vercel|chickadee|https://chickadeestream.com|1
 gitlark-frontend|gitlark|gitlark frontend|vercel|gitlark|https://gitlark.vercel.app|1
-ripple-frontend|social-media-manager|ripple frontend|vercel|social-media-manager|https://ripple-production.vercel.app|0
 website|shrike-labs-website|shrike website|vercel|shrike-labs-website|https://shrikelabs.dev|0
+billwatch-staging|billwatch|billwatch STAGING backend|railway|38d377fc-d005-41fc-9675-e84659ef7ce1:staging:31f8e4dd-5827-48a8-9d36-d09dc6ce64c2|https://billwatch-staging.up.railway.app/health|0
+chickadee-staging|iptv_apps|chickadee STAGING backend|railway|5adaa84c-5dd0-40ee-8265-deb5870ee87e:staging:58dcc554-8c73-4fa1-8c0f-653de8f31784|https://chickadeestream-backend-staging.up.railway.app/health|0
+gitlark-staging|gitlark|gitlark STAGING backend|railway|a6a9ae6b-8df9-4d05-8169-25bf13d92293:staging:de12ff53-2434-4b7e-8a32-eb77e02c14dd|https://gitlark-staging.up.railway.app/health|0
 "
 
 command -v railway >/dev/null 2>&1 || { log "FATAL: railway CLI not on PATH"; exit 1; }
@@ -95,9 +110,9 @@ command -v vercel  >/dev/null 2>&1 || log "WARN: vercel CLI not on PATH — fron
 # linked against the same project from LocalProjects/<repo> (config.json keys links by cwd).
 RWCWD="$STATE/.railway-cwd"; mkdir -p "$RWCWD"
 
-# ---- provider status: echoes "STATUS<TAB>DEPLOY_ID"  (STATUS in FAILED|OK|INPROGRESS|UNKNOWN) ----
+# ---- provider status: echoes "STATUS<TAB>DEPLOY_ID<TAB>COMMIT_SHA"  (STATUS in FAILED|OK|INPROGRESS|UNKNOWN; sha may be empty) ----
 railway_stat(){ # $1=project_id:environment_id:service_id
-  local pid eid sid raw did st
+  local pid eid sid raw did st sha
   IFS=':' read -r pid eid sid <<<"$1"
   ( cd "$RWCWD" || exit 0
     railway link --project "$pid" --environment "$eid" --service "$sid" >/dev/null 2>&1 || { echo "UNKNOWN	"; exit 0; }
@@ -110,7 +125,11 @@ except Exception: print("")' 2>/dev/null)"
 try:
     d=json.load(sys.stdin); print(d[0]["status"] if d else "")
 except Exception: print("")' 2>/dev/null)"
-    case "$st" in FAILED|CRASHED) echo "FAILED	$did";; SUCCESS) echo "OK	$did";; BUILDING|DEPLOYING|INITIALIZING|QUEUED) echo "INPROGRESS	$did";; *) echo "UNKNOWN	$did";; esac )
+    sha="$(printf '%s' "$raw" | python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin); print(((d[0].get("meta") or {}).get("commitHash") or "")[:40] if d else "")
+except Exception: print("")' 2>/dev/null)"
+    case "$st" in FAILED|CRASHED) echo "FAILED	$did	$sha";; SUCCESS) echo "OK	$did	$sha";; BUILDING|DEPLOYING|INITIALIZING|QUEUED) echo "INPROGRESS	$did	$sha";; *) echo "UNKNOWN	$did	$sha";; esac )
 }
 vercel_stat(){ # $1=project
   command -v vercel >/dev/null 2>&1 || { echo "UNKNOWN	"; return; }
@@ -160,13 +179,26 @@ enqueue_fix(){ # $1=repo $2=surface-label $3=item-text  -> 0 ok
   # [ ] newlines) word-split/globbed and the enqueue crashed ("enqueue errored", 2026-09-04). base64
   # is single-line + shell-safe on both sides; the remote decodes it back to the exact bytes.
   local item_b64; item_b64="$(printf '%s' "$3" | base64 | tr -d '\n')"
+  ENQ_BUSY=0
   ssh -o ConnectTimeout=15 -o BatchMode=yes "$SRV" REPO="$1" SVC="$2" ITEM_B64="$item_b64" ENQ="$ENQ_REMOTE" 'bash -s' <<'REMOTE'
 set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 ITEM="$(printf '%s' "$ITEM_B64" | base64 -d)"
+# 2026-10-03 (integrity A6): skip-if-busy. The reset below discards unpushed local commits, so never run it while a cycle / stage runner is in
+# flight for this repo (exit 75 = busy, the caller retries on a later pass). Lib missing => old behaviour.
+. "$HOME/overnight-queue/scripts/lib_run_integrity.sh" 2>/dev/null || true
+# HOLD FIRST (stops NEW cycles starting for this repo, closing the check-then-hold race), THEN wait a bounded time for an in-flight cycle to finish
+# instead of skipping outright: the emergency fix is queued on the first pass in the common case. Still busy after the wait => release + exit 75.
 ./queue.sh hold "$REPO" >/dev/null 2>&1 || true
 cleanup(){ cd "$HOME/overnight-queue" && ./queue.sh release "$REPO" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
+if declare -F ovn_ri_cycle_active >/dev/null 2>&1; then
+  _w=0
+  while ovn_ri_cycle_active "$HOME/overnight-queue/state" "$REPO"; do
+    [ "$_w" -ge "${OVN_ENQ_BUSY_WAIT_SEC:-240}" ] && { echo busy; exit 75; }
+    sleep 10; _w=$((_w + 10))
+  done
+fi
 cd "repos/$REPO" || exit 1
 git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature || exit 1
 python3 "$HOME/overnight-queue/$ENQ" OVERNIGHT_PROGRESS.md "$SVC" "$ITEM" || exit 1
@@ -176,6 +208,35 @@ git commit -q -m "chore(queue): 🚨 auto-enqueue emergency deploy-fix for $REPO
 git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
 echo enqueued
 REMOTE
+  local _rc=$?
+  [ "$_rc" = 75 ] && ENQ_BUSY=1
+  return "$_rc"
+}
+
+# emergency_failed <key> <repo> <label> <sha> <deploy-id> <err>: push ONE emergency + write ONE alerts.log line per (repo, env, deploy sha) (2026-10-03, A10).
+# env = staging for *-staging keys, else prod. Dedupe key falls back to the deploy id when the provider gives no commit (vercel). Priority urgent (prod) / high (staging);
+# so the relay (NTFY_SERVER -> ovn_notify.py classify(): priority urgent == emergency) pushes it at once; the alerts.log line goes to the box (best-effort ssh) and to
+# $STATE/alerts.log. A redeploy of the SAME broken sha (new deploy id) does not re-page; the per-id handling below still runs for the fix enqueue.
+emergency_failed(){
+  local key="$1" r="$2" lbl="$3" sha="$4" id="$5" e="$6" envn=prod ident marker line
+  case "$key" in *-staging) envn=staging;; esac
+  ident="${sha:-$id}"; ident="${ident//[^A-Za-z0-9._-]/_}"
+  marker="$STATE/emerg_${r}_${envn}_${ident:0:40}"
+  [ -e "$marker" ] && { log "$key: emergency already sent for ${ident:0:10}"; return 0; }
+  line="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR | deploy-watch | $r $envn deploy FAILED (sha ${ident:0:10}, deploy ${id:0:8}): ${e:0:160}"
+  if [ "$DRYRUN" = 1 ]; then echo "  [alerts.log] $line"; elif [ ! -e "$marker.alog" ]; then
+    : > "$marker.alog"   # alerts.log line once per (repo, env, sha) even while the push below is being retried
+    echo "$line" >> "$STATE/alerts.log"
+    local b64; b64="$(printf '%s' "$line" | base64 | tr -d '\n')"   # base64: no shell-special chars survive the remote re-parse (see enqueue_fix)
+    ssh -n -o ConnectTimeout=10 -o BatchMode=yes "$SRV" "mkdir -p ~/overnight-queue/state; echo '$b64' | base64 -d >> ~/overnight-queue/state/alerts.log; echo >> ~/overnight-queue/state/alerts.log" >/dev/null 2>&1 </dev/null || true
+  fi
+  # the dedupe marker is written ONLY after the push succeeded (a transient network failure must not swallow the one urgent page; the next run retries).
+  # staging failures page at "high" (promote gate already holds the repo; the fleet merges into develop hourly), prod failures stay "urgent".
+  local prio=urgent; [ "$envn" = staging ] && prio=high
+  if alert_ok "🚨 $envn deploy FAILED: $lbl" "rotating_light" "$lbl: the latest $envn deploy FAILED (sha ${ident:0:10}). The $envn env is serving the previous build. ${e:0:160}" "$r" "$prio"; then
+    [ "$DRYRUN" = 1 ] || : > "$marker"
+  else log "$key: emergency push FAILED (will retry next run; no dedupe marker written)"; fi
+  log "$key: EMERGENCY pushed ($envn, ${ident:0:10})"
 }
 
 # ---- main sweep ----
@@ -183,8 +244,8 @@ while IFS='|' read -r key repo label provider target health fleet; do
   [ -z "${key// /}" ] && continue        # skip blank lines (read line-by-line; fields contain spaces)
   if suppressed "$key"; then log "$key: suppressed (human-gated, see alert_suppress.txt)"; continue; fi
   case "$provider" in
-    railway) read -r st did <<<"$(railway_stat "$target")";;
-    vercel)  read -r st did <<<"$(vercel_stat "$target")";;
+    railway) IFS=$'\t' read -r st did sha <<<"$(railway_stat "$target")";;
+    vercel)  sha=""; read -r st did <<<"$(vercel_stat "$target")";;
     *) continue;;
   esac
   st="${st:-UNKNOWN}"
@@ -213,7 +274,7 @@ while IFS='|' read -r key repo label provider target health fleet; do
 
   if [ "$st" = OK ]; then
     if [ -f "$idf" ]; then          # we'd acted on a failure -> report the RESULT
-      atts="$(cat "$atf" 2>/dev/null || echo 0)"; rm -f "$idf" "$atf"
+      atts="$(cat "$atf" 2>/dev/null || echo 0)"; rm -f "$idf" "$atf" "$STATE/$key.busy"
       code="$(hc "$health")"
       if [ "$code" = 200 ] || [ "$code" = 307 ]; then
         alert "✅ Deploy recovered: $label" "white_check_mark" "$label recovered — deploy is healthy and /health returns HTTP $code (after $atts fix attempt(s)). Auto-heal worked." "" "low"
@@ -231,6 +292,8 @@ while IFS='|' read -r key repo label provider target health fleet; do
   case "$provider" in railway) IFS=$'\x1f' read -r tfile err <<<"$(railway_err "$target" "$did")";; vercel) IFS=$'\x1f' read -r tfile err <<<"$(vercel_err "$did")";; esac
   [ -n "$err" ] || err="(no error captured — inspect the $provider deploy $did)"
   echo "$did" > "$idf"; echo "$atts" > "$atf"
+  emergency_failed "$key" "$repo" "$label" "${sha:-}" "$did" "$err"
+  case "$key" in *-staging) log "$key: FAILED ($did) — staging, alert-only (promote gate holds the repo; no fix enqueued from here)"; continue;; esac
 
   if [ "$atts" -ge "$MAX_ATTEMPTS" ]; then
     # auto-fix exhausted -> deeper-dive snapshot + human escalation, stop churning
@@ -263,8 +326,19 @@ while IFS='|' read -r key repo label provider target health fleet; do
       log "$key: FAILED ($did) attempt $atts -> WOULD enqueue fix into $repo"
       alert "🚨 Deploy failed: $label" "rotating_light" "$label deploy FAILED — auto-fix queued (attempt $atts/$MAX_ATTEMPTS). ${err:0:180}" "" "high"
     elif enqueue_fix "$repo" "$key" "$item"; then
-      log "$key: FAILED ($did) -> enqueued fix (attempt $atts)"
+      log "$key: FAILED ($did) -> enqueued fix (attempt $atts)"; rm -f "$STATE/$key.busy"
       alert "🚨 Deploy failed: $label" "rotating_light" "$label deploy FAILED — auto-fix queued into the overnight queue (attempt $atts/$MAX_ATTEMPTS). ${err:0:180}" "" "high"
+    elif [ "${ENQ_BUSY:-0}" = 1 ]; then
+      # a cycle stayed in flight for $repo past the bounded wait: nothing was enqueued, so un-mark this deploy as handled and give the attempt back -
+      # the next pass retries. NEVER silent: alert on the first busy skip for this deploy, and escalate at the 4th consecutive one (~1h+).
+      log "$key: FAILED ($did) - fleet cycle in flight for $repo, enqueue skipped (retry next pass)"; rm -f "$idf"; echo $((atts - 1)) > "$atf"
+      bf="$STATE/$key.busy"; bn=0; [ "$(head -1 "$bf" 2>/dev/null | cut -d' ' -f1)" = "$did" ] && bn="$(head -1 "$bf" | cut -d' ' -f2)"
+      bn=$(( ${bn:-0} + 1 )); echo "$did $bn" > "$bf"
+      if [ "$bn" = 1 ]; then
+        alert "🚨 Deploy failed: $label" "rotating_light" "$label PRODUCTION deploy FAILED. The auto-fix is NOT queued yet (a fleet cycle is busy on $repo); retrying every pass. ${err:0:160}" "" "high"
+      elif [ "$bn" = 4 ]; then
+        alert "🚨 Deploy failed, fix still not queued: $label" "rotating_light" "$label deploy FAILED and the fleet has been busy on $repo for $bn consecutive passes - the auto-fix is still not queued. Check it by hand. ${err:0:140}" "" "urgent"
+      fi
     else
       log "$key: FAILED but enqueue errored"
       alert "⚠️ deploy_watch couldn't enqueue $label" "warning" "$label deploy FAILED and the auto-fix couldn't be injected (ssh/git). Check /tmp/deploy_watch.log." "" "high"

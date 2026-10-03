@@ -44,7 +44,7 @@ def sh(cmd, cwd=None, env=None):
 _n = [0]
 
 
-def mkrepo(before, after):
+def mkrepo(before, after, msg="after"):
     """Create a repo with two commits (before, after). Values None in `after` delete the file. Returns repo name."""
     _n[0] += 1
     name = "r%d" % _n[0]
@@ -65,7 +65,7 @@ def mkrepo(before, after):
             os.makedirs(os.path.dirname(full), exist_ok=True)
             open(full, "w").write(txt)
             g("add", path)
-    g("commit", "-q", "-m", "after")
+    g("commit", "-q", "-m", msg)
     return name
 
 
@@ -88,8 +88,8 @@ def rules(res):
     return {f["rule"] for f in res.get("details", {}).get("findings", [])}
 
 
-def case(name, before, after, want_verdict, want_rule=None, forbid_rule=None):
-    r = mkrepo(before, after)
+def case(name, before, after, want_verdict, want_rule=None, forbid_rule=None, msg="after"):
+    r = mkrepo(before, after, msg)
     res = run_gate(r)
     good = res["verdict"] == want_verdict and (want_rule is None or want_rule in rules(res)) and (forbid_rule is None or forbid_rule not in rules(res))
     ok(name, good, "verdict=%s rules=%s %s" % (res["verdict"], sorted(rules(res)), res.get("summary", "")[:120]))
@@ -337,12 +337,16 @@ ok("test file over the blob cap -> UNVERIFIED not PASS/false deletion", res["ver
 
 # 2. vacuous assertions in new / edited tests
 VB = {"tests/test_v.py": "def test_ok():\n    assert 1 == 1\n"}
-def vac(name, body, rule="A_VACUOUS_ASSERT"):
-    case(name, VB, {"tests/test_v.py": "def test_ok():\n    assert 1 == 1\n\n\n" + body}, "FLAG", rule)
-vac("new test with assertTrue(True) -> FLAG", "def test_new(self):\n    self.assertTrue(True)\n")
-vac("new test with `assert 1` -> FLAG", "def test_new():\n    assert 1\n")
-vac("new test with `assert x or not x` -> FLAG", "def test_new():\n    x = f()\n    assert x or not x\n")
-vac("new test with try: assert / except AssertionError: pass -> FLAG", "def test_new():\n    try:\n        assert 1 == 2\n    except AssertionError:\n        pass\n")
+def vac(name, body, rule="A_VACUOUS", sev="FAIL"):
+    case(name, VB, {"tests/test_v.py": "def test_ok():\n    assert 1 == 1\n\n\n" + body}, sev, rule)
+# 2026-10-03: a NEW test whose ONLY assertions are tautologies is A_VACUOUS (FAIL; 3/3 true positives in the shadow data)
+vac("new test with assertTrue(True) -> FAIL A_VACUOUS", "def test_new(self):\n    self.assertTrue(True)\n")
+vac("new test with `assert 1` -> FAIL A_VACUOUS", "def test_new():\n    assert 1\n")
+vac("new test with `assert x or not x` -> FAIL A_VACUOUS", "def test_new():\n    x = f()\n    assert x or not x\n")
+vac("new test with try: assert / except AssertionError: pass -> FAIL A_VACUOUS", "def test_new():\n    try:\n        assert 1 == 2\n    except AssertionError:\n        pass\n")
+# ... while a real assertion next to a stray tautology stays the weaker FLAG
+vac("new test with a real assertion plus a stray `assert True` -> FLAG A_VACUOUS_ASSERT (NOT the FAIL rule)",
+    "def test_new():\n    assert f(2) == 4\n    assert True\n", rule="A_VACUOUS_ASSERT", sev="FLAG")
 case("assert foo() == 1 -> assert foo() == foo() -> FLAG A_ASSERT_WEAKENED (exact value became self-comparison)", {"tests/test_v.py": "def test_ok():\n    assert foo() == 1\n"},
      {"tests/test_v.py": "def test_ok():\n    assert foo() == foo()\n"}, "FLAG", "A_ASSERT_WEAKENED")
 case("emptied pytest.raises body (bar() -> pass) -> FLAG",
@@ -377,6 +381,62 @@ res = case("secret-looking literals are never echoed in evidence", {"app/s.py": 
 ok("redaction: the long literal is not in the JSON output", SECRET not in json.dumps(res))
 res = run_gate(mkrepo({"app/big.py": "x = 1\n"}, {"app/big.py": "x = 1\n" + "".join("def f%d():\n    return %d\n" % (i, i) for i in range(2000))}))
 ok("large diff stays fast (<5 s) and PASSes", res["verdict"] == "PASS" and (res["ms"] or 0) < 5000, str(res["ms"]))
+
+
+# ---- 2026-10-02: a raise that MOVED into a helper defined elsewhere in the same change is delegated, not dropped (real FP: billwatch get_current_user) ----
+AUTH_BEFORE = ("from fastapi import HTTPException\n\n\ndef check_user_active(user):\n    if not user.is_active:\n        raise HTTPException(status_code=401, detail='inactive')\n\n\n"
+               "def get_current_user(user):\n    if user is None:\n        raise HTTPException(status_code=401, detail='nope')\n    if not user.is_active:\n        raise HTTPException(status_code=401, detail='inactive')\n    return user\n")
+AUTH_AFTER = ("from fastapi import HTTPException\nfrom app.core.dependencies import check_user_active\n\n\n"
+              "def get_current_user(user):\n    if user is None:\n        raise HTTPException(status_code=401, detail='nope')\n    check_user_active(user)\n    return user\n")
+DEPS = "from fastapi import HTTPException\n\n\ndef check_user_active(user):\n    if not user.is_active:\n        raise HTTPException(status_code=401, detail='inactive')\n"
+case("C: raise moved into a helper defined in another file of the same change -> NOT flagged C_VALIDATION_REMOVED",
+     {"app/auth.py": AUTH_BEFORE, "app/core/dependencies.py": "X = 1\n"}, {"app/auth.py": AUTH_AFTER, "app/core/dependencies.py": DEPS}, "PASS", forbid_rule="C_VALIDATION_REMOVED")
+case("C: NEGATIVE CONTROL - raise deleted while an UNRELATED raising helper is added in another file (never called) still FLAGs",
+     {"app/bank.py": VAL, "app/other.py": "X = 1\n"},
+     {"app/bank.py": VAL.replace("    if amt > bal:\n        raise ValueError('insufficient')\n", ""), "app/other.py": "def unrelated(v):\n    if v:\n        raise ValueError('x')\n"},
+     "FLAG", "C_VALIDATION_REMOVED")
+
+# ---- 2026-10-02: refs missing from the live clone are fetched from origin before giving up (8/65 real runs were UNVERIFIED 'cannot resolve ref') ----
+_src = mkrepo({"app/a.py": "def f():\n    return 1\n"}, {"app/a.py": "def f():\n    return 2\n"})
+_srcd = os.path.join(REPOS, _src)
+_bare = os.path.join(T, "origin.git")
+sh(["git", "clone", "-q", "--bare", _srcd, _bare])
+_live = os.path.join(REPOS, "livecopy")
+sh(["git", "clone", "-q", _bare, _live])
+sh(["git", "-C", _srcd, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"])
+open(os.path.join(_srcd, "app", "a.py"), "w").write("def f():\n    return 3\n")
+sh(["git", "-C", _srcd, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "three"])
+sh(["git", "-C", _srcd, "push", "-q", _bare, "HEAD:refs/heads/master"])
+_h = sh(["git", "-C", _srcd, "rev-parse", "HEAD"])[1].strip(); _b = sh(["git", "-C", _srcd, "rev-parse", "HEAD~1"])[1].strip()
+res = run_gate("livecopy", base=_b, head=_h, env={"QA_FETCH_WAIT": "0"})
+ok("refs only on origin (not yet in the live clone) are fetched -> PASS, not UNVERIFIED", res["verdict"] == "PASS", str(res.get("verdict")) + " " + str(res.get("summary"))[:120])
+res = run_gate("livecopy", base="0" * 40, head="1" * 40, env={"QA_FETCH_WAIT": "0"})
+ok("refs that exist nowhere stay UNVERIFIED after the fetch attempt", res["verdict"] == "UNVERIFIED", str(res.get("verdict")))
+
+
+# ---- 2026-10-02: F_CLAIM_TEST_ONLY - a feat/fix/perf/refactor commit that changes only tests (iptv limiter incident) ----
+LIM_SRC = "def make():\n    return 1\n"
+LIM_T0 = "def test_a():\n    assert make() == 1\n"
+LIM_T1 = "def test_a():\n    assert make() == 1\n\n\ndef test_b():\n    assert make() is not None\n"
+case("F: 'fix: respect env var' that changes ONLY a test file -> FLAG F_CLAIM_TEST_ONLY (iptv limiter incident)",
+     {"app/limiter.py": LIM_SRC, "tests/test_limiter.py": LIM_T0}, {"tests/test_limiter.py": LIM_T1}, "FLAG", "F_CLAIM_TEST_ONLY",
+     msg="fix: respect RATE_LIMIT_ENABLED env var in limiter initialization")
+case("F: subject that says it is a test change is honest -> NOT flagged",
+     {"app/limiter.py": LIM_SRC, "tests/test_limiter.py": LIM_T0}, {"tests/test_limiter.py": LIM_T1}, "PASS", forbid_rule="F_CLAIM_TEST_ONLY",
+     msg="fix: update limiter test to match default behavior")
+case("F: fix touching source AND test -> NOT flagged",
+     {"app/limiter.py": LIM_SRC, "tests/test_limiter.py": LIM_T0}, {"app/limiter.py": LIM_SRC.replace("1", "2"), "tests/test_limiter.py": LIM_T1}, "PASS",
+     forbid_rule="F_CLAIM_TEST_ONLY", msg="fix: respect env var")
+case("F: test:-prefixed test-only commit -> NOT flagged",
+     {"app/limiter.py": LIM_SRC, "tests/test_limiter.py": LIM_T0}, {"tests/test_limiter.py": LIM_T1}, "PASS", forbid_rule="F_CLAIM_TEST_ONLY", msg="test: add limiter coverage")
+case("F: pipeline staged step (test-first scaffolding) that only adds tests -> NOT flagged",
+     {"app/limiter.py": LIM_SRC, "tests/test_limiter.py": LIM_T0}, {"tests/test_limiter.py": LIM_T1}, "PASS", forbid_rule="F_CLAIM_TEST_ONLY",
+     msg="feat(billwatch): staged step 0 \u2014 Add check_user_active function to app/core/dependencies.py")
+case("F: CamelCase test class in the subject (honest test fix) -> NOT flagged",
+     {"app/limiter.py": LIM_SRC, "tests/test_limiter.py": LIM_T0}, {"tests/test_limiter.py": LIM_T1}, "PASS", forbid_rule="F_CLAIM_TEST_ONLY",
+     msg="fix(android): correct Response import in FavoritesRepositoryTest")
+case("F: docs-only 'fix:' commit -> NOT flagged (not this rule's business)",
+     {"README.md": "a\n", "app/limiter.py": LIM_SRC}, {"README.md": "b\n"}, "NA", forbid_rule="F_CLAIM_TEST_ONLY", msg="fix: correct the readme")
 
 shutil.rmtree(T, ignore_errors=True)
 print("\nantigaming tests: %d passed, %d failed" % (P, F))

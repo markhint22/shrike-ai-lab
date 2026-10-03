@@ -114,3 +114,17 @@ Rule: when the gate cannot check something it says UNVERIFIED/FLAG, never PASS.
 - staging_smoke: the target host must end in `.up.railway.app` AND contain `staging` (credentials are sent there); a PASS says "staging BACKEND only".
 - CORS note: an `allow-origin: *` answer to an arbitrary origin is accepted (fine for bearer-token APIs, no cookies); only an exact reflection fails.
 - Known/accepted: MATCH_SUPERSET is PASS (smoke covers it); billwatch smoke auto-registers `qa-smoke@shrikelabs.dev` on staging even with --no-record.
+
+
+## Promote integration (2026-10-02, qa/h4-promotegate)
+`qa/promote_gate.py` (promote-time candidate + staging verdict, used by `promote_to_prod.sh`), the staging-evidence gate (default shadow, `enforce` blocks only an explicit FAIL, one repo only) and the
+release-branch flow (`OVN_RELEASE_FLOW=on`, default OFF) are described in `qa/patches/daily_promote_release_flow.md` (header + section 8). Test: `scripts/test/test_promote_gate.sh`.
+
+## 2026-10-03 hold-back fixes (diagnosis F2)
+
+* `baseline` rows of `kind: staged_shadow` are ignored when looking for failing commits. Their `ref` is the clone HEAD at the time of the staged run (a queue bookkeeping
+  commit such as "chore(queue): auto-refill"), and the failure they record was reverted or later verified, so the failing diff is never on develop. 4 of 4 sampled hold-backs
+  on 2026-10-03 were this.
+* FAIL rows are never expired by age (an unfixed defect stays in main..develop). Opt-in only: `QA_RELEASE_FAIL_MAX_AGE_H=<hours>` (default 0 = off); a row with no parsable `ts` is always kept.
+* ALL reasons are printed for a commit that cannot be the candidate (not green + does not contain main + every gate/sha with a FAIL in its range), in
+  `details.skipped[].reason`, `details.held_back[].reason` and the FLAG summary (`| reasons: <sha>: ...`). The one real FAIL used to be hidden behind the first reason.

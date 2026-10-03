@@ -352,6 +352,23 @@ ok("leak check: a note containing the label's file stem is rejected", ev.leaks("
    ev.leaks("the CountriesFilterRow is broken", ["a/CountriesFilterRow.kt"]) is True and ev.leaks("see CountriesFilterRow.kt", ["a/CountriesFilterRow.kt"]) is True)
 
 # ---------------------------------------------------------------------------------------------------------------- hung model (reviewer blocking issue)
+# ------------------------------------------------------------------------------------------------------------------ det-top preference (2026-10-03, A8)
+print("== deterministic top beats a clearly weaker agentic pick")
+CC = "iptv-android/app/src/main/java/com/c/ui/channel/ChannelCard.kt"
+mw = Stub(queries=[{"q": "countries", "regex": False}], picks=[{"path": CC, "reason": "card with download/record buttons"}])
+os.environ.pop("OVN_LOCATOR_DET_MARGIN", None)
+r = mn.locate_v2(CLONE, REF, N2, "Home Page Countries Filter", platform="android", use_model=True, model_fn=mw, repo_name="fx")
+ok("model picks a weak file => the deterministic top (a located, higher-scored file) is the primary, the model's pick is demoted to 'also'",
+   r["ranked_by"] == "agentic" and r["candidates"][0]["path"] == HS and CC in r["also"] and "det_override" in r, (r["candidates"][:2], r["also"], r.get("det_override")))
+os.environ["OVN_LOCATOR_DET_MARGIN"] = "off"
+mw = Stub(queries=[{"q": "countries", "regex": False}], picks=[{"path": CC, "reason": "card with download/record buttons"}])
+r = mn.locate_v2(CLONE, REF, N2, "Home Page Countries Filter", platform="android", use_model=True, model_fn=mw, repo_name="fx")
+ok("OVN_LOCATOR_DET_MARGIN=off restores the old behaviour (the model's pick stays primary)", r["candidates"][0]["path"] == CC and "det_override" not in r, (r["candidates"][:2], r.get("det_override")))
+os.environ.pop("OVN_LOCATOR_DET_MARGIN", None)
+ms = Stub(queries=[{"q": "countries", "regex": False}], picks=[{"path": HS, "reason": "renders the filter row"}])
+r = mn.locate_v2(CLONE, REF, N2, "Home Page Countries Filter", platform="android", use_model=True, model_fn=ms, repo_name="fx")
+ok("benign: the model agrees with the deterministic top => nothing is overridden", r["candidates"][0]["path"] == HS and "det_override" not in r, (r["candidates"][:2], r.get("det_override")))
+
 print("== hung model")
 import socket, threading, time as _time
 

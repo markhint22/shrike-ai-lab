@@ -116,6 +116,7 @@ ovn_auto_credit() {
   [ -f "$prog" ] || return 0
   local changed items bad n ln tgt cf norm res ticked_lines="" indet_lines="" indet_msgs="" _t0=$SECONDS _budget
   # visible to shadow_check through bash dynamic scope; every other caller of shadow_check keeps the 60s default
+  local _VC_MEMO="" _VC_MEMO_ON=1   # identical VERIFY commands run once per call (lib_verify_clause.sh)
   local VERIFY_TIMEOUT_SECS="${OVN_AC_VERIFY_TIMEOUT:-300}" VERIFY_TIMEOUT_HEAVY_SECS="${OVN_AC_VERIFY_TIMEOUT_HEAVY:-900}"
   _budget="${OVN_AC_VERIFY_BUDGET:-2400}"; OVN_AC_INDETERMINATE=0
 

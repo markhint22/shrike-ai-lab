@@ -17,6 +17,9 @@ Box side of the manual-notes loop (the Mac side is scripts/qa-notes-bridge.sh). 
          new item hash => the loop's per-item counters start at zero). Fed by scripts/qa-retest -> the bridge. Statuses: open, fixed (awaiting
          your retest), escalated (fleet gave up after 2 attempts -> '[CLAUDE] [bug-escalated: ..]', see state/bug_escalations.jsonl),
          needs-human, needs-triage, closed.
+  close  --id ID --by COMMIT   (2026-10-03) an interactive Claude fix landed: entry -> fixed (awaiting retest), its progress lines -> [x]. The sweep also
+         honors a 'Fixes-manual-bug: <feat|id>' commit trailer reachable from develop/main/claude/feature. reopen --id ID: re-queue a wrongly credited bug.
+         'fixed' by the fleet now needs a landed commit on the located file + a real (non-tautological) test (OVN_MANUAL_FIX_EVIDENCE=off = old behavior).
   brief  [--id ID] [--force]   (2026-10-02) research + plan + decompose the claimed bug(s) into a test-first brief of single-file steps and replace the
          single item with them (qa/bug_brief.py; kill switch OVN_BUG_BRIEF=off). `add` marks the entry brief:pending and spawns this detached; the sweep
          retries leftovers. A failed / invalid / slow brief leaves the single item exactly as enqueued.
@@ -540,6 +543,17 @@ def _cand(path, score, evidence, matched, located=True, role=None):
     return d
 
 
+def det_margin():
+    """OVN_LOCATOR_DET_MARGIN: how much more evidence the deterministic top must have to beat the agentic primary (None = feature off)."""
+    v = os.environ.get("OVN_LOCATOR_DET_MARGIN", "1.0").strip().lower()
+    if v in ("off", "no", "none", "false"):
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        return 1.0
+
+
 def locate_v2(rp, ref, note, flow, platform=None, use_model=True, model_fn=None, repo_name=""):
     """Platform-aware, product-only, agentic locator. -> {"status": "located"|"needs-triage", "candidates": [...], "also": [paths],
     "platform", "platform_source", "ranked_by", "agentic": {...}|None, "model_calls": n, "platform_candidates": {...}, "all", "keywords"}.
@@ -624,6 +638,17 @@ def locate_v2(rp, ref, note, flow, platform=None, use_model=True, model_fn=None,
                     picked.insert(0, _cand(gr, 3.0, "search hits", [], True, "primary"))
             for c in picked[1:]:
                 c["role"] = "also"
+            # 2026-10-03 (A8/BUG-6): the model may OVERRIDE the deterministic ranking, but not with a pick that has clearly less evidence than the
+            # deterministic top (the categories bug: the locator dropped its top file for a data-model file and the plan then said 'no change required').
+            # The deterministic top wins when it is located and out-scores the agentic primary by more than OVN_LOCATOR_DET_MARGIN (default 1.0; 'off' = never).
+            dm = det_margin()
+            det_top = next((c for c in ranked if c["located"]), None)
+            if dm is not None and picked and det_top and picked[0]["path"] != det_top["path"]:
+                agent_score = byp[picked[0]["path"]]["score"] if picked[0]["path"] in byp else 0.0
+                if det_top["score"] - agent_score > dm:
+                    demoted = picked[0]
+                    picked = [dict(det_top, role="primary"), dict(demoted, role="also")] + [c for c in picked[1:] if c["path"] != det_top["path"]]
+                    out["det_override"] = "kept deterministic top %s (%.2f) over agentic %s (%.2f)" % (det_top["path"], det_top["score"], demoted["path"], agent_score)
             seen = {c["path"] for c in picked}
             for c in ranked:
                 if len(picked) >= 3:
@@ -1393,13 +1418,241 @@ def classify_lines(lines):
     return "fixed", "checked off [x] by the fleet"
 
 
+# ----------------------------------------------------------------------------------------------------------------------
+# fix evidence (2026-10-03, A7-2): '[x]' on the queue line is NOT proof. The closed-captions bug was reported 'fixed' to Mark on the strength of a
+# 0-byte test file and then `assert(true)` ("placeholder"); no commit ever touched the located source file. 'fixed' now needs a landed commit
+# that touched the located file (or an 'also look at' file) AND a landed test that really asserts something about the bug.
+# ----------------------------------------------------------------------------------------------------------------------
+ASSERT_CALL_RE = re.compile(r"\b(?:assert\w*|expect|verify|require|check|should\w*|XCTAssert\w*|Assert\.\w+|assertThat)\s*\(|^\s*assert\s+\S|\bexpect\s*\(|\.should\b|\bassert\w*\s*\{", re.I)
+VACUOUS_ASSERT_RES = [
+    re.compile(r"\bassert\w*\s*\(\s*(?:true|True|1)\s*[,)]", re.I),          # assert(true), assertTrue(true), assertTrue(true, "msg")
+    re.compile(r"^\s*assert\s+(?:True|true|1)\s*(?:#.*)?$"),                      # python: assert True
+    re.compile(r"\bassert\w*\s*\(\s*(?:\"[^\"]*\"\s*,\s*)?(\w+)\s*,\s*\1\s*\)", re.I),   # assertEquals(x, x)
+    re.compile(r"\bassert\w*\s*\(\s*\"[^\"]*\"\s*,\s*(?:true|1)\s*\)", re.I),         # assertTrue("msg", true)
+    re.compile(r"\bassert\w*\s*\(\s*(?:\"[^\"]*\"\s*,\s*)?(\"[^\"]*\"|'[^']*'|-?\d+(?:\.\d+)?)\s*,\s*\1\s*\)", re.I),   # assertEquals("a", "a") / (1, 1)
+    re.compile(r"\bassertFalse\s*\(\s*(?:\"[^\"]*\"\s*,\s*)?false\s*\)|\bassertNull\s*\(\s*(?:\"[^\"]*\"\s*,\s*)?null\s*\)", re.I),
+    re.compile(r"\b(?:check|require)\s*\(\s*true\s*\)", re.I),
+    re.compile(r"\bexpect\s*\(\s*(?:true|1)\s*\)\s*\.\s*(?:toBe|toEqual|toBeTruthy)\s*\(\s*(?:true|1)?\s*\)", re.I),
+]
+PLACEHOLDER_RE = re.compile(r"placeholder|to ensure the file is not empty|TODO:? *(?:write|add|implement) *(?:a )?test", re.I)
+KEYWORD_MIN_WEIGHT = 3.0
+
+
+def real_test_lines(added_text):
+    """Non-vacuous assertion lines in the ADDED text of ONE test file ([] when the file is a placeholder or only asserts tautologies)."""
+    if PLACEHOLDER_RE.search(added_text or ""):
+        return []
+    out = []
+    for ln in (added_text or "").split("\n"):
+        if not ASSERT_CALL_RE.search(ln):
+            continue
+        if any(r.search(ln) for r in VACUOUS_ASSERT_RES):
+            continue
+        out.append(ln.strip())
+    return out
+
+
+def _test_path(path):
+    return bool(TEST_PATH.search(path))
+
+
+def fix_evidence(rp, ref, e):
+    """-> (True|False|None, why). True = a landed commit touched the located file AND a landed test really asserts something that references the
+    bug; False = checked off without that; None = could not check (git/infra problem or no located file) - the caller keeps the old verdict."""
+    if os.environ.get("OVN_MANUAL_FIX_EVIDENCE", "").lower() == "off":
+        return None, "evidence check off"
+    targets = [x for x in [e.get("path")] + list(e.get("also") or []) if x]
+    if not targets:
+        return None, "no located file to check"
+    since = float(e.get("enqueued_at") or e.get("created") or 0) - 5       # commit times are whole seconds, enqueued_at is not
+    rc, out, err = git(rp, "log", "-n", "2000", "--since=@%d" % int(since), "--format=@@%H %ct", "--name-only", ref, timeout=120)
+    if rc != 0:
+        return None, "git log failed: %s" % err.strip()[:100]
+    commits, cur = [], None
+    for ln in out.split("\n"):
+        if ln.startswith("@@"):
+            sha, ct = ln[2:].split(" ")
+            cur = {"sha": sha, "ct": float(ct), "files": []}
+            commits.append(cur)
+        elif ln.strip() and cur is not None:
+            cur["files"].append(ln.strip())
+    commits = [c for c in commits if c["ct"] >= since]
+    src = [c for c in commits if any(f in targets for f in c["files"])]
+    if not src:
+        return False, "checked off, but no landed commit touched %s" % targets[0]
+    stems = {os.path.splitext(os.path.basename(t))[0].lower() for t in targets if not _test_path(t)}
+    stems = {x for x in stems if len(x) >= 4}
+    kws = set()
+    for k in extract_keywords(e.get("note", ""), e.get("flow", "")):
+        if k["weight"] >= KEYWORD_MIN_WEIGHT:
+            kws.update(v.lower() for v in k["variants"])
+    for c in commits:
+        for f in c["files"]:
+            if not _test_path(f):
+                continue
+            rc, diff, _ = git(rp, "show", "-U0", "--format=", c["sha"], "--", f, timeout=60)
+            if rc != 0:
+                continue
+            added = "\n".join(l[1:] for l in diff.split("\n") if l.startswith("+") and not l.startswith("+++"))
+            if not real_test_lines(added):
+                continue
+            low = added.lower() + " " + f.lower()
+            if any(x in low for x in stems) or any(k in low for k in kws):
+                return True, "commit %s touched %s; test %s asserts it" % (c["sha"][:8], targets[0], f)
+    return False, "checked off, but no landed test with a real assertion references the bug (placeholder / tautology / no test)"
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# close / reopen / 'Fixes-manual-bug:' trailer (2026-10-03, A7-4/A7-5): an interactive Claude fix must retire the notes entry AND its progress lines
+# (the h7 fixes were merged 10-02 20:33; the fleet re-attempted all three overnight because nothing told it).
+# ----------------------------------------------------------------------------------------------------------------------
+TRAILER_RE = re.compile(r"^Fixes-manual-bug:[ \t]*(.+?)[ \t]*$", re.I | re.M)
+CLOSABLE_STATES = OPEN_STATES + ("escalated", "needs-human")
+
+
+def close_progress_lines(text, feat, sha):
+    """Flip every open '- [ ]' line carrying [feat:<feat>] to '- [x]' with a pointer to the fixing commit. Idempotent."""
+    tag = "[feat:%s]" % feat
+    out, n = [], 0
+    for ln in text.split("\n"):
+        if tag in ln and re.match(r"^\s*- \[ \] ", ln):
+            ln = re.sub(r"^(\s*)- \[ \] ", r"\1- [x] ", ln, count=1) + " (closed: fixed by Claude %s, Fixes-manual-bug)" % sha[:12]
+            n += 1
+        out.append(ln)
+    return "\n".join(out), ("closed %d line(s)" % n) if n else "skip: no open line for the tag"
+
+
+def _feat_base(f):
+    return re.sub(r"\.r\d+$", "", f or "")
+
+
+def entry_matches_ref(e, ref):
+    r = (ref or "").strip().strip("[]").lower()
+    r = re.sub(r"^feat:", "", r)
+    if not r:
+        return False
+    return r in (e["feat"].lower(), _feat_base(e["feat"]).lower(), e["id"].lower()) or (len(r) >= 6 and e["id"].lower().startswith(r))
+
+
+def apply_close(e, repo, rp, sha, now, reason=None):
+    """Mark ONE entry fixed-awaiting-retest by commit `sha` and retire its progress lines. Caller holds the StateLock. -> (ok, message)."""
+    ok_, msg = True, "no clone"
+    if rp:
+        ok_, msg = edit_progress(repo, rp, lambda t: close_progress_lines(t, e["feat"], sha),
+                                 "chore(queue): close manual-test bug %s (fixed by %s)" % (e["feat"], sha[:12]))
+    if not ok_:
+        return False, msg
+    e["status"] = "fixed"
+    e["status_reason"] = reason or ("fixed by Claude commit %s (awaiting your retest)" % sha[:12])
+    e["closed_by"] = sha
+    e["updated"] = now
+    e["notified"] = list(set(e.get("notified", [])) | {"fixed"})          # Mark knows (he asked for the fix); no 'fleet says it landed' relay note
+    return True, msg
+
+
+def trailer_fixes(rp):
+    """-> [(sha, commit_time, [refs])] for commits on develop / main / claude/feature / the fleet branch whose message carries 'Fixes-manual-bug:'."""
+    refs = []
+    for b in ("develop", "main", "claude/feature", OVN_BRANCH):
+        git(rp, "fetch", "-q", "origin", b, timeout=120)
+        rc, _, _ = git(rp, "rev-parse", "--verify", "-q", "origin/%s^{commit}" % b)
+        if rc == 0:
+            refs.append("origin/%s" % b)
+    if not refs:
+        return []
+    rc, out, _ = git(rp, "log", "-n", "300", "-i", "--grep=^Fixes-manual-bug:", "--format=%H%x1f%ct%x1f%B%x1e", *refs, timeout=120)
+    if rc != 0:
+        return []
+    res = []
+    for rec in out.split("\x1e"):
+        if "\x1f" not in rec:
+            continue
+        sha, ct, body = rec.strip().split("\x1f", 2)
+        vals = []
+        for m in TRAILER_RE.finditer(body):
+            vals += [v for v in re.split(r"[,\s]+", m.group(1)) if v]
+        if vals:
+            res.append((sha, float(ct), vals))
+    return res
+
+
+def _find_entry(st, ident, repo=""):
+    ident = (ident or "").strip()
+    hits = [e for e in st["entries"].values() if (not repo or e["repo"] == repo) and (e["id"].startswith(ident) or entry_matches_ref(e, ident))]
+    return hits
+
+
+def cmd_close(args):
+    with StateLock():
+        st = load_state()
+        hits = _find_entry(st, args.id, args.repo)
+        if len(hits) != 1:
+            print("ERROR: %s entries match '%s' (give a longer id prefix, or --repo)" % (len(hits), args.id))
+            return 2
+        e = hits[0]
+        rc, full, _ = git(repo_path(e["repo"]) or ".", "rev-parse", "--verify", "-q", args.by + "^{commit}")
+        sha = full.strip() if rc == 0 and full.strip() else args.by
+        ok_, msg = apply_close(e, e["repo"], repo_path(e["repo"]), sha, time.time(), reason=args.reason or None)
+        if not ok_:
+            print("ERROR: could not retire the progress lines (%s); entry left as %s" % (msg, e["status"]))
+            return 1
+        release_lanes(st)
+        save_state(st)
+        print("CLOSED id=%s repo=%s status=%s by=%s (%s)" % (e["id"], e["repo"], e["status"], sha[:12], msg))
+        return 0
+
+
+def cmd_reopen(args):
+    """Re-queue an entry the pipeline (or a Claude session) wrongly counted as done: a fresh [feat:...rN] tag => fresh attempt counters."""
+    with StateLock():
+        st = load_state()
+        hits = _find_entry(st, args.id, args.repo)
+        if len(hits) != 1:
+            print("ERROR: %s entries match '%s' (give a longer id prefix, or --repo)" % (len(hits), args.id))
+            return 2
+        e = hits[0]
+        rp = repo_path(e["repo"])
+        if not rp or not e.get("item") or not e.get("feat"):
+            print("ERROR: entry %s has no clone or stored queue item to reopen" % e["id"])
+            return 3
+        n = int(e.get("retest_count", 0)) + 1
+        old, base = e["feat"], _feat_base(e["feat"])
+        newfeat = "%s.r%d" % (base, n)
+        item = e["item"].replace("[feat:%s]" % old, "[feat:%s]" % newfeat)
+        why = "REOPENED %s%s: the earlier credit was not backed by a real fix. Earlier attempts are in the git log under feat tag %s - read them first, do NOT repeat the same change." % (
+            args.date or time.strftime("%Y-%m-%d"), (" (%s)" % sanitize_note(args.reason)[:120]) if args.reason else "", base)
+        item = item.replace(" First write a failing test", " " + why + " First write a failing test", 1) if " First write a failing test" in item else item.rstrip() + " " + why
+        if args.dry_run:
+            print("DRY-RUN reopen id=%s feat=%s\n  item: %s" % (e["id"], newfeat, item))
+            return 0
+        now = time.time()
+        e.setdefault("feat_history", []).append(old)
+        e["retest_count"] = n
+        e["item"], e["feat"] = item, newfeat
+        e["notified"] = []
+        e["updated"] = now
+        e["status_reason"] = "reopened (%s)" % (args.reason or "credit not backed by a fix")
+        e.pop("lane_released", None)
+        e.pop("closed_by", None)
+        ok_, msg = enqueue(e["repo"], rp, item)
+        e["enqueue_result"] = msg
+        if ok_:
+            e["status"], e["enqueued_at"] = "open", now
+            maybe_enable_lane(e["repo"], e)
+        else:
+            e["status"] = "pending-enqueue"
+        save_state(st)
+        print("REOPENED id=%s repo=%s status=%s feat=%s attempts=reset" % (e["id"], e["repo"], e["status"], e["feat"]))
+        return 0
+
+
 def cmd_sweep(args):
     changed = 0
     with StateLock():
         st = load_state()
         by_repo = {}
         for e in st["entries"].values():
-            if e["status"] in OPEN_STATES:
+            if e["status"] in CLOSABLE_STATES:          # escalated / needs-human entries are only visited for a 'Fixes-manual-bug:' trailer
                 by_repo.setdefault(e["repo"], []).append(e)
         for repo, es in by_repo.items():
             rp = repo_path(repo)
@@ -1407,6 +1660,23 @@ def cmd_sweep(args):
                 log("%s: clone missing, skipping" % repo)
                 continue
             rc, _, err = git(rp, "fetch", "-q", "origin", OVN_BRANCH, timeout=120)
+            try:
+                fixes = trailer_fixes(rp) if rc == 0 else []
+            except Exception as ex:  # noqa: BLE001
+                log("%s: trailer scan failed (%s) - skipped" % (repo, type(ex).__name__))
+                fixes = []
+            for e in es:
+                if e["status"] == "pending-enqueue":
+                    continue
+                since = float(e.get("enqueued_at") or e.get("created") or 0) - 60
+                hit = next(((sha, ct) for sha, ct, vals in fixes if ct >= since and any(entry_matches_ref(e, v) for v in vals)), None)
+                if hit:
+                    ok_, msg = apply_close(e, repo, rp, hit[0], time.time())
+                    log("%s: %s closed by 'Fixes-manual-bug' commit %s (%s)" % (repo, e["id"], hit[0][:12], msg))
+                    changed += 1 if ok_ else 0
+            es = [x for x in es if x["status"] in OPEN_STATES]
+            if not es:
+                continue
             ref = ref_for(rp)
             if rc != 0 or not ref:
                 log("%s: fetch failed (%s) - leaving statuses as they are" % (repo, err.strip()[:100]))
@@ -1441,6 +1711,12 @@ def cmd_sweep(args):
                         status, why = "needs-human", "item vanished from the queue (retired or removed); re-log it if still broken"
                     else:
                         continue
+                if status == "fixed" and e["status"] != "fixed":
+                    verdict, ev = fix_evidence(rp, ref, e)       # '[x]' alone is not proof (A7-2)
+                    if verdict is False:
+                        status, why = "needs-human", ev
+                    elif verdict is True:
+                        why = "checked off [x] by the fleet; " + ev
                 if status != e["status"]:
                     e["status"] = status
                     e["status_reason"] = why
@@ -1628,9 +1904,22 @@ def main(argv=None):
     r.add_argument("--note-b64", default="")
     r.add_argument("--note", default="")
     r.add_argument("--dry-run", action="store_true")
+    c = sub.add_parser("close", help="an interactive Claude fix landed: mark the entry fixed-awaiting-retest and retire its progress lines")
+    c.add_argument("--id", required=True, help="entry id (prefix) or its feat tag")
+    c.add_argument("--by", required=True, help="the fixing commit")
+    c.add_argument("--repo", default="")
+    c.add_argument("--status", default="awaiting-retest", choices=["awaiting-retest"])
+    c.add_argument("--reason", default="")
+    o = sub.add_parser("reopen", help="re-queue an entry that was credited without a real fix (fresh attempt counters)")
+    o.add_argument("--id", required=True)
+    o.add_argument("--repo", default="")
+    o.add_argument("--date", default="")
+    o.add_argument("--reason", default="")
+    o.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
     try:
-        return {"add": cmd_add, "sweep": cmd_sweep, "list": cmd_list, "retest": cmd_retest, "brief": cmd_brief}[args.cmd](args)
+        return {"add": cmd_add, "sweep": cmd_sweep, "list": cmd_list, "retest": cmd_retest, "brief": cmd_brief, "close": cmd_close,
+                "reopen": cmd_reopen}[args.cmd](args)
     except TimeoutError as ex:
         print("ERROR: %s" % ex)
         return 1

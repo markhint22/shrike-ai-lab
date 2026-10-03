@@ -9,15 +9,16 @@ step 'stage-unverified' and discards finished work. This library stores the red-
     preexisting   = failing now, also in the baseline         -> tolerated
     fixed         = in the baseline, passing now
 
-Verdicts: PASS (no new failures, even if pre-existing red remains) | FAIL (new failures, or a non-baselineable gate failure such
-as QUALITY/SEMANTIC FAIL) | UNVERIFIED (could not tell: no/expired baseline AND failures present, truncated/unparseable log,
-runner failed for an unparseable reason). Never a guess. Library + CLI only - NOT wired into any runner.
+Verdicts: PASS (no new failures, even if pre-existing red remains) | FAIL (new failures vs a live baseline; a bare non-baselineable gate
+failure such as QUALITY/SEMANTIC FAIL is NA since 2026-10-03: the runner already enforces it) | UNVERIFIED (could not tell: no/expired baseline AND failures present, truncated/unparseable log,
+runner failed for an unparseable reason). Never a guess. Library + CLI; wired into ovn_stage_runner.sh in SHADOW only (2026-10-02, see baseline.README.md).
 
 CLI (one JSON line on stdout, exit 0 always; mode via qa_common.mode("baseline")):
   baseline_verify.py snapshot --repo R --failing-file F [--format auto|pytest|vitest|gradle|gut|verify-log|ids]
                               [--commit SHA] [--source TAG] [--accept-growth]
   baseline_verify.py compare  --repo R --failing-file F [--format ...] [--base-sha S] [--runner-failed]
   baseline_verify.py refresh  --repo R [--ref origin/overnight/feature]   (python/pytest repos: run suite in a worktree + snapshot)
+  baseline_verify.py shadow-log --repo R --result-file F --runner-decision verified|not_verified --run ID   (staged-runner hook: one paired row)
   baseline_verify.py show     --repo R
   baseline_verify.py parse    --failing-file F [--format ...]              (debug: print parsed ids)
   baseline_verify.py replay   --logs-dir D [--days N] [--out FILE]         (historical estimate over state/stage_runs)
@@ -581,7 +582,14 @@ def compare_sets(parsed, bl, runner_failed=False, now=None, changed_files=None, 
         base_ids = set(cur["failing"]) if cur else set()
         d["new_failures"] = sorted(ids - base_ids)
         d["preexisting"] = sorted(ids & base_ids)
-        return "FAIL", "non-baselineable gate failure: " + "; ".join(hard[:2]), d
+        d["runner_enforced"] = hard[:10]
+        # 2026-10-03 (diagnosis F3): all 17 baseline FAILs just echoed the runner's own QUALITY/SEMANTIC FAIL, which it already enforces (the staged
+        # runner reverted/repaired those), so the FAIL carried no independent signal and polluted release_candidate. Only what THIS gate alone can
+        # know - NEW failing tests vs a live baseline - may FAIL; a bare runner-enforced gate failure is NA (still listed in details).
+        if cur is not None and d["new_failures"]:
+            return "FAIL", "%d NEW failing test(s) vs baseline (%d pre-existing tolerated); the runner also reports: %s" % (
+                len(d["new_failures"]), len(d["preexisting"]), "; ".join(hard[:1])), d
+        return "NA", "runner-enforced gate failure (%s): not repeated here, the baseline gate adds no independent signal" % "; ".join(hard[:2]), d
     if not ids:
         if runner_failed:
             return "UNVERIFIED", "runner reported failure but no failing test ids could be parsed (infra/format?) - not guessing", d
@@ -628,7 +636,7 @@ class _JsonArgParser(argparse.ArgumentParser):
 
 def _parse_args(argv):
     ap = _JsonArgParser(prog="baseline_verify.py", add_help=False, allow_abbrev=False)
-    ap.add_argument("cmd", choices=["snapshot", "compare", "refresh", "show", "parse", "replay"])
+    ap.add_argument("cmd", choices=["snapshot", "compare", "refresh", "show", "parse", "replay", "shadow-log"])
     ap.add_argument("--repo")
     ap.add_argument("--failing-file")
     ap.add_argument("--format", default="auto")
@@ -646,6 +654,10 @@ def _parse_args(argv):
     ap.add_argument("--out")
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--no-record", action="store_true")
+    ap.add_argument("--result-file", help="shadow-log: the JSON line `compare --no-record` printed")
+    ap.add_argument("--runner-decision", default="", help="shadow-log: what the staged runner finally decided (verified|not_verified)")
+    ap.add_argument("--run", default="", help="shadow-log: staged run id")
+    ap.add_argument("--label", default="", help="shadow-log: which full_verify call (first)")
     ap.add_argument("--worktree", default="", help="checkout of the change under test (lets the gate run bash -n on skipped shell stages)")
     return ap.parse_args(argv)
 
@@ -736,13 +748,52 @@ def cmd_refresh(a):
         rc, out, err = qc.run([vp, "-q", "-o", "addopts=", "-p", "no:cacheprovider"], cwd=cwd, timeout=a.timeout)
     if rc == 124:
         return _v("UNVERIFIED", a.repo, a.ref, "suite timed out after %ss; baseline not updated" % a.timeout)
-    parsed = parse_pytest(out, prefix="[%s] " % pkg if pkg != "." else "")
+    # 2026-10-02: ALWAYS prefix "[pkg] ", including "." for a repo-root venv: parse_verify_log() labels the section "-- pytest FULL in . --" and
+    # prefixes its ids "[.] ", so an unprefixed refresh set would never match a single id at compare time (every red id would read as NEW).
+    parsed = parse_pytest(out, prefix="[%s] " % pkg)
     status, info = snapshot_set(a.repo, parsed, sha.strip(), "deterministic:refresh", a.accept_growth)
     if status.startswith("stored"):
         return _v("PASS", a.repo, a.ref, "refreshed baseline %s (%d red ids)" % (status, info["count"]), dict(info, status=status))
     if status == "growth_pending":
         return _v("FLAG", a.repo, a.ref, "GROWTH ALERT on refresh: +%d red ids" % len(info["added"]), dict(info, status=status))
     return _v("UNVERIFIED", a.repo, a.ref, "refresh refused (%s): %s" % (status, info.get("why", "")), dict(info, status=status))
+
+
+def _trim(v, n=50):
+    return v[:n] if isinstance(v, list) else v
+
+
+def cmd_shadow_log(a):
+    """Append ONE row to state/qa_shadow/baseline.jsonl pairing the baseline verdict (the JSON `compare --no-record` printed for the
+    staged runner's FIRST red full_verify, passed via --result-file) with what the runner ACTUALLY decided at the end of its verify flow
+    (--runner-decision verified|not_verified; it may differ from the first call: try_regen / repair rounds can turn a red run green).
+    The row is the canonical gate row (ts/gate/repo/verdict/mode/summary/details) plus: run, label, kind, runner{first,final},
+    would_have_rescued (baseline says no NEW failure = verdict PASS), real_rescue (would_have_rescued AND the runner finally rejected),
+    n_new/n_pre and trimmed new_failures/preexisting. Missing/unparseable result file => an UNVERIFIED row (never silence, never a guess)."""
+    res, why = None, ""
+    try:
+        res = json.loads(_read(a.result_file))
+        if not isinstance(res, dict) or res.get("verdict") not in qc.VERDICTS:
+            res, why = None, "result file is not a gate verdict"
+    except (OSError, ValueError, TypeError) as ex:
+        why = "result file unreadable: %s" % type(ex).__name__
+    final = a.runner_decision if a.runner_decision in ("verified", "not_verified") else "unknown"
+    if res is None:
+        row = _v("UNVERIFIED", a.repo, a.base_sha, "baseline comparison unavailable (%s) - hook error swallowed, runner unaffected" % why)
+    else:
+        row = dict(res)
+        row["details"] = dict(res.get("details") or {})
+        for k in ("new_failures", "preexisting", "fixed", "masked_risk", "hard_failures"):
+            if k in row["details"]:
+                row["details"][k] = _trim(row["details"][k])
+    det = (res or {}).get("details") or {}
+    nf, pre = det.get("new_failures"), det.get("preexisting")
+    rescue = bool(res and res.get("verdict") == "PASS")
+    row.update({"kind": "staged_shadow", "run": a.run, "label": a.label or "first", "runner": {"first": "not_verified", "final": final},
+                "would_have_rescued": rescue, "real_rescue": rescue and final == "not_verified",
+                "n_new": len(nf) if isinstance(nf, list) else None, "n_pre": len(pre) if isinstance(pre, list) else None,
+                "new_failures": _trim(nf), "preexisting": _trim(pre)})
+    return row
 
 
 def cmd_show(a):
@@ -927,12 +978,14 @@ def main(argv=None):
 
     def fn(av):
         a = _parse_args(av)
-        if a.cmd in ("snapshot", "compare", "refresh", "show"):
+        if a.cmd in ("snapshot", "compare", "refresh", "show", "shadow-log"):
             if not a.repo:
                 return _v("UNVERIFIED", "?", "", "--repo required")
             _safe_repo(a.repo)
         return {"snapshot": cmd_snapshot, "compare": cmd_compare, "refresh": cmd_refresh, "show": cmd_show, "parse": cmd_parse,
-                "replay": cmd_replay}[a.cmd](a)
+                "replay": cmd_replay, "shadow-log": cmd_shadow_log}[a.cmd](a)
+    if argv[:1] == ["shadow-log"] and qc.mode(GATE) == "off":
+        argv.append("--no-record")  # mode=off (qa_mode.sh rollback): compute nothing durable, write no row
     return qc.main_guard(GATE, fn, argv)
 
 

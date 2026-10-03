@@ -63,6 +63,7 @@ registered=0; skipped=0; failed=0
 while IFS='|' read -r key repo label provider target health fleet; do
   [ -z "${key// /}" ] && continue
   is_discontinued "$repo" && { echo "skip (discontinued repo $repo): $label"; continue; }
+  case "$key" in *-staging) continue;; esac   # 2026-10-03: deploy_watch.sh also watches Railway STAGING deploys (alert-only); those are not live uptime surfaces
   name="$label"
   if printf '%s\n' "$existing_names" | grep -qxF "$name"; then
     echo "skip (already registered): $name"

@@ -8,6 +8,7 @@ usage:
   gate_scanners.py check    --repo R --base REF --head REF [--tools a,b] [--baseline auto|stored|base|none] [--timeout S]
                             [--no-record] [--enforce-exit]
   gate_scanners.py baseline --repo R --ref REF [--tools a,b] [--timeout S]
+  gate_scanners.py selftest [--tools a,b]      seeded-positive replay (secret / vulnerable pin / bandit B602): per-seed caught/missed + recall
 
 Only findings NOT present in the baseline count. Fingerprint = tool + rule + file + normalized text of the flagged line
 (stable across line shifts); comparison is a multiset (a bad line copied twice is one new finding).
@@ -148,15 +149,33 @@ def unscannable_reason(root, f):
 
 
 REDACT_RE = re.compile(r"[A-Za-z0-9_\-+/=]{24,}")
-STR_RE = re.compile(r"(\"[^\"]*\"|'[^']*')")
+LITERAL_RE = re.compile(r"Literal\[[^\]]*\]")
+SQ_RE = re.compile(r"'[^']*'")
+DQ_RE = re.compile(r'"([^"]*)"')
+DQ_VALUE_RE = re.compile(r'(\b(?:is|equals?)\s+|=\s*)"([^"]*)"')
+
+
+def _dq_value(m):
+    v = m.group(2)
+    return m.group(0) if ("." in v or v[:1].isupper() or v in ("str", "int", "float", "bool", "bytes", "None", "list", "dict")) else m.group(1) + "<str>"
+IDENT_RE = re.compile(r"[A-Za-z_][\w.\[\], |?*]{0,60}")
+
+
+def _dq(m):
+    return m.group(0) if IDENT_RE.fullmatch(m.group(1)) else "<str>"
 
 
 def redact_msg(msg, strings=False):
-    """Tool messages can embed literal source values (mypy: Literal['ghp_...']); token-like runs are always removed,
-    quoted string literals too when strings=True (mypy)."""
+    """Tool messages can embed literal source values (mypy: Literal['ghp_...']); token-like runs are always removed.
+    strings=True (mypy) also masks string LITERALS: Literal[...] contents, single-quoted text and double-quoted text that is not an identifier/type name.
+    2026-10-03: mypy quotes TYPE and function NAMES with double quotes ('Argument 1 to "f" has incompatible type "str"; expected "int"'); masking every
+    quoted run turned every message into 'Argument 1 to <str> has incompatible type <str>; expected <str>' and made the advisory output useless."""
     msg = msg or ""
     if strings:
-        msg = STR_RE.sub("<str>", msg)
+        msg = LITERAL_RE.sub("Literal[<str>]", msg)
+        msg = SQ_RE.sub("<str>", msg)
+        msg = DQ_VALUE_RE.sub(_dq_value, msg)   # a double-quoted VALUE (after is/=), even if identifier-shaped
+        msg = DQ_RE.sub(_dq, msg)
     return REDACT_RE.sub("<redacted>", msg)
 
 
@@ -641,9 +660,12 @@ def do_check(argv):
         return qc.verdict("UNVERIFIED", GATE, repo, head, o["error"])
     if qc.mode(GATE) == "off":
         return qc.verdict("NA", GATE, repo, head, "gate is off")
+    if os.path.basename(repo.rstrip("/")) in qc.paused_repos():
+        return qc.verdict("NA", GATE, repo, head, "[PAUSED-SKIP] repo is on the explicit paused list: security scanners NOT run (NA, not a clean bill); QA_PAUSED_REPOS=none forces", {"skipped": "paused_repo"})
     rd = qc.repo_dir(repo)
     if not rd:
         return qc.verdict("UNVERIFIED", GATE, repo, head, "no clone for repo")
+    qc.ensure_commits(rd, (base, head), wait=float(os.environ.get("QA_FETCH_WAIT", "15")))
     for r in (base, head):
         if qc.git(rd, "rev-parse", "--verify", "-q", r + "^{commit}")[0] != 0:
             return qc.verdict("UNVERIFIED", GATE, repo, head, "ref %s not found" % r)
@@ -787,7 +809,101 @@ def do_check(argv):
     return qc.verdict(v, GATE, repo, head, s, details)
 
 
+def _seeds():
+    """Seeded positives. Secret-shaped strings are assembled at run time so this file itself never contains a scannable secret."""
+    aws = "AKIA" + "Q3EGRXMZ4Y2K7WLB"
+    ghp = "ghp_" + "R7kD2mQx9ZpV4nLw8Ts1YbHc6JfA3GeUo5Xz"
+    return [
+        {"name": "hardcoded secret", "tool": "gitleaks", "files": {"app/cfg.py": 'AWS_ACCESS_KEY_ID = "%s"\nGITHUB_TOKEN = "%s"\n' % (aws, ghp)}},
+        {"name": "vulnerable pin", "tool": "pip-audit", "files": {"requirements.txt": "six==1.16.0\nrequests==2.19.0\nflask==0.12.2\n"}},
+        {"name": "bandit B602 (shell=True)", "tool": "bandit",
+         "files": {"app/runner.py": "import subprocess\n\n\ndef run(cmd):\n    return subprocess.call(cmd, shell=True)\n"}},
+    ]
+
+
+def do_selftest(argv):
+    """selftest [--tools a,b]: SEEDED-POSITIVE replay. Builds a throwaway repo, commits each seeded defect (hardcoded secret, vulnerable pin, bandit B602)
+    on top of a clean base and a harmless benign change, runs the real `check` on each, and reports per-seed caught/missed plus recall over the seeds whose
+    tool could actually run. A tool that cannot run (missing, no network for pip-audit) leaves its seed UNMEASURED - never counted as caught or missed.
+    Verdict: PASS = every measurable seed caught and the benign change not flagged; FLAG = a seed was missed or the benign change was flagged (recall gap);
+    UNVERIFIED = nothing measurable. Never records to state/qa_shadow."""
+    import subprocess
+    o = parse_args(argv)
+    tools = o["tools"]
+    tmp = tempfile.mkdtemp(prefix="qa-scan-selftest-")
+    env = dict(os.environ, QA_PAUSED_REPOS="none", OVN_REPOS_DIR=tmp, QA_STATE_DIR=os.path.join(tmp, "state"), QA_FETCH_WAIT="0")
+    genv = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null", "HOME": tmp, "PATH": os.environ.get("PATH", "")}
+    repo = os.path.join(tmp, "seedrepo")
+    old_env = dict(os.environ)
+
+    def git(*a):
+        p = subprocess.run(["git", "-C", repo] + list(a), env=genv, capture_output=True, text=True)
+        return p.stdout.strip()
+
+    def commit(files, msg):
+        for fn, body in files.items():
+            fp = os.path.join(repo, fn)
+            os.makedirs(os.path.dirname(fp), exist_ok=True)
+            with open(fp, "w") as f:
+                f.write(body)
+        git("add", "-A")
+        git("commit", "-q", "-m", msg)
+        return git("rev-parse", "HEAD")
+
+    rows, benign = [], None
+    try:
+        os.makedirs(repo)
+        git("init", "-q", "-b", "main")
+        base = commit({"app/__init__.py": "", "app/ok.py": "def add(a, b):\n    return a + b\n", "requirements.txt": "six==1.16.0\n"}, "base")
+        os.environ.update(env)
+        have_fp = tuple(t for t in tools)
+
+        def run_check(b, h, only):
+            res = do_check(["--repo", "seedrepo", "--base", b, "--head", h, "--baseline", "base", "--tools", ",".join(only), "--timeout", str(o["timeout"])])
+            return res
+
+        ben = commit({"app/ok.py": "def add(a, b):\n    return a + b\n\n\ndef sub(a, b):\n    return a - b\n"}, "benign")
+        benign = run_check(base, ben, have_fp)
+        for sd in _seeds():
+            if sd["tool"] not in tools:
+                rows.append({"seed": sd["name"], "tool": sd["tool"], "status": "UNMEASURED", "why": "tool not selected"})
+                continue
+            git("checkout", "-q", "-b", "seed-" + sd["tool"], base)
+            h = commit(sd["files"], "seed: " + sd["name"])
+            res = run_check(base, h, (sd["tool"],))
+            cell = (res.get("details", {}).get("cells") or {}).get(sd["tool"], {})
+            if cell.get("status") != "OK":
+                rows.append({"seed": sd["name"], "tool": sd["tool"], "status": "UNMEASURED", "verdict": res["verdict"],
+                             "why": "%s: %s" % (cell.get("status", "no cell"), (cell.get("note") or res["summary"])[:120])})
+                continue
+            caught = cell.get("new", 0) > 0 and res["verdict"] in ("FAIL", "FLAG")
+            rows.append({"seed": sd["name"], "tool": sd["tool"], "status": "CAUGHT" if caught else "MISSED", "verdict": res["verdict"],
+                         "new": cell.get("new", 0), "summary": res["summary"][:140]})
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+        shutil.rmtree(tmp, ignore_errors=True)
+    measured = [r for r in rows if r["status"] in ("CAUGHT", "MISSED")]
+    caught_n = sum(1 for r in measured if r["status"] == "CAUGHT")
+    benign_clean = bool(benign) and benign["verdict"] not in ("FAIL", "FLAG")   # UNVERIFIED = a tool could not run, not a false positive
+    det = {"seeds": rows, "measured": len(measured), "caught": caught_n, "recall": (round(caught_n / len(measured), 3) if measured else None),
+           "unmeasured": [r["tool"] for r in rows if r["status"] == "UNMEASURED"], "benign_verdict": (benign or {}).get("verdict"),
+           "benign_summary": ((benign or {}).get("summary") or "")[:140]}
+    if not measured:
+        v, sm = "UNVERIFIED", "no seeded positive could be measured (tools unavailable): " + "; ".join("%s: %s" % (r["tool"], r.get("why", "")) for r in rows)[:200]
+    elif caught_n < len(measured) or not benign_clean:
+        v, sm = "FLAG", "recall %d/%d on measurable seeds (missed: %s); benign change %s" % (
+            caught_n, len(measured), ",".join(r["tool"] for r in measured if r["status"] == "MISSED") or "none", (benign or {}).get("verdict"))
+    else:
+        v, sm = "PASS", "recall %d/%d on measurable seeds, benign change %s%s" % (
+            caught_n, len(measured), (benign or {}).get("verdict"), "; unmeasured: " + ",".join(det["unmeasured"]) if det["unmeasured"] else "")
+    return qc.verdict(v, GATE, "seedrepo", "selftest", sm, det)
+
+
 def main(argv):
+    if argv and argv[0] == "selftest":
+        return qc.main_guard(GATE, do_selftest, argv[1:] + ["--no-record"])
     if argv and argv[0] == "baseline":
         return qc.main_guard(GATE, do_baseline, argv[1:] + ["--no-record"])
     if argv and argv[0] == "findings":
