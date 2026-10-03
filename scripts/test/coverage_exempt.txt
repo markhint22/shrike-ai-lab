@@ -1,1 +1,4 @@
 scripts/ovn_credit_items.py  # exercised through lib_auto_credit.sh by test_auto_credit_gate.sh and test_auto_credit_h9x3.sh
+extract_items.py  # Mac-side claude-queue helper (also deployed to the box so the bridge tests can copy it); no unit test of its own
+ovn_auto_research.sh  # research trigger wrapper run by launchd/cron; exercised end to end on the box, no unit test
+sink_parked.py  # one-off parked-item sink tool; no unit test
