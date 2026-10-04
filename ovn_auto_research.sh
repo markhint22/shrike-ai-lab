@@ -27,7 +27,7 @@ CLONES="${OVN_CLONES_DIR:-$HOME/LocalProjects}"
 STATE="${OVN_AUTO_RESEARCH_STATE:-$HOME/.ovn_auto_research}"
 MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-2}"
 MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-8}"
-MIN_STARVE_H="${OVN_AR_MIN_STARVE_H:-3}"
+MIN_STARVE_H="${OVN_AR_MIN_STARVE_H:-1}"
 # Cooldown depends on the LAST pass's result (2026-10-03). A pass that accepted ZERO items means the repo may be genuinely complete -> wait long
 # (COOLDOWN_EMPTY_H) so it is not re-researched every run. A PRODUCTIVE pass only needs a short pause (COOLDOWN_PRODUCTIVE_H, ~one launchd interval):
 # the fleet burns 5 items in a few hours, and the starving check (MIN_STARVE_H) already says the repo is dry again. The old flat 18h left the
@@ -40,6 +40,8 @@ ar_cooldown_s() {   # <last_accepted_count or empty> -> cooldown seconds
 BUDGET="${OVN_AR_BUDGET_USD:-4}"
 MODEL="${OVN_AR_MODEL:-sonnet}"
 CLAUDE_BIN="${OVN_AR_CLAUDE:-$(command -v claude || echo $HOME/.local/bin/claude)}"
+# macOS has no `timeout` unless Homebrew coreutils is on PATH (an interactive/restricted PATH made every pass fail with rc=127): use timeout/gtimeout when present, else run unbounded (the claude --max-budget-usd cap still bounds the pass).
+TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
 VALIDATE="$SHARED/scripts/overnight-queue/ovn_auto_research_validate.py"
 mkdir -p "$STATE"
 LOG="$STATE/run.log"
@@ -107,7 +109,7 @@ QUALITY RULES (a 2026-10-04 audit of the fleet's landings found 19 dead helpers 
 Your FINAL reply must contain ONLY the feature lines (no preamble, no commentary, no code fences), one per line, exactly:
 - [ ] [P<1-4>] [ready] <short title> — <what/why with file paths and evidence> {cat: <backend|web|mobile|game|infra|test>; size: <S|M|L>; multifile: <yes|no>; research: <none|repo|web>}
 Status must be the literal word ready. Each item under ~900 characters, single line. If you add nothing, reply with exactly the word NONE."
-  ( cd "$in" && timeout 1500 "$CLAUDE_BIN" -p "$prompt" --model "$MODEL" --max-budget-usd "$BUDGET" \
+  ( cd "$in" && ${TIMEOUT_BIN:+$TIMEOUT_BIN 1500} "$CLAUDE_BIN" -p "$prompt" --model "$MODEL" --max-budget-usd "$BUDGET" \
       --permission-mode dontAsk --no-session-persistence \
       --allowedTools "Read Grep Glob WebSearch WebFetch" \
       --add-dir "$src" --add-dir "$in" > "$in/claude_reply.txt" 2> "$in/claude_stderr.txt" ); rc=$?
