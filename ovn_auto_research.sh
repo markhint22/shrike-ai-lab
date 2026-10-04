@@ -93,19 +93,25 @@ for repo in $CANDIDATES; do
   [ -s "$in/roadmap.md" ] || { log "$repo: could not fetch roadmap - skip"; continue; }
   (cd "$clone" && git fetch -q origin 2>/dev/null)
   before="$(cd "$clone" && git status --porcelain | md5)"
+  # 2026-10-04: read a FRESH detached checkout of the branch the fleet works on, never the Mac clone's working tree (it lags: the agent "verified via Read"
+  # that files the fleet had deleted still existed, and proposed re-deleting them). Falls back to the clone (with a log line) if the worktree cannot be made.
+  src="$WORK/src_$repo"
+  if git -C "$clone" worktree add -q --detach "$src" origin/overnight/feature 2>/dev/null || git -C "$clone" worktree add -q --detach "$src" origin/develop 2>/dev/null; then :; else log "$repo: could not create a fresh checkout - reading the clone's working tree (may be stale)"; src="$clone"; fi
   out="$in/proposed.md"; : > "$out"
 
   log "$repo: starting research pass (model=$MODEL budget=\$$BUDGET)"
-  prompt="You are refueling ONE repo's feature roadmap for an autonomous overnight coding fleet (a local 27B model implements items one at a time, each gated by the repo's tests). REPO: $repo. Its local clone is $clone (READ-ONLY; you have no write or edit tools at all).
+  prompt="You are refueling ONE repo's feature roadmap for an autonomous overnight coding fleet (a local 27B model implements items one at a time, each gated by the repo's tests). REPO: $repo. A READ-ONLY checkout of the CURRENT code the fleet works on is $src (read ONLY this checkout - any other clone of the repo can be stale; you have no write or edit tools at all).
 Read: $in/roadmap.md (current roadmap: note the stated maturity/stopping point and everything already decomposed/done - do NOT duplicate), $in/README.md (line format), $in/recent.txt (recent commits + queue tail). Then read the real repo (README, docs, file tree, the code you propose to touch).
-Produce up to 10 NEW features worth building, grounded in actual code. Priority: (1) real live bugs/silent failures with file evidence, (2) security/legal/store/reliability gaps, (3) missing tests for important untested modules, (4) features fitting the repo's wedge. HONESTY: if the repo is genuinely at its 'complete - maintain only' line, return FEWER items, even zero; never invent filler. Every item must cite files that exist (verify). Art generation is human-gated: propose no art items.
+Produce up to 10 NEW features worth building, grounded in actual code. Priority: (1) real live bugs/silent failures with file evidence, (2) security/legal/store/reliability gaps, (3) missing tests for important untested modules, (4) features fitting the repo's wedge. HONESTY: if the repo is genuinely at its 'complete - maintain only' line, return FEWER items, even zero; never invent filler. Every item must cite files that exist (verify with Read/Grep in the checkout). Art generation is human-gated: propose no art items.
+QUALITY RULES (a 2026-10-04 audit of the fleet's landings found 19 dead helpers nothing calls, ghost tests that never run, and add/remove loops): (a) NEVER propose adding a new standalone helper/predicate/constant/formatter function, or a test for one, unless the SAME item also changes an existing production caller to use it - name that caller as file:line and verify it exists; a function nothing calls is rejected. (b) NEVER propose deleting a file or function without Grep-verifying in the checkout that it still exists and has no non-test callers; never re-propose anything the roadmap already marks done [x] or decomposed. (c) Tests must live where the repo's own test command collects them (iptv_apps: iptv-backend/tests/ ONLY, never next to modules under app/; xlite: res://tests/ ONLY, never res://test/). (d) Prefer items that change user-visible behaviour or fix a real bug; at most 2 test-only items per pass, and only for important modules with real logic and no existing test. (e) One item = one behavioural change with a concrete verifiable outcome; no refactor/cleanup/rename items unless you demonstrate a defect they fix.
 Your FINAL reply must contain ONLY the feature lines (no preamble, no commentary, no code fences), one per line, exactly:
 - [ ] [P<1-4>] [ready] <short title> — <what/why with file paths and evidence> {cat: <backend|web|mobile|game|infra|test>; size: <S|M|L>; multifile: <yes|no>; research: <none|repo|web>}
 Status must be the literal word ready. Each item under ~900 characters, single line. If you add nothing, reply with exactly the word NONE."
   ( cd "$in" && timeout 1500 "$CLAUDE_BIN" -p "$prompt" --model "$MODEL" --max-budget-usd "$BUDGET" \
       --permission-mode dontAsk --no-session-persistence \
       --allowedTools "Read Grep Glob WebSearch WebFetch" \
-      --add-dir "$clone" --add-dir "$in" > "$in/claude_reply.txt" 2> "$in/claude_stderr.txt" ); rc=$?
+      --add-dir "$src" --add-dir "$in" > "$in/claude_reply.txt" 2> "$in/claude_stderr.txt" ); rc=$?
+  [ "$src" != "$clone" ] && { git -C "$clone" worktree remove --force "$src" 2>/dev/null; git -C "$clone" worktree prune 2>/dev/null; }
   cp "$in/claude_reply.txt" "$STATE/last_reply_$repo.txt" 2>/dev/null
   # the agent has no Write tool: the proposed lines ARE its reply (headless scoped-Write permissions are not honored)
   grep '^- \[ \]' "$in/claude_reply.txt" > "$out" 2>/dev/null || true

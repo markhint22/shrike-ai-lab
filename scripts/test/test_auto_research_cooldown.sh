@@ -14,4 +14,8 @@ ok "garbage count -> 18h (safe default)" "$([ "$(ar_cooldown_s 'x')" = 64800 ] &
 ok "BENIGN: last pass accepted 5 items -> 2h (starved lane gets refueled again)" "$([ "$(ar_cooldown_s 5)" = 7200 ] && echo 1 || echo 0)"
 ok "env override works (productive cooldown 1h)" "$([ "$(OVN_AR_COOLDOWN_PRODUCTIVE_H=1; COOLDOWN_PRODUCTIVE_H=1; ar_cooldown_s 3)" = 3600 ] && echo 1 || echo 0)"
 ok "the script writes the accepted count marker next to the time marker" "$(grep -q 'researched_n_\$repo' "$SRC" && echo 1 || echo 0)"
+ok "reads a FRESH detached checkout of origin/overnight/feature, not the clone's working tree" "$(grep -q 'worktree add -q --detach "$src" origin/overnight/feature' "$SRC" && grep -q -- '--add-dir "$src"' "$SRC" && echo 1 || echo 0)"
+ok "NEGATIVE: the prompt no longer points the agent at the stale clone path" "$(grep -q 'Its local clone is' "$SRC" && echo 0 || echo 1)"
+ok "the fresh checkout is removed after the pass" "$(grep -q 'worktree remove --force "$src"' "$SRC" && echo 1 || echo 0)"
+ok "prompt carries the quality rules (no uncalled helpers, verify deletions, tests only where collected, <=2 test-only items)" "$(grep -q 'NEVER propose adding a new standalone helper' "$SRC" && grep -q 'iptv-backend/tests/ ONLY' "$SRC" && grep -q 'at most 2 test-only items' "$SRC" && echo 1 || echo 0)"
 echo "auto research cooldown: $P passed, $F failed"; [ "$F" = 0 ]
