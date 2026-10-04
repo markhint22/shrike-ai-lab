@@ -270,6 +270,15 @@ STUB_BODY="{\"status\":\"ok\",\"commit\":\"$N\"}" STAGING_EXPECT_SHA="$E" STAGIN
 ck "D-benign: staging serves a NEWER commit that contains the candidate (clone given) => passes" "[ \"\$(cat $T/rc)\" = 0 ] && has 'contains the candidate'"
 STUB_BODY="{\"status\":\"ok\",\"commit\":\"$M\"}" STAGING_EXPECT_SHA="$E" STAGING_REPO_DIR="$T/clone/app" sm
 ck "D-neg: with the clone, an OLDER served commit still FAILS" "[ \"\$(cat $T/rc)\" = 1 ] && has 'STALE deploy'"
+# ----- D2. migration state from /health (2026-10-04) -----
+STUB_BODY='{"status":"healthy","migrations":"mismatch","db_revision":"0009_old","alembic_head":"0011_new"}' sm
+ck "D2-neg: /health says migrations=mismatch (DB behind the code) => smoke FAILS naming both revisions, even without STAGING_EXPECT_SHA" "[ \"\$(cat $T/rc)\" = 1 ] && has 'migrations: the database is NOT at' && has '0009_old' && has '0011_new' && has 'SMOKE FAIL'"
+STUB_BODY='{"status":"healthy","migrations":"current","db_revision":"0011_new","alembic_head":"0011_new"}' sm
+ck "D2-benign: migrations=current => passes with a tick" "[ \"\$(cat $T/rc)\" = 0 ] && has 'migrations: database is at the alembic head' && has 'SMOKE PASS'"
+STUB_BODY='{"status":"healthy","migrations":"unknown"}' sm
+ck "D2-benign: migrations=unknown never fails" "[ \"\$(cat $T/rc)\" = 0 ] && has 'SMOKE PASS'"
+STUB_BODY='{"status":"healthy"}' sm
+ck "D2-benign: /health without a migrations field (billwatch, gitlark, ...) is unaffected" "[ \"\$(cat $T/rc)\" = 0 ] && ! has 'migrations:' && has 'SMOKE PASS'"
 # staging_smoke.py provenance step (pure)
 ck "staging_smoke.py: provenance step fail / ok / na" "cd $Q/qa && cp $QA/staging_smoke.py . && cp $QA/staging_smoke.conf . 2>/dev/null; $PYB -c '
 import staging_smoke as s

@@ -26,9 +26,16 @@ if [[ "$code" =~ ^(200|204|307)$ ]]; then say "✅ health $code  ($BASE$HEALTH_P
 ct="$(curl -s -o /dev/null -w '%{content_type}' --max-time 15 "$BASE$HEALTH_PATH")"
 if [[ "$ct" == application/json* ]]; then say "✅ content-type $ct"; else say "❌ content-type '$ct' (expected application/json) — API is serving HTML"; fail=1; fi
 
+# 2b0. migration state (2026-10-04): /health reports {"migrations": "current|mismatch|unknown"} (iptv_apps). "mismatch" = the DATABASE is not at the code's alembic head
+# (the deploy booted although `alembic upgrade head` failed - start.sh swallows that). Never promote that. Absent/"unknown"/"current" never fails.
+body="$(curl -s --max-time 15 "$BASE$HEALTH_PATH" 2>/dev/null)"
+if printf '%s' "$body" | grep -qE '"migrations"[[:space:]]*:[[:space:]]*"mismatch"'; then
+  say "❌ migrations: the database is NOT at the code's alembic head ($(printf '%s' "$body" | grep -oE '"db_revision"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1) vs $(printf '%s' "$body" | grep -oE '"alembic_head"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1)) - a migration failed or never ran"; fail=1
+elif printf '%s' "$body" | grep -qE '"migrations"[[:space:]]*:[[:space:]]*"current"'; then say "✅ migrations: database is at the alembic head"
+fi
+
 # 2b. provenance (only when the caller knows the candidate)
 if [ -n "${STAGING_EXPECT_SHA:-}" ]; then
-  body="$(curl -s --max-time 15 "$BASE$HEALTH_PATH" 2>/dev/null)"
   served="$(printf '%s' "$body" | grep -oiE '"(commit|commit_sha|git_sha|git_commit|sha|release)"[[:space:]]*:[[:space:]]*"[0-9a-f]{7,40}"' | head -1 | sed -E 's/.*"([0-9a-fA-F]+)"$/\1/' | tr 'A-F' 'a-f')"
   exp="$(printf '%s' "$STAGING_EXPECT_SHA" | tr 'A-F' 'a-f')"
   if [ -z "$served" ]; then say "⚠️ provenance UNVERIFIED: /health exposes no commit field (staging deploy status is checked by the promote staging-gate)"

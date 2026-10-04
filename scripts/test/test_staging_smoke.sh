@@ -35,7 +35,7 @@ export STUB_CODE=200 STUB_CT="application/json"; unset STUB_HDRS HEALTH_PATH
 out="$(run https://api.example.app)"; rc=$?
 ok "all green (no origin): exit 0" "$([ $rc = 0 ] && echo 1 || echo 0)"
 ok "all green: health + content-type + SMOKE PASS reported" "$(has 'health 200' && has 'content-type application/json' && has 'SMOKE PASS (https://api.example.app)' && echo 1 || echo 0)"
-ok "no origin -> only 2 curl calls (no CORS preflight)" "$([ "$(cnt)" = 2 ] && ! grep -q OPTIONS "$CURL_LOG" && echo 1 || echo 0)"
+ok "no origin -> only 3 curl calls (code, content-type, health body for migration state) and no CORS preflight" "$([ "$(cnt)" = 3 ] && ! grep -q OPTIONS "$CURL_LOG" && echo 1 || echo 0)"
 ok "health URL defaults to <base>/health with --max-time 15" "$(grep -q 'https://api.example.app/health' "$CURL_LOG" && grep -q -- '--max-time 15' "$CURL_LOG" && echo 1 || echo 0)"
 
 for c in 204 307; do
@@ -65,7 +65,7 @@ export STUB_HDRS='HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: https:
 out="$(run https://a.app https://fe.app)"; rc=$?
 ok "CORS allow-origin present -> pass" "$([ $rc = 0 ] && has 'CORS allow-origin: https://fe.app' && echo 1 || echo 0)"
 ok "preflight is OPTIONS with Origin + Access-Control-Request-Method: GET" "$(grep -q -- '-X OPTIONS' "$CURL_LOG" && grep -q 'Origin: https://fe.app' "$CURL_LOG" && grep -q 'Access-Control-Request-Method: GET' "$CURL_LOG" && echo 1 || echo 0)"
-ok "with origin -> 3 curl calls" "$([ "$(cnt)" = 3 ] && echo 1 || echo 0)"
+ok "with origin -> 4 curl calls (code, content-type, health body, CORS preflight)" "$([ "$(cnt)" = 4 ] && echo 1 || echo 0)"
 export STUB_HDRS='HTTP/1.1 204 No Content\r\naccess-control-allow-origin: *\r\n\r\n'
 out="$(run https://a.app https://fe.app)"; rc=$?
 ok "lower-case header name + wildcard value accepted; CRLF stripped" "$([ $rc = 0 ] && printf '%s' "$out" | grep -q 'CORS allow-origin: \*$' && echo 1 || echo 0)"
