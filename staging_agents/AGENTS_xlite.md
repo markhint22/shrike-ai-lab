@@ -13,7 +13,7 @@ roster, missions). MVP complete; work now is release-hardening (crash/save-corru
 - `scripts/units/{unit.gd, status_effects.gd}` — unit stats/archetypes; status effects (`apply`/`tick`/`refresh`/`to_dict`/`from_dict`).
 - `scripts/grid/`, `scripts/ui/` — grid render / cover; UI helpers (safe-area, touch).
 - `missions/mission_*.tres` — mission data resources (43+).
-- `tests/*.gd` and `test/` — GUT unit tests (one per pure function/behavior; ~300+).
+- `tests/*.gd` — GUT unit tests (one per pure function/behavior; ~390 files). ALL tests live flat in `tests/` (named `test_*.gd`): never create `test/` (singular), `tests/<subdir>/`, or `scripts/**/test_*.gd` - those are not collected by the gate. Never edit `addons/` (vendored GUT 9.4.0; hard-banned).
 
 ## Commands (exact)
 - Tests are GUT, run headless by the fleet's verify (Godot binary on the server is `~/godot/godot4`).
@@ -29,6 +29,8 @@ roster, missions). MVP complete; work now is release-hardening (crash/save-corru
 - **Deep-copy** on snapshot/serialize (`to_dict`/`from_dict`, `TurnSnapshot`) so undo/rewind can't alias live state.
 - Economy methods must reject negative amounts (a negative `spend_credits` would *grant* credits).
 - Keep two arrays that must stay parallel (e.g. `obstacles` + `obstacle_types`) the SAME length.
+- **No uncalled helpers.** Never add a new function/predicate/constant that nothing in `scripts/` or `scenes/` calls (plus a test for it): it is dead code and the gate rejects it. A new helper is OK only if the same change makes an existing production caller use it - name that caller file:line.
+- **Never edit `addons/`** (vendored GUT) and never create test files outside flat `tests/test_*.gd`.
 
 ## Gotchas
 - **`scripts/battle/battle.gd` and `scripts/mission/mission_select.gd` are HARD-BANNED for the fleet**
