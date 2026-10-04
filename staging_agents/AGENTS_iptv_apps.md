@@ -27,6 +27,9 @@ iptv-web/src/
 ## Commands
 Backend (`cd iptv-backend`, venv active):
 - Test: `pytest` (or `make test-backend` from root)
+- **Backend tests live ONLY in `iptv-backend/tests/` (named `test_*.py`).** The gate runs `pytest tests/`: a test file placed next to a module (e.g. `app/jobs/test_x.py`, `app/routers/test_x.py`, `app/services/test_x.py`) is NEVER run, so it proves nothing and is rejected. Use the `client` / `db_session` fixtures from `tests/conftest.py` (in-memory SQLite) - never build your own `TestClient(app)` against the real DB.
+- **No uncalled helpers.** Do not add a new function/class/schema that nothing in `app/` (outside tests) calls, and no test for one: it is dead code. A new helper is fine only if the same change makes an existing production caller use it - name that caller file:line in your plan.
+- **Never edit `requirements.txt` to remove a package** unless `git grep` shows no import of it anywhere in `app/` - removing `aiohttp` while code imported it crashed the production deploy. Never create an alembic file without `revision`/`down_revision`.
 - Run: `uvicorn app.main:app --reload` (or `make backend`)
 - Lint: `pylint app/`
 - Migration after model change: `alembic revision --autogenerate -m "..."` then `alembic upgrade head`
