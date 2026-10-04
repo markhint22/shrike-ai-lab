@@ -1,0 +1,5 @@
+{
+  "_comment": "Which new test files each repo's verify command actually collects (read by qa/ag_h13.py rule E_TEST_NOT_COLLECTED). Repos not listed: python test files are checked against the nearest pytest testpaths, GDScript is not checked. Verified 2026-10-04: iptv .ovn-verify.sh runs `pytest tests/` from iptv-backend/ (pytest.ini testpaths=tests); xlite gates run GUT with -gdir=res://tests (+ -ginclude_subdirs by default since 2026-10-04, kill switch OVN_GUT_SUBDIRS=off), default GUT prefix test_, scripts must extend GutTest.",
+  "iptv_apps": {"py": {"roots": ["iptv-backend/tests/"]}},
+  "xlite": {"gd": {"roots": ["tests/"], "prefix": "test_"}}
+}

@@ -81,7 +81,7 @@ OVN_RECOVER_MAX=4 run_recover repoA
 after="$(git --git-dir="$oA" show overnight/feature:OVERNIGHT_PROGRESS.md)"
 ok "A: made exactly one LLM call for the one eligible item" "[ \"\$(reqcount)\" -eq 1 ]"
 ok "A: origin gained the recovery commit" \
-   "git --git-dir='$oA' log --oneline overnight/feature | grep -q 'recover parked repoA item -> 3 smaller sub-item'"
+   "_o=\"\$(git --git-dir='$oA' log --oneline overnight/feature)\"; printf '%s\n' \"\$_o\" | grep -q 'recover parked repoA item -> 3 smaller sub-item'"
 ok "A: the original stuck line is checked off, not deleted" \
    "printf '%s' \"$after\" | grep -q -- '- \[x\] \[AUTO-SKIP after 5 no-op cycles'"
 ok "A: all 3 recovered sub-items are present as new open items" \
@@ -102,7 +102,7 @@ ok "B: parked line is tagged recovery:none (not silently dropped)" \
 ok "B: line is still open (not checked off — nothing was actually recovered)" \
    "printf '%s' \"$afterB\" | grep -q -- '- \[ \] \[AUTO-SKIP.*recovery:none'"
 ok "B: origin got the recovery-attempted commit" \
-   "git --git-dir='$oB' log --oneline overnight/feature | grep -q 'recovery-attempted (no decomposition)'"
+   "_o=\"\$(git --git-dir='$oB' log --oneline overnight/feature)\"; printf '%s\n' \"\$_o\" | grep -q 'recovery-attempted (no decomposition)'"
 ok "B: hold released" "[ ! -f '$OQ/state/HOLD_repoB' ]"
 ok "B: a no-op recovery does not count toward the run's recovered total" \
    "grep -q 'recover-parked pass complete (recovered 0 this run)' '$OQ/logs/ovn_recover_parked.log'"
@@ -124,7 +124,7 @@ printf '%s' $'- [ ] [T1] scripts/hard_thing.gd — step one. VERIFY: t1\n- [ ] [
 : > "$REQLOG"
 OVN_RECOVER_MAX=1 run_recover repoD1 repoD2
 ok "D: exactly one LLM call across the whole pass (cap=1 honored)" "[ \"\$(reqcount)\" -eq 1 ]"
-ok "D: repoD1 got recovered" "git --git-dir='$oD1' log --oneline overnight/feature | grep -q 'recover parked'"
+ok "D: repoD1 got recovered" "_o=\"\$(git --git-dir='$oD1' log --oneline overnight/feature)\"; printf '%s\n' \"\$_o\" | grep -q 'recover parked'"
 ok "D: repoD2 was never even touched once the cap was hit" \
    "[ \"\$(git --git-dir='$oD2' log --oneline overnight/feature | wc -l)\" -eq 1 ]"
 

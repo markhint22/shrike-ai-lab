@@ -197,7 +197,7 @@ case("B: `# type: ignore` appended to an existing line -> FLAG", LINT,
 case("B: `# pragma: no cover` added to an existing line -> FLAG B_COVERAGE_EXCLUDED", LINT,
      {"app/m.py": LINT["app/m.py"].replace("return x + y", "return x + y  # pragma: no cover")}, "FLAG", "B_COVERAGE_EXCLUDED")
 case("benign: a brand-new line with `# noqa` (new code) -> PASS", LINT,
-     {"app/m.py": LINT["app/m.py"] + "\n\ndef g():\n    import sys  # noqa: F401\n    return 1\n"}, "PASS")
+     {"app/m.py": LINT["app/m.py"] + "\n\ndef _g():\n    import sys  # noqa: F401\n    return 1\n"}, "PASS")
 case("benign: brand-new file with a skipped test -> PASS", LINT,
      {"tests/test_new.py": "import pytest\n\n\n@pytest.mark.skip\ndef test_n():\n    assert f(1) == 1\n"}, "PASS")
 
@@ -379,8 +379,11 @@ SECRET = "sk_live_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6"
 res = case("secret-looking literals are never echoed in evidence", {"app/s.py": "def f(x):\n    return x\n\n\ndef g(x):\n    y = '%s'\n    return y\n" % SECRET},
            {"app/s.py": "def f(x):\n    return x\n\n\ndef g(x):\n    y = '%s'  # noqa\n    return y\n" % SECRET}, "FLAG")
 ok("redaction: the long literal is not in the JSON output", SECRET not in json.dumps(res))
-res = run_gate(mkrepo({"app/big.py": "x = 1\n"}, {"app/big.py": "x = 1\n" + "".join("def f%d():\n    return %d\n" % (i, i) for i in range(2000))}))
-ok("large diff stays fast (<5 s) and PASSes", res["verdict"] == "PASS" and (res["ms"] or 0) < 5000, str(res["ms"]))
+res = run_gate(mkrepo({"app/big.py": "x = 1\n"}, {"app/big.py": "x = 1\n" + "".join("def f%d():\n    return %d\n" % (i, i) for i in range(2000))}), env={"OVN_QA_AG_H13": "off"})
+ok("large diff stays fast (<5 s) and PASSes (h13 rules off: 2000 new dead helpers would rightly FLAG D_DEAD_SYMBOL)", res["verdict"] == "PASS" and (res["ms"] or 0) < 5000, str(res["ms"]))
+ok("large diff with the h13 rules ON (2000 new public functions): bounded (<15 s), D_DEAD_SYMBOL capped, FLAG not crash",
+   (lambda r: r["verdict"] == "FLAG" and (r["ms"] or 0) < 15000 and len([f for f in r["details"]["findings"] if f["rule"] == "D_DEAD_SYMBOL"]) <= 15)(
+       run_gate(mkrepo({"app/big.py": "x = 1\n"}, {"app/big.py": "x = 1\n" + "".join("def f%d():\n    return %d\n" % (i, i) for i in range(2000))}))), "")
 
 
 # ---- 2026-10-02: a raise that MOVED into a helper defined elsewhere in the same change is delegated, not dropped (real FP: billwatch get_current_user) ----

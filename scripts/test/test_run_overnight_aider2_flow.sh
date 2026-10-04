@@ -175,7 +175,7 @@ sed -i '0,/^- \[ \] /s//- [x] (already-satisfied) /' OVERNIGHT_PROGRESS.md
 echo "CREDITED=1"
 EOF
 run_case
-ok "K: credit commit created" 'git -C "$REPO" log --format=%s | grep -q "credit item(s) the implement pass found already satisfied"'
+ok "K: credit commit created" '_o="$(git -C "$REPO" log --format=%s)"; printf "%s\n" "$_o" | grep -q "credit item(s) the implement pass found already satisfied"'
 ok "K: credited commit pushed via normal path" '[[ "$OUT" == pushed* ]]'
 mk_case alreadysat0
 scout_ok
@@ -222,7 +222,7 @@ printf "extends Node\n\nfunc a():\n\tpass\n\nfunc a():\n\tpass\n" > thing.gd
 printf "\n## Decisions Made\n- one\n\n## Completed\n- x\n\n## Decisions Made\n- two\n" >> OVERNIGHT_PROGRESS.md
 git add -A; git commit -q -m "feat: dupes"'
 run_case
-ok "N: python dedupe commit" 'git -C "$REPO" log --format=%s | grep -q "duplicate Python class/function"'
+ok "N: python dedupe commit" '_o="$(git -C "$REPO" log --format=%s)"; printf "%s\n" "$_o" | grep -q "duplicate Python class/function"'
 ok "N: gd dedupe commit" 'git -C "$REPO" log --format=%s | grep -q "duplicate GDScript function"'
 ok "N: progress header merge commit" 'git -C "$REPO" log --format=%s | grep -q "auto-merge duplicate section header"'
 ok "N: only one def dup remains" '[ "$(grep -c "def dup" "$REPO/dupmod.py")" = 1 ]'

@@ -85,11 +85,38 @@ def _path_exists(p):
         return True
     return False
 
+# h13 (2026-10-04): an item whose own VERIFY is `test ! -f X` with X already absent is DONE (a delete item an earlier commit satisfied); left open it
+# flails for cycles (xlite elevation.gd, 6 cycles). Only the bare single-path form is trusted.
+GONE_VERIFY = re.compile(r"VERIFY:\s*(?:`\s*test\s+!\s+-[fe]\s+([A-Za-z0-9_./@-]+)\s*`|test\s+!\s+-[fe]\s+([A-Za-z0-9_./@-]+)\s*(?:\)|\.|,|\[feat:[^\]]*\]|\{[^}]*\}|$))")
+# h13: a repo-level "run everything" item ("[T4] . - Execute full test suite ...", "[T4] tests - ...") names no concrete file TO CHANGE: the only
+# file-shaped token is the tooling in its VERIFY (addons/gut/gut_cmdln.gd), so it passed the HAS_FILE test and then planned FILES: NONE forever.
+BARE_TARGET = re.compile(r"^\s*(\[[^\]]*\]\s*)*`?(\.|\./|tests?|tests?/)`?(\s|$)")
+
+def _already_gone(body):
+    m = GONE_VERIFY.search(body)
+    if not m:
+        return False
+    p = m.group(1) or m.group(2)
+    if p.startswith("/") or ".." in p.split("/"):
+        return False
+    # review hardening: lexists (dangling symlink still there); also not present under the repo-prefix / app-root spellings _path_exists tolerates
+    # (a mis-pathed VERIFY like `test ! -f xlite/scripts/x.gd` passes trivially while the real file stays); a bare name must not exist anywhere tracked
+    if os.path.lexists(p) or _path_exists(p):
+        return False
+    if "/" not in p:
+        for root, dirs, files in os.walk("."):
+            dirs[:] = [d for d in dirs if d not in (".git", "node_modules", ".venv", "venv")]
+            if p in files or p in dirs:
+                return False
+    return True
+
 def classify(line):
     body = line[len("- [ ]"):]
     if SKIP.search(body):
         return None
-    if not HAS_FILE.search(body):
+    if _already_gone(body):
+        return "gone"
+    if not HAS_FILE.search(body) or (BARE_TARGET.match(body) and not HAS_FILE.search(re.split(r"VERIFY:", body)[0])):
         return "vague"
     slash_paths = set(m.group(0) for m in SLASH_FILE.finditer(body))
     if slash_paths:
@@ -99,17 +126,22 @@ def classify(line):
             return "dead-path"
     return None  # keep
 
+LAST_GONE = [0]
+
 def process(path):
+    LAST_GONE[0] = 0
     if not os.path.exists(path):
         return (0, 0)
     lines = open(path).read().splitlines()
-    out, vague, dead = [], [], []
+    out, vague, dead, gone = [], [], [], []
     for ln in lines:
         cls = classify(ln) if ln.startswith("- [ ]") else None
         if cls == "vague":
             vague.append(ln[len("- [ ] "):])
         elif cls == "dead-path":
             dead.append(ln[len("- [ ] "):])
+        elif cls == "gone":
+            gone.append(ln[len("- [ ] "):])
         else:
             out.append(ln)
     if vague:
@@ -122,17 +154,27 @@ def process(path):
         out.append("### Retired (dead-path - every named file is missing from this clone; likely a stale-clone refill) auto-2026-08-30")
         for r in dead:
             out.append("- [x] (retired-dead-path) " + r)
+    if gone:
+        out.append("")
+        out.append("### Credited (already-done - the item's own `test ! -f` VERIFY passes: the target is already absent) auto-2026-10-04")
+        for r in gone:
+            out.append("- [x] (already-done, target already absent) " + r)
     open(path, "w").write("\n".join(out) + "\n")
+    LAST_GONE[0] = len(gone)   # process() keeps its 2-tuple contract (callers/tests unpack (vague, dead))
     return (len(vague), len(dead))
 
 if __name__ == "__main__":
-    tv = td = 0
+    tv = td = tg = 0
     for p in sys.argv[1:]:
         v, d = process(p)
+        tg += LAST_GONE[0]
+        if LAST_GONE[0]:
+            print("  credited %d already-done (target absent) from %s" % (LAST_GONE[0], p))
         if v:
             print("  retired %d vague from %s" % (v, p))
         if d:
             print("  retired %d dead-path from %s" % (d, p))
         tv += v; td += d
     # keep the "retired N" line the runner greps on, covering both classes
-    print("  total retired: %d (vague=%d dead-path=%d)" % (tv + td, tv, td))
+    # h13: already-done credits are counted in the total (so the runner's `retired [1-9]` grep commits them) but the legacy format is unchanged when there are none
+    print("  total retired: %d (vague=%d dead-path=%d%s)" % (tv + td + tg, tv, td, (" already-done=%d" % tg) if tg else ""))

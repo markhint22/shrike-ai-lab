@@ -1,0 +1,5 @@
+{
+  "_comment": "Vendored code the fleet must never edit (read by qa/ag_h13.py: edit/delete/rename => D_FROZEN_EDIT FAIL, new file => D_FROZEN_NEWFILE FLAG; both only ever shadow-recorded unless the antigaming gate is flipped to enforce). fnmatch globs against repo-relative paths; 'default' applies to every repo. 2026-10-04 audit: the fleet edited addons/gut/gut.gd to skip missing files and added placeholder files under addons/.",
+  "default": ["vendor/*", "third_party/*", "thirdparty/*"],
+  "xlite": ["addons/*"]
+}

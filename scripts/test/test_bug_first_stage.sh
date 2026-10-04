@@ -17,7 +17,8 @@ withlibs(){ cp "$REALQ/scripts/lib_item_select.sh" "$REALQ/scripts/lib_bug_escal
 BUGPY='[T3] backend/app/foo.py — Manual-test bug (reported by Mark, flow f, 2026-10-02): the add button does nothing. First write a failing test that reproduces this, then fix it. VERIFY: `pytest backend/tests/test_foo.py` (cat:bugfix; multifile:no; src:manual) [feat:osr-20261002-manual-aaaa1111]'
 PLAN_STUCK1='[{"desc":"big step","files":["backend/app/foo.py"],"verify":"pytest"}]'
 PLAN_STUCK2='[{"desc":"only one sub","files":["backend/app/foo.py"],"verify":"pytest"}]'
-J(){ osr_jsonl | grep -qF -- "$1"; }
+# 2026-10-04 (QA h13 review): no -q: under pipefail an early-exiting grep SIGPIPEs the writer (rc 141) when loaded = the flaky "journal records the lazy brief".
+J(){ osr_jsonl | grep -F -- "$1" >/dev/null; }
 origin_prog(){ osr_origin_file OVERNIGHT_PROGRESS.md; }
 bugcounts(){ cat "$Q"/state/item_fails/stage-"$OSR_REPO".*.bugcount 2>/dev/null; }
 stuck_run(){ # one runner invocation that lands NOTHING (re-decompose yields <2 pieces -> step BLOCKED), plans restart from #1

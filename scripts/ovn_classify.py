@@ -46,7 +46,26 @@ TYPE_RULES = [
     ('syntax',     r'bare `?except|except Exception|duplicate import|indentation|missing `?def'),
 ]
 
+# h13 (2026-10-04): the "file" classify() extracts is whatever word.word token appears in the text, so a cycle with no real target produced
+# 'none', 'sympy.isprime', 'app.services.cache' ... and lang_of() filed them under 'other' (build-verified), manufacturing a misleading "other 40%"
+# language row. A token is a real PATH only when it has a directory part, or an extension we know (EXT_LANG + common non-code files), or is a
+# well-known extensionless build file; anything else is 'unknown' (excluded from the per-language pass-rate rows by ovn_stats.py).
+KNOWN_FILE_EXT = set(EXT_LANG) | {'.txt', '.cfg', '.ini', '.lock', '.env', '.csv', '.png', '.jpg', '.jpeg', '.svg', '.gif', '.webp', '.ico',
+                                  '.mjs', '.cjs', '.scss', '.less', '.properties', '.pro', '.proto', '.graphql', '.cfg', '.conf', '.rst', '.tsv',
+                                  '.import', '.godot', '.cs', '.java', '.go', '.rs', '.rb', '.php', '.c', '.h', '.cpp'}
+KNOWN_BARE_FILES = {'dockerfile', 'makefile', 'procfile', 'gemfile', 'podfile', 'jenkinsfile'}
+
+def is_real_path(path):
+    if not path:
+        return False
+    base = os.path.basename(path)
+    if '/' in path.strip('/'):
+        return True
+    return os.path.splitext(base)[1].lower() in KNOWN_FILE_EXT or base.lower() in KNOWN_BARE_FILES
+
 def lang_of(path):
+    if not is_real_path(path):
+        return 'unknown'
     return EXT_LANG.get(os.path.splitext(path)[1].lower(), 'other')
 
 def type_of(text):
@@ -70,6 +89,8 @@ def complexity_of(text, explicit=None):
     return 'T2'
 
 def verif_of(lang, path):
+    if lang == 'unknown':
+        return 'unknown'   # no identifiable file: nothing to say about whether a gate can catch a bad change
     if lang in UNVERIFIABLE_LANG:
         return 'unverifiable'
     if 'test' in path.lower():
@@ -85,7 +106,7 @@ def classify(text, explicit_complexity=None):
     if not m:
         m = re.search(r'\b([A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]{1,8})\b', text)
     path = m.group(1) if m else ''
-    lang = lang_of(path) if path else 'other'
+    lang = lang_of(path)   # '' (no file-shaped token at all, e.g. a bare 'none') and non-path tokens are both 'unknown' (h13)
     return {'lang': lang, 'type': type_of(text), 'complexity': complexity_of(text, explicit_complexity),
             'verif': verif_of(lang, path), 'file': path}
 

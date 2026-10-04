@@ -34,6 +34,9 @@
 #   KEEP_DAYS=3 AUTO_MERGE_DEFAULT=true branch_hygiene.sh --from-config
 #
 set -uo pipefail
+# 2026-10-04: GUT also descends into tests/*/ (release/battle/steam were never run). Verified green on xlite claude/feature (389 scripts, 2862 tests, 0 failing).
+# Kill switch: OVN_GUT_SUBDIRS=off.
+GUT_SUBDIRS="-ginclude_subdirs"; [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] && GUT_SUBDIRS=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEEP_DAYS="${KEEP_DAYS:-3}"                       # keep dated overnight/* this many days
@@ -283,7 +286,7 @@ run_gate() {
     if { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; }; then rm -f "$gout"; return 1; fi
     if [ -f "$dir/addons/gut/gut_cmdln.gd" ]; then
       xml="$(mktemp)"
-      ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit "-gjunit_xml_file=$xml" ) >>"$gout" 2>&1
+      ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests $GUT_SUBDIRS -gexit "-gjunit_xml_file=$xml" ) >>"$gout" 2>&1
       # A test/dep script that fails to COMPILE is logged here but is ABSENT from the
       # JUnit XML (failures="0" still holds) and GUT exits 0 - this masked a real
       # battle.gd compile break. Scan for the load/compile-failure signatures.

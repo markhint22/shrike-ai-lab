@@ -11,6 +11,9 @@
 # Usage: ovn_stage_runner.sh <repo> ["<item text>"]   (no item -> first doable T3+ item in the queue)
 # Tunables: OVN_STAGE_MAX_ATTEMPTS(2 per step) OVN_STAGE_MAX_STEPS(6) OVN_STAGE_REDECOMP(1)
 set -uo pipefail
+# 2026-10-04: GUT also descends into tests/*/ (release/battle/steam were never run). Verified green on xlite claude/feature (389 scripts, 2862 tests, 0 failing).
+# Kill switch: OVN_GUT_SUBDIRS=off.
+GUT_SUBDIRS="-ginclude_subdirs"; [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] && GUT_SUBDIRS=""
 cd "$HOME/overnight-queue" || exit 1
 export PATH="$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 LITELLM="${LITELLM_BASE:-http://localhost:4000}"; LKEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
@@ -102,6 +105,8 @@ source scripts/lib_tree_guard.sh 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
 # here: that would redefine ovn_is_manual_bug_text after the fail-safe stub that follows lib_bug_escalate.sh.
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites.
 source scripts/lib_gut_xml.sh 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
+# 2026-10-04 (QA audit H): explicit run of the cycle's new/changed test files (ovn_run_new_tests); lib missing => step is skipped.
+source scripts/lib_new_tests.sh 2>/dev/null || true
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
@@ -518,7 +523,8 @@ jlog "$(jq -nc --arg r "$RUNID" --arg repo "$repo" --argjson t "$tier" --arg it 
 _repair_rounds="${OVN_VERIFY_REPAIR_ROUNDS:-2}"
 _per_step_budget=$(( MAX_ATT * STEP_TIMEOUT * (1 + REDECOMP) ))
 _steps_budget=$(( NSTEPS * _per_step_budget ))
-_verify_budget=$(( (_repair_rounds + 1) * 1500 + _repair_rounds * STEP_TIMEOUT ))
+# 2026-10-04 (QA h13 review): +420s per verify = the new-tests helper's own bounds (OVN_NEW_TESTS_TIMEOUT 300s pytest + 120s GUT); it only runs after the rest of full_verify was green.
+_verify_budget=$(( (_repair_rounds + 1) * (1500 + 420) + _repair_rounds * STEP_TIMEOUT ))
 _dynamic_budget=$(( _steps_budget + _verify_budget + 300 ))
 _ceiling="${OVN_STAGE_HARD_TIMEOUT:-12600}"
 _armed=$(( _dynamic_budget < _ceiling ? _dynamic_budget : _ceiling ))
@@ -782,9 +788,15 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     echo "-- GUT FULL --" >> "$vlog"
     ( cd "$wt" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >>"$vlog" 2>&1
     local xml; xml="$(mktemp)"
-    ( cd "$wt" && timeout 90 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit "-gjunit_xml_file=$xml" ) >> "$vlog" 2>&1
+    ( cd "$wt" && timeout 90 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests $GUT_SUBDIRS -gexit "-gjunit_xml_file=$xml" ) >> "$vlog" 2>&1
     { [ -s "$xml" ] && gut_xml_green "$xml"; } || { vok=0; echo "-- GUT RED: $(gut_xml_summary "$xml") --" >> "$vlog"; }
     grep -qiE 'Failed to load script|Failed to compile|Parse Error' "$vlog" && vok=0; rm -f "$xml"
+  fi
+  # NEW/CHANGED TESTS (2026-10-04, QA audit H): explicitly run the test files this cycle added/changed. A new test file the verify command never
+  # collects (iptv app/**/test_*.py, xlite test/ or *_test.gd) used to pass silently. Infra trouble (timeout/missing tool) = proceed, never red.
+  # OVN_RUN_NEW_TESTS=off disables. Fail-safe: lib missing => no effect.
+  if [ "$vok" = 1 ] && [ "${OVN_RUN_NEW_TESTS:-on}" != "off" ] && declare -F ovn_run_new_tests >/dev/null 2>&1; then
+    ovn_run_new_tests "$wt" "${pkg:-.}" "${vp:+$HOME/overnight-queue/$vp}" "$HOME/godot/godot4" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null || echo HEAD)" "$vlog" || vok=0
   fi
   # WEB: vitest full run (reuse provisioned node_modules)
   if [ "$vok" = 1 ]; then

@@ -8,3 +8,8 @@
 # iptv_apps (python/pytest) and xlite (GUT: reports NA 'no .venv/bin/pytest', costs nothing). Detached worktree of origin/develop, nice+ionice, QA_CPUSET.
 # Kill switches: OVN_BASELINE_REFRESH=off | qa mode baseline=off.  Rollback: delete the line.
 11 */3 * * * OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/baseline_refresh_cron.sh >> /home/mhintermeister/overnight-queue/logs/baseline_refresh.out 2>&1
+
+# --- QA ghost-test canary (2026-10-04 audit): counts test files on disk vs files the verify command actually collects (iptv pytest --collect-only, xlite GUT junit) and
+# writes ONE deduped alerts.log warn when MORE THAN 3 test files are never collected. Read-only (detached scratch worktree, nice'd, no locks), always exits 0; infra trouble =
+# a log line and no alert. Every 6h at :37. Kill switch: OVN_TEST_COLLECT_CANARY=off.  Rollback: delete the line.
+37 */6 * * * NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_test_collect_canary.sh >> /home/mhintermeister/overnight-queue/logs/test_collect_canary.out 2>&1

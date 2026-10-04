@@ -11,6 +11,8 @@ Flags changes that weaken the oracle or remove safety:
   D  edits to files in state/qa_frozen_tests.json ({repo: {path: sha256}}); manifest absent => NA     (D_*)
   E  a test that remains but has zero effective assertions left                                       (E_*)
   F  coverage-threshold lowered / --ignore / --deselect added in test config                          (F_*)
+  2026-10-04 (qa/ag_h13.py, see its docstring): D_DEAD_SYMBOL, E_TEST_NOT_COLLECTED, F_REVERT_OF_RECENT, D_FROZEN_EDIT (vendored paths, FAIL),
+  D_FROZEN_NEWFILE, C_FILE_DELETED_LIVE, C_TEST_ORPHANED, A_MOCK_ONLY, A_MIRROR_EXPECTED
 FAIL only for high-confidence gaming (frozen-test edit, all assertions gone from a surviving test, an assertion
 replaced by a tautology). Everything uncertain is FLAG. Could not analyse (bad refs, git error, deadline with no
 findings) => UNVERIFIED, exit 0. See qa/gate_antigaming.README.md and docs/QA_GATES_SPEC.md.
@@ -1688,6 +1690,17 @@ def check(argv):
         if os.path.basename(p) in CONFIG_NAMES and s in ("M", "R") and p in diffs:
             rule_config(repo, diffs[p], None, repo.blob(head, p), findings)
     rule_claim_vs_diff(rd, base, head, findings)
+    # 2026-10-04 audit rules (qa/ag_h13.py): D_DEAD_SYMBOL, E_TEST_NOT_COLLECTED, F_REVERT_OF_RECENT, D_FROZEN_EDIT/NEWFILE (vendored paths),
+    # C_FILE_DELETED_LIVE, C_TEST_ORPHANED, A_MOCK_ONLY, A_MIRROR_EXPECTED. OVN_QA_AG_H13=off disables them. Isolated: an error becomes a note.
+    if os.environ.get("OVN_QA_AG_H13", "on") != "off":
+        try:
+            import ag_h13
+            fz = ag_h13.run_all(repo, name, status, st_raw, diffs, findings, notes,
+                                max(deadline, time.time()) + float(os.environ.get("QA_AG_H13_BUDGET", "40")), "--no-record" in argv)
+            if frozen.startswith("NA") and not fz.startswith("NA"):
+                frozen = fz
+        except Exception as ex:  # noqa: BLE001
+            notes.append("ag_h13 failed to run: %s: %s" % (type(ex).__name__, str(ex)[:80]))
     # assemble
     order = {"FAIL": 0, "FLAG": 1}
     findings.sort(key=lambda f: (order[f["sev"]], f["file"], f["line"]))

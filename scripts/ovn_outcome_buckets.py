@@ -116,7 +116,7 @@ def bucket_from_outcome_row(row):
         return "bad"
     if cls == "noop":
         status = str(row.get("status") or "").lower()
-        if "already-done" in status or "blocked" in status or "needs-decision" in status or "needs_decision" in status or "scout-unworkable" in status:
+        if "already-done" in status or "blocked" in status or "needs-decision" in status or "needs_decision" in status or "scout-unworkable" in status or "ungrounded-plan" in status:
             return "benign"
         return "bad"  # bare no-op / gate-reverted / stage-unverified - a real thrown-away attempt
     return "benign"  # skipped, error, oversized, unknown, held, or an unrecognized class

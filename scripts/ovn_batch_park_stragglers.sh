@@ -28,6 +28,8 @@ set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 export PATH=/usr/local/bin:/usr/bin:/bin:${PATH:-}
 source scripts/lib_worktree.sh
+# 2026-10-04 (h13): never reset a repo whose cycle is in flight (an unpushed fleet commit was discarded twice). lib missing => old behaviour.
+. "$HOME/overnight-queue/scripts/lib_run_integrity.sh" 2>/dev/null || true
 LOG="logs/ovn_batch_park_stragglers.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
@@ -58,6 +60,9 @@ while IFS= read -r line; do
   ntotal="$(printf '%s' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["n"])')"
   pct="$(printf '%s' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin)["pct"])')"
 
+  if declare -F ovn_ri_cycle_active >/dev/null 2>&1 && ovn_ri_cycle_active "$HOME/overnight-queue/state" "$repo"; then
+    say "$repo/$tag: cycle in flight - skipping (not marked dedup, will retry next run)"; continue
+  fi
   wt="$(wt_open "repos/$repo" overnight/feature)" || { say "wt_open FAILED for $repo/$tag"; continue; }
   printf '%s' "$line" > "$BATCH_JSON"
   parked="$(python3 scripts/ovn_batch_park_tagger.py "$wt/OVERNIGHT_PROGRESS.md" "$BATCH_JSON")"
@@ -77,7 +82,11 @@ resume any of them: remove the [AUTO-SKIP batch-graded-F ...] prefix."
     if [ "$res" = "ok" ]; then
       echo "$tag" >> "$DEDUP"
       git -C "repos/$repo" fetch -q origin overnight/feature 2>>"$LOG"
-      git -C "repos/$repo" reset --hard -q origin/overnight/feature 2>>"$LOG"
+      if declare -F ovn_ri_cycle_active >/dev/null 2>&1 && ovn_ri_cycle_active "$HOME/overnight-queue/state" "$repo"; then
+        say "$repo: cycle started meanwhile - NOT resetting the live clone"
+      else
+        git -C "repos/$repo" reset --hard -q origin/overnight/feature 2>>"$LOG"
+      fi
       TOTAL_PARKED=$((TOTAL_PARKED + parked))
       SUMMARY="$SUMMARY
   ${repo}/${tag}: parked ${parked} item(s) — batch landed ${landed}/${ntotal} (${pct}%)"

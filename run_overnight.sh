@@ -273,7 +273,9 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     # no-op* pattern below, same as blocked/needs-decision are.
     # 2026-10-02: no-op(scout-unworkable[-unparked]) = the scout-file guard refused to run aider on a plan that needs a banned/oversize file (the cycle
     # costs one scout call and the item is parked) - a benign, deterministic non-event like blocked/needs-decision, NOT a model failure.
-    *blocked*|*needs-decision*|*needs_decision*|*already-done*|*scout-unworkable*) cls=noop; sev=neutral;;
+    # 2026-10-04 (h13): no-op(ungrounded-plan) = scout PROCEED naming no file (items whose path is '.'/'tests'); a ~25s deterministic non-event, not a
+    # model flail - scoring it bad dragged xlite's rate (20 of 56 non-successful rows). ovn_item_guard.sh parks the feature group after N hits.
+    *blocked*|*needs-decision*|*needs_decision*|*already-done*|*scout-unworkable*|*ungrounded-plan*) cls=noop; sev=neutral;;
     no-op*|noop*)                  cls=noop;      sev=bad;;
     skip*exhausted*|skip*none*|skip*empty*) cls=skipped; sev=expected;;
     skip*)                         cls=skipped;   sev=neutral;;
@@ -1101,7 +1103,19 @@ STUB
     # stubs above. Runs after the Alembic-specific block so an Alembic path
     # already stubbed by it is simply skipped here (file now exists).
     _ovn_new_source_file="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue|kt|swift)' | head -1)"
-    if [ -n "$_ovn_new_source_file" ] && [ ! -f "$_ovn_new_source_file" ]; then
+    # h13 (2026-10-04): never stub the target of a DELETE item. The file is MISSING because an earlier commit already deleted it; re-creating a
+    # placeholder made the item look doable again (stub -> delete executor `git rm` -> or a flail) instead of being recognised as already done
+    # (xlite scripts/battle/elevation.gd: 6 cycles). A delete item = the item's own `VERIFY: test ! -f <file>`, or "<file> - Delete/Remove ...".
+    _ovn_stub_is_delete=0
+    if [ -n "$_ovn_new_source_file" ]; then
+      _ovn_stub_txt="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}")"
+      _ovn_stub_esc="$(printf '%s' "$_ovn_new_source_file" | sed 's/[][\.*^$/]/\\&/g')"
+      if printf '%s' "$_ovn_stub_txt" | grep -qF -- "test ! -f ${_ovn_new_source_file}" \
+         || printf '%s' "$_ovn_stub_txt" | grep -qiE -- "${_ovn_stub_esc}\`?[[:space:]]*(—|-|–)[[:space:]]*(delete|remove)\b"; then
+        _ovn_stub_is_delete=1
+      fi
+    fi
+    if [ -n "$_ovn_new_source_file" ] && [ ! -f "$_ovn_new_source_file" ] && [ "$_ovn_stub_is_delete" = 0 ]; then
       mkdir -p "$(dirname "$_ovn_new_source_file")"
       # 2026-09-30 FIX: a comment-only stub is NOT valid for every file type, and this stub is
       # COMMITTED - so if the implement step does not fill it, the broken file stays on the branch
@@ -1440,6 +1454,23 @@ STUB
                   git reset -q --hard "$BEFORE_SHA" >>"$task_log" 2>&1
                   echo "--- DELETE-EXECUTOR: git rm/commit failed - reset, normal path continues ---" >> "$task_log"
                 fi
+                ;;
+              ALREADY-GONE*)
+                # h13: the target is already absent (deleted by an earlier commit / the item's own VERIFY `test ! -f` passes): credit the item so it
+                # leaves rotation and report the benign already-done status the guard/credit paths already understand (no model call, no flail).
+                _de_gone="$(printf '%s' "$_de_out" | cut -f2)"
+                _de_ln="$(grep -nF -- "$_de_item" OVERNIGHT_PROGRESS.md | head -1 | cut -d: -f1)"
+                echo "--- DELETE-EXECUTOR: ${_de_gone} is already gone (deleted earlier / VERIFY test ! -f passes) - crediting the item ---" >> "$task_log"
+                if [ -n "$_de_ln" ]; then
+                  sed -i "${_de_ln}s/^- \[ \] /- [x] (already-done, target already deleted) /" OVERNIGHT_PROGRESS.md
+                  git add OVERNIGHT_PROGRESS.md
+                  if git commit -q -m "chore(queue): credit already-deleted item (${_de_gone})" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then
+                    timeout 30 git push origin "$branch" --quiet 2>>"$task_log" || { timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; } \
+                      || { git rebase --abort >/dev/null 2>&1 || true; echo "--- DELETE-EXECUTOR: credit push failed; credit may be lost on next reset ---" >> "$task_log"; }
+                  fi
+                fi
+                echo "no-op(ALREADY-DONE)"
+                return
                 ;;
               SKIP*) echo "--- delete-executor: ${_de_out#SKIP	} ---" >> "$task_log" ;;
             esac
@@ -2288,15 +2319,26 @@ ${full_prompt}"
     # instead emit a 'DELETE: <path>' line; the runner removes it here with a
     # cheap git rm. Grep the task log (catches it whether the model put it in a
     # commit message or just its reply); only remove paths that actually exist.
+    _ovn_del_already=0
     DEL_PATHS="$(grep -oE '^[[:space:]]*(-[[:space:]]*)?DELETE:[[:space:]]*[A-Za-z0-9_./-]+' "$task_log" 2>/dev/null | sed -E 's/.*DELETE:[[:space:]]*//' | sort -u)"
     if [ -n "$DEL_PATHS" ]; then
-      del_did=0
+      del_did=0; _ovn_del_gone=0; _ovn_del_other=0
       while IFS= read -r dp; do
         [ -z "$dp" ] && continue
         if [ -f "$dp" ]; then
-          git rm -q -- "$dp" 2>>"$task_log" && { echo "--- DELETE trailer: removed ${dp} ---" >> "$task_log"; del_did=1; }
+          git rm -q -- "$dp" 2>>"$task_log" && { echo "--- DELETE trailer: removed ${dp} ---" >> "$task_log"; del_did=1; } || _ovn_del_other=$((_ovn_del_other + 1))
+        elif [ -e "$dp" ] || [ -L "$dp" ] || [ "$dp" = "." ] || [ "$dp" = ".." ] || case "/$dp/" in */../*|*//*) true;; *) false;; esac; then
+          # h13 review: a directory / dangling symlink / '.' / '..' / traversal is NOT "already deleted" (git history of '.' always has a deletion)
+          _ovn_del_other=$((_ovn_del_other + 1))
+        elif [ -n "$(git --literal-pathspecs log --diff-filter=D --format=%h -1 -- "$dp" 2>/dev/null)" ]; then
+          # h13: already absent AND git history shows it was tracked then deleted: that is "done", not a silent ignore
+          echo "--- DELETE trailer: ${dp} is already deleted (git history) ---" >> "$task_log"
+          _ovn_del_gone=$((_ovn_del_gone + 1))
+        else
+          _ovn_del_other=$((_ovn_del_other + 1))
         fi
       done <<< "$DEL_PATHS"
+      [ "$del_did" -eq 0 ] && [ "$_ovn_del_gone" -gt 0 ] && [ "$_ovn_del_other" -eq 0 ] && _ovn_del_already=1
       if [ "$del_did" -eq 1 ] && ! git diff --cached --quiet; then
         git commit -q -m "chore: remove file(s) per DELETE trailer (aider can't cheaply delete via udiff)"
         AFTER_SHA="$(git rev-parse HEAD)"
@@ -2655,6 +2697,7 @@ ${full_prompt}"
             _migfix_after="$(git rev-parse HEAD)"
             if [ "$_migfix_after" != "$AFTER_SHA" ]; then
               AFTER_SHA="$_migfix_after"
+              _ovn_land_sha="$AFTER_SHA"   # h13: the fix-up superseded the verified commit; the landing check must follow it
               _migcheck_out="$(python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
               _migcheck_rc=$?
               printf '%s\n' "$_migcheck_out" >> "$task_log"
@@ -2839,6 +2882,7 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
             AFTER_SHA="$_buildfix_after"
+            _ovn_land_sha="$AFTER_SHA"   # h13: see the Tier-2 fix-up refresh below
             _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
             VERIFY_RESULT="$(run_repo_verification)"
             echo "--- BUILD-GATE fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
@@ -2929,6 +2973,7 @@ All files you need are already in the chat. You cannot run commands or call tool
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then
             AFTER_SHA="$_fixup_after"
+            _ovn_land_sha="$AFTER_SHA"   # h13: a landed Tier-2 fix-up (it may rewrite the commit) supersedes the pre-fix-up sha; refresh so the landing check does not flag the stale one
             _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
             VERIFY_RESULT="$(run_repo_verification)"
             echo "--- Tier-2 fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
@@ -3094,9 +3139,13 @@ All files you need are already in the chat. You cannot run commands or call tool
         # LANDED-COMMIT REACHABILITY (2026-10-03, A6): a push that exits 0 proves nothing when the cycle's commit was reset away before it ran
         # ("Everything up-to-date" on a tree reset to BEFORE_SHA): xlite recorded "pushed" 3x for work origin never had. Require AFTER_SHA to be an
         # ancestor of origin/<branch>; a fetch failure is unknown and keeps the old status.
-        if ! ovn_ri_commit_reachable "$AFTER_SHA" "$branch" || ! ovn_ri_commit_reachable "${_ovn_land_sha:-}" "$branch"; then
-          echo "--- LANDING CHECK: ${AFTER_SHA:0:12} is NOT reachable from origin/${branch} after the push - the commit was lost before it was pushed ---" >> "$task_log"
-          emit_alert warn "$id" "commit ${AFTER_SHA:0:12} not reachable from origin/${branch} after push (commit-lost-before-push); not counted as landed"
+        # h13: report the sha that ACTUALLY failed (it was always AFTER_SHA, even when the lost one was the verified _ovn_land_sha)
+        _ovn_lost_sha=""
+        if ! ovn_ri_commit_reachable "$AFTER_SHA" "$branch"; then _ovn_lost_sha="$AFTER_SHA"
+        elif ! ovn_ri_commit_reachable "${_ovn_land_sha:-}" "$branch"; then _ovn_lost_sha="$_ovn_land_sha"; fi
+        if [ -n "$_ovn_lost_sha" ]; then
+          echo "--- LANDING CHECK: ${_ovn_lost_sha:0:12} is NOT reachable from origin/${branch} after the push - the commit was lost before it was pushed ---" >> "$task_log"
+          emit_alert warn "$id" "commit ${_ovn_lost_sha:0:12} not reachable from origin/${branch} after push (commit-lost-before-push); not counted as landed"
           echo "error-transient(commit-lost-before-push)"
           return
         fi
@@ -3158,7 +3207,9 @@ All files you need are already in the chat. You cannot run commands or call tool
       # cause a genuine flail (no such language) to be misclassified as benign, and it can
       # never cause a real code change to be discarded (AFTER_SHA already equals BEFORE_SHA
       # to even reach this branch).
-      if tail -c 4000 "$task_log" 2>/dev/null | grep -qiE "already (fully |correctly |completely |essentially |be )*(done|implemented|imported|present|in place|use|uses|has|have|correct|handled|handles|satisfied|satisfies|been|exists?|contains?|defined|defines|covers?|tests?|validates?|guards?|fine|good|complete)|no (code |further |additional )*changes? (are |is )?(needed|required|necessary)|nothing to (change|do|add)|is already (there|the case)|already (passes|passing)|does not (need|require) (any )?changes?"; then
+      if [ "${_ovn_del_already:-0}" = 1 ] && [ "$AFTER_SHA" = "$BEFORE_SHA" ]; then
+        echo "no-op(ALREADY-DONE)"   # h13: every DELETE: target was already deleted by an earlier commit
+      elif tail -c 4000 "$task_log" 2>/dev/null | grep -qiE "already (fully |correctly |completely |essentially |be )*(done|implemented|imported|present|in place|use|uses|has|have|correct|handled|handles|satisfied|satisfies|been|exists?|contains?|defined|defines|covers?|tests?|validates?|guards?|fine|good|complete)|no (code |further |additional )*changes? (are |is )?(needed|required|necessary)|nothing to (change|do|add)|is already (there|the case)|already (passes|passing)|does not (need|require) (any )?changes?"; then
         echo "no-op(ALREADY-DONE)"
       else
         echo "no-op"

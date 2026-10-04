@@ -34,7 +34,7 @@ ok "second run leaves the file byte-identical" "$(cmp -s "$T/p1.md" "$T/p1.befor
 CL="$D/ovn_classify.py"
 eq "CLI plain output" "$(python3 "$CL" 'app/foo.py — replace the bare except with except Exception. One line.')" "py syntax T1 test-covered app/foo.py"
 eq "CLI --tag output" "$(python3 "$CL" --tag 'web/src/A.vue — add type="button" to the close button')" '{vue·a11y·T1·test-covered}'
-eq "CLI no-file text" "$(python3 "$CL" 'just some vague words')" "other other T2 build-verified "
+eq "CLI no-file text" "$(python3 "$CL" 'just some vague words')" "unknown other T2 unknown "
 cat > "$T/cl.py" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ovn_classify_under_test", sys.argv[1])
@@ -62,13 +62,18 @@ chk("explicit complexity wins", C.complexity_of('implement real', 'T5'), 'T5')
 # verifiability
 for lang, path, want in [('swift', 'a.swift', 'unverifiable'), ('py', 'tests/x.py', 'test-covered'),
                          ('md', 'README.md', 'unverifiable'), ('py', 'a.py', 'test-covered'),
-                         ('godot', 'a.tscn', 'build-verified'), ('other', '', 'build-verified')]:
+                         ('godot', 'a.tscn', 'build-verified'), ('other', '', 'build-verified'), ('unknown', '', 'unknown')]:
     chk("verif %s %s" % (lang, path), C.verif_of(lang, path), want)
 # path discovery: backticked, bare fallback, none
 chk("backtick path", C.classify('fix `src/a.ts` now')['file'], 'src/a.ts')
 chk("bare path fallback", C.classify('fix src/b.kt now')['lang'], 'kotlin')
 chk("no path", C.classify('nothing here')['file'], '')
-chk("lang of unknown ext", C.lang_of('x.zzz'), 'other')
+chk("lang of unknown ext (h13: not a real file token)", C.lang_of('x.zzz'), 'unknown')
+chk("h13: bare 'none' is not a path", C.lang_of('none'), 'unknown')
+chk("h13: dotted symbol is not a path", C.lang_of('sympy.isprime'), 'unknown')
+chk("h13: dotted module is not a path", C.lang_of('app.services.cache'), 'unknown')
+chk("h13 benign: real path with an unmapped known ext stays 'other'", C.lang_of('conf/x.txt'), 'other')
+chk("h13 benign: real code path unchanged", C.lang_of('app/a.py'), 'py')
 chk("tag format", C.tag({'lang': 'a', 'type': 'b', 'complexity': 'T1', 'verif': 'c'}), '{a·b·T1·c}')
 print("PASS=%d FAIL=%d" % (P, F)); sys.exit(1 if F else 0)
 PY

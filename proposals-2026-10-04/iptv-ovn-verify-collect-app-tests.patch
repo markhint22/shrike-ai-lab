@@ -1,0 +1,15 @@
+--- a/.ovn-verify.sh	2026-10-04 09:46:47
++++ b/.ovn-verify.sh	2026-10-04 09:46:48
+@@ -56,6 +56,12 @@
+       XD="-n ${OVN_PYTEST_WORKERS:-8}"
+     fi
+     [ -n "$PY" ] && { "$PY" -m pytest tests/ -q $XD -o addopts="" -p no:cacheprovider || exit 1; }
++    # 2026-10-04: OPT-IN (default OFF until the app/**/test_*.py cleanup branch lands - 4 of 12 such files were failing): also collect tests that live
++    # under app/ (they were never run by `pytest tests/`). OVN_COLLECT_APP_TESTS=on => also `pytest app`. Exit code 5 (nothing collected) is not a failure.
++    if [ -n "$PY" ] && [ "${OVN_COLLECT_APP_TESTS:-off}" = "on" ]; then
++      "$PY" -m pytest app -q $XD -o addopts="" -p no:cacheprovider; _rc=$?
++      [ "$_rc" -ne 0 ] && [ "$_rc" -ne 5 ] && exit 1
++    fi
+   )
+   _backend_rc=$?
+   flock -u 221

@@ -13,6 +13,9 @@ set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 export PATH="$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 log(){ echo "$(date '+%F %T') $*"; }
+# 2026-10-04 (h13): never `git reset --hard` a repo whose cycle is in flight (it discarded an unpushed fleet commit at 12:40 and 00:40 CDT). Same guard as
+# ovn_park_sweep.sh; lib missing => ovn_ri_cycle_active undefined => the declare -F guards below keep the OLD behaviour.
+. "$HOME/overnight-queue/scripts/lib_run_integrity.sh" 2>/dev/null || true
 
 repos="${*:-}"
 if [ -z "$repos" ]; then
@@ -22,7 +25,13 @@ fi
 for r in $repos; do
   f="repos/$r/OVERNIGHT_PROGRESS.md"
   [ -f "$f" ] || { log "$r: no progress file, skipping"; continue; }
+  if declare -F ovn_ri_cycle_active >/dev/null 2>&1 && ovn_ri_cycle_active "$HOME/overnight-queue/state" "$r"; then
+    log "$r: a cycle/stage runner is in flight - skipping this pass (will retry next run)"; continue
+  fi
   ./queue.sh hold "$r" >/dev/null 2>&1 || true
+  if declare -F ovn_ri_cycle_active >/dev/null 2>&1 && ovn_ri_cycle_active "$HOME/overnight-queue/state" "$r"; then
+    log "$r: a cycle started while taking the hold - skipping this pass"; ./queue.sh release "$r" >/dev/null 2>&1 || true; continue
+  fi
   if ! ( cd "repos/$r" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ); then
     log "$r: git sync failed — skipping"; ./queue.sh release "$r" >/dev/null 2>&1 || true; continue
   fi

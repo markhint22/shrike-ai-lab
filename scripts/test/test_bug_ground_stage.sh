@@ -37,7 +37,8 @@ printf 'package com.x.models\ndata class GroupedCategories(val a: Int)\n' > $KT/
 printf 'package com.x.ui\nclass StreamsViewModelTest { fun t() { check(true) } }\n' > $KT/ui/StreamsViewModelTest.kt
 echo 'Applied edit to GroupedCategories.kt'"
 plan1(){ printf '[{"desc":"%s","files":["%s","%s"],"verify":"cd android && ./gradlew testDebugUnitTest"}]' "$1" "$KT/ui/StreamsViewModel.kt" "$KT/ui/StreamsViewModelTest.kt"; }
-J(){ osr_jsonl | grep -qF -- "$1"; }
+# 2026-10-04 (QA h13 review): no -q: under pipefail an early-exiting grep SIGPIPEs the writer (rc 141) when loaded = the flaky "journal records the lazy brief".
+J(){ osr_jsonl | grep -F -- "$1" >/dev/null; }
 args_has(){ grep -qF -- "$2" "$T/scn/aider.args.$1" 2>/dev/null; }
 newfix(){ osr_new; withlibs; osr_venv backend; kotlin_repo; }
 bugcount(){ cat "$Q"/state/item_fails/stage-"$OSR_REPO".*.bugcount 2>/dev/null; }

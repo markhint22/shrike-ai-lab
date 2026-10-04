@@ -20,7 +20,9 @@ unset OVN_ITEM_FAIL_CAP OVN_ITEM_NOOP_CAP OVN_ITEM_TOKEN_CAP
 source "$LIB"
 
 P=0; F=0
-ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# 2026-10-04 (QA h13 review): conditions are `prog X | grep -q Y`; under this file's `set -o pipefail` an early-exiting grep SIGPIPEs the writer (rc 141) when the box is loaded
+# (captured: 4 random FAILs of 12 parallel runs, each passing on retry). pipefail is switched off inside the condition only.
+ok(){ if ( set +o pipefail; eval "$2" ) >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (expected [$2] got [$3])"; fi; }
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 

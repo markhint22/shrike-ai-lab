@@ -88,7 +88,7 @@ EOF2
 chmod +x "$tmp/origin_r1.git/hooks/pre-receive"
 out="$(STUB_OUT="REFILL=0 CREDITED=2 BACKLOG_REMAINING=3" STUB_APPEND="- [x] credited" refill r1)"
 ok "C: credited-only commit path logged success after retry" "printf '%s' \"\$out\" | grep -q 'r1: refilled +0, credited +2'"
-ok "C: commit message has credited count" "git -C '$tmp/origin_r1.git' log overnight/feature --oneline | grep -q 'pre-verify-credited 2'"
+ok "C: commit message has credited count" "_o=\"\$(git -C '$tmp/origin_r1.git' log overnight/feature --oneline)\"; printf '%s\n' \"\$_o\" | grep -q 'pre-verify-credited 2'"
 
 # --- D: push always fails -> 'refill push FAILED' (115) ---
 printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/origin_r1.git/hooks/pre-receive"

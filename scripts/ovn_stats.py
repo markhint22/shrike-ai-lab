@@ -277,6 +277,10 @@ total = len(rows)
 def group(axis):
     g = defaultdict(list)
     for r in rows:
+        # h13 (2026-10-04): attempts with no identifiable file (ovn_classify lang 'unknown') are not a language; a pass-rate row for them
+        # (formerly the misleading "other 40%") is excluded from every per-language table/flag. They still count in every other axis.
+        if axis == 'lang' and r[axis] == 'unknown':
+            continue
         g[r[axis]].append(r)
     return g
 
@@ -463,4 +467,8 @@ else:
             rate = ("%d%%" % (100 * l // (l + f))) if (l + f) else "  — "
             print("  %-14s %5s   landed %-3d failed %-2d no-op %-3d%s" % (
                 k, rate, l, f, n, ("  err %d" % e) if e else ""))
+        if axis == "lang":
+            _unk = sum(1 for r in rows if r['lang'] == 'unknown')
+            if _unk:
+                print("  (%d attempt(s) with no identifiable file are not in this table)" % _unk)
         print()

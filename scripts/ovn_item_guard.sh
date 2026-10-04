@@ -84,7 +84,8 @@ case "$status" in
         [ -z "$_lh" ] && continue
         rm -f "$state/item_fails/${id}.${_lh}.count" "$state/item_fails/${id}.${_lh}.toks" \
               "$state/item_fails/${id}.${_lh}.noopcount" "$state/item_fails/${id}.${_lh}.nooptoks" \
-              "$state/item_fails/${id}.${_lh}.lastfail" "$state/item_fails/${id}.${_lh}.indet" "$state/item_fails/${id}.${_lh}.indetlands" "$state/item_fails/${id}.${_lh}.lastids" 2>/dev/null
+              "$state/item_fails/${id}.${_lh}.lastfail" "$state/item_fails/${id}.${_lh}.indet" "$state/item_fails/${id}.${_lh}.indetlands" "$state/item_fails/${id}.${_lh}.lastids" \
+              "$state/item_fails/${id}.${_lh}.ungrounded" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive")
       done < <(grep -ohE 'item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
       # 2026-10-02 (harness-X X-a): "indet-hash <md5>" = the cycle landed green but the item's own VERIFY timed out / was not runnable, so the runner
       # could neither credit nor fail it. The commit DID land: clear its failure/no-op streaks like a credited landing, and arm a bounded allowance
@@ -102,7 +103,7 @@ case "$status" in
         fi
         rm -f "$state/item_fails/${id}.${_ih}.count" "$state/item_fails/${id}.${_ih}.toks" \
               "$state/item_fails/${id}.${_ih}.noopcount" "$state/item_fails/${id}.${_ih}.nooptoks" \
-              "$state/item_fails/${id}.${_ih}.lastfail" 2>/dev/null
+              "$state/item_fails/${id}.${_ih}.lastfail" "$state/item_fails/${id}.${_ih}.ungrounded" 2>/dev/null
         printf '0' > "$state/item_fails/${id}.${_ih}.indet" 2>/dev/null
       done < <(grep -ohE 'indet-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
     fi
@@ -122,6 +123,9 @@ case "$status" in "no-op(scout-unworkable)") exit 0;; esac
 # emitted by run_overnight.sh from the runner's bug_attempt journal event). Re-resolving "top" here would bill the cycle (streak + lastfail memory) to
 # an unrelated roadmap item once the bug has been parked - the same cross-item mis-attribution as scout-unworkable above. Nothing to track.
 case "$status" in *"bug-handled"*) exit 0;; esac
+# h13 review: the delete executor already CREDITED the item whose target was gone (log marker below) and returned no-op(ALREADY-DONE). The fresh
+# top-item resolve would bill that no-op to the NEXT open item (often a sibling of the same dead-code [feat:] group), walking it toward the no-op park.
+if [ "$status" = "no-op(ALREADY-DONE)" ] && [ -n "$task_log" ] && [ -f "$task_log" ] && grep -q -- 'DELETE-EXECUTOR: .* is already gone' "$task_log" 2>/dev/null; then exit 0; fi
 
 # The top unchecked item that is NOT already tagged blocked/skipped.
 # 2026-09-17 fix: this was the ONE selector 383a2d9 missed when it added a
@@ -286,6 +290,59 @@ if [ "$is_bug" = 1 ]; then
     rm -f "$bcountf" "$btoksf" "$state/failures/${id}.count" 2>/dev/null
   fi
   exit 0
+fi
+
+# --- Ungrounded-plan sibling-group park (2026-10-04, h13) ------------------------------------------------------------------------------------
+# no-op(ungrounded-plan) = the scout said PROCEED but named NO file (items whose path is '.' / 'tests', e.g. "[T4] . - Execute full test suite").
+# Every sibling of the same [feat:...] group shares that shape, so parking ONE item per NCAP no-ops walked the group at ~25s a cycle each
+# (xlite: 20 rows in 24h). After OVN_UNGROUNDED_GROUP_CAP (default 3) CONSECUTIVE ungrounded-plan hits for this feature, park every still-open
+# sibling at once with the usual reversible AUTO-SKIP tag. Any other outcome for the feature resets the streak. An item without a [feat:] tag
+# keeps the ordinary no-op streak below (there is no group to park).
+ugf="$state/item_fails/${id}.${h}.ungrounded"
+if [ "$status" = "no-op(ungrounded-plan)" ]; then
+  ug=$(( $(cat "$ugf" 2>/dev/null || echo 0) + 1 ))
+  printf '%s' "$ug" > "$ugf"
+  _ugfeat="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
+  if [ "$ug" -ge "${OVN_UNGROUNDED_GROUP_CAP:-3}" ] && [ -n "$_ugfeat" ]; then
+    _ugn="$(python3 - "$prog" "$_ugfeat" "$ug" "$text" <<'PYEOF'
+import sys
+path, feat, n = sys.argv[1], sys.argv[2], sys.argv[3]
+marker = "[AUTO-SKIP ungrounded-plan x%s - scout names no file for this feature group; review] " % n
+lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+tagged = 0
+import re
+# h13 review: park only siblings that THEMSELVES name no concrete file before their VERIFY ('.', 'tests', prose): a sibling with a real target file
+# is not ungrounded, merely unlucky in three scouts - it keeps its place (the ordinary per-item caps still apply to it). The item whose scout just
+# failed (matched by the full text) is always parked.
+FILE = re.compile(r"[A-Za-z0-9_@-]+(/[A-Za-z0-9_.@\[\]-]+)*\.[A-Za-z][A-Za-z0-9]{0,7}\b|[A-Za-z0-9_@-]+/[A-Za-z0-9_.@-]+")
+cur = re.sub(r"^- \[ \] ", "", sys.argv[4].strip())
+def ungrounded_shape(ln):
+    body = re.split(r"VERIFY:", ln, 1)[0]
+    body = re.sub(r"\[feat:[^\]]*\]|\[T[1-5]\]|\{[^}]*\}", " ", body)
+    return not FILE.search(body)
+for i, ln in enumerate(lines):
+    if ln.startswith("- [ ] ") and feat in ln and "AUTO-SKIP" not in ln and "[CLAUDE]" not in ln and (ln[len("- [ ] "):].strip() == cur.strip() or ungrounded_shape(ln)):
+        lines[i] = "- [ ] " + marker + ln[len("- [ ] "):]
+        tagged += 1
+if tagged:
+    open(path, "w", encoding="utf-8").write("\n".join(lines))
+print(tagged)
+PYEOF
+)"
+    if [ "${_ugn:-0}" -gt 0 ] 2>/dev/null; then
+      branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+        git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+        git -C "$repo" commit -q -m "chore(queue): park ${_ugn} sibling item(s) after ${ug} consecutive ungrounded-plan no-ops (${_ugfeat})" -- OVERNIGHT_PROGRESS.md 2>/dev/null
+        [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+        echo "AUTO-SKIPPED ${_ugn} sibling item(s) of ${_ugfeat} after ${ug} consecutive ungrounded-plan no-ops: ${text:0:60}"
+      fi
+      rm -f "$ugf" "$ncountf" "$ntoksf" "$state/failures/${id}.count" 2>/dev/null
+      exit 0
+    fi
+  fi
+else
+  rm -f "$ugf" 2>/dev/null
 fi
 
 # --- No-op streak: park an item that keeps doing nothing ---------------------

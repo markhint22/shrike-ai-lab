@@ -67,6 +67,7 @@ while IFS='|' read -r _ c_id c_type c_out c_branch c_log _; do
     reverted*|*build-gate*) _oc=revert;; error*) _oc=error;;
     *ALREADY-DONE*) _oc=noop:done;;             # item already satisfied in code (mis-targeted / credit-gap)
     *BLOCKED*|*NEEDS-DECISION*) _oc=noop:blocked;; # model needs a human decision to proceed
+    *ungrounded-plan*) _oc=noop:blocked;;          # h13: scout PROCEED naming no file ('.'/'tests' items) = under-specified item, benign (guard parks the group)
     no-op*revert*) _oc=noop:gate;;              # model changed code, a gate reverted it (too-hard attempt)
     no-op*) _oc=noop:flail;;                    # PROCEED but produced no usable diff (too hard for the 27B)
     *) _oc=skip;;

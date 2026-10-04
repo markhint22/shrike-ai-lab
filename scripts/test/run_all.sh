@@ -289,5 +289,13 @@ echo; echo "===== qa h11 gates ====="; bash test_qa_h11_gates.sh || rc=1
 echo; echo "===== observability ====="; bash test_observability.sh || rc=1
 echo; echo "===== gut skips note ====="; bash test_gut_skips_note.sh || rc=1
 echo; echo "===== auto research cooldown ====="; bash test_auto_research_cooldown.sh || rc=1
+echo; echo "===== new tests lib ====="; bash test_new_tests_lib.sh || rc=1
+echo; echo "===== stage runner new tests (e2e) ====="; bash test_stage_new_tests.sh || rc=1
+echo; echo "===== qa ag h13 ====="; bash test_qa_ag_h13.sh || rc=1
+echo; echo "===== test collect canary ====="; bash test_test_collect_canary.sh || rc=1
+echo; echo "===== h13 delete already gone ====="; bash test_h13_delete_already_gone.sh || rc=1
+echo; echo "===== h13 landing check ====="; bash test_h13_landing_check.sh || rc=1
+echo; echo "===== h13 park guards ====="; bash test_h13_park_guards.sh || rc=1
+echo; echo "===== h13 ungrounded classify ====="; bash test_h13_ungrounded_classify.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

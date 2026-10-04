@@ -25,7 +25,7 @@ _osr_stub(){ printf '%s\n' "$2" > "$1"; chmod +x "$1"; }
 osr_new(){   # build a fresh fake tree. sets T H Q O RD
   T="$(mktemp -d)"; H="$T/home"; Q="$H/overnight-queue"; O="$T/origin.git"; RD="$Q/repos/$OSR_REPO"
   mkdir -p "$Q/scripts" "$Q/state" "$Q/logs" "$Q/assets" "$H/aider-venv/bin" "$H/godot" "$T/scn" "$T/llm" "$Q/repos"
-  cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$REALQ/scripts/lib_gut_xml.sh" "$Q/scripts/"
+  cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$REALQ/scripts/lib_gut_xml.sh" "$REALQ/scripts/lib_new_tests.sh" "$Q/scripts/"
   cp "$REALQ/ovn_classify_fail.sh" "$Q/"
   echo '# godot4 rules' > "$Q/assets/GODOT4.md"; echo '{}' > "$Q/model-metadata.json"
   _osr_stub "$Q/scripts/ovn_log_tokens.sh" '#!/usr/bin/env bash
@@ -116,6 +116,7 @@ mode="$(cat "$OSR_SCN/pytest.mode" 2>/dev/null || echo ok)"
 case "$mode" in
   ok) echo "5 passed"; exit 0;;
   fail) echo "FAILED tests/test_x.py::t - assert 1 == 2"; exit 1;;
+  failfile:*) if printf "%s" "$*" | grep -qF -- "${mode#failfile:}"; then echo "FAILED ${mode#failfile:}::t - assert 1 == 2"; exit 1; fi; echo "5 passed"; exit 0;;
   fail-secret) echo "FAILED tests/test_x.py::t - OperationalError: could not connect to postgresql://appuser:s3cr3tPassw0rd@db.internal:5432/prod token=abcd1234efgh5678 Bearer eyAbCdEf0123456789xyz"; exit 1;;
   regen:*) cmd="${mode#regen:}"
      if [ -f generated.txt ] && grep -q fresh generated.txt; then echo "5 passed"; exit 0; fi
@@ -141,6 +142,7 @@ x=""; for a in "$@"; do case "$a" in -gjunit_xml_file=*) x="${a#-gjunit_xml_file
 case "$(cat "$OSR_SCN/gut.mode" 2>/dev/null || echo ok)" in
   ok) echo "<testsuites><testsuite failures=\"0\"><testcase status=\"pass\"/></testsuite></testsuites>" > "$x";;
   fail) echo "<testsuites><testsuite failures=\"2\"/></testsuites>" > "$x";;
+  failnew) if printf "%s" "$*" | grep -qF -- "-gtest="; then echo "<testsuites failures=\"1\"><testsuite failures=\"1\"/></testsuites>" > "$x"; else echo "<testsuites><testsuite failures=\"0\"><testcase status=\"pass\"/></testsuite></testsuites>" > "$x"; fi;;
   noasserts) echo "<testsuites><testsuite failures=\"0\"><testcase status=\"no asserts\"/></testsuite></testsuites>" > "$x";;
   parse) echo "<testsuites><testsuite failures=\"0\"/></testsuites>" > "$x"; echo "Parse Error: bad thing";;
   empty) : > "$x";;

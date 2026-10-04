@@ -178,4 +178,4 @@ run_case(){
 }
 logged(){ grep -qF -- "$1" "$TASK_LOG"; }
 repo_head(){ git -C "$REPO" rev-parse HEAD; }
-origin_has(){ git -C "$ORIGIN" log --format=%s "${1:-claude/feature}" 2>/dev/null | grep -qF -- "$2"; }
+origin_has(){ local _o; _o="$(git -C "$ORIGIN" log --format=%s "${1:-claude/feature}" 2>/dev/null)"; printf '%s\n' "$_o" | grep -qF -- "$2"; }   # capture first: `git log | grep -q` under pipefail SIGPIPEs (rc 141) when grep exits on the first line before git finishes writing - load flake (h13 review)

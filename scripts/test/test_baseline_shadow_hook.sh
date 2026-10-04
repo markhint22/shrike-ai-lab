@@ -56,7 +56,7 @@ scene "$OLD" "$OLD"
 osr_run "$OSR_REPO" "$ITEM_PY"
 T2 "runner behaviour UNCHANGED: still FAILED, NOT pushing" "grep -q 'independent full-verify: FAILED — NOT pushing' '$T/out.txt'"
 T2 "nothing pushed to origin (shadow never rescues)" "! git -C '$O' log --format=%s overnight/feature | grep -q 'staged step'"
-T2 "journal still says verified:false" "osr_jsonl | grep -q '\"verified\":false'"
+T2 "journal still says verified:false" "osr_jsonl | grep '\"verified\":false' >/dev/null"
 t "exactly ONE row appended" test "$(NROWS)" = 1
 R="$(LASTROW)"
 T2 "row: baseline verdict PASS (no NEW failing id)" "[ \"\$(jq -r .verdict <<<\"\$R\")\" = PASS ]"

@@ -198,7 +198,7 @@ t "target-function body injected into the step prompt" bash -c "grep -q 'EXACT f
 t "symbol-defining source auto-added as --file on step 2" bash -c "grep -A1 -- '--file' '$T/scn/aider.args.2' | grep -q 'backend/app/foo.py'"
 t "first attempt runs rich: architect + AGENTS.md + map 3072" bash -c "grep -q -- '--architect' '$T/scn/aider.args.1' && grep -q AGENTS.md '$T/scn/aider.args.1' && grep -qx 3072 '$T/scn/aider.args.1'"
 t "token accounting parsed (2.5k sent + 340 recv)" J '"tokens_sent":2500,"tokens_recv":340'
-t "verify + summary journaled with commits_pushed 2" bash -c "osr_jsonl() { cat '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl; }; osr_jsonl | grep -q '\"verified\":true,\"commits_pushed\":2'"
+t "verify + summary journaled with commits_pushed 2" bash -c "osr_jsonl() { cat '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl; }; osr_jsonl | grep '\"verified\":true,\"commits_pushed\":2' >/dev/null"
 t "dedicated pause released at exit" test ! -f "$Q/state/PAUSED"
 t "semantic check logged OK for the wired symbol" bash -c "grep -q 'semantic OK: backend/app/svc.py uses foo' '$Q'/state/stage_runs/*.verify.log"
 osr_cleanup

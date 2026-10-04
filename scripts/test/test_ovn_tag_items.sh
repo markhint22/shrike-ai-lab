@@ -60,7 +60,7 @@ ok "empty file: 0 tags" "$([ "$out" = "GENERATED_TAGS=0" ] && echo 1 || echo 0)"
 printf -- '- [ ] ünï — ✓ text.py\n' > "$P"; python3 "$S" "$P" >/dev/null
 ok "utf-8 item text survives" "$(grep -qF 'ünï — ✓ text.py' "$P" && echo 1 || echo 0)"
 printf -- '- [ ] no file path at all, just words\n' > "$P"; python3 "$S" "$P" >/dev/null
-ok "item with no file path -> lang 'other' + build-verified tag" "$(grep -q '^- \[ \] {other·[a-z0-9]*·T[1-5]·build-verified} ' "$P" && echo 1 || echo 0)"
+ok "item with no file path -> lang 'unknown' + unknown verif tag (h13: not the misleading 'other')" "$(grep -q '^- \[ \] {unknown·[a-z0-9]*·T[1-5]·unknown} ' "$P" && echo 1 || echo 0)"
 printf -- '- [ ] see `ios/X.swift` please\n' > "$P"; python3 "$S" "$P" >/dev/null
 ok "backticked path classified (swift -> unverifiable)" "$(grep -q '{swift·[a-z0-9]*·T[1-5]·unverifiable}' "$P" && echo 1 || echo 0)"
 echo "  $pass passed, $fail failed"; [ "$fail" = 0 ]

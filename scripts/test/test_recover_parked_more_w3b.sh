@@ -55,7 +55,9 @@ class H(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()
 PY_EOF
 python3 "$tmp/fake_litellm.py" "$PORT" "$RESP_FILE" "$REQLOG" "$PROMPTS" & FAKE_PID=$!
-sleep 0.5
+# wait for the fake server to actually accept connections (a fixed `sleep 0.5` raced python startup under CPU load: the first LLM call was refused
+# and the 'recovered' / 'empty guard' cases failed ~1 run in 3 with the box busy - h13 review)
+for _w in $(seq 1 100); do python3 -c "import socket,sys; socket.create_connection(('127.0.0.1',int(sys.argv[1])),0.2).close()" "$PORT" 2>/dev/null && break; sleep 0.1; done
 cleanup(){ kill "$FAKE_PID" >/dev/null 2>&1; rm -rf "$tmp" /tmp/wt-w3b* 2>/dev/null; }
 trap cleanup EXIT
 
@@ -71,8 +73,10 @@ new_repo(){ # $1=name $2=progress content ; extra files via $3 "path=content" op
   git clone -q "$o" "$OQ/repos/$n" && ( cd "$OQ/repos/$n" && git checkout -q overnight/feature )
 }
 rr(){ HOME="$SANDBOX_HOME" LITELLM_BASE="http://127.0.0.1:$PORT" LITELLM_MASTER_KEY=k OVN_MODEL=m bash "$SH" "$@" >/dev/null 2>&1; }
-show(){ git --git-dir="$tmp/origin_$1.git" show overnight/feature:OVERNIGHT_PROGRESS.md; }
-glog(){ git --git-dir="$tmp/origin_$1.git" log --oneline overnight/feature; }
+# capture first, then print in ONE write: under `set -o pipefail` a `glog X | grep -q ...` got SIGPIPE (rc 141) whenever grep matched the first line and
+# exited before git log wrote its remaining lines - a load-dependent flake (4 of 12 runs with the box CPU-starved; h13 review)
+show(){ local o; o="$(git --git-dir="$tmp/origin_$1.git" show overnight/feature:OVERNIGHT_PROGRESS.md)"; printf '%s\n' "$o"; }
+glog(){ local o; o="$(git --git-dir="$tmp/origin_$1.git" log --oneline overnight/feature)"; printf '%s\n' "$o"; }
 LOGF="$OQ/logs/ovn_recover_parked.log"
 reqcount(){ wc -l < "$REQLOG" | tr -d ' '; }
 park(){ printf '# Progress\n\n- [ ] [AUTO-SKIP after 5 no-op cycles — review] [T4] %s\n' "$1"; }

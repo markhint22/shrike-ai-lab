@@ -54,6 +54,7 @@ def _extract_verify(line):
 
 
 _ALWAYS_TRUE_RE = re.compile(r'\|\|\s*(echo|printf|true)\b')
+_TEST_ABSENT_RE = re.compile(r'^test\s+!\s+-([fe])\s+([A-Za-z0-9_./@-]+)\s*$')
 
 
 def already_satisfied(line, repo_root, timeout=8):
@@ -74,6 +75,15 @@ def already_satisfied(line, repo_root, timeout=8):
         return False
     if _ALWAYS_TRUE_RE.search(cmd):
         return False
+    # h13 (2026-10-04): `test ! -f <path>` (a "delete X" item whose file an earlier commit already removed) is cheap and side-effect free, but
+    # was never recognised, so such items were pulled into the live queue and flailed. Accept ONLY the bare single-path form (no operators), and
+    # only when the path is a plain relative repo path.
+    m = _TEST_ABSENT_RE.match(cmd)
+    if m:
+        p = m.group(2)
+        if p.startswith("/") or ".." in p.split("/"):
+            return False
+        return not os.path.lexists(os.path.join(repo_root, p))
     if not (cmd.startswith("python -c") or cmd.startswith("python3 -c") or cmd.startswith("grep -")):
         return False
     try:
