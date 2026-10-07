@@ -63,18 +63,20 @@ osr_cleanup
 echo "=== R3: benign / control paths keep the old behaviour ==="
 osr_new; withlibs; osr_venv backend
 osr_progress "- [ ] $ITEM_PY"
-rm -f "$T/llm/n"; osr_plan 1 "$PLAN_STUCK1"; osr_plan 2 "$PLAN_STUCK2"; osr_run "$OSR_REPO"
+# 2026-10-07: the zero-landing RETRY BUDGET (default 3) keeps a plain item open; OVN_STAGE_ZERO_CAP=1 is the legacy immediate escalation this control checks
+# (the budget itself is covered by test_stage_zero_retry.sh).
+rm -f "$T/llm/n"; osr_plan 1 "$PLAN_STUCK1"; osr_plan 2 "$PLAN_STUCK2"; OVN_STAGE_ZERO_CAP=1 osr_run "$OSR_REPO"
 t "NON-bug item landing nothing: still '[AUTO-SKIP staged: 27B could not land this ...]' (unchanged)" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q 'AUTO-SKIP staged: 27B could not land this'"
 t "NON-bug item: no bug counter, no escalation record" bash -c "[ -z \"\$(cat '$Q'/state/item_fails/stage-$OSR_REPO.*.bugcount 2>/dev/null)\" ] && [ ! -s '$Q/state/bug_escalations.jsonl' ] && ! grep -q bug_attempt '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl"
 osr_cleanup
 osr_new; withlibs; osr_venv backend
 osr_progress "- [ ] $BUGPY"
-rm -f "$T/llm/n"; osr_plan 1 "$PLAN_STUCK1"; osr_plan 2 "$PLAN_STUCK2"; OVN_BUG_FIRST=off osr_run "$OSR_REPO"
+rm -f "$T/llm/n"; osr_plan 1 "$PLAN_STUCK1"; osr_plan 2 "$PLAN_STUCK2"; OVN_STAGE_ZERO_CAP=1 OVN_BUG_FIRST=off osr_run "$OSR_REPO"
 t "kill switch OVN_BUG_FIRST=off: the old AUTO-SKIP behaviour (bug is a plain item again)" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q 'AUTO-SKIP staged: 27B could not land this'"
 osr_cleanup
 osr_new; cp "$REALQ/scripts/lib_item_select.sh" "$REALQ/scripts/ovn_repeat_ids.py" "$Q/scripts/"; osr_venv backend      # lib_bug_escalate.sh MISSING
 osr_progress "- [ ] $BUGPY"
-rm -f "$T/llm/n"; osr_plan 1 "$PLAN_STUCK1"; osr_plan 2 "$PLAN_STUCK2"; osr_run "$OSR_REPO"
+rm -f "$T/llm/n"; osr_plan 1 "$PLAN_STUCK1"; osr_plan 2 "$PLAN_STUCK2"; OVN_STAGE_ZERO_CAP=1 osr_run "$OSR_REPO"
 t "escalation helper missing: fail-safe to the old AUTO-SKIP, never an uncapped open loop" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q 'AUTO-SKIP staged: 27B could not land this' && [ -z \"\$(cat '$Q'/state/item_fails/stage-$OSR_REPO.*.bugcount 2>/dev/null)\" ]"
 osr_cleanup
 osr_new; withlibs; osr_venv backend

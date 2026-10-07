@@ -253,7 +253,7 @@ osr_new; osr_venv backend
 osr_progress "- [ ] $ITEM_PY"
 osr_plan 1 '[{"desc":"big step","files":["backend/app/foo.py"],"verify":"pytest"}]'
 osr_plan 2 '[{"desc":"only one sub","files":["backend/app/foo.py"],"verify":"pytest"}]'
-osr_run "$OSR_REPO"
+OVN_STAGE_ZERO_CAP=1 osr_run "$OSR_REPO"   # 2026-10-07: cap 1 = immediate escalation; the retry budget is test_stage_zero_retry.sh
 t "re-decompose yielding <2 pieces -> step BLOCKED" G "step 0 BLOCKED (could not land after retries + re-decomp)"
 t "landed nothing in auto mode -> escalated to Claude (queue line tagged, committed, pushed)" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q 'AUTO-SKIP staged: 27B could not land this' && git -C '$O' log --format=%s overnight/feature | grep -q 'escalate staged T3 item to Claude' && grep -q 'escalated to Claude' '$T/out.txt'"
 t "escalation wrapped in queue hold/release" bash -c "grep -qx 'hold $OSR_REPO' '$Q/state/queue.calls' && grep -qx 'release $OSR_REPO' '$Q/state/queue.calls'"

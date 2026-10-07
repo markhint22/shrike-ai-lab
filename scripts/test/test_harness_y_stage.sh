@@ -41,7 +41,7 @@ osr_new; osr_venv backend; cp "$REALQ/scripts/lib_item_select.sh" "$Q/scripts/"
 osr_progress "- [ ] $FEAT_ITEM"
 osr_plan 1 '[{"desc":"big step","files":["backend/app/foo.py"],"verify":"pytest"}]'
 osr_plan 2 '[{"desc":"only one sub","files":["backend/app/foo.py"],"verify":"pytest"}]'
-osr_run "$OSR_REPO"
+OVN_STAGE_ZERO_CAP=1 osr_run "$OSR_REPO"   # 2026-10-07: cap 1 = immediate escalation (the retry budget: test_stage_zero_retry.sh)
 ok "run landed nothing and escalated" "$(grep -q 'escalated to Claude' "$T/out.txt" && echo 1 || echo 0)"
 eq "one row for the 0/1 run" 1 "$(rows)"
 eq "0/1 run: fail_reason is the bounded tag too" "stage-unverified" "$(row fail_reason)"

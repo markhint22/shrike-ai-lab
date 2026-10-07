@@ -447,6 +447,12 @@ NotImplementedError; if you cannot implement it for real, make the step smaller.
 the codebase as written (a concept that does not exist), adapt it to what is really there. Keep each step
 to 1-2 files.' ;;
   esac
+  # 2026-10-07: a previous staged run at THIS item that landed nothing recorded why (state/item_fails/stage-<repo>.<hash>.priorfail, written by the
+  # zero-landing retry budget below); a blind re-decomposition just repeats the same failing plan.
+  local _prior="" _pf; _pf="state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
+  [ -s "$_pf" ] && _prior="
+PREVIOUS ATTEMPT(S) AT THIS TASK LANDED NOTHING. Last failure: $(head -c 600 "$_pf" | tr '\n' ' ')
+Do NOT repeat the same plan: choose a different, SMALLER decomposition. If the failure shows an EXISTING test that asserts the opposite of what this task wants, make updating that test an explicit step in the same step as the source change."
   cat > "$pf" <<PROMPT
 Break this coding task into an ORDERED list of the SMALLEST safe sub-steps, each independently
 committable and testable by an autonomous 27B model driving aider. Output ONLY a JSON array, no prose.
@@ -457,6 +463,7 @@ $layout
 
 TASK:
 $1
+$_prior
 
 Each element: {"desc":"<one precise change>","files":["real/path.ext"],"verify":"<exact test/command that proves this step>"}
 Rules: $_rules Output ONLY the JSON array.
@@ -1177,6 +1184,7 @@ for i,ln in enumerate(lines):
             lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) blocked; recover/review] ".format(p,n,n-p),1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
+  [ "${passed:-0}" -gt 0 ] && rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").zerocount" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
   if [ "$_is_bug" = 1 ]; then
     if [ "$passed" -ge "$NSTEPS" ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
     else stage_bug_attempt "staged ${passed} of ${NSTEPS} landed"; fi
@@ -1203,6 +1211,23 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
     ./queue.sh release "$repo" >/dev/null 2>&1
     say "manual bug: staged pipeline landed 0/$NSTEPS - attempt counted, NOT AUTO-SKIPped"
   else
+  # 2026-10-07 RETRY BUDGET: ONE staged run that landed nothing used to route the whole item to Claude at once (105 open [CLAUDE] lines, ~60% of them
+  # noise or already done). A zero-landing run now keeps the item OPEN for OVN_STAGE_ZERO_CAP (default 3) attempts - the reason of the last failure is
+  # recorded and fed into the next decomposition - and only the cap routes it to Claude. OVN_STAGE_ZERO_CAP=1 = the old immediate escalation.
+  _zh="$(ovn_item_hash "$item")"; _zf="state/item_fails/stage-${repo}.${_zh}.zerocount"; mkdir -p state/item_fails 2>/dev/null
+  _zcap="${OVN_STAGE_ZERO_CAP:-3}"; case "$_zcap" in ''|*[!0-9]*|0) _zcap=3;; esac
+  _zc=$(( $(cat "$_zf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$_zc" > "$_zf"
+  jlog "$(jq -nc --arg r "$RUNID" --argjson c "$_zc" --argjson m "$_zcap" '{run:$r,event:"zero_landing_attempt",attempt:$c,cap:$m}')"
+  if [ "$_zc" -lt "$_zcap" ]; then
+    _zvl="${SLOG%.jsonl}.verify.log"
+    _zerr="$(grep -m1 -E '^e: |Redeclaration|Unresolved reference|FAILED |QUALITY FAIL|SEMANTIC FAIL|error:|Error:' "$_zvl" 2>/dev/null | sed -E 's#file://[^ ]*/##; s#://[^/ ]*@#://***@#g' | cut -c1-200)"
+    [ -n "$_zerr" ] || _zerr="$(jq -r 'select(.verdict=="fail") | .excerpt // empty' "$SLOG" 2>/dev/null | tail -1 | cut -c1-200)"
+    [ -n "$_zerr" ] || _zerr="the staged run landed 0 of ${NSTEPS} steps (no error line captured)"
+    printf 'attempt %s of %s: %s' "$_zc" "$_zcap" "$_zerr" > "state/item_fails/stage-${repo}.${_zh}.priorfail"
+    ./queue.sh release "$repo" >/dev/null 2>&1
+    say "staged pipeline landed 0/$NSTEPS - attempt ${_zc}/${_zcap}: item stays OPEN for another try (NOT routed to Claude yet)"
+  else
+  rm -f "$_zf" "state/item_fails/stage-${repo}.${_zh}.priorfail"
   OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" python3 - <<'PY'
 import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; key=item[:55]
@@ -1217,7 +1242,8 @@ PY
       git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): escalate staged T$tier item to Claude (27B couldn't land it)"
       git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
-  say "escalated to Claude (staged pipeline landed 0/$NSTEPS — beyond the 27B)"
+  say "escalated to Claude (staged pipeline landed 0/$NSTEPS - ${_zcap} attempts, beyond the 27B)"
+  fi
   fi
 fi
 

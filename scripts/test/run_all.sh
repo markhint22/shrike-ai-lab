@@ -301,5 +301,6 @@ echo; echo "===== h13 park guards ====="; bash test_h13_park_guards.sh || rc=1
 echo; echo "===== h13 ungrounded classify ====="; bash test_h13_ungrounded_classify.sh || rc=1
 echo; echo "===== ovn churn guard ====="; bash test_ovn_churn_guard.sh || rc=1
 echo; echo "===== ovn local research ====="; bash test_ovn_local_research.sh || rc=1
+echo; echo "===== stage zero retry ====="; bash test_stage_zero_retry.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
