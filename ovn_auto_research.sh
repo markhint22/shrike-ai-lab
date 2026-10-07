@@ -26,7 +26,7 @@ REMOTE="${OVN_REMOTE_DIR:-overnight-queue}"
 CLONES="${OVN_CLONES_DIR:-$HOME/LocalProjects}"
 STATE="${OVN_AUTO_RESEARCH_STATE:-$HOME/.ovn_auto_research}"
 MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-2}"
-MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-12}"
+MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-2}"   # 2026-10-07: Claude capacity is scarce (it hit its usage limit for days); the local Qwen refuel (ovn_local_research.py) is the engine, this is a quality bonus
 MIN_STARVE_H="${OVN_AR_MIN_STARVE_H:-0.5}"
 # Cooldown depends on the LAST pass's result (2026-10-03). A pass that accepted ZERO items means the repo may be genuinely complete -> wait long
 # (COOLDOWN_EMPTY_H) so it is not re-researched every run. A PRODUCTIVE pass only needs a short pause (COOLDOWN_PRODUCTIVE_H, ~one launchd interval):
