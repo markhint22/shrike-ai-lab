@@ -496,6 +496,7 @@ def seed_cursors(state_dir):
             seen[did] = created or "?"
     with open(_deploy_seen_path(state_dir), "w") as f:
         json.dump(seen, f, sort_keys=True)
+    seed_qa_cursor(state_dir)
     return len(seen)
 
 
@@ -579,10 +580,105 @@ def process_landed_without_commit(state_dir, registry, new_clusters, regressions
     return n
 
 
+# QA gate FAIL verdicts (state/qa_shadow/<gate>.jsonl). Only FAIL clusters (FLAG/UNVERIFIED are
+# noise by design); shadow or enforce alike, so a shadow FAIL is visible BEFORE a gate is flipped.
+QA_GATE_FILES = ("antigaming", "migrations", "staging_check", "reviewer", "scanners")
+_QA_RULE_RE = re.compile(r"\b([A-Z]_[A-Z][A-Z_]+|MISMATCH_[A-Z_]+)\b")
+
+
+def _qa_cursor_path(state_dir):
+    return os.path.join(state_dir, ".failure_triage_qa.cursor")
+
+
+def _qa_rule(gate, summary):
+    m = _QA_RULE_RE.search(summary or "")
+    if m:
+        return m.group(1)
+    words = re.sub(r"[^a-z ]", "", (summary or "").lower()).split()
+    return "-".join(words[:4]) or "fail"
+
+
+def _load_qa_cursor(state_dir):
+    try:
+        with open(_qa_cursor_path(state_dir)) as f:
+            cur = json.load(f)
+        if isinstance(cur, dict) and isinstance(cur.get("offsets"), dict):
+            cur.setdefault("seen", [])
+            return cur
+    except Exception:
+        pass
+    return {"offsets": {}, "seen": []}
+
+
+def _save_qa_cursor(state_dir, cur):
+    cur["seen"] = cur.get("seen", [])[-500:]
+    try:
+        tmp = _qa_cursor_path(state_dir) + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(cur, f, sort_keys=True)
+        os.replace(tmp, _qa_cursor_path(state_dir))
+    except OSError:
+        pass
+
+
+def seed_qa_cursor(state_dir):
+    """Install-time: start at the current end of every gate file so history is not reported NEW."""
+    cur = {"offsets": {}, "seen": []}
+    for gate in QA_GATE_FILES:
+        p = os.path.join(state_dir, "qa_shadow", gate + ".jsonl")
+        if os.path.exists(p):
+            cur["offsets"][gate] = os.path.getsize(p)
+    _save_qa_cursor(state_dir, cur)
+    return len(cur["offsets"])
+
+
+def process_qa_gate_fails(state_dir, registry, new_clusters, regressions):
+    """Cluster each NEW verdict==FAIL record from the QA gate logs as `<repo>::qa-gate:<gate>:<rule>`.
+    Byte-offset cursor per file (unterminated trailing line left for next run); the same
+    gate+ref+rule is counted once (gates re-run on the same commit range)."""
+    cur = _load_qa_cursor(state_dir)
+    seen = set(cur["seen"])
+    n = 0
+    for gate in QA_GATE_FILES:
+        path = os.path.join(state_dir, "qa_shadow", gate + ".jsonl")
+        if not os.path.exists(path):
+            continue
+        start = int(cur["offsets"].get(gate, 0) or 0)
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            if start > f.tell():
+                start = 0
+            f.seek(start)
+            pos = start
+            for raw in f:
+                if not raw.endswith(b"\n"):
+                    break
+                pos += len(raw)
+                try:
+                    rec = json.loads(raw.decode("utf-8", errors="replace"))
+                except Exception:
+                    continue
+                if not isinstance(rec, dict) or rec.get("verdict") != "FAIL":
+                    continue
+                rule = _qa_rule(gate, rec.get("summary"))
+                ref = str(rec.get("ref") or "")
+                dedup = "%s|%s|%s|%s" % (gate, rec.get("repo"), ref, rule)
+                if dedup in seen:
+                    continue
+                seen.add(dedup)
+                cur["seen"].append(dedup)
+                n += 1
+                _upsert_cluster(registry, str(rec.get("repo") or "?"), "qa-gate:%s:%s" % (gate, rule),
+                                str(rec.get("ts") or ""), ref[-8:], new_clusters, regressions)
+        cur["offsets"][gate] = pos
+    _save_qa_cursor(state_dir, cur)
+    return n
+
+
 def _extra_sources(state_dir, registry, new_clusters, regressions):
     """Run the non-outcomes sources; each is isolated so one broken source can't kill the pass."""
     n = 0
-    for fn in (process_deploy_failures, process_landed_without_commit):
+    for fn in (process_deploy_failures, process_landed_without_commit, process_qa_gate_fails):
         try:
             n += fn(state_dir, registry, new_clusters, regressions)
         except Exception as e:  # pure observability: never raise

@@ -127,6 +127,12 @@ Hard rules:
 - Each item is SMALL, independently landable, and self-verifying (a unit test, a type-check, or a grep).
 - Prefer NEW pure functions + a colocated test (T1-T2). Use T3 for a wired change; reserve T4-T5 for a genuine multi-file refactor and set multifile:yes.
 - Use ONLY real paths consistent with the layout above; put new files in the right directory.
+- NEVER write "Create"/"Implement"/"Define" for a function, class or test file the FEATURE text says already exists
+  (or that a path in the layout shows exists): modify it instead. Tests go where the repo's runner collects them
+  (iptv_apps: iptv-backend/tests/ only; xlite: tests/ only, never test/).
+- Do NOT invent a new generic helper function (coercion, casting, formatting) in an unrelated file. Put the change
+  INLINE in the function the FEATURE names, and write at most ONE test file per behaviour (no near-duplicate tests).
+- Do not add a step that only casts values already typed as int/str; every step must change observable behaviour.
 - category is one of: python, typescript, vue, godot, endpoint, schema, test, docs, refactor.
 - No secrets, no deploy/DNS/keys (those are human tasks — skip them).
 PROMPT_END
@@ -142,10 +148,30 @@ PROMPT_END
   # keep only well-formed item lines
   items="$(printf '%s\n' "$resp" | grep -E '^- \[ \] \[T[1-5]\] .+ VERIFY: ' | head -12)"
   n=$(printf '%s' "$items" | grep -c '^- \[ \]')
+  # 2026-10-05: a tiny feature legitimately decomposes into 1-2 steps, but "<3 valid -> skip" retried it
+  # every pass forever (6 identical 4s model calls in 45 min on a one-line console.log cleanup). Count
+  # misses per feature: accept 1-2 valid items on the 2nd miss, park a feature that yields nothing
+  # after 3 tries as [needs-decompose] (which the [ready] selector skips) and say so.
+  _miss_file="$STATE_DIR/planner_miss_${r}"
+  _miss_key="$(printf '%s' "$r|$feat" | cksum | cut -d' ' -f1)"
   if [ "${n:-0}" -lt 3 ]; then
-    say "$r: 27B produced only ${n} valid items — NOT appending (needs Claude review of the prompt/feature)"
-    continue
+    _misses=0
+    [ "$(cut -d' ' -f1 "$_miss_file" 2>/dev/null)" = "$_miss_key" ] && _misses="$(cut -d' ' -f2 "$_miss_file" 2>/dev/null)"
+    _misses=$(( ${_misses:-0} + 1 ))
+    printf '%s %s\n' "$_miss_key" "$_misses" > "$_miss_file" 2>/dev/null || true
+    if [ "${n:-0}" -ge 1 ] && [ "$_misses" -ge 2 ]; then
+      say "$r: 27B produced ${n} valid item(s) twice for this feature - accepting the small decomposition"
+    elif [ "$_misses" -ge 3 ]; then
+      sed -i "${fln}s/\[ready\]/[needs-decompose]/" "$rm"
+      rm -f "$_miss_file"
+      say "$r: feature produced no valid items 3 times - PARKED as [needs-decompose] (needs a human/Claude to rewrite it): ${feat:0:80}"
+      continue
+    else
+      say "$r: 27B produced only ${n} valid items - NOT appending (try ${_misses}/3; needs Claude review of the prompt/feature)"
+      continue
+    fi
   fi
+  rm -f "$_miss_file" 2>/dev/null || true
   # Android flavor-task disambiguation (2026-09-20): the 27B has no way to know a repo's
   # real Gradle product-flavor names (not in its layout/prompt context here), so it
   # routinely writes VERIFY commands using the single-variant task shape
@@ -164,6 +190,18 @@ PROMPT_END
     [ -n "$_guard_out" ] && items="$_guard_out"
     [ -s "$_guard_log" ] && say "$r: $(cat "$_guard_log")"
     rm -f "$_guard_log"
+  fi
+  # 2026-10-05 grounding guard: the 27B decomposes without reading the repo, so it told the fleet to
+  # "Implement" functions and "Create" test files that already exist (and to put tests where the runner
+  # never collects them). Same fail-safe contract as the Gradle guard: never lose a decomposition to it.
+  _ground_guard="$HOME/overnight-queue/scripts/ovn_decomp_ground_guard.py"
+  if [ -f "$_ground_guard" ]; then
+    _gg_log="$(mktemp)"
+    _gg_out="$(printf '%s\n' "$items" | python3 "$_ground_guard" "repos/$r" 2>"$_gg_log")"
+    [ -n "$_gg_out" ] && items="$_gg_out"
+    [ -s "$_gg_log" ] && say "$r: $(tr '\n' ' ' < "$_gg_log" | cut -c1-600)"
+    rm -f "$_gg_log"
+    n=$(printf '%s\n' "$items" | grep -c '^- \[ \]')
   fi
   # 2026-09-20 feature tracking: tag every item this feature decomposes into with a durable
   # [feat:ID] marker so a % complete / completion notification can be computed later (see

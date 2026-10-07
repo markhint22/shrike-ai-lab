@@ -87,4 +87,44 @@ for since_marker in "$STATE_DIR"/hygiene_stuck_since_*; do
   rm -f "$since_marker" "$alerted_marker"
 done
 
+# --- QA-blocked repos (2026-10-02) -----------------------------------------------------------------------------------------------------
+# A gate in enforce mode that blocks the FIRST pending commit of a feature branch leaves hygiene exiting 0 with no review flag (by design: no
+# failure, no lock held), so the loops above never see it and the repo could starve for days behind one alert line in alerts.log. Each
+# state/qa_blocked/<repo>__<branch>.json carries a "since" that only resets when the (gate, offender) changes, so age it the same way as a stuck
+# flag: one alert past STUCK_HOURS, a reminder every REMIND_HOURS, a recovery note when the record is gone. Read-only on the records.
+qa_seen=""
+command -v jq >/dev/null 2>&1 || log "QA-blocked check: jq missing - UNVERIFIED (cannot age state/qa_blocked records)"
+for rec in "$STATE_DIR"/qa_blocked/*.json; do
+  [ -f "$rec" ] || continue
+  key="$(basename "$rec" .json)"
+  qa_seen="$qa_seen $key"
+  since="$(jq -r '.since // empty | fromdateiso8601' "$rec" 2>/dev/null)"
+  case "$since" in ''|*[!0-9]*) since="$now";; esac   # unreadable record: treat as just-seen, never alert on a guess
+  elapsed=$(( now - since )); elapsed_h=$(( elapsed / 3600 ))
+  detail="$(jq -r '"gate=\(.gate // "?") commit=\((.commit // "") | .[0:12]) held=\(.held_commits // "?"): \((.finding // "") | .[0:160])"' "$rec" 2>/dev/null)"
+  qa_marker="$STATE_DIR/qa_stuck_alerted_$key"
+  if [ "$elapsed" -ge "$STUCK_SECS" ]; then
+    last_alert="$(cat "$qa_marker" 2>/dev/null || echo 0)"
+    if [ "$last_alert" -eq 0 ]; then
+      alert "QA-blocked: $key" "no_entry" "$key has had QA-enforced commits held for ~${elapsed_h}h and nothing from them is reaching develop. $detail. Unblock: qa/qa_enforce.sh unblock, or roll the gate back with qa/qa_enforce.sh <gate> shadow." "high"
+      echo "$now" > "$qa_marker"; log "$key: QA-blocked ${elapsed_h}h - ALERTED (first)"
+    elif [ $(( now - last_alert )) -ge "$REMIND_SECS" ]; then
+      alert "QA-blocked still: $key" "no_entry" "$key still QA-blocked after ~${elapsed_h}h. $detail." "high"
+      echo "$now" > "$qa_marker"; log "$key: QA-blocked ${elapsed_h}h - ALERTED (reminder)"
+    else
+      log "$key: QA-blocked ${elapsed_h}h - within cooldown, no alert"
+    fi
+  else
+    log "$key: QA-blocked ${elapsed_h}h - below ${STUCK_HOURS}h threshold, no alert yet"
+  fi
+done
+for qa_marker in "$STATE_DIR"/qa_stuck_alerted_*; do
+  [ -f "$qa_marker" ] || continue
+  key="${qa_marker#"$STATE_DIR"/qa_stuck_alerted_}"
+  case " $qa_seen " in *" $key "*) continue;; esac
+  alert "QA-block cleared: $key" "white_check_mark" "$key is no longer QA-blocked." "low"
+  log "$key: QA block cleared - sent recovery note"
+  rm -f "$qa_marker"
+done
+
 log "hygiene-stuck check complete"

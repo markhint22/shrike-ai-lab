@@ -14,8 +14,10 @@ Exit codes (the bash hook keys off these):
   0   a new migration file was written (path printed as `GENERATED <path>`)
   10  no drift - nothing to generate (never writes a file)
   11  refused: generation would be unsafe/needs a human (multiple heads BEFORE we
-      start, destructive ops, NOT NULL add_column with no scalar default, ...)
+      start, destructive ops incl. dropped table/column/index/constraint, ALTER COLUMN that
+      changes type or sets NOT NULL, NOT NULL add_column with no scalar default, ...)
   12  internal error (upgrade of the existing chain failed, env.py failed, ...)
+On exit 0 an `OPS <label>; <label>` line (just before the GENERATED line) names every generated operation.
 Never overwrites/edits an existing migration: only ever adds ONE new file.
 """
 import argparse, os, re, sys, tempfile, glob, io, contextlib
@@ -33,8 +35,11 @@ if not os.path.isfile(os.path.join(proj, "alembic.ini")):
 
 tmp = tempfile.mkdtemp(prefix="ovn-autogen-")
 # 2026-09-30: the throwaway SQLite dir was never removed on any exit path (28 leaked in one test run)
-import atexit, shutil
+import atexit, shutil, signal
 atexit.register(shutil.rmtree, tmp, True)
+# 2026-10-02: the bash hook now wraps this driver in `timeout`; SIGTERM must unwind through atexit
+# (default disposition would skip it and leak the throwaway DB dir).
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 dbfile = os.path.join(tmp, "autogen.db")
 # env.py flavour decides the URL flavour: async env.py (async_engine_from_config) needs the
 # aiosqlite driver spec; a sync env.py (iptv_apps: app.database derives its own async URL)
@@ -79,7 +84,7 @@ if m:  # numbered convention (0006_referrals, 0009_epg_active_unique, ...)
     rev_id = f"{int(m.group(1)) + 1:0{width}d}_{slug}"
 
 # ---- hook: drop empty migrations, refuse destructive, add server_default ----
-STATE = {"refuse": None, "n_ops": 0}
+STATE = {"refuse": None, "n_ops": 0, "labels": []}
 
 def _walk(oplist):
     for o in oplist:
@@ -101,6 +106,68 @@ def _server_default_for(col):
         return sa.text("'" + v.replace("'", "''") + "'")
     return None
 
+def _pg_only_type(t, _depth=0):
+    """Name of the first type in `t` that op.add_column cannot create portably, else None.
+
+    2026-10-02: an sa.Enum add_column replays fine on the SQLite throwaway DB (and so passes the drift
+    test) but on PostgreSQL alembic emits only `ALTER TABLE .. ADD COLUMN kind <enumname>` - it never
+    runs CREATE TYPE, so staging/prod `alembic upgrade` fails with 'type does not exist'. Same family:
+    dialect-specific types (JSONB, ARRAY, INET, ...) that SQLite cannot even replay faithfully."""
+    if t is None or _depth > 3:
+        return None
+    if isinstance(t, sa.Enum):
+        return "Enum (needs CREATE TYPE on postgresql)"
+    mod = type(t).__module__ or ""
+    if mod.startswith("sqlalchemy.dialects"):
+        return f"{type(t).__name__} (dialect-specific type)"
+    if isinstance(t, sa.ARRAY):
+        return "ARRAY (postgresql-only)"
+    # sqlalchemy 2.x keeps with_variant() types in _variant_mapping (1.x: Variant.mapping)
+    for sub in list(getattr(t, "mapping", {}).values()) + list(getattr(t, "_variant_mapping", {}).values()) + [getattr(t, "impl", None), getattr(t, "item_type", None)]:
+        if sub is not None and sub is not t:
+            r = _pg_only_type(sub, _depth + 1)
+            if r:
+                return r
+    return None
+
+def _snake(name):
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name[:-2] if name.endswith("Op") else name).lower()
+
+def _op_label(o):
+    """Human-readable `add_column items.note` / `create_table foo` label (commit message + hook log)."""
+    kind = _snake(o.__class__.__name__)
+    if isinstance(o, ops.AddColumnOp):
+        return f"{kind} {o.table_name}.{o.column.name}"
+    if isinstance(o, (ops.DropColumnOp, ops.AlterColumnOp)):
+        return f"{kind} {o.table_name}.{o.column_name}"
+    if isinstance(o, (ops.CreateTableOp, ops.DropTableOp)):
+        return f"{kind} {o.table_name}"
+    if isinstance(o, (ops.CreateIndexOp, ops.DropIndexOp)):
+        return f"{kind} {getattr(o, 'index_name', None) or '?'} on {getattr(o, 'table_name', None) or '?'}"
+    if isinstance(o, ops.DropConstraintOp):
+        return f"{kind} {o.constraint_name or '(unnamed)'} on {o.table_name}"
+    nm = getattr(o, "table_name", None) or getattr(o, "constraint_name", None) or ""
+    return f"{kind} {nm}".strip()
+
+def _refuse(msg):
+    # first refusal wins (it is the most specific thing a human needs to look at)
+    if not STATE["refuse"]:
+        STATE["refuse"] = msg
+
+def _alter_refusal(o):
+    """Deterministic ALTER policy (2026-10-02, H6 M1). Never rely on SQLite failing to replay an ALTER: SQLite
+    cannot ALTER COLUMN at all, so on the throwaway DB these ops are silently harmless while on PostgreSQL
+    `SET NOT NULL` fails on a populated table with NULLs and a type change can fail the USING cast or silently
+    truncate. Allowed: server_default-only, comment-only, nullable -> True. Everything else needs a human."""
+    col = f"{o.table_name}.{o.column_name}"
+    if o.modify_type is not None:
+        return f"alter_column {col} changes the column type: needs a human"
+    if o.modify_nullable is False:
+        return f"alter_column {col} sets NOT NULL (existing rows may hold NULL; fails on a populated table): needs a human"
+    if getattr(o, "modify_name", None) is not None:
+        return f"alter_column {col} renames the column: needs a human"
+    return None
+
 def hook(context, revision, directives):
     if STATE.get("mode") == "check" or not directives:
         return  # command.check() drives its own directive handling; we only mutate real generates
@@ -108,19 +175,42 @@ def hook(context, revision, directives):
     if scr.upgrade_ops.is_empty():
         directives[:] = []
         return
-    STATE["n_ops"] = len(list(_walk(scr.upgrade_ops.ops)))
+    flat = list(_walk(scr.upgrade_ops.ops))
+    STATE["n_ops"] = len(flat)
+    STATE["labels"] = [_op_label(o) for o in flat]
     if STATE["n_ops"] > args.max_ops:
-        STATE["refuse"] = f"{STATE['n_ops']} ops > --max-ops {args.max_ops}: looks spurious, needs a human"
-    for o in _walk(scr.upgrade_ops.ops):
-        if isinstance(o, (ops.DropTableOp, ops.DropColumnOp)) and not args.allow_destructive:
-            STATE["refuse"] = f"destructive op {o.__class__.__name__} (model removed something) - needs a human"
+        _refuse(f"{STATE['n_ops']} ops > --max-ops {args.max_ops}: looks spurious, needs a human")
+    # 2026-10-02 (H6 M1): an ALTER COLUMN that is safe on PostgreSQL (nullable -> True, server_default-only) cannot be
+    # replayed by SQLite, so the post-generate re-validation (upgrade + check on the throwaway DB) would fail and the
+    # hook would wrongly give up. Render ONLY those migrations in batch style (PostgreSQL emits the plain ALTER, SQLite
+    # recreates the table). Pure add_column/create_table migrations keep the plain `op.add_column(...)` shape the credit
+    # helper parses. The same AutogenContext.opts dict is read when the file is rendered, after this hook returns.
+    if any(isinstance(o, ops.AlterColumnOp) for o in flat):
+        context.opts["render_as_batch"] = True
+    for o in flat:
+        # destructive / lossy schema removals: every flavour, not just tables+columns. A dropped index or
+        # constraint replays fine on SQLite but is a production behaviour change (uniqueness / FK guarantees
+        # silently gone) that a deterministic hook must never ship unreviewed.
+        if isinstance(o, (ops.DropTableOp, ops.DropColumnOp, ops.DropIndexOp, ops.DropConstraintOp)) and not args.allow_destructive:
+            _refuse(f"destructive op {o.__class__.__name__} ({_op_label(o)}) (model removed something) - needs a human")
+        if isinstance(o, ops.AlterColumnOp):
+            _bad = _alter_refusal(o)
+            if _bad and not args.allow_destructive:
+                _refuse(_bad)
+        if isinstance(o, ops.AlterColumnOp) and o.modify_type is not None:
+            _bad = _pg_only_type(o.modify_type)
+            if _bad:
+                _refuse(f"alter_column {o.table_name}.{o.column_name} to {_bad}: needs a human")
         if isinstance(o, ops.AddColumnOp):
             c = o.column
+            _bad = _pg_only_type(c.type)
+            if _bad:
+                _refuse(f"add_column {o.table_name}.{c.name} type {_bad}: needs a human")
             if not c.nullable and c.server_default is None and not c.primary_key:
                 sd = _server_default_for(c)
                 if sd is None:
-                    STATE["refuse"] = (f"add_column {o.table_name}.{c.name} is NOT NULL with no scalar default: "
-                                       "would fail on a populated table - needs a human")
+                    _refuse(f"add_column {o.table_name}.{c.name} is NOT NULL with no scalar default: "
+                            "would fail on a populated table - needs a human")
                 else:
                     c.server_default = sa.schema.DefaultClause(sd)
 
@@ -177,5 +267,8 @@ except Exception as e:
 
 if args.dry_run:
     print(open(path).read()); os.remove(path); print("DRYRUN ok"); sys.exit(0)
+# 2026-10-02 (H6 M3): name every operation so unrelated pre-existing drift bundled into this migration is visible.
+# Printed BEFORE the GENERATED line so `tail -1` of the output is still exactly the GENERATED line.
+print("OPS " + "; ".join(STATE["labels"]))
 print(f"GENERATED {os.path.relpath(path, proj)}")
 sys.exit(0)

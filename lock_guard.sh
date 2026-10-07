@@ -35,6 +35,16 @@ for p in $holders; do
   [ -n "$p" ] || continue
   cmd="$(ps -o cmd= -p "$p" 2>/dev/null)"
   case "$cmd" in *run_overnight.sh*|*fleet_autofix.sh*) legit=1;; esac
+  # 2026-10-02: ovn_test_watch.sh legitimately holds run.lock for its whole 6-hourly sweep (flock -w 3600, serial full test suites). This guard
+  # was kill -9'ing it ~10-25 min in at every sweep (06:40/12:40/18:20/00:40 in lock_guard.log; "Killed" in ovn_test_watch.log, no "sweep complete"),
+  # so xlite/shrike-* were never swept. Treat a LIVE test_watch as a legitimate owner, but still reap one that has held the lock > 90 min (hung).
+  # 2026-10-02 (later): ovn_test_watch.sh no longer holds run.lock for the sweep (state/test_watch.lock + detached worktrees); it
+  # takes run.lock only for the seconds-long EMERGENCY write+push (emergency_enqueue), and its test suites run with it closed. The
+  # carve-out below stays so that brief hold (and a pre-redesign copy mid-sweep at deploy time) is not reaped.
+  case "$cmd" in *ovn_test_watch.sh*)
+    _age="$(ps -o etimes= -p "$p" 2>/dev/null | tr -d ' ')"
+    [ -n "$_age" ] && [ "$_age" -lt "${LOCK_GUARD_TESTWATCH_MAX_S:-5400}" ] && legit=1;;
+  esac
 done
 [ "$legit" = 1 ] && exit 0   # the lock's actual holder is a legitimate live owner — leave it
 

@@ -1,4 +1,18 @@
-# Patch description: adopt the release-branch flow in `daily_promote.sh` / `promote_to_prod.sh` (NOT APPLIED)
+# Patch description: adopt the release-branch flow in `daily_promote.sh` / `promote_to_prod.sh`
+
+> **2026-10-02 UPDATE (qa/h4-promotegate): a simplified form of this flow IS now in `promote_to_prod.sh`, behind the kill switch `OVN_RELEASE_FLOW=on` (default OFF,
+> only the exact value `on` enables it; OFF is byte-identical to before, proven against the previous script on the same fixtures).** It differs from sections 2/3 below:
+> there is no `shadow`/`enforce` tri-state and no `--release` flag; the per-repo gate is in `promote_to_prod.sh` (so `daily_promote.sh` and a manual promote behave the same);
+> the candidate comes from `qa/promote_gate.py` (= `release_candidate.compute_plan`, re-run at promote time); `release/YYYYMMDD` is created on origin at the candidate SHA
+> with a plain non-forced push; main is then fast-forwarded with `git push origin <candidate-sha>:refs/heads/main` (no `--force`, no `+` refspec; git itself refuses if main moved);
+> the `prod-<ts>-<repo>` tag is created at the candidate. Only plan verdicts PASS/FLAG promote; UNVERIFIED (fallback to the develop tip) / no candidate / main not an ancestor => that repo
+> is skipped. Not done (still as described below): the in-promote staging poll loop, `staging_smoke.py` as the smoke step, the migration check on the release branch, the
+> `branch_hygiene.sh`/`reconcile_branches.sh` follow-ups of section 4 (reconcile's "direct commit on main" alert is NOT triggered by a fast-forward promote but WILL fire for a
+> hotfix; release branches are pruned by hygiene once they are ancestors of main).
+>
+> The **staging-evidence gate** is separate and independent of the release flow: see section 8 at the end of this file.
+
+(Original design text follows; sections 2-3 are the longer-term target, not what is applied.)
 
 Status: design + exact edits. Nothing in this file has been applied; the integrator applies it behind the shadow switch below.
 Built against the live scripts as of 2026-10-01 (`daily_promote.sh` md5 d7197600..., `promote_to_prod.sh` md5 0c076577..., identical on the box and in shared).
@@ -167,3 +181,30 @@ staging trigger to a fixed branch `release/staging` that the cut step force-move
 | smoke step got an HTTP failure | FAIL | block |
 | smoke could not reach staging / creds not provisioned | UNVERIFIED | block that repo, report as infra not as bad code |
 | smoke partial (no login mechanism, e.g. gitlark) | FLAG | allowed; the summary names the gap |
+
+## 8. Staging-evidence gate in the promote (2026-10-02, applied, default shadow)
+
+`promote_to_prod.sh` calls `qa/promote_gate.py check --repo <r> --main origin/<default>` for every repo that is ahead (bounded by `qa/qa_timeout.py`, `OVN_PROMOTE_GATE_TIMEOUT`, default 90 s).
+It re-runs the release-candidate plan and `staging_check` (file provider only = the Mac's 10-minutely snapshot `state/staging_deploys/<repo>.json`, stale > 30 min => UNVERIFIED),
+prints two lines that `daily_promote.sh` keeps whole in `logs/daily_promote.log`:
+
+```
+  [candidate] 743980f62f FLAG, 1 develop merge(s) held back, release branch release/20261002, main fast-forwardable: yes
+  [staging-gate] mode=shadow staging_check=FAIL/MISMATCH_BEHIND serving=726d250f9a provider=file -> proceed (staging serves ..., BEHIND the candidate (not deployed yet))
+```
+
+and **blocks that repo only** when mode is `enforce` AND staging_check says FAIL with relation MISMATCH_BEHIND / MISMATCH_DIVERGED / MISMATCH_FAILED. A blocked repo prints
+`STAGING-GATE BLOCK`, appends one line `WARN | promote-staging-gate | <repo> promote SKIPPED ...` to `state/alerts.log`, and the daily summary gets a `HELD` line (priority high);
+the other repos are processed normally. PASS, NA, every UNVERIFIED flavour (stale/corrupt/missing snapshot, still BUILDING, commit unknown to the clone), a crashing/garbage-printing/hanging
+helper, a missing `qa/` dir and mode `off`/`shadow` NEVER block. `--force` overrides a block (human decision, loud line, no alert).
+
+Mode: env `OVN_QA_STAGING_CHECK` > `state/qa_gate_modes.json` (when present; `{"staging_check":"enforce"}` or nested under `modes`/`gates`, value a string or `{"mode":..}`) > `state/qa_modes.json`
+(`qa_common.mode`) > `shadow`.
+- Turn on: `echo '{"staging_check":"enforce"}' > ~/overnight-queue/state/qa_gate_modes.json` (or `export OVN_QA_STAGING_CHECK=enforce` in the cron line).
+- One-command rollback: `rm ~/overnight-queue/state/qa_gate_modes.json` or set the env to `shadow`.
+- Caveat to know before enabling: with the release flow OFF the promote ships develop's TIP but the gate checks the CANDIDATE (the newest green merge, possibly older than the tip). Staging deploys
+  develop, so a healthy staging at or past the candidate is MATCH/MATCH_SUPERSET. A tip merged minutes before 09:00 that staging has not built yet does not block on its own (candidate older) - it blocks only
+  when staging is behind the candidate.
+
+Tests: `scripts/test/test_promote_gate.sh` (73 checks; real scripts under `env -i`, throwaway bare origins; negative controls for each FAIL relation, benign controls for each UNVERIFIED flavour,
+the release flow ON/OFF incl. a hotfix landing mid-promote). It fails 43 checks against the previous `promote_to_prod.sh`/`daily_promote.sh`.

@@ -31,11 +31,24 @@ else
   trap 'rmdir "$LD" 2>/dev/null' EXIT
 fi
 T="${QA_GATE_TIMEOUT:-900}"
+export QA_GATE_TIMEOUT="$T"   # gates derive their own time budget from it (must stay under it so they can answer + clean up)
 ran=0
+# 2026-10-02: a gate that only applies to some repos must not run (and log an NA row) for the others. gate_migrations starts a postgres
+# container, so it runs only for repos registered in qa_repos.json (those with an alembic backend). Fail OPEN: an unreadable registry
+# runs the gate, which then reports UNVERIFIED itself. Other gates apply to every repo.
+applies(){ # $1 = gate name
+  case "$1" in
+    migrations) "$PY" -c 'import json,sys
+try: sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])) else 1)
+except Exception: sys.exit(0)' "${QA_REPOS_JSON:-$HERE/qa_repos.json}" "$repo" 2>/dev/null ;;
+    *) return 0 ;;
+  esac
+}
 for g in "$HERE"/gate_*.py; do
   [ -f "$g" ] || continue
   name="$(basename "$g" .py)"; name="${name#gate_}"
   [ "${OVN_QA_MODE_ALL:-}" = "off" ] && continue
+  applies "$name" || { log "$name: skipped (repo has no applicable target)"; continue; }
   t0=$(date +%s)
   out="$("$PY" "$HERE/qa_timeout.py" "$T" "$PY" "$g" check --repo "$repo" --base "$base" --head "$head" 2>>"$LOG" | tail -1)"; rc=$?
   v="$(printf '%s' "$out" | "$PY" -c 'import sys,json

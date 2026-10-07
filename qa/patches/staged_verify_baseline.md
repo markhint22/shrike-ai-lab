@@ -1,4 +1,4 @@
-# Patch (NOT applied): shadow-mode baseline-relative verify in `ovn_stage_runner.sh`
+# Patch (SUPERSEDED 2026-10-02 - the shadow wiring was applied differently, see qa/baseline.README.md "Staged-runner shadow wiring"): baseline-relative verify in `ovn_stage_runner.sh`
 
 Target: `~/overnight-queue/ovn_stage_runner.sh` (box) and `scripts/overnight-queue/ovn_stage_runner.sh` (repo). Line numbers are from
 the box copy as read on 2026-10-01. The integrator applies this; the gate builder applied nothing. Shadow mode only: the real
