@@ -148,8 +148,14 @@ def railway_fetch(repo, env="staging"):
         return None, "no railway config for %s" % repo
     if not shutil.which("railway"):
         return None, "railway CLI not installed on this host"
-    cwd = tempfile.mkdtemp(prefix="qa-railway-")
+    # 2026-10-07: a STABLE cwd per (repo, env), never a fresh mkdtemp. `railway link` records every directory it links from as a permanent entry in
+    # ~/.railway/config.json; a new temp dir per run (6 per 10 min) grew that file to 1534 entries / 665 KB, a concurrent write then corrupted it
+    # ("Unable to parse config file"), the login was lost and the exporter went silent for 3 days (the enforcing promote gate then BLOCKED every
+    # staging repo on stale evidence). One reused directory = one config entry.
+    root = os.environ.get("QA_RAILWAY_CWD_ROOT") or os.path.join(os.path.expanduser("~"), ".qa_railway_cwd")
+    cwd = os.path.join(root, "%s-%s" % (re.sub(r"[^A-Za-z0-9_.-]", "_", repo), re.sub(r"[^A-Za-z0-9_.-]", "_", env)))
     try:
+        os.makedirs(cwd, mode=0o700, exist_ok=True)
         rc, out, err = qc.run(["railway", "link", "--project", cfg["project"], "--environment", env, "--service", cfg["service"]],
                               cwd=cwd, timeout=60, polite=False)
         if rc != 0:
@@ -163,7 +169,7 @@ def railway_fetch(repo, env="staging"):
         except ValueError:
             return None, "railway output not JSON"
     finally:
-        shutil.rmtree(cwd, ignore_errors=True)
+        pass  # the stable cwd is intentionally kept (see above)
 
 
 def deploys_file(repo, kind="staging_deploys"):

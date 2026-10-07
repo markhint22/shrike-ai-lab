@@ -467,6 +467,18 @@ write_stub([dep("SUCCESS", cand_full)])
 envp = ["PATH=%s:%s" % (RW, MINPATH)]
 rc, j, _, err = gate("staging_check.py", "check", "--repo", "billwatch", "--release-plan", "--no-record", env_extra=envp)
 ok("staging_check real entry (railway stub): MATCH -> PASS", rc == 0 and j and j["verdict"] == "PASS" and j["details"]["relation"] == "MATCH", (j or {}).get("summary", err))
+# 2026-10-07 regression: `railway link` records EVERY directory it links from as a permanent ~/.railway/config.json entry. A fresh mkdtemp per run grew that file
+# to 1534 entries, a concurrent write corrupted it, the login was lost and the staging evidence went stale for 3 days. All calls must share ONE persistent cwd.
+CW_LOG = os.path.join(T, "railway_cwds.log"); CW_ROOT = os.path.join(T, "cwdroot")
+_orig_stub = open(RAILWAY_STUB).read()
+open(RAILWAY_STUB, "w").write("#!/bin/sh\npwd >> %s\n" % CW_LOG + _orig_stub.split("\n", 1)[1])
+os.chmod(RAILWAY_STUB, 0o755)
+envp_cw = envp + ["QA_RAILWAY_CWD_ROOT=%s" % CW_ROOT]
+for _ in range(3):
+    gate("staging_check.py", "check", "--repo", "billwatch", "--release-plan", "--no-record", env_extra=envp_cw)
+_cwds = sorted(set(open(CW_LOG).read().split())) if os.path.exists(CW_LOG) else []
+ok("railway fetch: 3 runs (link + list each) all ran in ONE stable cwd, not a new temp dir per run", len(_cwds) == 1 and _cwds[0].startswith(CW_ROOT), _cwds)
+ok("railway fetch: that cwd still exists after the run (kept on purpose so the config entry is reused)", len(_cwds) == 1 and os.path.isdir(_cwds[0]))
 rc, j, _, _ = gate("staging_check.py", "check", "--repo", "billwatch", "--sha", cand_full, "--no-record", rel=True, env_extra=envp)
 ok("staging_check relative-path entry, explicit --sha", j and j["verdict"] == "PASS")
 write_stub([dep("SUCCESS", parent_full)])
