@@ -21,7 +21,7 @@ export PATH=/usr/local/bin:/usr/bin:/bin:${PATH:-}
 LOG="logs/ovn_research_trigger_check.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
-STARVE_HOURS="${OVN_STARVE_HOURS:-2}"
+STARVE_HOURS="${OVN_STARVE_HOURS:-0.5}"
 
 OUT="$(python3 scripts/ovn_research_trigger_check.py "$STARVE_HOURS" logs/ovn_planner.log 2>>"$LOG")"
 [ -n "$OUT" ] && say "$OUT"

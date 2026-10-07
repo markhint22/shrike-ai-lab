@@ -26,8 +26,8 @@ REMOTE="${OVN_REMOTE_DIR:-overnight-queue}"
 CLONES="${OVN_CLONES_DIR:-$HOME/LocalProjects}"
 STATE="${OVN_AUTO_RESEARCH_STATE:-$HOME/.ovn_auto_research}"
 MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-2}"
-MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-8}"
-MIN_STARVE_H="${OVN_AR_MIN_STARVE_H:-1}"
+MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-12}"
+MIN_STARVE_H="${OVN_AR_MIN_STARVE_H:-0.5}"
 # Cooldown depends on the LAST pass's result (2026-10-03). A pass that accepted ZERO items means the repo may be genuinely complete -> wait long
 # (COOLDOWN_EMPTY_H) so it is not re-researched every run. A PRODUCTIVE pass only needs a short pause (COOLDOWN_PRODUCTIVE_H, ~one launchd interval):
 # the fleet burns 5 items in a few hours, and the starving check (MIN_STARVE_H) already says the repo is dry again. The old flat 18h left the
@@ -94,7 +94,7 @@ for repo in $CANDIDATES; do
   ssh -o BatchMode=yes "$SRV" "cd ~/$REMOTE/repos/$repo && git log --format='%h %s' -40; echo '####'; tail -60 OVERNIGHT_PROGRESS.md | cut -c1-260" > "$in/recent.txt" 2>/dev/null
   [ -s "$in/roadmap.md" ] || { log "$repo: could not fetch roadmap - skip"; continue; }
   (cd "$clone" && git fetch -q origin 2>/dev/null)
-  before="$(cd "$clone" && git status --porcelain | md5)"
+  before="$(cd "$clone" && git status --porcelain | cksum)"
   # 2026-10-04: read a FRESH detached checkout of the branch the fleet works on, never the Mac clone's working tree (it lags: the agent "verified via Read"
   # that files the fleet had deleted still existed, and proposed re-deleting them). Falls back to the clone (with a log line) if the worktree cannot be made.
   src="$WORK/src_$repo"
@@ -117,7 +117,7 @@ Status must be the literal word ready. Each item under ~900 characters, single l
   cp "$in/claude_reply.txt" "$STATE/last_reply_$repo.txt" 2>/dev/null
   # the agent has no Write tool: the proposed lines ARE its reply (headless scoped-Write permissions are not honored)
   grep '^- \[ \]' "$in/claude_reply.txt" > "$out" 2>/dev/null || true
-  after="$(cd "$clone" && git status --porcelain | md5)"
+  after="$(cd "$clone" && git status --porcelain | cksum)"
   if [ "$before" != "$after" ]; then log "$repo: LOCAL CLONE CHANGED during research pass - discarding output, NOT applying (investigate $clone)"; continue; fi
   if [ "$rc" -ne 0 ]; then log "$repo: claude exited rc=$rc: $(tail -c 300 "$in/claude_stderr.txt" "$in/claude_reply.txt" | tr '\n' ' ')"; continue; fi
   if [ ! -s "$out" ] && ! grep -qx 'NONE' "$in/claude_reply.txt"; then log "$repo: reply had no feature lines and no NONE - treating as a FAILED pass, no cooldown set (see $STATE/last_reply_$repo.txt): $(head -c 200 "$in/claude_reply.txt" | tr '\n' ' ')"; continue; fi

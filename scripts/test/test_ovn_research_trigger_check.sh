@@ -167,7 +167,7 @@ $(ago $((3*H))) alpha: backlog low (2) but $STARVE
 EOF
 runsh >/dev/null; rc=$?
 eqv "starving repo -> exit 0" "0" "$rc"
-chk "log has the python summary line" grep -q '1 repo(s) starving >= 2h: alpha (5.0h)\|1 repo(s) starving >= 2.0h: alpha (5.0h)' "$WL"
+chk "log has the python summary line (wrapper default threshold is 0.5h since 2026-10-07)" grep -q '1 repo(s) starving >= 0.5h: alpha (5.0h)' "$WL"
 chk "log has newly-confirmed line, ntfy suppressed" grep -q '=== 1 repo(s) newly confirmed starving — ntfy suppressed' "$WL"
 chk "log carries per-repo detail" grep -q 'alpha: starving 5.0h (no ready roadmap feature)' "$WL"
 chk "per-repo alerted marker created" test -f "$WST/research_trigger_alerted_alpha"
