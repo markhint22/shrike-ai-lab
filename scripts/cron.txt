@@ -13,3 +13,10 @@
 # writes ONE deduped alerts.log warn when MORE THAN 3 test files are never collected. Read-only (detached scratch worktree, nice'd, no locks), always exits 0; infra trouble =
 # a log line and no alert. Every 6h at :37. Kill switch: OVN_TEST_COLLECT_CANARY=off.  Rollback: delete the line.
 37 */6 * * * NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_test_collect_canary.sh >> /home/mhintermeister/overnight-queue/logs/test_collect_canary.out 2>&1
+
+# --- Churn-loop guard (2026-10-07: 115 commits in 3h ping-ponging on enemy_faction_map; 214 on damage_preview; every commit green so no gate objected). Every 20 min per repo in
+# OVN_CHURN_REPOS: reads origin/overnight/feature history (FETCH ONLY in the live clone), flags files with >=8 non-bookkeeping commits in 3h that OSCILLATE (>=3 content revisits AND
+# revert wording / repeated subjects) or test<->source pairs alternating >=6 times, and PARKS the matching open OVERNIGHT_PROGRESS.md lines with an [AUTO-SKIP churn-loop: ...] tag via a temp
+# worktree + non-force push (retry x5). One deduped alerts.log warn per (repo,file,day). Never touches the live checkout, checked lines or other repos; infra failure = log line, exit 0.
+# Kill switch: OVN_CHURN_GUARD=off (or comment the line).  Dry run: DRY_RUN=1 scripts/ovn_churn_guard.sh.  Rollback: delete the line.
+*/20 * * * * OVN_CHURN_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_churn_guard.sh

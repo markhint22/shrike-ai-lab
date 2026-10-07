@@ -141,6 +141,10 @@ def main():
             return re.sub(r"-\d{6}-", "-", tag, count=1)
         return re.sub(r"\[feat:[^\]]+\]", _one, text)
     def _norm(line):
+        # 2026-10-07: a parked line carries '[AUTO-SKIP ...]' / '[HUMAN-ONLY ...]' right after the checkbox; without stripping it the roadmap's
+        # re-decomposed copy of the SAME item (identical text, no tag) looked brand new and was re-pulled as an eligible item (churn-loop guard parks
+        # an item, the backlog re-adds it, the loop restarts).
+        line = re.sub(r"^(\s*- \[[ xX]\] )(\[(?:AUTO-SKIP|HUMAN-ONLY)[^\]]*\]\s*)+", r"\1", line)
         m = re.search(r"\]\s*(.*)$", line)  # content after the last tag bracket
         content = _strip_feat_date((m.group(1) if m else line).strip())
         return re.sub(r"\s+", " ", content.lower())

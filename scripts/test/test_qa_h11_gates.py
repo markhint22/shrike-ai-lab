@@ -642,9 +642,10 @@ ok("the refs used in the script are the escape_ref values recorded in the gold s
    {"06435083508d955023563f36540d78ff318c6d89", "ae047db63f344f4ed6603dda1f65cc9dc9041da4", "1f92e12053d01a2793bdef9edcee782c4c9666f4"} == {r.get("escape_ref") for r in rows if r.get("escape_ref")})
 CT = os.path.join(OQ, "scripts", "cron.txt")
 active = [l for l in open(CT).read().splitlines() if l.strip() and not l.lstrip().startswith("#")]
-ok("scripts/cron.txt ships exactly two active lines: the baseline refresh for iptv_apps and xlite + the ghost-test canary (2026-10-04)",
-   len(active) == 2 and "baseline_refresh_cron.sh" in active[0] and 'OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite"' in active[0] and active[0].startswith("11 */3 ")
-   and "ovn_test_collect_canary.sh" in active[1] and active[1].startswith("37 */6 "), active)
+ok("scripts/cron.txt ships the baseline refresh for iptv_apps and xlite + the ghost-test canary (2026-10-04) + the churn-loop guard (2026-10-07) and nothing else",
+   len(active) == 3 and "baseline_refresh_cron.sh" in active[0] and 'OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite"' in active[0] and active[0].startswith("11 */3 ")
+   and "ovn_test_collect_canary.sh" in active[1] and active[1].startswith("37 */6 ")
+   and "ovn_churn_guard.sh" in active[2] and active[2].startswith("*/20 "), active)
 ok("the cron line is not installed by any script we ship (no crontab write in the shipped files)", "crontab -" not in "\n".join(active))
 ok("qa/baseline_refresh_cron.txt carries the same scoped line", 'OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite"' in open(os.path.join(QA, "baseline_refresh_cron.txt")).read())
 

@@ -118,6 +118,8 @@ echo; echo "===== New-source-file stub (Alembic-only fix generalized: any brand-
 echo; echo "===== Verify-direction existence-only check (cat:schema/cat:endpoint bare hasattr/is-not-None/import-only VERIFY, shadow-mode) ====="; bash test_verify_direction_existence_check.sh || rc=1
 echo; echo "===== Ungrounded-plan guard (PROCEED verdict with zero real file-shaped tokens skips implement instead of forcing a blind attempt) ====="; bash test_ungrounded_plan_guard.sh || rc=1
 echo; echo "===== Failure triage (cluster BAD outcomes by error signature; new-vs-fixed-then-regressed registry, --ack, --digest) ====="; python3 test_failure_triage.py || rc=1
+echo; echo "===== Failure triage: QA gate FAIL source (state/qa_shadow -> registry) ====="; python3 test_failure_triage_qa_gates.py || rc=1
+echo; echo "===== Planner decomposition grounding guard (drops Implement/Create of existing code, uncollected test dirs) ====="; python3 test_decomp_ground_guard.py || rc=1
 echo; echo "===== Failure-triage notifications (capped new-pattern digest section; exactly-once high-priority regression push; failed push kept pending) ====="; bash test_failure_triage_notify.sh || rc=1
 echo; echo "===== queue_refill dedup date-strip (regenerated [feat:] tag collapses onto its queued twin; siblings sharing a tag stay distinct) ====="; bash test_queue_refill_feattag_norm.sh || rc=1
 echo; echo "===== auto-research validator (format/dedupe/grounding gate before roadmap append) ====="; bash test_auto_research_validate.sh || rc=1
@@ -297,5 +299,6 @@ echo; echo "===== h13 delete already gone ====="; bash test_h13_delete_already_g
 echo; echo "===== h13 landing check ====="; bash test_h13_landing_check.sh || rc=1
 echo; echo "===== h13 park guards ====="; bash test_h13_park_guards.sh || rc=1
 echo; echo "===== h13 ungrounded classify ====="; bash test_h13_ungrounded_classify.sh || rc=1
+echo; echo "===== ovn churn guard ====="; bash test_ovn_churn_guard.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc
