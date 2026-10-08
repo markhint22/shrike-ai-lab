@@ -177,7 +177,13 @@ def collect(root, skip=None):
     """Round-robin across collectors so one noisy kind cannot crowd out the rest.
     skip(e) -> True drops evidence that is already covered (applied before the MAX_EVIDENCE cap, so later evidence is reachable)."""
     per = []
+    # OVN_LR_SKIP_KINDS=fn_name,fn_name: collectors whose gaps ovn_work_supply.py now turns into finished items deterministically (cron sets it) - the
+    # model-written versions of those items failed far more often than they landed.
+    skip_fns = {x for x in os.environ.get("OVN_LR_SKIP_KINDS", "").split(",") if x}
     for fn in COLLECTORS:
+        if fn.__name__ in skip_fns:
+            per.append([])
+            continue
         try:
             lst = fn(root)
             per.append([e for e in lst if not (skip and skip(e))])

@@ -94,6 +94,41 @@ def already_satisfied(line, repo_root, timeout=8):
         return False
 
 
+_TEST_BASENAME = re.compile(r"(?:^|/)((?:test_[\w.-]+\.(?:py|gd))|(?:[\w.-]+_test\.(?:py|gd)))")
+_PATH_IN_LINE = re.compile(r"(?<![\w./-])((?:[\w.-]+/)+[\w.-]+\.(?:py|gd))")
+
+
+def collected_test_dir(repo_root):
+    """Where this repo's verify command actually collects tests (None = unknown, lint nothing)."""
+    if os.path.isdir(os.path.join(repo_root, "iptv-backend", "tests")):
+        return "iptv-backend/tests/"
+    if os.path.isfile(os.path.join(repo_root, "project.godot")) and os.path.isdir(os.path.join(repo_root, "tests")):
+        return "tests/"
+    return None
+
+
+def relocate_new_tests(line, repo_root):
+    """2026-10-08: planner items named NEW test files in app/jobs/, app/services/ ... - directories pytest never collects - and the fleet shipped
+    8 uncollected test files plus a placeholder `assert True` file that held 235 commits at the antigaming gate for 17h. A NEW test file path
+    outside the collected dir is rewritten (everywhere in the line, VERIFY included) to the collected dir. Existing files are never touched.
+    Returns (line, [(old, new)])."""
+    base = collected_test_dir(repo_root)
+    if not base:
+        return line, []
+    moves = []
+    for m in _PATH_IN_LINE.finditer(line):
+        path = m.group(1)
+        bm = _TEST_BASENAME.search(path)
+        if not bm or path.startswith(base) or os.path.exists(os.path.join(repo_root, path)):
+            continue
+        new = base + bm.group(1)
+        if (path, new) not in moves:
+            moves.append((path, new))
+    for old, new in moves:
+        line = line.replace(old, new)
+    return line, moves
+
+
 def main():
     if len(sys.argv) != 4:
         print("usage: queue_refill.py <progress_file> <backlog_file> <max_items>", file=sys.stderr)
@@ -189,6 +224,14 @@ def main():
             credited.append(l)
         else:
             pull.append(l)
+    # relocate NEW test files that the item places outside the collected test dir (the backlog copy is removed below by its ORIGINAL text)
+    pull_orig = list(pull)
+    relocated = 0
+    for i, l in enumerate(pull):
+        l2, mv = relocate_new_tests(l, repo_root)
+        if mv:
+            pull[i] = l2
+            relocated += 1
 
     if not pull and not credited and not dup:
         remaining = len(eligible)
@@ -197,7 +240,7 @@ def main():
 
     # remove pulled + credited + already-consumed-duplicate lines from the backlog (first
     # occurrence each)
-    to_remove = list(pull) + list(credited) + list(dup)
+    to_remove = list(pull_orig) + list(credited) + list(dup)
     rest = []
     for l in bl:
         if to_remove and l in to_remove:
@@ -225,7 +268,7 @@ def main():
                 f.write(checked + "\n")
 
     remaining = len([l for l in rest if is_item.match(l) and not parked.search(l) and _norm(l) not in existing])
-    print(f"REFILL={len(pull)}  CREDITED={len(credited)}  BACKLOG_REMAINING={remaining}  PRUNED={len(dup)}")
+    print(f"REFILL={len(pull)}  CREDITED={len(credited)}  BACKLOG_REMAINING={remaining}  PRUNED={len(dup)}" + (f"  RELOCATED_TESTS={relocated}" if relocated else ""))
 
 
 if __name__ == "__main__":

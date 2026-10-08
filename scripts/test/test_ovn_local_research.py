@@ -97,6 +97,9 @@ d = make_fixture()
 out = run(d, "--evidence-only")
 ok("evidence: names the router with no rate limit (and not the limited one)", "no-rate-limit] iptv-backend/app/routers/b.py" in out and "routers/a.py" not in out, out)
 ok("evidence: names the swallowed exception", "swallowed-exception] iptv-backend/app/routers/c.py:4" in out, out)
+out_skip = run(d, "--evidence-only", env_extra={"OVN_LR_SKIP_KINDS": "py_unlimited_routers,py_swallowed"})
+ok("OVN_LR_SKIP_KINDS drops the mechanical collectors (work supply owns them) and keeps no others' evidence hidden",
+   "no-rate-limit" not in out_skip and "swallowed-exception" not in out_skip, out_skip)
 ok("evidence-only never calls the model or writes anything", HITS["n"] == 0 and open(os.path.join(d, "roadmap", "demo.md")).read() == "# roadmap\n")
 
 # --- full pass: valid items appended, invented path rejected, only roadmap committed
