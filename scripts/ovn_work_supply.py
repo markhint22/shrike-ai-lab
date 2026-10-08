@@ -19,6 +19,8 @@ Kinds (all single file, <= 6 symbols per item, tier T2):
   missing-return-type   py:  functions that return a value but have no annotation -> the model infers it (typing items land ~92%)
   missing-docstring     py:  public functions/classes (>= 5 body lines) without a docstring
   gd-missing-doc        gd:  public functions without a `##` doc comment
+  pure-function-tests   py:  public side-effect-free functions no test mentions -> a NEW tests/test_<module>_pure.py with concrete asserts (no mocks)
+  unused-import         py:  ruff F401 unused imports (T1)
 
 usage: ovn_work_supply.py <repo> [--dry-run] [--max N] [--no-spec-check] [--force]
 env:   OVN_DIR (default ~/overnight-queue); OVN_SUPPLY_MIN_BACKLOG (default 20: only supply when the repo's open T-items are below this)
@@ -113,6 +115,22 @@ def verify_returns_none(path, names):
     return ("python3 -c \"import ast,sys;t=ast.parse(open('%s').read());names=%r;"
             "bad=[n.name for n in ast.walk(t) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in names and n.returns is None];"
             "sys.exit(1 if bad else 0)\"" % (path, list(names)))
+
+
+def verify_ruff_f401(path):
+    # python3 here is the repo venv's python (the VERIFY runner substitutes it), which ships ruff
+    return "python3 -m ruff check --select F401 --no-cache %s" % path
+
+
+def verify_pure_tests(test_path, names, pytest_cwd):
+    """Red-before (the test file does not exist) / green-after: the file exists, parses, and for EVERY named function some `test_*` calls it and compares
+    the result in an assert that is not a tautology; then the file's own tests pass. The existence guard exits 1 explicitly (not a crash) so the red-before check reads it as a real failure."""
+    # ONE physical line (a newline would split the backlog line; the spec check rejected the first version as no-verify, which is how it was caught)
+    ast_part = ("python3 -c \"import ast,os,sys;p='%s';(not os.path.exists(p)) and sys.exit(1);t=ast.parse(open(p).read());names=%r;"
+                "ok=lambda n:any(isinstance(f,ast.FunctionDef) and f.name.startswith('test') and any(isinstance(c,ast.Call) and ast.unparse(c.func).split('.')[-1]==n for c in ast.walk(f)) "
+                "and any(isinstance(a,ast.Assert) and isinstance(a.test,ast.Compare) for a in ast.walk(f)) for f in ast.walk(t));"
+                "sys.exit(0 if all(ok(n) for n in names) else 1)\"" % (test_path, list(names)))
+    return ast_part
 
 
 def verify_docstrings(path, names):
@@ -332,7 +350,114 @@ def c_gd_docs(root):
                    "verify": verify_gd_docs(r, names)}
 
 
-COLLECTORS = [c_swallowed, c_rate_limit, c_returns_none, c_gd_void, c_return_types, c_docstrings, c_gd_docs]
+_IMPURE_CALLS = {"open", "input", "exec", "eval", "compile", "__import__"}
+_IMPURE_ATTR_ROOTS = {"os", "sys", "subprocess", "requests", "httpx", "random", "time", "socket", "shutil", "pathlib", "asyncio", "threading", "db", "session", "logging", "logger"}
+_PURE_DIRS = ("/services/", "/core/", "/utils/")
+
+
+def _is_pure_function(n, tree_names):
+    """Heuristic 'pure enough to unit-test without mocks': sync, public, undecorated, returns a value, short, no self/db/request args, no I/O, clock, randomness,
+    global state or logging. When in doubt it says no - a wrong 'yes' produces a mock-heavy test the antigaming gate flags."""
+    if not isinstance(n, ast.FunctionDef) or n.name.startswith("_") or n.decorator_list or not _returns_value(n):
+        return False
+    args = [a.arg for a in n.args.args + n.args.kwonlyargs]
+    if not args or any(a in ("self", "cls", "db", "session", "request", "response", "app", "client") for a in args) or n.args.vararg or n.args.kwarg:
+        return False
+    length = (n.end_lineno or n.lineno) - n.lineno
+    if length < 3 or length > 40:
+        return False
+    for node in ast.walk(n):
+        if isinstance(node, (ast.Await, ast.AsyncFor, ast.AsyncWith, ast.Global, ast.Nonlocal, ast.Yield, ast.YieldFrom, ast.Try)):
+            return False
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name) and f.id in _IMPURE_CALLS:
+                return False
+            root = f
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id in _IMPURE_ATTR_ROOTS:
+                return False
+            if isinstance(f, ast.Attribute) and f.attr in ("now", "utcnow", "today", "random", "uuid4", "commit", "query", "execute", "add"):
+                return False
+        if isinstance(node, ast.Name) and node.id in _IMPURE_ATTR_ROOTS and isinstance(node.ctx, ast.Load) and node.id not in args:
+            return False
+    return True
+
+
+def c_pure_tests(root):
+    """Public pure functions in app/{services,core,utils} that no test mentions: ask for a real test file (>= 1 concrete-output assert per function, no mocks)."""
+    tests_dir = "iptv-backend/tests" if os.path.isdir(os.path.join(root, "iptv-backend", "tests")) else None
+    if not tests_dir:
+        return
+    blob = "\n".join(read(p) for p in walk(os.path.join(root, tests_dir), (".py",)))
+    for p in walk(root, (".py",)):
+        r = rel(root, p)
+        if is_test_path(r) or "/app/" not in "/" + r or not any(d in "/" + r for d in _PURE_DIRS) or r.endswith("__init__.py"):
+            continue
+        try:
+            tree = ast.parse(read(p))
+        except SyntaxError:
+            continue
+        names = []
+        for n in tree.body:
+            if _is_pure_function(n, None) and n.name not in names and not re.search(r"\b%s\b" % re.escape(n.name), blob):
+                names.append(n.name)
+        names = names[:4]
+        if not names:
+            continue
+        mod = os.path.splitext(os.path.basename(r))[0]
+        test_rel = "%s/test_%s_pure.py" % (tests_dir, mod)
+        if os.path.exists(os.path.join(root, test_rel)):
+            continue
+        modpath = os.path.splitext(r.split("iptv-backend/", 1)[-1])[0].replace("/", ".")
+        yield {"kind": "pure-function-tests", "file": test_rel, "tier": "T2", "cat": "test",
+               "text": "NEW test file for `%s` (public, side-effect-free functions that no test mentions: %s). Read each function body first, then write at least 2 tests per function with CONCRETE expected outputs "
+                       "for representative and edge inputs (empty, zero, boundary, invalid) using plain `assert result == expected`; no mocks, no fixtures, import with `from %s import %s`. "
+                       "If a function turns out to need I/O to test, skip it and say why in a comment. Test code only - do not change `%s`." % (r, ", ".join("`%s`" % n for n in names), modpath, ", ".join(names), r),
+               "verify": verify_pure_tests(test_rel, names, "iptv-backend") + " && cd iptv-backend && python3 -m pytest %s -q" % test_rel.split("iptv-backend/", 1)[-1]}
+
+
+def _venv_python(root):
+    for cand in ("iptv-backend/.venv/bin/python", ".venv/bin/python", "backend/.venv/bin/python"):
+        p = os.path.join(root, cand)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def c_unused_imports(root):
+    """F401 unused imports (ruff, JSON output), per file, <= 6 per item. __init__.py (re-exports) and `# noqa` lines are never touched (ruff already honours noqa)."""
+    py = _venv_python(root)
+    if not py:
+        return
+    try:
+        r = subprocess.run([py, "-m", "ruff", "check", "--select", "F401", "--no-cache", "--output-format", "json", "--exclude", "tests,alembic,migrations", "."],
+                           cwd=root, capture_output=True, text=True, timeout=120)
+        findings = __import__("json").loads(r.stdout or "[]")
+    except Exception:
+        return
+    by_file = {}
+    for f in findings:
+        path = os.path.relpath(f.get("filename", ""), root)
+        if path.endswith("__init__.py") or is_test_path(path):
+            continue
+        by_file.setdefault(path, []).append(f)
+    for path, fs in sorted(by_file.items()):
+        names = []
+        for f in fs:
+            m = re.search(r"`([^`]+)`", f.get("message", ""))
+            if m and m.group(1) not in names:
+                names.append(m.group(1))
+        if not names or len(fs) > 6:
+            continue
+        yield {"kind": "unused-import", "file": path, "tier": "T1", "cat": "python",
+               "text": "Remove the unused import(s) in this file: %s (ruff F401). Delete only these names from their import lines (drop the whole line when nothing is left on it); "
+                       "change nothing else." % ", ".join("`%s`" % n for n in names),
+               "verify": verify_ruff_f401(path)}
+
+
+COLLECTORS = [c_swallowed, c_rate_limit, c_returns_none, c_gd_void, c_return_types, c_docstrings, c_gd_docs, c_pure_tests, c_unused_imports]
 
 
 def collect_all(root):

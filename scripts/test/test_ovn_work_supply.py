@@ -178,6 +178,57 @@ open(os.path.join(clone4, "iptv-backend/app/services/polish.py"), "w").write("de
 ok("NEGATIVE: an empty/whitespace docstring does not satisfy the docstring VERIFY", run_verify(clone4, dc["verify"]) == 1)
 ok("no polish VERIFY contains '>'", all(">" not in x["verify"] for x in sp4.values()))
 
+# --- pure-function tests + unused imports
+import ast as _ast
+_pure = lambda src: W._is_pure_function(_ast.parse(src).body[0], None)
+ok("pure: a small arithmetic/string helper is pure", _pure("def f(a, b):\n    x = a + b\n    y = x * 2\n    return y\n"))
+ok("NEGATIVE pure: takes db / self / request args", not _pure("def f(db, a):\n    x = a\n    y = x\n    return y\n") and not _pure("def f(self, a):\n    x = a\n    y = x\n    return y\n"))
+ok("NEGATIVE pure: reads the clock / random / env / files", not _pure("def f(a):\n    t = datetime.now()\n    y = a\n    return y\n") and not _pure("def f(a):\n    x = random.random()\n    y = a\n    return y\n")
+   and not _pure("def f(a):\n    x = os.environ.get('x')\n    y = a\n    return y\n") and not _pure("def f(a):\n    x = open(a)\n    y = 1\n    return y\n"))
+ok("NEGATIVE pure: async, decorated, private, no return value, too short, try/except", not _pure("async def f(a):\n    x = a\n    y = x\n    return y\n") and not _pure("@dec\ndef f(a):\n    x = a\n    y = x\n    return y\n")
+   and not _pure("def _f(a):\n    x = a\n    y = x\n    return y\n") and not _pure("def f(a):\n    x = a\n    y = x\n    print(y)\n") and not _pure("def f(a):\n    return a\n")
+   and not _pure("def f(a):\n    try:\n        x = int(a)\n    except ValueError:\n        x = 0\n    return x\n"))
+d5, clone5 = make_fixture()
+os.makedirs(os.path.join(clone5, "iptv-backend/tests"), exist_ok=True)
+os.makedirs(os.path.join(clone5, "iptv-backend/app/services"), exist_ok=True)
+open(os.path.join(clone5, "iptv-backend/app/services/mathy.py"), "w").write(
+    "def clamp(value, low, high):\n    if value < low:\n        return low\n    if value > high:\n        return high\n    return value\n"
+    "def already_tested(a, b):\n    c = a + b\n    d = c * 2\n    return d\n"
+    "def impure(a):\n    t = datetime.now()\n    y = a\n    return y\n")
+open(os.path.join(clone5, "iptv-backend/tests/test_other.py"), "w").write("from app.services.mathy import already_tested\n\ndef test_x():\n    assert already_tested(1, 2) == 6\n")
+pt = [s_ for s_ in W.collect_all(clone5) if s_["kind"] == "pure-function-tests"]
+ok("pure-tests: exactly one item, for mathy.py, naming clamp only (already_tested is mentioned by a test, impure is impure)",
+   len(pt) == 1 and "`clamp`" in pt[0]["text"] and "already_tested`" not in pt[0]["text"] and "`impure`" not in pt[0]["text"] and pt[0]["file"] == "iptv-backend/tests/test_mathy_pure.py", pt and pt[0]["text"])
+ast_cmd = pt[0]["verify"].split(" && cd ")[0]
+ok("pure-tests VERIFY is red before (test file missing)", run_verify(clone5, ast_cmd) == 1)
+open(os.path.join(clone5, "iptv-backend/tests/test_mathy_pure.py"), "w").write("from app.services.mathy import clamp\n\ndef test_low():\n    assert clamp(-1, 0, 5) == 0\n\ndef test_high():\n    assert clamp(9, 0, 5) == 5\n")
+ok("pure-tests VERIFY (assertion part) is green with real compare-asserts calling the function", run_verify(clone5, ast_cmd) == 0)
+open(os.path.join(clone5, "iptv-backend/tests/test_mathy_pure.py"), "w").write("from app.services.mathy import clamp\n\ndef test_low():\n    assert True\n\ndef test_called_but_not_compared():\n    clamp(1, 0, 5)\n    assert 1\n")
+ok("NEGATIVE: a tautological assert / a call with no comparison does not satisfy the VERIFY", run_verify(clone5, ast_cmd) == 1)
+open(os.path.join(clone5, "iptv-backend/tests/test_mathy_pure.py"), "w").write("from app.services.mathy import clamp\n\ndef test_other():\n    assert 1 + 1 == 2\n")
+ok("NEGATIVE: an assert comparing something unrelated (never calls the function) does not satisfy the VERIFY", run_verify(clone5, ast_cmd) == 1)
+ok("EVERY supplied line is ONE physical line (no newline inside any text or VERIFY)", all("\n" not in W.render(x, "demo") for x in W.collect_all(clone5)))
+ok("pure-tests VERIFY carries a pytest tail and no '>'", "pytest tests/test_mathy_pure.py -q" in pt[0]["verify"] and ">" not in pt[0]["verify"])
+_RUFF_PY = next((c for c in (sys.executable, os.path.expanduser("~/overnight-queue/repos/iptv_apps/iptv-backend/.venv/bin/python"), os.path.expanduser("~/aider-venv/bin/python"))
+                 if os.path.exists(c) and subprocess.run([c, "-m", "ruff", "--version"], capture_output=True).returncode == 0), None)
+_has_ruff = _RUFF_PY is not None and _RUFF_PY != sys.executable   # only venv pythons are exercised here (the collector needs <root>/.venv)
+if _has_ruff:
+    # the repo's .venv is a SYMLINK to the provisioned venv dir in production; symlinking only the interpreter loses site-packages (pyvenv.cfg lookup)
+    _venv_dir = os.path.dirname(os.path.dirname(_RUFF_PY)) if _RUFF_PY != sys.executable else None
+    if _venv_dir and os.path.exists(os.path.join(_venv_dir, "pyvenv.cfg")):
+        try:
+            os.symlink(_venv_dir, os.path.join(clone5, ".venv"))
+        except FileExistsError:
+            pass
+    open(os.path.join(clone5, "iptv-backend/app/services/imp.py"), "w").write("import os\nimport json\nfrom typing import List\n\ndef f():\n    return json.dumps({})\n")
+    ui = [s_ for s_ in W.collect_all(clone5) if s_["kind"] == "unused-import" and s_["file"].endswith("imp.py")]
+    ok("unused-import: names exactly the unused names (os, List), not json", ui and "`os`" in ui[0]["text"] and "`typing.List`" in ui[0]["text"] and "json" not in ui[0]["text"], ui and ui[0]["text"])
+    ok("unused-import VERIFY red before", ui and run_verify(clone5, ui[0]["verify"].replace("python3 ", _RUFF_PY + " ", 1)) != 0)
+    open(os.path.join(clone5, "iptv-backend/app/services/imp.py"), "w").write("import json\n\ndef f():\n    return json.dumps({})\n")
+    ok("unused-import VERIFY green after removal", ui and run_verify(clone5, ui[0]["verify"].replace("python3 ", _RUFF_PY + " ", 1)) == 0)
+else:
+    print("  skip unused-import tests (ruff not importable here)")
+
 # --- spec check: red / passes-before / no-verify / bad-spec
 spec = os.path.join(d, "cand.md")
 lines = [
