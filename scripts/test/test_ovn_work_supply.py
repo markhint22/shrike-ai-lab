@@ -101,7 +101,7 @@ for s in W.collect_all(clone):
     ok("VERIFY is red before: %s %s" % (s["kind"], os.path.basename(s["file"])), run_verify(clone, s["verify"]) == 1)
 fixed = {
     "iptv-backend/app/services/swallow.py": "import logging\nlogger = logging.getLogger(__name__)\ndef f():\n    try:\n        g()\n    except Exception:\n        logger.exception('x')\n",
-    "iptv-backend/app/routers/open_router.py": "from app.core.limiter import limiter\n@router.get('/x')\n@limiter.limit('30/minute')\ndef x(request):\n    return 1\n@router.post('/y')\n@limiter.limit('30/minute')\nasync def y(request, body):\n    return 2\n",
+    "iptv-backend/app/routers/open_router.py": "from app.core.limiter import limiter\n@router.get('/x')\n@limiter.limit('30/minute')\ndef x(request: Request):\n    return 1\n@router.post('/y')\n@limiter.limit('30/minute')\nasync def y(request: Request, body):\n    return 2\n",
     "iptv-backend/app/services/annot.py": "def a() -> None:\n    x = 1\ndef b() -> None:\n    pass\ndef c():\n    return 5\ndef d():\n    yield 1\nasync def e() -> None:\n    await z()\n",
     "scripts/battle/thing.gd": "func do_it(a, b) -> void:\n\tprint(a)\nfunc get_it():\n\treturn 3\nfunc _private():\n\tpass\nfunc noop() -> void:\n\tpass\n",
 }
@@ -119,10 +119,64 @@ ok("NEGATIVE: rate-limit VERIFY stays red when only one of two routes is fixed",
 open(os.path.join(clone, "iptv-backend/app/routers/open_router.py"), "w").write("@router.get('/x')\n@limiter.limit('30/minute')\ndef x():\n    return 1\n")
 ok("NEGATIVE: rate-limit VERIFY stays red when the decorator is present but the `request` param is missing",
    run_verify(clone, verifies[("no-rate-limit", "iptv-backend/app/routers/open_router.py")]) == 1)
+# wrong decorator order and a body model named `request` must both stay RED even though a limiter decorator and an arg called request exist
+open(os.path.join(clone, "iptv-backend/app/routers/open_router.py"), "w").write(
+    "from app.core.limiter import limiter\n@limiter.limit('30/minute')\n@router.get('/x')\ndef x(request: Request):\n    return 1\n@router.post('/y')\n@limiter.limit('30/minute')\nasync def y(request: BodyModel):\n    return 2\n")
+ok("NEGATIVE: rate-limit VERIFY stays red when the limiter is ABOVE the route decorator (inert) or `request` is a body model",
+   run_verify(clone, verifies[("no-rate-limit", "iptv-backend/app/routers/open_router.py")]) == 1)
+open(os.path.join(clone, "iptv-backend/app/routers/open_router.py"), "w").write(
+    "from app.core.limiter import limiter\n@router.get('/x')\n@limiter.limit('30/minute')\ndef x(request: Request):\n    return 1\n@router.post('/y')\n@limiter.limit('30/minute')\nasync def y(request: Request, body: BodyModel):\n    return 2\n")
+ok("rate-limit VERIFY is green for the correct shape (route first, limiter below, request: Request)",
+   run_verify(clone, verifies[("no-rate-limit", "iptv-backend/app/routers/open_router.py")]) == 0)
 ok("no VERIFY contains '>' (the runner refuses redirect-looking characters)", all(">" not in v for v in verifies.values()), [v for v in verifies.values() if ">" in v])
 sh("git", "checkout", "-q", "--", ".", cwd=clone)
 for rp in fixed:
     sh("git", "checkout", "-q", "--", rp, cwd=clone)
+
+# --- polish collectors (typing / docstrings / GD docs): right targets, red-before, green-after
+d4, clone4 = make_fixture()
+os.makedirs(os.path.join(clone4, "iptv-backend/app/services"), exist_ok=True)
+open(os.path.join(clone4, "iptv-backend/app/services/polish.py"), "w").write(
+    "def typed_ret(x) -> int:\n    return 1\n"
+    "def untyped_ret(x):\n    y = 1\n    z = 2\n    return y + z\n"
+    "def _private_untyped():\n    return 5\n"
+    "def documented():\n    \"\"\"ok\"\"\"\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    return a\n"
+    "def undocumented_long(a):\n    b = a\n    c = b\n    d = c\n    e = d\n    f = e\n    return f\n"
+    "def undocumented_short():\n    return 1\n"
+    "class Public:\n    x = 1\n    y = 2\n    z = 3\n    w = 4\n    v = 5\n"
+    "@router.get('/r')\ndef route_handler():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    return a\n")
+open(os.path.join(clone4, "scripts/battle/gdoc.gd"), "w").write(
+    "## already documented\nfunc has_doc():\n\tvar a = 1\n\tvar b = 2\n\tvar c = 3\n\tvar d = 4\n\treturn a\n"
+    "func no_doc(x):\n\tvar a = 1\n\tvar b = 2\n\tvar c = 3\n\tvar d = 4\n\treturn a\n"
+    "func _private_no_doc():\n\tvar a = 1\n\tvar b = 2\n\tvar c = 3\n\tvar d = 4\n\treturn a\n"
+    "func tiny():\n\treturn 1\n")
+sp4 = {}
+for s_ in W.collect_all(clone4):
+    sp4.setdefault((s_["kind"], os.path.basename(s_["file"])), s_)
+rt = sp4.get(("missing-return-type", "polish.py"))
+ok("return-type: lists only value-returning unannotated public funcs (untyped_ret) - not typed_ret, not _private",
+   rt and "`untyped_ret`" in rt["text"] and "`typed_ret`" not in rt["text"] and "_private" not in rt["text"], rt and rt["text"])
+dc = sp4.get(("missing-docstring", "polish.py"))
+ok("docstring: names the long undocumented func and the public class; not the documented, short, private or route-handler ones",
+   dc and "`undocumented_long`" in dc["text"] and "`Public`" in dc["text"] and "`documented`" not in dc["text"] and "undocumented_short" not in dc["text"] and "route_handler" not in dc["text"], dc and dc["text"])
+gdc = sp4.get(("gd-missing-doc", "gdoc.gd"))
+ok("gd-doc: only the public function without a ## comment (no_doc)", gdc and "`no_doc`" in gdc["text"] and "has_doc" not in gdc["text"] and "_private" not in gdc["text"] and "tiny" not in gdc["text"], gdc and gdc["text"])
+for k, s_ in (("return-type", rt), ("docstring", dc), ("gd-doc", gdc)):
+    ok("%s VERIFY is red before" % k, s_ and run_verify(clone4, s_["verify"]) == 1)
+open(os.path.join(clone4, "iptv-backend/app/services/polish.py"), "w").write(
+    "def typed_ret(x) -> int:\n    return 1\n"
+    "def untyped_ret(x) -> int:\n    y = 1\n    z = 2\n    return y + z\n"
+    "def undocumented_long(a) -> int:\n    \"\"\"Walks a through five assignments.\"\"\"\n    b = a\n    c = b\n    d = c\n    e = d\n    f = e\n    return f\n"
+    "class Public:\n    \"\"\"A public holder.\"\"\"\n    x = 1\n    y = 2\n    z = 3\n    w = 4\n    v = 5\n")
+open(os.path.join(clone4, "scripts/battle/gdoc.gd"), "w").write("## already documented\nfunc has_doc():\n\tpass\n## Does the thing.\nfunc no_doc(x):\n\tpass\n")
+ok("return-type VERIFY green after annotating", run_verify(clone4, rt["verify"]) == 0)
+ok("docstring VERIFY green after documenting", run_verify(clone4, dc["verify"]) == 0)
+ok("gd-doc VERIFY green after the ## comment", run_verify(clone4, gdc["verify"]) == 0)
+open(os.path.join(clone4, "scripts/battle/gdoc.gd"), "w").write("## already documented\nfunc has_doc():\n\tpass\n\n## detached comment, blank line below\n\nfunc no_doc(x):\n\tpass\n")
+ok("NEGATIVE: a ## comment separated from the function by a blank line does not satisfy the gd-doc VERIFY", run_verify(clone4, gdc["verify"]) == 1)
+open(os.path.join(clone4, "iptv-backend/app/services/polish.py"), "w").write("def undocumented_long(a):\n    \"\"\" \"\"\"\n    b = a\n    return b\nclass Public:\n    \"\"\"\"\"\"\n    x = 1\n")
+ok("NEGATIVE: an empty/whitespace docstring does not satisfy the docstring VERIFY", run_verify(clone4, dc["verify"]) == 1)
+ok("no polish VERIFY contains '>'", all(">" not in x["verify"] for x in sp4.values()))
 
 # --- spec check: red / passes-before / no-verify / bad-spec
 spec = os.path.join(d, "cand.md")
@@ -157,11 +211,19 @@ r = sh(sys.executable, SUPPLY, "demo", "--dry-run", env=env)
 ok("dry-run reports red-before specs and writes nothing", "DRY-RUN" in r.stdout and open(os.path.join(d2, "backlog", "demo.md")).read() == "# backlog\n", r.stdout + r.stderr)
 r = sh(sys.executable, SUPPLY, "demo", env=env)
 bl = open(os.path.join(d2, "backlog", "demo.md")).read()
-ok("supply appends the 4 mechanical items", r.stdout.count("ADDED 4") == 1 and bl.count("supply:") == 4, r.stdout + r.stderr)
+_nfiles = len({s_["file"] for s_ in W.collect_all(clone2)})
+ok("supply appends exactly one item per gap-bearing file (one-per-file rule)", ("ADDED %d" % _nfiles) in r.stdout and bl.count("supply:") == _nfiles >= 4, r.stdout + r.stderr)
 ok("every appended line has an executable VERIFY clause and a [feat:] tag", all("VERIFY: `python3 -c" in l and "[feat:demo-" in l for l in bl.split("\n") if l.startswith("- [ ]")))
-r = sh(sys.executable, SUPPLY, "demo", "--force", env=env)
+passes = 0
+while passes < 8:
+    r = sh(sys.executable, SUPPLY, "demo", "--force", env=env)
+    passes += 1
+    if "no new mechanical gaps" in r.stdout:
+        break
 bl2 = open(os.path.join(d2, "backlog", "demo.md")).read()
-ok("second pass adds nothing (same gaps are not re-supplied)", bl2 == bl and "no new mechanical gaps" in r.stdout, r.stdout)
+keys = [(m.group(1), m.group(2)) for m in (re.search(r"supply:([\w-]+)\) \[feat:demo-\d+-supply-([\w-]+)\]", l) for l in bl2.split("\n") if l.startswith("- [ ]")) if m]
+ok("repeated passes converge ('no new mechanical gaps') - one item per file per pass, deferred kinds follow later", "no new mechanical gaps" in r.stdout and passes < 8, r.stdout)
+ok("no (kind, file) pair is ever supplied twice", len(keys) == len(set(keys)) and len(keys) >= _nfiles, keys)
 # already-satisfied gap is dropped, not queued
 d3, clone3 = make_fixture()
 open(os.path.join(clone3, "iptv-backend/app/services/swallow.py"), "w").write("def f():\n    pass\n")  # no handler: nothing to supply
@@ -171,6 +233,12 @@ ok("a file with no gap yields no swallowed-exception item", "swallowed-exception
 open(os.path.join(d3, "backlog", "demo.md"), "w").write("\n".join("- [ ] [T2] x%d — y" % i for i in range(25)) + "\n")
 r = sh(sys.executable, SUPPLY, "demo", env=dict(os.environ, OVN_DIR=d3))
 ok("no supply when the backlog is already deep", "no supply needed" in r.stdout, r.stdout)
+# the 2026-10-08 miss: backlog T-lines that are duplicates of queued items / parked do NOT count as supply
+open(os.path.join(d3, "backlog", "demo.md"), "w").write("\n".join("- [ ] [T2] dup%d — y" % i for i in range(25)) + "\n- [ ] [AUTO-SKIP x] [T2] parked — y\n")
+open(os.path.join(clone3, "OVERNIGHT_PROGRESS.md"), "w").write("\n".join("- [ ] [T2] dup%d — y" % i for i in range(25)) + "\n")
+_n = W.pullable_count(open(os.path.join(d3, "backlog", "demo.md")).read(), open(os.path.join(clone3, "OVERNIGHT_PROGRESS.md")).read())
+ok("pullable_count: backlog lines already queued are not counted twice, parked ones not at all (25 queued + 0 new)", _n == 25, _n)
+ok("pullable_count: only held lines in the progress file = 0 doable", W.pullable_count("", "- [ ] [AUTO-SKIP x] [T2] a\n- [ ] [CLAUDE] [T2] b\n- [x] [T2] c\n") == 0)
 r = sh(sys.executable, SUPPLY, "demo", env=dict(os.environ, OVN_DIR=d3, OVN_WORK_SUPPLY="off"))
 ok("kill switch OVN_WORK_SUPPLY=off", "OVN_WORK_SUPPLY=off" in r.stdout)
 

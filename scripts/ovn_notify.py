@@ -46,7 +46,7 @@ NOTE_WINDOW = 6 * 3600
 LAN = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "::1/128")]
 
 # messages the hourly update replaces - never pushed, never listed
-DROP_RE = re.compile(r"overnight queue|backlog refilled|lock contention|lock-orphan|hourly|daily prod promote|feature complete", re.I)
+DROP_RE = re.compile(r"overnight queue|backlog refilled|lock contention|lock-orphan|hourly|daily prod promote|feature complete|research-batch scorecard", re.I)  # scorecard: a history of graded batches, not an action item (stays in logs/ovn_batch_scorecard.log)
 # messages that are real emergencies by content (in addition to priority urgent / explicit level header)
 EMERGENCY_RE = re.compile(r"\bDOWN\b|auto-restart FAILED|fleet stalled|model is down|disk almost full|notification relay", re.I)
 
@@ -262,12 +262,23 @@ def _doable(repo_dir):
     return sum(1 for l in lines if l.startswith("- [ ]") and not bad.search(l))
 
 
+def _enabled_repos():
+    """Repos with at least one enabled lane in tasks.json; None when tasks.json is absent/unreadable (then every repo counts, as before)."""
+    try:
+        tasks = json.load(open(os.path.join(ROOT, "tasks.json")))
+        return {os.path.basename(str(t.get("repo", ""))) for t in tasks if t.get("enabled") is True}
+    except Exception:
+        return None
+
+
 def queue_depths():
     out = {}
+    active = _enabled_repos()
     for d in sorted(glob.glob(os.path.join(ROOT, "repos", "*"))):
         n = _doable(d)
-        if n is not None and os.path.basename(d) not in ("social-media-manager", "task-manager-platform", "shrike-labs-website"):
-            out[os.path.basename(d)] = n
+        name = os.path.basename(d)
+        if n is not None and name not in ("social-media-manager", "task-manager-platform", "shrike-labs-website") and (not active or name in active):
+            out[name] = n
     return out
 
 
@@ -340,6 +351,10 @@ def compose_update(window=3600, at=None):
     lines.append("Queues low: " + ", ".join("%s (%d)" % (k, v) for v, k in low) if low else "Queues stocked")
     if recovered:
         lines.append("Back up: " + ", ".join(re.sub(r"^.*?:\s*", "", t) for t in recovered[:4]))
+    # 2026-10-08: an EMPTY active queue is the most important thing to know (the lane is idle) and used to hide under an "all good" title.
+    empty = sorted(k for v, k in low if v == 0)
+    if empty:
+        needs.insert(0, {"title": "Queue empty: %s" % ", ".join(empty), "text": "that lane has nothing to do until the refuel adds work (work supply runs every 30 min)", "prio": "high", "ts": t})
     shown = needs[:3]
     title = ("⚠️ Shrike hourly — %d to look at" % len(needs)) if needs else "✅ Shrike hourly — all good"
     body = "\n".join((["• %s — %s" % (n["title"], n["text"]) if n["text"] and n["text"].lower() not in n["title"].lower() else "• " + n["title"] for n in shown]) +

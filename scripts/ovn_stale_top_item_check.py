@@ -64,6 +64,23 @@ REPOS = sys.argv[3:] or [
     "xlite", "shrike-notify", "shrike-monitor",
 ]
 
+def _active_repos(queue_root):
+    """Repos with at least one ENABLED lane in tasks.json (None if unreadable -> check every repo, the old behaviour). A repo whose lanes are all disabled
+    (billwatch, gitlark, ... while Chickadee + xlite are the only dev lanes) is not ignoring its #1 item - nobody is working on it - so reporting
+    'stale 133h' for it every hour was pure noise in the hourly update."""
+    try:
+        import json
+        tasks = json.load(open(os.path.join(queue_root, "tasks.json")))
+        return {os.path.basename(str(t.get("repo", ""))) for t in tasks if t.get("enabled") is True}
+    except Exception:
+        return None
+
+
+if not sys.argv[3:]:
+    _act = _active_repos(QUEUE_ROOT)
+    if _act:
+        REPOS = [r for r in REPOS if r in _act]
+
 TOP_EXCLUDE_RE = re.compile(r'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]', re.IGNORECASE)
 PATH_RE = re.compile(r'\[T[1-5]\]\s+([\w./-]+\.\w+)')
 

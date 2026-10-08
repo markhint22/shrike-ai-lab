@@ -29,7 +29,7 @@ if [ -n "$low" ]; then
   if [ $(( _now - _last )) -ge 86400 ]; then
     echo "$_now" > "$_cd"
     alert "Queue running low on a few repos" "battery" "Under ${MIN_DOABLE} doable items: ${low}
-No urgency — a Claude refill (shared/scripts/CLAUDE_REFILL_RUNBOOK.md) tops them back up whenever it's convenient. (This FYI is throttled to once/day.)" "default"
+Nothing to do: the local refuel (ovn_work_supply.py every 30 min + ovn_local_research.py) tops them up on its own. If this repeats for several days the evidence ran dry - then a Claude research pass helps. (Throttled to once/day.)" "default"
   fi
 fi
 

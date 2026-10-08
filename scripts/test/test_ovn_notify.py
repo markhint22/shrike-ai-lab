@@ -92,6 +92,17 @@ ok("quiet hour: 'all good' title", t == "✅ Shrike hourly — all good" and n =
 ok("landed line counts per repo, biggest first, old rows excluded", "Landed 4: gitlark 3 · billwatch 1" in b and "old" not in b)
 ok("reverts are shown in plain words", "Undone (broke tests): gitlark 1" in b)
 ok("low queue is named with its count (website ignored)", "Queues low: gitlark (3)" in b and "website" not in b)
+# an EMPTY active queue must not hide under an "all good" title; a repo with every lane disabled is not an active queue
+reset(); N.ROOT = os.path.join(T, "q2"); os.makedirs(os.path.join(N.ROOT, "repos", "gitlark")); os.makedirs(os.path.join(N.ROOT, "repos", "billwatch"))
+open(os.path.join(N.ROOT, "repos", "gitlark", "OVERNIGHT_PROGRESS.md"), "w").write("- [ ] [AUTO-SKIP x] only a parked item\n")
+open(os.path.join(N.ROOT, "repos", "billwatch", "OVERNIGHT_PROGRESS.md"), "w").write("- [x] done\n")
+open(os.path.join(N.ROOT, "tasks.json"), "w").write(json.dumps([{"repo": "x/gitlark", "enabled": True}, {"repo": "x/billwatch", "enabled": False}]))
+t, b, n = N.compose_update(at=now)
+ok("an empty ACTIVE queue turns the title into 'to look at' and is the first bullet", t.startswith("⚠️") and "Queue empty: gitlark" in b.splitlines()[0] and n >= 1)
+ok("a repo whose lanes are all disabled is not reported (billwatch at 0)", "billwatch" not in b)
+os.unlink(os.path.join(N.ROOT, "tasks.json"))
+N.ROOT = os.path.join(T, "q")
+ok("research-batch scorecard messages are dropped from the hourly update", N.classify("Research-batch scorecard: 102 batch(es) graded D/F") == "drop")
 ok("pass counts use the canonical severity axis (neutral/benign excluded)", N._pass_counts([{"severity": "good"}] * 5 + [{"severity": "bad"}] + [{"severity": "neutral"}] * 3) == (5, 1))
 ok("percent helper: 5/6 -> 83%, no data -> '-'", N._pct(5, 1) == "83%" and N._pct(0, 0) == "-")
 ok("every hourly update carries a pass-rate line (last hour + today)", "Pass rate: last hour" in b and "today" in b)
@@ -134,7 +145,9 @@ ok("do_check pushes the emergency and reports it", "Local AI model is down -> se
 _before = len(posts); N.do_check(dry=True); ok("do_check --dry-run posts nothing", len(posts) == _before)
 reset(); os.environ["OVN_LLM_HEALTH_URL"] = "http://127.0.0.1:%d/ok" % g.server_port
 open(os.path.join(ST, "outcomes.jsonl"), "w").write(json.dumps({"ts": iso(time.time() - 60), "repo": "gitlark", "class": "landed"}) + "\n")
-ok("no emergencies -> says so", N.do_check() == "no emergencies")
+_du2 = N.shutil.disk_usage; N.shutil.disk_usage = lambda p: __import__('collections').namedtuple('du', 'total used free')(100, 10, 90)   # the real disk of the machine running the test must not decide this (the Mac data volume is ~97% full)
+_dc = N.do_check(); N.shutil.disk_usage = _du2
+ok("no emergencies -> says so", _dc == "no emergencies")
 # ---- the relay server end to end
 reset(); rs = N.ThreadingHTTPServer(("127.0.0.1", 0), N._Handler); threading.Thread(target=rs.serve_forever, daemon=True).start()
 base = "http://127.0.0.1:%d" % rs.server_port
