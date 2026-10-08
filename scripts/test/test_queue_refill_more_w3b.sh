@@ -8,7 +8,8 @@ Q=""
 for c in "$HERE/../../queue_refill.sh" "$HERE/../queue_refill.sh" "$HOME/overnight-queue/queue_refill.sh"; do [ -f "$c" ] && { Q="$c"; break; }; done
 [ -n "$Q" ] || { echo "SKIP: queue_refill.sh not found"; exit 0; }
 P=0; F=0
-ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
+ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 wd="$tmp/overnight-queue"
 mkdir -p "$wd/repos" "$wd/backlog" "$wd/roadmap" "$wd/state" "$tmp/aider-venv/bin"

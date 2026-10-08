@@ -9,8 +9,9 @@ set -uo pipefail
 Q="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CM="$Q/scripts/check_migrations.py"; LIB="$Q/scripts/lib_dep_import_check.py"; AG="$Q/scripts/ovn_alembic_autogen.sh"
 P=0; F=0
-ok(){  if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-nok(){ if eval "$2" >/dev/null 2>&1; then F=$((F+1)); echo "  FAIL(expected-false): $1"; else P=$((P+1)); fi; }
+# 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
+ok(){  if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+nok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then F=$((F+1)); echo "  FAIL(expected-false): $1"; else P=$((P+1)); fi; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export OVN_DEP_CACHE="$T/cache"
 export OVN_DEP_GATE=enforce   # the lib defaults to shadow; cases below that test the default unset it explicitly

@@ -11,7 +11,8 @@ GUARD="${OVN_GRADLE_FLAVOR_GUARD:-$HOME/overnight-queue/scripts/ovn_gradle_flavo
 [ -f "$GUARD" ] || { echo "  SKIP: $GUARD not found on this host"; exit 0; }
 
 P=0; F=0
-ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
+ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
@@ -30,7 +31,7 @@ line='- [ ] [T2] app/src/test/foo/BarTest.kt — add test VERIFY: `./gradlew :ap
 out="$(printf '%s\n' "$line" | bash "$GUARD" "$flavored" 2>/tmp/_guard_stderr.$$)"
 stderr_out="$(cat "/tmp/_guard_stderr.$$" 2>/dev/null)"; rm -f "/tmp/_guard_stderr.$$"
 ok "flavored repo: ambiguous task rewritten to the umbrella :app:test" 'printf "%s" "$out" | grep -qE ":app:test( |\`)"'
-ok "flavored repo: ambiguous task no longer present" '! printf "%s" "$out" | grep -q "testDebugUnitTest"'
+ok "flavored repo: ambiguous task no longer present" '[ "$(printf "%s" "$out" | grep -c "testDebugUnitTest")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 ok "flavored repo: rest of the item line is unchanged" 'printf "%s" "$out" | grep -q "add test VERIFY"'
 ok "flavored repo: emits a stderr note that a rewrite happened" '[ -n "$stderr_out" ]'
 

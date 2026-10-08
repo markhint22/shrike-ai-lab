@@ -13,7 +13,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."
 [ -f "$S/lib_auto_credit.sh" ] || { echo "  SKIP: lib_auto_credit.sh not found"; exit 0; }
 P=0; F=0
-ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
+ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (got [$2] want [$3])"; fi; }
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
@@ -93,7 +94,7 @@ eq "indeterminate: nothing credited, 2 indeterminate" "$OVN_AC_CREDITED:$OVN_AC_
 ok "indeterminate: both items stay open" '[ "$(grep -c "^- \[ \]" OVERNIGHT_PROGRESS.md)" = 2 ]'
 eq "indeterminate: no commit made, HEAD is the cycle commit" "$(git rev-parse HEAD)" "$A"
 ok "indeterminate: per-item log line says timed out (rc=124) after 1s and not-a-failed-attempt" 'printf "%s" "$CLOG" | grep -q "INDETERMINATE line 2.*VERIFY timed out (rc=124) after 1s.*not counted as a failed attempt"'
-ok "indeterminate: NOT logged as 'VERIFY: clause FAILED'" '! printf "%s" "$CLOG" | grep -q "clause FAILED"'
+ok "indeterminate: NOT logged as 'VERIFY: clause FAILED'" '[ "$(printf "%s" "$CLOG" | grep -c "clause FAILED")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 eq "indeterminate: exactly ONE alert for the cycle (deduped across both items)" "$(wc -l < "$ALERTS" | tr -d ' ')" 1
 ok "indeterminate: the alert carries the distinct reason" 'grep -q "VERIFY timed out (rc=124) after 1s" "$ALERTS" && grep -q "not a failed attempt" "$ALERTS"'
 eq "indeterminate: one indet-hash marker per item in the task log (item-guard contract)" "$(grep -c 'auto-credit: indet-hash [0-9a-f]\{32\}' "$R/task.log")" 2
@@ -168,7 +169,7 @@ eq "OVN_TREE_BENIGN=off disables the allowlist (every tracked difference refuses
 # a staged difference is never benign-skipped silently into a commit: a staged generated file refuses at the index assertion, not committed
 mk staged; printf 'def new_a():\n    return 2\n' >> src/a.py; cm "feat: a"; printf 'rendering=1\n' >> project.godot; git add project.godot
 call
-ok "a STAGED generated file is not swept into the credit commit" '! git show --name-only --format= HEAD | grep -q project.godot'
+ok "a STAGED generated file is not swept into the credit commit" '[ "$(git show --name-only --format= HEAD | grep -c project.godot)" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 
 # a VERIFY that rewrites a generated tracked file does not turn a pass into a refusal (post-VERIFY tree check)
 ITEMS='- [ ] [T2] src/a.py — Add new_a. VERIFY: `grep -q "def new_a" src/a.py && printf rewritten | tee -a project.godot >/dev/null`'

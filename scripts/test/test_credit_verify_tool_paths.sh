@@ -17,7 +17,8 @@ SCRIPT="${OVN_CREDIT_CHECK:-$_HERE/../lib_verify_clause.sh}"
 [ -f "$SCRIPT" ] || { echo "  SKIP: $SCRIPT not found on this host"; echo "credit-verify tool-path resolution: 0 passed, 0 failed"; exit 0; }
 
 P=0; F=0
-ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
+ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 sed -n '/^_resolve_tool_paths(){/,/^}/p' "$SCRIPT" > "$tmp/fn.sh"

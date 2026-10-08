@@ -4,16 +4,20 @@
 # duplicate emergencies for the same area, still work when the file has no "## Next Steps"
 # header at all, and must serialize on run.lock (a running cycle is never interrupted) rather
 # than racing the checkout (2026-09-10).
+# 2026-10-02: the sweep no longer takes run.lock (it tests detached worktrees; EMERGENCY items go through a worktree +
+# push), so case E now asserts the opposite: a held run.lock does NOT block it, while test_watch.lock does exclude a second sweep.
 #
 # The per-repo pytest/vitest/GUT runners themselves aren't exercised here (they'd require a real
 # provisioned repo + real test suite on this host) — this targets the actual guard logic that
 # decides whether/how to escalate a red suite, which is the part with real failure modes.
 set -uo pipefail
 REAL="$HOME/overnight-queue"
-SH="$REAL/ovn_test_watch.sh"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SH="$HERE/../../ovn_test_watch.sh"; [ -f "$SH" ] || SH="$REAL/ovn_test_watch.sh"
 [ -f "$SH" ] || { echo "  SKIP: $SH not found on this host"; exit 0; }
 P=0; F=0
-ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
+ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
 tmp="$(mktemp -d)"
 SANDBOX_HOME="$tmp/home"
@@ -54,7 +58,7 @@ clone_into_repos(){ # $1=repo-name $2=origin-path
 #     default 8-repo list, so we must pass a real non-empty, non-existent name instead) so its
 #     own top-level pytest/vitest/GUT loop is a harmless no-clone skip, then call the function ---
 call_enqueue(){ # $1=repo $2=area $3=detail
-  ( CURLLOG_PATH="$CURLLOG" PATH="$FAKEBIN:$PATH" HOME="$SANDBOX_HOME" NTFY_TOPIC=ovn-test-watch-unit-test-fake \
+  ( CURLLOG_PATH="$CURLLOG" PATH="$FAKEBIN:$PATH" HOME="$SANDBOX_HOME" NTFY_TOPIC=ovn-test-watch-unit-test-fake NTFY_SERVER=https://ntfy.sh \
     bash -c '
       source "$1" __unittest_no_such_repo__
       emergency_enqueue "$2" "$3" "$4"
@@ -110,21 +114,26 @@ ok "D: the emergency item is filed under the new section" \
    "printf '%s' \"$afterD\" | grep -A1 '^## Next Steps' | tail -1 | grep -q EMERGENCY"
 ok "D: original notes are preserved" "printf '%s' \"$afterD\" | grep -q 'no Next Steps section at all'"
 
-# === E: run.lock is actually respected — a held lock truly BLOCKS the pass (never races a live
-#        cycle's checkout); once released, the waiting pass proceeds normally ===
+# === E: run.lock is NOT taken any more — a held run.lock must not delay the sweep (it used to block up to 3600s
+#        behind the dev loop); a held test_watch.lock DOES exclude a second sweep ===
 exec 9>"$OQ/state/run.lock"
 flock -x 9
 elog="$tmp/e_out.log"; : > "$elog"
 ( HOME="$SANDBOX_HOME" PATH="$FAKEBIN:$PATH" NTFY_TOPIC=ovn-test-watch-unit-test-fake bash "$SH" __unittest_no_such_repo__ > "$elog" 2>&1 ) &
 EPID=$!
-sleep 1.5
-ok "E: while the lock is held, the pass has NOT started (still waiting, not racing)" \
-   "! grep -q 'test-health sweep start' '$elog'"
-ok "E: the waiting process is still alive (blocked on flock, not exited/crashed)" "kill -0 $EPID"
-flock -u 9; exec 9>&-
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do kill -0 $EPID 2>/dev/null || break; sleep 0.25; done
+ok "E: with run.lock held elsewhere the sweep runs straight through (no waiting)" \
+   "! kill -0 $EPID 2>/dev/null && grep -q 'test-health sweep start' '$elog' && grep -q 'test-health sweep complete' '$elog'"
+ok "E: run.lock is never mentioned" "! grep -q 'run.lock' '$elog'"
 wait "$EPID" 2>/dev/null
-ok "E: once released, the pass acquires the lock and runs to completion" \
-   "grep -q 'test-health sweep start' '$elog' && grep -q 'test-health sweep complete' '$elog'"
+flock -u 9; exec 9>&-
+exec 8>"$OQ/state/test_watch.lock"
+flock -x 8
+: > "$elog"
+HOME="$SANDBOX_HOME" PATH="$FAKEBIN:$PATH" OVN_TW_LOCK_WAIT=1 NTFY_TOPIC=ovn-test-watch-unit-test-fake bash "$SH" __unittest_no_such_repo__ > "$elog" 2>&1
+ok "E: while test_watch.lock is held a second sweep is skipped (not started)" \
+   "grep -q 'still holds test_watch.lock' '$elog' && ! grep -q 'test-health sweep start' '$elog'"
+flock -u 8; exec 8>&-
 
 echo "Test watch: $P passed, $F failed"
 rm -rf "$tmp"

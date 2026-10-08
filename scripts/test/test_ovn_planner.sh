@@ -22,7 +22,8 @@ PL="${OVN_PLANNER:-$HERE/../../ovn_planner.sh}"
 [ -f "$PL" ] || PL="$HERE/../ovn_planner.sh"
 [ -f "$PL" ] || { echo "  SKIP: ovn_planner.sh not found"; exit 0; }
 P=0; F=0
-ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
+# 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
+ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
 tmp="$(mktemp -d)"
 trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$tmp"' EXIT
@@ -181,6 +182,39 @@ RESP
 run repoF
 ok "F: recovering (a [ready] feature exists again) clears the needs-research marker" "[ ! -f '$WD/state/ovn_needs_research_repoF' ]"
 ok "F: recovery is logged" "grep -q 'repoF: needs-research condition cleared' '$WD/logs/ovn_planner.log'"
+
+# ============ G: a tiny feature must not be re-decomposed forever (2026-10-05 console.log loop) ============
+mk_repo_files repoG
+printf '# backlog\n- [ ] [T1] scripts/x.py — a. VERIFY: t\n' > "$WD/backlog/repoG.md"
+printf '# roadmap\n- [ ] [P3] [ready] Tiny one-line cleanup\n' > "$WD/roadmap/repoG.md"
+cat > "$tmp/resp.txt" <<'RESP'
+- [ ] [T1] scripts/tiny.py — remove the stray print. VERIFY: python -c 'import tiny'. (cat:python; multifile:no)
+RESP
+: > "$tmp/reqlog.txt"
+run repoG
+ok "G: 1st miss with 1 valid item is NOT appended" "! grep -q 'scripts/tiny.py' '$WD/backlog/repoG.md'"
+ok "G: 1st miss leaves the feature [ready]" "grep -q '\[ready\] Tiny one-line cleanup' '$WD/roadmap/repoG.md'"
+ok "G: 1st miss logs try 1/3" "grep -q 'repoG: 27B produced only 1 valid items.*try 1/3' '$WD/logs/ovn_planner.log'"
+run repoG
+ok "G: 2nd miss ACCEPTS the 1 valid item" "grep -q 'scripts/tiny.py' '$WD/backlog/repoG.md'"
+ok "G: accepted feature is marked [decomposed]" "grep -q '\[decomposed\] Tiny one-line cleanup' '$WD/roadmap/repoG.md'"
+ok "G: miss counter is cleared after success" "[ ! -f '$WD/state/planner_miss_repoG' ]"
+
+mk_repo_files repoH
+printf '# backlog\n- [ ] [T1] scripts/x.py — a. VERIFY: t\n' > "$WD/backlog/repoH.md"
+cp "$WD/backlog/repoH.md" "$tmp/repoH.before"
+printf '# roadmap\n- [ ] [P3] [ready] Feature the model cannot decompose\n- [ ] [P3] [ready] Second feature\n' > "$WD/roadmap/repoH.md"
+printf 'I cannot produce items for this.\n' > "$tmp/resp.txt"
+: > "$tmp/reqlog.txt"
+run repoH; run repoH
+ok "H: after 2 empty tries the feature is still [ready]" "grep -q '\[ready\] Feature the model cannot decompose' '$WD/roadmap/repoH.md'"
+run repoH
+ok "H: 3rd empty try PARKS the feature as [needs-decompose]" "grep -q '\[needs-decompose\] Feature the model cannot decompose' '$WD/roadmap/repoH.md'"
+ok "H: parking is logged loudly" "grep -q 'PARKED as \[needs-decompose\]' '$WD/logs/ovn_planner.log'"
+ok "H: nothing was appended while failing" "diff -q '$WD/backlog/repoH.md' '$tmp/repoH.before'"
+ok "H: the next [ready] feature is unaffected" "grep -q '\[ready\] Second feature' '$WD/roadmap/repoH.md'"
+: > "$tmp/reqlog.txt"; run repoH
+ok "H: a parked feature is never retried (the next pass moves on to the other feature)" "[ \$(wc -l < '$tmp/reqlog.txt') -le 1 ]"
 
 echo "ovn_planner: $P passed, $F failed"
 [ "$F" -eq 0 ]
