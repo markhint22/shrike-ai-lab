@@ -1,0 +1,11 @@
+# S11 Android device lane - ONE nightly bounded run. NOT installed: Mark/the integrator adds this line to the box crontab (crontab -e).
+#
+# Why 01:20: sar (box, 6 nights) shows mean CPU 9-10% from 01:00 to 05:59 vs 14-21% in the afternoon; at 01:20 the run (hard cap 100 min,
+# typically far shorter) ends before the 03:10 billwatch summary, the 03:30 coverage cron and the 04:00 groom, and it does not overlap the
+# 00:00/06:00 test sweeps or the 00:10/00:45/03:10/03:45 hygiene passes. Pinned to 6 of 16 cores (QA_CPUSET), nice 10, ionice best-effort 7;
+# overall cap 6000 s (DL_OVERALL_TIMEOUT) + backstop kill at 6420 s; emulator/appium/adb torn down and verified. ADVISORY: never takes run.lock,
+# never blocks hygiene/promote, always exits 0; verdict PASS|FLAG|UNVERIFIED in state/qa_shadow/devicelane.jsonl.
+# Prerequisite (one human step, already satisfied for mhintermeister as of 2026-10-02 - `id` shows group kvm): sudo usermod -aG kvm mhintermeister
+# Without KVM the run reports UNVERIFIED and builds/boots nothing.
+# (the crontab already exports NTFY_SERVER=http://127.0.0.1:8099 at the top; the wrapper also defaults it.)
+20 1 * * * cd /home/mhintermeister/overnight-queue && mkdir -p state/qa_devicelane && QA_CPUSET=10-15 ./qa/device_lane/cron_nightly.sh >> state/qa_devicelane/cron.log 2>&1

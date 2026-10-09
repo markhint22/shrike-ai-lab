@@ -245,6 +245,8 @@ out="$(run "$PY" "$QA/qa_ledger.py" mark-escape --repo fixrepo --ref "$(SHA queu
 # ---------------------------------------------------------------- 9. nothing touched the network
 [ ! -s "$tmp/curl.log" ] && ok "no curl/ntfy call was made by any entry point" || fail "network call attempted: $(cat "$tmp/curl.log")"
 # real state untouched
-[ ! -e "$ROOT/state/qa_ledger.jsonl" ] && ok "real state/ untouched (OVN_DIR respected)" || fail "wrote into the real state dir"
+# 2026-10-02: the REAL ledger exists now (hourly cron), so "the file does not exist" is no longer a valid check (it failed every nightly run_all).
+# What matters is that THIS test's fixture data never reached it.
+! grep -qs "fixrepo" "$ROOT/state/qa_ledger.jsonl" && ok "real state/ untouched (OVN_DIR respected)" || fail "wrote fixture data into the real state dir"
 
 exit $rc

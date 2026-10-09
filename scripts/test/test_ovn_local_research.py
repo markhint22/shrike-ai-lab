@@ -151,8 +151,9 @@ ok("kill switch OVN_LOCAL_RESEARCH=off => nothing happens", "skip" in out and HI
 
 # --- covered evidence is not re-proposed (the roadmap already names the file)
 d5 = make_fixture("# roadmap\n- [x] [P2] [ready] Old item — `iptv-backend/app/routers/b.py:1` was handled {cat: backend; size: S; multifile: no; research: none}\n")
-out = run(d5, "--evidence-only")
-ok("evidence whose file the roadmap already names is skipped (b.py), the rest remains (c.py)", "routers/b.py" not in out and "routers/c.py" in out, out)
+# 2026-10-09: the default rule is now 'open' (an [x] line no longer covers - see test_local_research_covered.py); this asserts the preserved legacy mode
+out = run(d5, "--evidence-only", env_extra={"OVN_LR_COVERED_MODE": "legacy"})
+ok("legacy mode: evidence whose file the roadmap already names is skipped (b.py), the rest remains (c.py)", "routers/b.py" not in out and "routers/c.py" in out, out)
 
 srv.shutdown()
 for x in (d, d2, d3, d4, d5):

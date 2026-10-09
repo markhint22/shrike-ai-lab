@@ -44,10 +44,16 @@ ovn_normalize_path() {
     return
   fi
   tracked="$(git -C "$repo_dir" ls-files 2>/dev/null)"
-  if [ -z "$tracked" ] || printf '%s\n' "$tracked" | grep -qxF "$extracted"; then
+  # 2026-10-09: exact-membership test is PURE BASH (no pipe, no process). The old `printf | grep -qxF` lost to SIGPIPE under `set -o pipefail`
+  # once `git ls-files` output exceeded the 64KB pipe buffer (grep -q exits at its first hit while printf is still writing -> rc 141 -> false
+  # NOMATCH): iptv's list is 69,812 B and 841 of 1371 tracked paths mis-resolved (29 'path mismatch' refusals in 24h, churn on routers/subscription.py).
+  if [ -z "$tracked" ]; then
     printf '%s\n' "$extracted"
     return
   fi
+  case $'\n'"$tracked"$'\n' in
+    *$'\n'"$extracted"$'\n'*) printf '%s\n' "$extracted"; return ;;
+  esac
   real=""
   while IFS= read -r cand; do
     [ -z "$cand" ] && continue

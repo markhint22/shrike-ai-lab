@@ -31,7 +31,7 @@ DATA_WORK_RE = re.compile(
     r"back-?fill|data[- ](migration|work|fix|copy)|\b(update|insert|delete|drop|alter|rename|truncate|populate|convert|transform)s?\b"
     r"|\bmigrate (the )?(existing|old)|existing (rows|records|data)|\bchange[sd]? (the )?(column )?type|\bset not null",
     re.I)
-SKIP_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|\[CLAUDE\]|BLOCKED|\(retired-", re.I)
+SKIP_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|\[CLAUDE\]|(?-i:BLOCKED)|\(retired-", re.I)
 
 
 def _featkey(line):

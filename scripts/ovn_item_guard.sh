@@ -58,6 +58,43 @@ _lib="$(dirname "$0")/lib_item_select.sh"
 # shellcheck source=scripts/lib_bug_escalate.sh
 _elib="$(dirname "$0")/lib_bug_escalate.sh"; [ -f "$_elib" ] && . "$_elib"
 
+# portable in-place sed (GNU on the box, BSD on the Mac where the tests run): GNU sed accepts `-i` alone, BSD sed needs `-i ''`
+_ig_sedi() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
+
+# --- Credit-refusal park (2026-10-09, harness-credit-integrity item 6) ---------------------------------------------------------------------------
+# lib_auto_credit.sh bumps state/credit_refused/<repo>.<item hash> ("<count>\n<reason>\n<item line>") whenever a green commit touched an item's OWN file but the credit was
+# refused (placeholder / no VERIFY clause / unsafe VERIFY / VERIFY failed). The cycle still pushes, so the item stays open and is re-faced. At OVN_REFUSED_PARK_AT
+# (default 2; 0 disables) refusals the item is parked with the usual reversible tag '[AUTO-SKIP after N credit refusals: <reason>]'. A stale counter (the item was
+# credited, edited or already parked) is deleted. Runs on every guard call: only the green landing statuses can have created one, and it is a cheap directory test.
+_rp_at="${OVN_REFUSED_PARK_AT:-2}"
+if [ "$_rp_at" -gt 0 ] 2>/dev/null && [ -d "$state/credit_refused" ]; then
+  _rp_parked=0
+  # ONLY this repo's counters ("<repo>.<hash>"; state/credit_refused is shared by every repo): another repo's counter is never read, parked or deleted here
+  # (its item line is not in THIS progress file, so the stale-counter rule below would have deleted it and lost that repo's park)
+  _rp_repo="$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g')"
+  find "$state/credit_refused" -maxdepth 1 -type f ! -name '*.*' -mtime +1 -exec rm -f {} + 2>/dev/null   # pre-per-repo bare-hash counters: ownerless, aged out
+  for _rf in "$state/credit_refused/${_rp_repo}."*; do
+    [ -f "$_rf" ] || continue
+    _rn="$(sed -n 1p "$_rf" 2>/dev/null)"
+    case "$_rn" in ''|*[!0-9]*) rm -f "$_rf"; continue ;; esac
+    [ "$_rn" -ge "$_rp_at" ] || continue
+    _rr="$(sed -n 2p "$_rf" 2>/dev/null | tr -cd 'A-Za-z0-9 ,.:;()/_-')"; [ -n "$_rr" ] || _rr="credit refused"
+    _rt="$(sed -n '3,$p' "$_rf" 2>/dev/null)"
+    _rl=""
+    [ -n "$_rt" ] && _rl="$(grep -nF -- "$_rt" "$prog" 2>/dev/null | grep -E '^[0-9]+:- \[ \] ' | head -1 | cut -d: -f1)"
+    if [ -z "$_rl" ]; then rm -f "$_rf"; continue; fi
+    _ig_sedi "${_rl}s#^- \[ \] #- [ ] [AUTO-SKIP after ${_rn} credit refusals: ${_rr}] #" "$prog"
+    rm -f "$_rf"; _rp_parked=$((_rp_parked + 1))
+  done
+  if [ "$_rp_parked" -gt 0 ] && ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+    _rp_branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+    git -C "$repo" commit -q -m "chore(queue): park ${_rp_parked} item(s) after ${_rp_at}+ credit refusals (green commits the auto-credit could not tick)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
+    [ -n "$_rp_branch" ] && git -C "$repo" push -q origin "$_rp_branch" 2>/dev/null
+    echo "AUTO-SKIPPED ${_rp_parked} item(s) after ${_rp_at}+ credit refusals"
+  fi
+fi
+
 # A clean landing clears the fail/no-op streaks (+ grounded failure memory) for whichever
 # item(s) actually landed THIS cycle — identified via "item-hash <md5>" marker line(s) that
 # run_overnight.sh writes into $task_log at the exact moment(s) it checks an item off in
@@ -85,7 +122,7 @@ case "$status" in
         rm -f "$state/item_fails/${id}.${_lh}.count" "$state/item_fails/${id}.${_lh}.toks" \
               "$state/item_fails/${id}.${_lh}.noopcount" "$state/item_fails/${id}.${_lh}.nooptoks" \
               "$state/item_fails/${id}.${_lh}.lastfail" "$state/item_fails/${id}.${_lh}.indet" "$state/item_fails/${id}.${_lh}.indetlands" "$state/item_fails/${id}.${_lh}.lastids" \
-              "$state/item_fails/${id}.${_lh}.ungrounded" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive")
+              "$state/item_fails/${id}.${_lh}.ungrounded" "$state/credit_refused/$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g').${_lh}" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive"); item credited => its credit-refusal counter goes too
       done < <(grep -ohE 'item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
       # 2026-10-02 (harness-X X-a): "indet-hash <md5>" = the cycle landed green but the item's own VERIFY timed out / was not runnable, so the runner
       # could neither credit nor fail it. The commit DID land: clear its failure/no-op streaks like a credited landing, and arm a bounded allowance
@@ -127,6 +164,23 @@ case "$status" in *"bug-handled"*) exit 0;; esac
 # top-item resolve would bill that no-op to the NEXT open item (often a sibling of the same dead-code [feat:] group), walking it toward the no-op park.
 if [ "$status" = "no-op(ALREADY-DONE)" ] && [ -n "$task_log" ] && [ -f "$task_log" ] && grep -q -- 'DELETE-EXECUTOR: .* is already gone' "$task_log" 2>/dev/null; then exit 0; fi
 
+# 2026-10-09 (harness-credit-integrity item 8): a staged cycle (status ... stage(higher-tier)) ran the item the STAGE RUNNER picked, not the top-of-file / scout
+# match this guard would resolve below, so billing it to the top line charged an unrelated item (and parked it). run_overnight.sh writes 'stage-item-hash <md5>' and
+# 'stage-item-line <text>' into the task log; a stage status WITHOUT them bills nothing (like bug-handled); with them the failure/no-op is billed to THAT item.
+# (A staged LANDING needs no code here: its 'stage-item-hash <md5>' marker also matches the 'item-hash <md5>' pattern of the landing case above.)
+# OVN_STAGE_BILLING=off restores the old top-line billing.
+_stage_h=""; _stage_txt=""
+case "$status" in
+  *"stage(higher-tier)"*)
+    if [ "${OVN_STAGE_BILLING:-on}" != off ]; then
+      if [ -n "$task_log" ] && [ -f "$task_log" ]; then
+        _stage_h="$(grep -aoE 'stage-item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | tail -1 | awk '{print $2}')"
+        _stage_txt="$(grep -a '^stage-item-line ' "$task_log" 2>/dev/null | tail -1 | sed 's/^stage-item-line //')"
+      fi
+      [ -n "$_stage_h" ] && [ -n "$_stage_txt" ] || exit 0
+    fi ;;
+esac
+
 # The top unchecked item that is NOT already tagged blocked/skipped.
 # 2026-09-17 fix: this was the ONE selector 383a2d9 missed when it added a
 # \[CLAUDE\] exclusion to the 6 other "find the real top item" selectors in
@@ -161,7 +215,13 @@ if [ "$status" = "no-op(ALREADY-DONE)" ] && [ -n "$task_log" ] && [ -f "$task_lo
 if command -v ovn_resolve_top_item >/dev/null 2>&1; then
   top="$(ovn_resolve_top_item "$repo" "$task_log")"
 else
-  top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | head -1)"
+  top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' | grep -vE 'BLOCKED' | head -1)"
+fi
+if [ -n "$_stage_h" ]; then
+  # bill the item the stage runner actually worked: the exact open line "- [ ] <stage-item-line>"; gone/edited/ticked => nothing to bill or park
+  _sl="$(grep -nxF -- "- [ ] ${_stage_txt}" "$prog" 2>/dev/null | head -1 | cut -d: -f1)"
+  [ -n "$_sl" ] || exit 0
+  top="${_sl}:- [ ] ${_stage_txt}"
 fi
 [ -z "$top" ] && exit 0
 lineno="${top%%:*}"
@@ -226,7 +286,7 @@ case "$status" in
         _rids="$(ovn_failing_ids "$task_log" | python3 "$(dirname "$0")/ovn_repeat_ids.py" filter "$(basename "$repo")" "$state" "$h" 2>/dev/null | head -3 | tr '\n' ' ' | sed 's/ *$//' | tr -d '#[]')"
         [ -z "$_rids" ] && _rids="$(printf '%s' "$_rmark" | sed -E 's/.*same item: //; s/ *-*$//' | tr -d '#[]')"
         branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-        sed -i "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP needs-human: the same failing tests repeated on ${OVN_REPEAT_BREAKER_N:-2} consecutive attempts (${_rids:0:140}) - a repeat of the same failing ids (${_rbasis}) - deterministic, not luck; review] #" "$prog"
+        _ig_sedi "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP needs-human: the same failing tests repeated on ${OVN_REPEAT_BREAKER_N:-2} consecutive attempts (${_rids:0:140}) - a repeat of the same failing ids (${_rbasis}) - deterministic, not luck; review] #" "$prog"
         if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
           git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
           git -C "$repo" commit -q -m "chore(queue): park item - same failing tests repeated on consecutive attempts (needs-human)" 2>/dev/null
@@ -256,6 +316,12 @@ case "$status" in
     extractor="$(dirname "$0")/ovn_extract_failure.sh"
     if [ -x "$extractor" ] && [ -n "$task_log" ] && [ -f "$task_log" ]; then
       fsum="$(bash "$extractor" "$task_log" 2>/dev/null)"
+      # 2026-10-09: the integrity gate (lib_fixup.sh) logs the exact lesson as '--- fixup-integrity: <text> ---'; it beats the generic failure extract
+      case "$status" in
+        "no-op(fixup-undid-item)"*|"reverted(test-item-touched-prod)"*)
+          _fxi_txt="$(grep -a '^--- fixup-integrity: ' "$task_log" 2>/dev/null | tail -1 | sed -E 's/^--- fixup-integrity: //; s/ ---$//')"
+          [ -n "$_fxi_txt" ] && fsum="$_fxi_txt" ;;
+      esac
       [ -n "$fsum" ] && printf '%s|%s' "$h" "$fsum" > "$lastfailf"
     fi
     ;;
@@ -349,7 +415,11 @@ fi
 # Catch every "nothing landed, not a hard fail" shape: no-op(BLOCKED),
 # no-op(ALREADY-DONE), a bare <none>, or an empty status (a PROCEED that emitted
 # no diff). Reverts/errors deliberately fall through to the fail streak below.
-if [[ "$status" == no-op* || "$status" == "<none>"* || -z "$status" ]]; then
+# 2026-10-09 (harness-credit-integrity item 5): no-op(fixup-undid-item) = the fix-up undid the committed item and the runner reset it. That is a failed
+# attempt (real model work thrown away), not a benign no-op: it counts toward the FAIL cap below (CAP), not the no-op streak (NCAP).
+_ig_fixup_fail=0
+case "$status" in "no-op(fixup-undid-item)"*) _ig_fixup_fail=1 ;; esac
+if [ "$_ig_fixup_fail" = 0 ] && [[ "$status" == no-op* || "$status" == "<none>"* || -z "$status" ]]; then
   # indeterminate-credit allowance (see the tests:pass case above): an ALREADY-DONE no-op on an item whose landing could not be credited only because
   # its VERIFY timed out is expected; do not count it (bounded, then it counts like any other no-op).
   if [ "$status" = "no-op(ALREADY-DONE)" ] && [ -f "$state/item_fails/${id}.${h}.indet" ]; then
@@ -366,7 +436,7 @@ if [[ "$status" == no-op* || "$status" == "<none>"* || -z "$status" ]]; then
     # AUTO-SKIP is in the runner's doable-exclude grep, so this drops the item
     # from rotation while staying visible (unchecked) for a human/Claude to
     # verify-and-credit or fix the target.
-    sed -i "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP after ${trigger} — already-done, mis-targeted, or beyond the 27B; review] #" "$prog"
+    _ig_sedi "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP after ${trigger} — already-done, mis-targeted, or beyond the 27B; review] #" "$prog"
     if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
       git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
       git -C "$repo" commit -q -m "chore(queue): auto-skip item after ${trigger} (already-done/mis-targeted)" 2>/dev/null
@@ -389,7 +459,7 @@ if [ "$c" -ge "$CAP" ] || [ "$toks" -ge "$TOKCAP" ]; then
   trigger="${CAP} failed-to-land cycles"; [ "$toks" -ge "$TOKCAP" ] && [ "$c" -lt "$CAP" ] && trigger="${toks} tokens with no landing (only ${c}/${CAP} cycles — caught by spend, not attempt count)"
   branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
   # tag the item so the model skips it next cycle
-  sed -i "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP after ${trigger} — kept reverting (already-done, too hard for the 27B, or a sibling-file gate fail); review — NOT necessarily human-only] #" "$prog"
+  _ig_sedi "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP after ${trigger} — kept reverting (already-done, too hard for the 27B, or a sibling-file gate fail); review — NOT necessarily human-only] #" "$prog"
   if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
     git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
     git -C "$repo" commit -q -m "chore(queue): auto-skip item after ${trigger} (needs a human)" 2>/dev/null

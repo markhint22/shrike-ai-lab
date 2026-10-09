@@ -30,6 +30,15 @@ emit_alert() {
   { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${sev} | ${id} | ${msg}" >> "$ALERTS_FILE"; } 2>/dev/null || true
 }
 
+# 2026-10-02: ovn_test_watch.sh now tests each repo in a detached worktree (/tmp/wt-tw-<repo>.XXXX) for up to ~45 min
+# worst case (600s+900s pytest, 400s+600s vitest, +godot) while holding state/test_watch.lock. The dir mtime this sweep ages
+# on is set when the worktree is created, so a slow sweep could look "orphaned" - never reap wt-tw-* while that lock is
+# held. (ovn_test_watch.sh also reaps its own orphans at startup, under that same lock, so nothing leaks when it is free.)
+TW_BUSY=0
+if [ -e "$STATE_DIR/test_watch.lock" ] && command -v flock >/dev/null 2>&1; then
+  ( flock -n 9 ) 9>>"$STATE_DIR/test_watch.lock" 2>/dev/null || TW_BUSY=1
+fi
+
 for repo_dir in repos/*/; do
   repo="${repo_dir%/}"
   [ -d "$repo/.git" ] || continue
@@ -44,6 +53,7 @@ for repo_dir in repos/*/; do
       *) continue ;;
     esac
     [ -d "$wt_path" ] || continue
+    case "$(basename "$wt_path")" in wt-tw-*) [ "$TW_BUSY" = 1 ] && continue ;; esac   # live test-watch worktree
     age_min=$(( ( $(date +%s) - $(stat -c %Y "$wt_path" 2>/dev/null || echo 0) ) / 60 ))
     if [ "$age_min" -ge "$MIN_AGE_MIN" ]; then
       git -C "$wt_path" rebase --abort >/dev/null 2>&1 || true

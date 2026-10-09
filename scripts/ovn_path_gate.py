@@ -13,6 +13,12 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from ovn_delete_executor import delete_intent   # whole-file delete INTENT (2026-10-09): "Remove the unused import(s) in this file" is NOT a file delete
+except Exception:  # pragma: no cover - the legacy leading-verb rule below keeps the gate working when the module is absent
+    delete_intent = None
+
 CODE = (".py", ".ts", ".tsx", ".js", ".vue", ".kt", ".gd", ".swift", ".sh", ".sql", ".json", ".yml", ".yaml", ".toml", ".html")
 DELETE = re.compile(r"(?i)^(delete|remove|drop|prune|retire)\b")
 
@@ -30,6 +36,13 @@ def leading_target(line):
     return (body.split(" ")[0] if body else "").replace("`", "").split(":")[0]
 
 
+def _is_delete(line, desc):
+    """STILL_EXISTS applies to whole-file delete items only. OVN_DELETE_INTENT=legacy restores the old 'desc starts with a delete verb' rule."""
+    if delete_intent is None or os.environ.get("OVN_DELETE_INTENT", "new") == "legacy":
+        return bool(DELETE.match(desc))
+    return delete_intent(line)
+
+
 def check(line, repo_dir="."):
     body = leading_body(line)
     tgt = leading_target(line)
@@ -37,7 +50,7 @@ def check(line, repo_dir="."):
         return ("NA", "")
     desc = re.sub(r"^[^ ]+\s*(—|-|–)?\s*", "", body)[:120]
     exists = os.path.exists(os.path.join(repo_dir, tgt))
-    if DELETE.match(desc):
+    if _is_delete(line, desc):
         return ("STILL_EXISTS" if exists else "OK", tgt)
     return ("OK" if exists else "MISSING", tgt)
 

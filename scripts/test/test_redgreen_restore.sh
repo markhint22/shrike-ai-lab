@@ -111,7 +111,7 @@ run_case
 ok "H: the cycle still pushes, flagged RESTORE-FAILED" '[[ "$OUT" == *"[redgreen:RESTORE-FAILED]"* ]]'
 ok "H: restore-failed logged by the caller" 'logged "RED-GREEN RESTORE not confirmed"'
 ok "H: alert raised" 'printf "%s" "$ALERTS" | grep -q "red-green restore could not be confirmed"'
-ok "H: NO item ticked (auto-credit skipped)" '! git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -q "^- \[x\]"'
+ok "H: NO item ticked (auto-credit skipped)" '[ "$(git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -c "^- \[x\]")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 ok "H: no bookkeeping / auto-credit commit on origin (DONE: trailer path skipped too)" '! origin_has claude/feature "auto-credit" && ! origin_has claude/feature "progress bookkeeping"'
 rm -f "$REPO/.git/index.lock"
 
@@ -119,5 +119,7 @@ rm -f "$REPO/.git/index.lock"
 RO="$Q/run_overnight.sh"
 ok "G: caller holds the cycle on restore-failed-dirty (no push)" 'grep -q "restore-failed-dirty)" "$RO" && grep -q "error(redgreen-restore-failed" "$RO"'
 ok "G: caller skips credit paths on restore-failed" 'grep -q "_skip_credit=1" "$RO" && grep -q "\"\$_skip_credit\" = 0 \] && \[ -f \"OVERNIGHT_PROGRESS.md\"" "$RO"'
-ok "G: red-green no longer uses index-writing git checkout" '! sed -n "/^run_redgreen_check()/,/^_redgreen_restored()/p" "$RO" | grep -q "git checkout"'
+# 2026-10-08: was `! sed ... | grep -q "git checkout"` - flaky under pipefail (grep -q exits at the first hit, sed may or may not take SIGPIPE, so the negated pipeline
+# passed or failed by timing) and it matched the COMMENTS that explain why the checkout was removed. Count real (non-comment) uses instead.
+ok "G: red-green no longer uses index-writing git checkout (code lines only)" '[ "$(sed -n "/^run_redgreen_check()/,/^_redgreen_restored()/p" "$RO" | grep -v "^[[:space:]]*#" | grep -c "git checkout")" = 0 ]'
 summary

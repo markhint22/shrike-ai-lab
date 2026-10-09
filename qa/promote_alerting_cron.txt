@@ -1,7 +1,19 @@
-# promote-time alerting (2026-10-03, A10). NOT installed. Install on the box with:
-#   (crontab -l; grep -v '^#' ~/overnight-queue/qa/promote_alerting_cron.txt) | crontab -
-# Hourly staging_check (SHADOW observation + ONE alerts.log WARN per (repo, candidate sha) on FAIL) at :20 - after the :00/:10/:30 hygiene passes pushed to develop and
-# staging had minutes to deploy; the Mac's 10-minutely export (scripts/qa-staging-export.sh) keeps state/staging_deploys fresh (<30 min or the promote gate fails closed).
-# NTFY_SERVER points at the notification relay so nothing here can reach ntfy.sh directly. Rollback: remove the line (the 08:50 daily run is unaffected).
+# promote-time alerting + live-staging evidence (2026-10-03 A10; extended 2026-10-09 QA-N1). Cron lines for the BOX - DOCUMENTATION: nothing here is installed until the lead installs it.
+# Install the QA-N1 lines (items 2 and 3) with this command. It is idempotent (it first drops any earlier copy of those three lines, so running it twice never duplicates them)
+# and it does NOT install the hourly :20 --staging-only line of item 1 (a separate decision: add that one by hand, or drop the second grep below to install it too):
+#   (crontab -l 2>/dev/null | grep -vF -e 'qa/staging_e2e_run.sh' -e 'qa/staging_e2e_ingest.py' -e 'qa/evidence_freshness_check.py'; grep -v '^#' ~/overnight-queue/qa/promote_alerting_cron.txt | grep -vF -e '--staging-only') | crontab -
+# 1. Hourly staging_check (SHADOW observation + ONE alerts.log WARN per (repo, candidate sha) on FAIL) at :20 - after the :00/:10/:30 hygiene passes pushed to develop and
+#    staging had minutes to deploy; the Mac's 10-minutely export (scripts/qa-staging-export.sh) keeps state/staging_deploys fresh (<30 min or the promote gate fails closed).
+#    NTFY_SERVER points at the notification relay so nothing here can reach ntfy.sh directly. Rollback: remove the line (the 08:50 daily run is unaffected).
 20 * * * * NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/qa_daily_shadow.sh --staging-only >> /home/mhintermeister/overnight-queue/logs/qa_daily_shadow.out 2>&1
+# 2. Live-staging e2e v2 (QA-N1). :25 hourly: runs the box cells (scripts/qa/e2e/chickadee_staging_e2e.py) ONLY when the latest staging deploy commit changed (or the last result is >= 6 h old);
+#    serial lock state/staging_e2e.lock. */30: turns the result files (box + the Mac RevenueCat lifecycle) into shadow rows (state/qa_shadow/staging_e2e.jsonl) and ONE alerts.log WARN per
+#    (cell, commit) on FAIL. Kill switches: OVN_QA_STAGING_E2E=off in the cron env, or `qa/qa_enforce.sh staging_e2e off|shadow`. Needs state/qa_creds/iptv_apps.json (mode 600) or the cells are UNVERIFIED (ingest warns once a day).
+#    DEPLOY FIRST: `ssh box 'mkdir -p ~/overnight-queue/scripts/qa/e2e'` and copy chickadee_staging_e2e.py there - the directory does not exist by default; a missing runner writes a harness UNVERIFIED result.
+25 * * * * cd ~/overnight-queue && bash qa/staging_e2e_run.sh >> logs/staging_e2e.log 2>&1
+*/30 * * * * cd ~/overnight-queue && python3 qa/staging_e2e_ingest.py >> logs/staging_e2e.log 2>&1
+# 3. Evidence freshness (QA-N1 / QA-N4): at :35 hourly, ONE alerts.log WARN per stale source per 6 h - the Mac deploy export (> 30 min), its per-repo files, the Mac e2e result and the box e2e result (> 12 h)
+#    - each with the exact fix (e.g. launchctl kickstart gui/$(id -u)/com.shrike.qa-staging-export). On 2026-10-07 this was missing and promotes were blocked for ~39 h before anyone knew.
+35 * * * * cd ~/overnight-queue && python3 qa/evidence_freshness_check.py >> logs/evidence_freshness.log 2>&1
 # Mac (deploy_watch.sh, every 20 min, already scheduled): now also watches the 3 Railway STAGING services and pushes an emergency on a FAILED staging/prod deploy.
+# Mac (launchd com.shrike.qa-staging-e2e, every 6 h): scripts/qa-staging-e2e.sh = the RevenueCat lifecycle cell (needs the Railway CLI) -> state/qa_staging_e2e.json on the box.

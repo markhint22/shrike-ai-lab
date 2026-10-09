@@ -104,9 +104,9 @@ mk_case gone_neg
 setup_progress '- [ ] [T2] scripts/never_was.gd — Delete the dead module file.'
 scout_ok
 runid
-ok "e2e NEG: a path that NEVER existed is not credited as already-done by the executor (normal flow continues)" '! git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -q "already-done, target already deleted"'
+ok "e2e NEG: a path that NEVER existed is not credited as already-done by the executor (normal flow continues)" '[ "$(git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -c "already-done, target already deleted")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 
-ok "e2e NEG: a delete item's missing target is NOT re-created as a stub placeholder (that made it look doable again)" '! git -C "$REPO" log --format=%s | grep -q "stub new source file"'
+ok "e2e NEG: a delete item's missing target is NOT re-created as a stub placeholder (that made it look doable again)" '[ "$(git -C "$REPO" log --format=%s | grep -c "stub new source file")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 mk_case stub_create
 setup_progress '- [ ] [T2] scripts/new_mod.gd — Create the new helper module with a clamp function.'
 scout_ok
@@ -116,7 +116,7 @@ mk_case stub_verify_delete
 setup_progress '- [ ] [T2] Clean up. VERIFY: `test ! -f scripts/other_dead.gd` returns exit code 0.'
 scout_ok
 runid
-ok "e2e NEG: an item whose own VERIFY is test ! -f <file> never gets that file stubbed" '! git -C "$REPO" log --format=%s | grep -q "stub new source file"'
+ok "e2e NEG: an item whose own VERIFY is test ! -f <file> never gets that file stubbed" '[ "$(git -C "$REPO" log --format=%s | grep -c "stub new source file")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 
 # DELETE: trailer for an already-deleted path (the model, not the executor, names it): benign already-done instead of a bare no-op
 mk_case trailer_gone

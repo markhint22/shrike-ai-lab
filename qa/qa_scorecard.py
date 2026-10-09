@@ -23,7 +23,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import qa_common as qc  # noqa: E402
 import qa_ledger as ql  # noqa: E402
 
-KNOWN_GATES = ["antigaming", "scanners", "migrations", "baseline_verify", "acceptance_card", "staging_check", "release_candidate", "device_lane"]
+KNOWN_GATES = ["antigaming", "scanners", "migrations", "baseline_verify", "acceptance_card", "staging_check", "release_candidate", "device_lane", "staging_e2e"]
+# the live-staging e2e cells (scripts/qa/e2e/chickadee_staging_e2e.py + the Mac RevenueCat lifecycle); test_qa_staging_e2e.py asserts this equals the runner's ALL_CELLS
+E2E_CELLS = ("health_provenance", "auth_login", "ssrf_refusal", "playback_token", "referral_flow", "vod_catalog", "rate_limit_sanity", "revenuecat_lifecycle")
 SEVERITY = {"FAIL": 5, "FLAG": 4, "UNVERIFIED": 3, "PASS": 2, "NA": 1}
 RISK_ORDER = {"A": 3, "B": 2, "C": 1}
 DAY = 86400
@@ -89,6 +91,39 @@ def gate_cell(gate, shadow, repo, shas):
     worst = max(hits, key=lambda r: SEVERITY[vd(r)])
     sm = worst.get("summary")
     return vd(worst), (sm if isinstance(sm, str) else "")[:80]
+
+
+def e2e_cell(shadow, now):
+    """The staging_e2e report cell: (verdict, text, json dict). `evidence found for N cells` = cells whose newest result is PASS or FAIL (they ran to a conclusion);
+    NA / UNVERIFIED cells and cells that never reported are NOT evidence. This is never worded as 'verified': it says what was found, not that staging works."""
+    rows = [r for r in shadow.get("staging_e2e", []) if isinstance(r.get("details"), dict) and isinstance(r["details"].get("cells"), list)]
+    if not rows:
+        return "NA", "staging e2e (shadow): no result rows yet - the gate has not produced evidence (qa/staging_e2e_run.sh + qa/staging_e2e_ingest.py cron)", {"verdict": "NA", "found": 0, "of": len(E2E_CELLS)}
+    latest = {}
+    for r in rows:  # newest row per source (box / mac) wins; ts is the ingest time, result_ts the time the cells ran
+        src = str(r["details"].get("source") or "?")
+        if src not in latest or str(r.get("ts", "")) >= str(latest[src].get("ts", "")):
+            latest[src] = r
+    cells, newest_ts = {}, 0
+    for r in latest.values():
+        t = ql.epoch(r["details"].get("result_ts")) or ql.epoch(r.get("ts")) or 0
+        newest_ts = max(newest_ts, t)
+        for c in r["details"]["cells"]:
+            if isinstance(c, dict) and isinstance(c.get("cell"), str) and c.get("verdict") in SEVERITY:
+                prev = cells.get(c["cell"])
+                if prev is None or SEVERITY[c["verdict"]] > SEVERITY[prev]:
+                    cells[c["cell"]] = c["verdict"]
+    def vd(r):
+        v = r.get("verdict")
+        return v if isinstance(v, str) and v in SEVERITY else "UNVERIFIED"
+    worst = max((vd(r) for r in latest.values()), key=lambda v: SEVERITY[v])
+    found = sorted(c for c in E2E_CELLS if cells.get(c) in ("PASS", "FAIL"))
+    fails = sorted(c for c, v in cells.items() if v == "FAIL")
+    age = now - newest_ts if newest_ts else None
+    txt = "staging e2e (shadow): last verdict %s%s, newest result %s old; evidence found for %d of %d cells (%s)%s" % (
+        worst, (" [FAIL: " + ",".join(fails) + "]") if fails else "", ("%dm" % (age // 60)) if age is not None else "?", len(found), len(E2E_CELLS),
+        ", ".join("%s=%s" % (c, cells.get(c, "no result")) for c in E2E_CELLS), "; NOT a statement that staging works" if not fails else "")
+    return worst, txt, {"verdict": worst, "age_s": int(age) if age is not None else None, "found": len(found), "of": len(E2E_CELLS), "cells": {c: cells.get(c, "no result") for c in E2E_CELLS}}
 
 
 def events_by_rec(evs):
@@ -322,6 +357,13 @@ def cmd_report(argv):
         lines.append("WARNING: %d outcomes.jsonl line(s) were unreadable (bad json / non-object / wrong field types) and are NOT in the stage-unverified counts." % unreadable)
     out["stage_unverified"] = dict(su)
     out["unreadable_outcome_rows"] = unreadable
+    try:  # 2026-10-09 (QA-N1): the live-staging e2e cell (read-only, from the shadow rows qa/staging_e2e_ingest.py writes)
+        _v, e2e_txt, e2e_json = e2e_cell(load_shadow(), now)
+        lines.append("")
+        lines.append(e2e_txt)
+        out["staging_e2e"] = e2e_json
+    except Exception as ex:  # noqa: BLE001 - the report must never crash on a hostile shadow row
+        lines.append("staging e2e: UNVERIFIED (%s while reading the shadow rows)" % type(ex).__name__)
     ev_types = collections.Counter(e["type"] for e in evs if now - e.get("epoch", 0) <= days * DAY and (not repo or e.get("repo") == repo))
     unattr = collections.Counter(e["type"] for e in evs if not e.get("rec") and e["type"] != "escape" and now - e.get("epoch", 0) <= days * DAY
                                  and (not repo or e.get("repo") == repo))

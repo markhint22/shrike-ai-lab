@@ -13,7 +13,11 @@
 # Conservative: an item is only DEAD-PATH if it gives one-or-more slash paths AND
 # NONE of them exist. An item with at least one existing named file is kept.
 import re, sys, os
-EXT = r"(py|vue|ts|tsx|js|jsx|kts|kt|gd|swift|gradle|toml|ya?ml|json|cfg|ini|sh|html|css|md|txt|env)"
+# 2026-10-09: Godot sidecar files. `loadout_preset.gd.uid` used to match as `loadout_preset.gd` (the regex stopped at `.gd` because \b holds before the
+# next `.`), so five valid "Delete the orphaned file ...gd.uid" items were classified dead-path - that .gd is gone by definition, only the .uid is left
+# - and retired. The compound `<ext>.uid` forms MUST precede their bare extension (alternation order), and .tscn/.tres are real scene/resource files.
+# (A bare `uid` extension is deliberately NOT added: it would turn prose like `user.uid` into a "file", keeping vague items alive.)
+EXT = r"(gd\.uid|tscn\.uid|tres\.uid|gdshader\.uid|py|vue|ts|tsx|js|jsx|kts|kt|gd|tscn|tres|swift|gradle|toml|ya?ml|json|cfg|ini|sh|html|css|md|txt|env)"
 # "names a file" REQUIRES a real code extension. An earlier version also treated
 # any word/word as a path (HAS_PATH), which false-matched prose like "empty/zero
 # result" / "and/or" / "input/output" and kept genuinely-vague items forever

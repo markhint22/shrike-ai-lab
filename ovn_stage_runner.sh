@@ -364,6 +364,24 @@ while IFS= read -r pj; do
   wwd="$wt/${wd#"$rd"/}"
   [ -d "$wwd" ] && [ ! -e "$wwd/node_modules" ] && ln -s "$(cd "$wd" && pwd)/node_modules" "$wwd/node_modules" 2>/dev/null
 done < <(find "$rd" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
+# 2026-10-09 (xlite godot lane): same class of bug as node_modules above, for Godot. A fresh `git worktree add` has no .godot/ or *.import (both
+# gitignored), so the per-step gate (ovn_autotest.sh -> `godot --check-only --script res://<file>`) reported 'Identifier "ScreenBg" not declared' and
+# 'Preload file ... has no resource loaders' on files the model never touched (7 false parse errors without the cache, 0 after `--import`). The model burned
+# ~300s per attempt chasing non-errors and all three tech_tree/tech_manager T3 runs ended 'escalated to Claude'. Copy the live clone's import cache in
+# (wt_seed_godot), then run the incremental headless --import once so the class cache exists before step 1. Kill switch OVN_STAGE_GODOT_SEED=off; a missing
+# godot binary logs and continues (the gate then degrades exactly as before). lib_worktree.sh is sourced in a subshell only, so its function definitions never reach the runner.
+if [ "${OVN_STAGE_GODOT_SEED:-on}" != off ]; then
+  while IFS= read -r _gpg; do
+    [ -z "$_gpg" ] && continue
+    _gpd="$(dirname "$_gpg")"; _gsub="${_gpd#"$wt"}"; _gsub="${_gsub#/}"; [ -n "$_gsub" ] || _gsub="."
+    _gbin="$HOME/godot/godot4"
+    if [ ! -x "$_gbin" ]; then say "godot seed: $_gbin not found - skipping import cache for $_gsub (per-step godot gate may report false errors)"; continue; fi
+    ( source scripts/lib_worktree.sh; wt_seed_godot "$rd" "$wt" "$_gsub" )
+    ( cd "$_gpd" && timeout 120 "$_gbin" --headless --path . --import ) >> "logs/ovn_stage_godot_import.log" 2>&1
+    say "godot seed: seeded + imported $_gsub in the stage worktree (rc=$?)"
+  done < <(find "$wt" -maxdepth 3 -name project.godot -not -path '*/node_modules/*' -not -path '*/addons/*' 2>/dev/null)
+fi
+# end godot import seed
 # 2026-09-16: added .kt (Android is now gradle-verified in full_verify() below; the model should
 # see Kotlin files exist when a doable item targets one). .swift deliberately NOT added — those
 # items are AUTO-SKIPped at the source (see ovn_swift_retag.py) since nothing here can verify them.

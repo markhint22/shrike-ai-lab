@@ -37,8 +37,8 @@ ok "P1: prompt carries the failing assertion line" 'printf "%s" "$MSG" | grep -q
 ok "P1: prompt says the change 'was just committed'" 'printf "%s" "$MSG" | grep -qF "was just committed"'
 ok "P1: prompt NEVER says 'your last change'" '! printf "%s" "$MSG" | grep -qi "your last change"'
 ok "P1: prompt tells the model to ignore the is_prime/sympy/mathweb example" 'printf "%s" "$MSG" | grep -qi "ignore any example" && printf "%s" "$MSG" | grep -q "is_prime" && printf "%s" "$MSG" | grep -q "sympy" && printf "%s" "$MSG" | grep -q "mathweb"'
-ok "P1: bookkeeping file diff is not in the prompt" '! printf "%s" "$MSG" | grep -q "OVERNIGHT_PROGRESS"'
-ok "P1: log noise ('aider noise line') is not copied into the evidence" '! printf "%s" "$EV" | grep -q "aider noise"'
+ok "P1: bookkeeping file diff is not in the prompt" '[ "$(printf "%s" "$MSG" | grep -c "OVERNIGHT_PROGRESS")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
+ok "P1: log noise ('aider noise line') is not copied into the evidence" '[ "$(printf "%s" "$EV" | grep -c "aider noise")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 eq "P1: no failure lines in the log -> falls back to the summary" "$(ovn_fixup_failure_facts "$R/none.log" "SUMMARY-FALLBACK")" "SUMMARY-FALLBACK"
 
 # size caps: a huge diff stays within the budget; per-file truncation marker; omitted files are named

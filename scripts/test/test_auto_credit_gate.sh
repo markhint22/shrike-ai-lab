@@ -94,7 +94,7 @@ eq "HEAD != AFTER: rc 1" "$CRC" 1
 mk1 untracked; printf 'def new_a():\n    return 2\n' >> src/a.py; commit1 "feat: new_a"; mkdir -p .pytest_cache; echo x > .pytest_cache/f; echo y > scratch.tmp
 call
 eq "untracked files are ignored: rc 0 and credited" "$CRC:$(grep -c '^- \[x\]' OVERNIGHT_PROGRESS.md)" "0:1"
-ok "untracked files never get committed" '! git show --name-only --format= HEAD | grep -q "scratch.tmp\|pytest_cache"'
+ok "untracked files never get committed" '[ "$(git show --name-only --format= HEAD | grep -c "scratch.tmp\|pytest_cache")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 
 # 5. placeholder stubs are never credited
 mk1 placeholder; printf '# Placeholder - the implement step fills this in\n' > src/articles.py; commit1 "feat: stub"
@@ -158,7 +158,7 @@ printf 'def hello():\n    return 2\n' > app.py; git add -A; git commit -q -m 'fe
 run_case
 ok "E2E refuse: the cycle still lands (green tests)" '[[ "$OUT" == pushed* ]]'
 ok "E2E refuse: item NOT ticked despite app.py being touched" 'git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -q "^- \[ \] app.py — Stop the sync client"'
-ok "E2E refuse: NO item at all was ticked (the old code ticked the first item mentioning app.py)" '! git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -q "^- \[x\]"'
+ok "E2E refuse: NO item at all was ticked (the old code ticked the first item mentioning app.py)" '[ "$(git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -c "^- \[x\]")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 ok "E2E refuse: reason logged" 'logged "the item'"'"'s own VERIFY: clause FAILED"'
 ok "E2E refuse: no auto-credit commit exists" '! origin_has claude/feature "auto-credit item(s)"'
 
@@ -172,7 +172,7 @@ vplan default 'echo "half-restored" >> other.py; git add other.py; exit 0'
 run_case
 ok "E2E bookkeeping: refused with a log line + alert when the index holds something else" 'logged "progress bookkeeping: REFUSED" && printf "%s" "$ALERTS" | grep -q "progress bookkeeping refused"'
 eq "E2E bookkeeping: the half-restored index was NOT swept into a commit (pushed tip touches only app.py)" "$(git -C "$ORIGIN" log --format= --name-only -1 claude/feature)" "app.py"
-ok "E2E bookkeeping: the DONE item was not ticked off a dirty tree" '! git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -q "^- \[x\]"'
+ok "E2E bookkeeping: the DONE item was not ticked off a dirty tree" '[ "$(git -C "$ORIGIN" show claude/feature:OVERNIGHT_PROGRESS.md | grep -c "^- \[x\]")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 
 # wiring: every credit/bookkeeping commit in run_overnight.sh is a pathspec commit (a bare `git commit` commits the whole index)
 RO="$Q/run_overnight.sh"

@@ -169,4 +169,25 @@ echo "T10 red build (model file has a syntax error) -> skipped"
 R="$(mkrepo fixture-app)"; cd "$R"; B=$(git rev-parse HEAD); echo "class Broken(" >> proj/app/models.py; commit_models "feat: broken"; H=$(git rev-parse HEAD)
 out="$(hook "$B")"; echo "$out" | grep -q "red build" && [ "$(git rev-parse HEAD)" = "$H" ] && ok "compile failure -> skipped" || bad "ran on red build"
 
+echo "T11 hanging model import -> hook times out, treats it as not auto-fixable, leaves tree untouched, no stray process (2026-10-02)"
+R="$(mkrepo fixture-app)"; cd "$R"; B=$(git rev-parse HEAD)
+sed -i 's/^    name = .*/&\n    note = Column(String(20))/' proj/app/models.py; printf 'import time\ntime.sleep(2971)\n' >> proj/app/models.py; commit_models "feat: hang"; H=$(git rev-parse HEAD)
+t0=$(date +%s); out="$(OVN_ALEMBIC_AUTOGEN_TIMEOUT=3 hook "$B")"; el=$(( $(date +%s) - t0 ))
+echo "$out" | grep -q 'not auto-fixable (ERROR driver timed out after 3s' && ok "timeout reported as not auto-fixable" || bad "no timeout report: $out"
+[ "$el" -lt 25 ] && ok "returned in ${el}s (cap 3s + kill grace), not the 2971s sleep" || bad "took ${el}s"
+[ "$(git rev-parse HEAD)" = "$H" ] && [ "$(nfiles)" = 1 ] && git diff --quiet HEAD && ok "HEAD unchanged, no stray file, tree clean" || bad "tree touched"
+sleep 1; pgrep -f 'time.sleep\(2971\)' >/dev/null && bad "hung python child survived" || ok "hung child process was killed"
+echo "T12 benign: normal run under the timeout wrapper still generates (default 120s cap)"
+R="$(mkrepo fixture-app)"; cd "$R"; B=$(git rev-parse HEAD)
+sed -i 's/^    name = .*/&\n    note = Column(String(20))/' proj/app/models.py; commit_models "feat: note"
+out="$(hook "$B")"; echo "$out" | grep -q 'generated and committed' && drift_clean && ok "generated under wrapper" || bad "$out"
+echo "T13 hanging check_migrations.py -> migration discarded (not committed), tree clean"
+S2="$T/scr2"; mkdir -p "$S2"; cp "$SCRIPTS/ovn_alembic_autogen.sh" "$SCRIPTS/ovn_alembic_autogen.py" "$S2/"; printf 'import time\ntime.sleep(2972)\n' > "$S2/check_migrations.py"
+R="$(mkrepo fixture-app)"; cd "$R"; B=$(git rev-parse HEAD)
+sed -i 's/^    name = .*/&\n    note = Column(String(20))/' proj/app/models.py; commit_models "feat: note"; H=$(git rev-parse HEAD)
+t0=$(date +%s); out="$(OVN_ALEMBIC_AUTOGEN_TIMEOUT=3 OVN_ALEMBIC_AUTOGEN_REPOS=fixture-app bash "$S2/ovn_alembic_autogen.sh" "$PWD" "$B" "$H" 2>&1)"; el=$(( $(date +%s) - t0 ))
+echo "$out" | grep -q 'check_migrations.py failed - discarding' && [ "$(git rev-parse HEAD)" = "$H" ] && [ "$(nfiles)" = 1 ] && git diff --quiet HEAD && ok "check_migrations timeout -> discarded, HEAD unchanged" || bad "$out"
+[ "$el" -lt 30 ] && ok "bounded (${el}s)" || bad "took ${el}s"
+sleep 1; pgrep -f 'time.sleep\(2972\)' >/dev/null && bad "hung check_migrations survived" || ok "hung check_migrations killed"
+
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

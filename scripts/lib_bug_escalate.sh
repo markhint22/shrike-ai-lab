@@ -29,7 +29,7 @@ ovn_bug_escalate() {
   bug_feat="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
   esc_why="$(printf '%s' "$why, last: ${lastst:-?}" | tr -c 'A-Za-z0-9 ()_:.,=/-' '_')"
   lns=""
-  [ -n "$bug_feat" ] && lns="$(grep -nF -- "$bug_feat" "$prog" 2>/dev/null | grep -E '^[0-9]+:- \[ \] ' | grep -viE 'HUMAN-ONLY|AUTO-SKIP|BLOCKED|\[CLAUDE\]' | cut -d: -f1)"
+  [ -n "$bug_feat" ] && lns="$(grep -nF -- "$bug_feat" "$prog" 2>/dev/null | grep -E '^[0-9]+:- \[ \] ' | grep -viE 'HUMAN-ONLY|AUTO-SKIP|\[CLAUDE\]' | grep -vE 'BLOCKED' | cut -d: -f1)"
   [ -n "$lns" ] || lns="$lineno"
   for _n in $lns; do
     if [ "$_n" = "$lineno" ]; then _t="[CLAUDE] [bug-escalated: ${esc_why}]"; else _t="[CLAUDE] [bug-escalated: sibling step of this bug escalated]"; fi

@@ -80,7 +80,7 @@ aplan 3 'gc app.py "def j(): return 1" "feat: real after junk"'
 run_case
 ok "F: junk-only attempt discarded then real commit pushed" '[[ "$OUT" == pushed* ]]'
 ok "F: junk discard message logged" 'logged "only committed junk file(s), discarding and retrying"'
-ok "F: junk file not in final tree" '! git -C "$REPO" ls-files | grep -q ask_for_file'
+ok "F: junk file not in final tree" '[ "$(git -C "$REPO" ls-files | grep -c ask_for_file)" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 mk_case junk2
 scout_ok
 aplan 2 'gc ask_for_file.txt "please add app.py" "chore: junk"; echo "also look at other.py"'
@@ -253,6 +253,6 @@ scout_ok
 add_backend 2
 aplan 2 'gc app.py "def o2(): return 1" "feat: api change 2"'
 run_case
-ok "O: no regen commit when contract already in sync" '! git -C "$REPO" log --format=%s | grep -q "auto-regenerate openapi.json"'
+ok "O: no regen commit when contract already in sync" '[ "$(git -C "$REPO" log --format=%s | grep -c "auto-regenerate openapi.json")" = 0 ]'  # was: ! ... | grep -q (flaky/masking under pipefail: grep -q exits early, SIGPIPE flips the negation)
 
 summary

@@ -24,7 +24,7 @@ import os
 import re
 import sys
 
-PARKED_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|human/|\[CLAUDE\]|BLOCKED|\(retired-", re.I)
+PARKED_RE = re.compile(r"AUTO-SKIP|HUMAN-ONLY|human/|\[CLAUDE\]|(?-i:BLOCKED)|\(retired-", re.I)
 PATH_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}")
 # same "file-shaped" test as run_overnight.sh's _ovn_candidate_tokens: a path separator or a recognised code/doc extension ("datetime.now" is not a file)
 FILEISH_RE = re.compile(r"/|\.(py|ts|tsx|js|jsx|vue|gd|kt|java|go|rb|rs|c|cpp|h|hpp|ya?ml|json|toml|cfg|ini|sh|txt|xml|gradle|properties|env)$")

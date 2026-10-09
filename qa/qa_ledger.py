@@ -111,7 +111,7 @@ def clean_outcome(d):
         return None, True
     repo, ts, st, cl = d.get("repo"), d.get("ts"), d.get("status", ""), d.get("class", "")
     if repo is None and ts is None:
-        return None, cl == "landed"
+        return None, cl in LANDED_CLASSES
     if not safe_name(repo) or not isinstance(ts, str) or not epoch(ts) or not (st is None or isinstance(st, str)) \
             or not (cl is None or isinstance(cl, str)):
         return None, True
@@ -309,11 +309,16 @@ def risk_class(files, text, tier, category, subjects):
 
 
 # ------------------------------------------------------------------ derive: landed records
+# 2026-10-09 (harness-credit-integrity round 3): "landed-uncredited" is a green push whose item the auto-credit refused to tick - NOT a landing for the pass rate (neutral),
+# but the commit is real code on claude/feature -> develop -> staging -> prod and needs QA / risk classification / escape accounting exactly like a credited landing.
+LANDED_CLASSES = ("landed", "landed-uncredited")
+
+
 def is_landed(d):
     st = d.get("status")
     if not isinstance(st, str):
         return False
-    return d.get("class") == "landed" and bool(d.get("repo")) and (st.startswith("pushed") or "stage(higher-tier)" in st)
+    return d.get("class") in LANDED_CLASSES and bool(d.get("repo")) and (st.startswith("pushed") or "stage(higher-tier)" in st)
 
 
 def read_new_outcomes(offset):
@@ -401,6 +406,8 @@ def derive_records(rows, existing_keys, claimed, stats=None):
                 st = r.get("status") or ""
                 flags = [n for n, pat in (("untested-change", "untested-change"), ("redgreen-suspect", "redgreen:SUSPECT"), ("after-rebase", "after-rebase"),
                                           ("stage", "stage(higher-tier)")) if pat in st]
+                if r.get("class") == "landed-uncredited":
+                    flags.append("uncredited")   # real commits, the credit was refused: kept in the ledger (QA + escapes) but visible as not credited
                 if not mine and rd:   # 2026-10-03 (integrity A6): "landed" with NO commit in the window = a landing origin never received (or a bookkeeping-only row)
                     flags.append("no-commit")
                 rc_, basis = risk_class(files, text, r.get("tier"), r.get("category"), [c["subject"] for c in mine])

@@ -304,6 +304,48 @@ echo; echo "===== ovn local research ====="; bash test_ovn_local_research.sh || 
 echo; echo "===== ovn work supply + spec check ====="; bash test_ovn_work_supply.sh || rc=1
 echo; echo "===== qa block watch (self-heal / loud stall) ====="; bash test_qa_block_watch.sh || rc=1
 echo; echo "===== queue_refill relocates uncollected new tests ====="; bash test_queue_refill_relocate_tests.sh || rc=1
+echo; echo "===== fix_router_limiters codemod ====="; python3 test_fix_router_limiters.py || rc=1
 echo; echo "===== stage zero retry ====="; bash test_stage_zero_retry.sh || rc=1
+echo; echo "===== aider attempt verdict ====="; bash test_aider_attempt_verdict.sh || rc=1
+echo; echo "===== auto research lock ====="; bash test_auto_research_lock.sh || rc=1
+echo; echo "===== auto research roundrobin ====="; bash test_auto_research_roundrobin.sh || rc=1
+echo; echo "===== autotest godot baseline ====="; bash test_autotest_godot_baseline.sh || rc=1
+echo; echo "===== autotest predicate ====="; bash test_autotest_predicate.sh || rc=1
+echo; echo "===== backlog eligibility ====="; bash test_backlog_eligibility.sh || rc=1
+echo; echo "===== churn remove restore ====="; bash test_churn_remove_restore.sh || rc=1
+echo; echo "===== coverage cron noise ====="; bash test_coverage_cron_noise.sh || rc=1
+echo; echo "===== credit refused park ====="; bash test_credit_refused_park.sh || rc=1
+echo; echo "===== delete intent ====="; bash test_delete_intent.sh || rc=1
+echo; echo "===== evidence freshness ====="; bash test_evidence_freshness.sh || rc=1
+echo; echo "===== executor hook ====="; bash test_executor_hook.sh || rc=1
+echo; echo "===== fixup gates e2e ====="; bash test_fixup_gates_e2e.sh || rc=1
+echo; echo "===== fixup own test placeholder ====="; bash test_fixup_own_test_placeholder.sh || rc=1
+echo; echo "===== fixup undid item ====="; bash test_fixup_undid_item.sh || rc=1
+echo; echo "===== git sync failure ====="; bash test_git_sync_failure.sh || rc=1
+echo; echo "===== gut error ratchet ====="; bash test_gut_error_ratchet.sh || rc=1
+echo; echo "===== gut missing target ====="; bash test_gut_missing_target.sh || rc=1
+echo; echo "===== idle skip dedupe ====="; bash test_idle_skip_dedupe.sh || rc=1
+echo; echo "===== item guard stage billing ====="; bash test_item_guard_stage_billing.sh || rc=1
+echo; echo "===== landed uncredited ====="; bash test_landed_uncredited.sh || rc=1
+echo; echo "===== lint coverage delta ====="; bash test_lint_coverage_delta.sh || rc=1
+echo; echo "===== local research covered ====="; bash test_local_research_covered.sh || rc=1
+echo; echo "===== notify idle lane ====="; bash test_notify_idle_lane.sh || rc=1
+echo; echo "===== ovn doc executor ====="; bash test_ovn_doc_executor.sh || rc=1
+echo; echo "===== ovn ghost tests ====="; bash test_ovn_ghost_tests.sh || rc=1
+echo; echo "===== ovn mutation supply ====="; bash test_ovn_mutation_supply.sh || rc=1
+echo; echo "===== ovn spec classify ====="; bash test_ovn_spec_classify.sh || rc=1
+echo; echo "===== ovn spec gate scan ====="; bash test_ovn_spec_gate_scan.sh || rc=1
+echo; echo "===== ovn spec rules ====="; bash test_ovn_spec_rules.sh || rc=1
+echo; echo "===== parked pattern ====="; bash test_parked_pattern.sh || rc=1
+echo; echo "===== path normalize big list ====="; bash test_path_normalize_big_list.sh || rc=1
+echo; echo "===== pipeline audit restart gap ====="; bash test_pipeline_audit_restart_gap.sh || rc=1
+echo; echo "===== planner prompt golden ====="; bash test_planner_prompt_golden.sh || rc=1
+echo; echo "===== promote tree identical ====="; bash test_promote_tree_identical.sh || rc=1
+echo; echo "===== qa ledger uncredited ====="; bash test_qa_ledger_uncredited.sh || rc=1
+echo; echo "===== qa staging e2e ====="; bash test_qa_staging_e2e.sh || rc=1
+echo; echo "===== queue refill gate ====="; bash test_queue_refill_gate.sh || rc=1
+echo; echo "===== research trigger monotonic ====="; bash test_research_trigger_monotonic.sh || rc=1
+echo; echo "===== retire vague uid ====="; bash test_retire_vague_uid.sh || rc=1
+echo; echo "===== stage godot seed ====="; bash test_stage_godot_seed.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

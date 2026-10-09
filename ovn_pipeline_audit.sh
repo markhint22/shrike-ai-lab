@@ -20,8 +20,8 @@ set -uo pipefail
 cd "$HOME/overnight-queue" || exit 1
 QUIET=0; [ "${1:-}" = "--quiet" ] && QUIET=1
 
-CRIT=0; WARN=0; OK=0
-crit(){ echo "  [CRIT] $*"; CRIT=$((CRIT+1)); }
+CRIT=0; WARN=0; OK=0; CRIT_LINES=()
+crit(){ echo "  [CRIT] $*"; CRIT=$((CRIT+1)); CRIT_LINES+=("$*"); }
 warn(){ echo "  [WARN] $*"; WARN=$((WARN+1)); }
 pass(){ OK=$((OK+1)); [ "$QUIET" = 1 ] || echo "  [ OK ] $*"; }
 section(){ echo; echo "== $* =="; }
@@ -158,11 +158,27 @@ fi
 # ---------------------------------------------------------------------------
 section "6. Core service + connectivity"
 # ---------------------------------------------------------------------------
-if systemctl is-active --quiet overnight-queue 2>/dev/null; then
-  pass "overnight-queue.service is active"
-else
-  crit "overnight-queue.service is NOT active"
-fi
+# 2026-10-09: `systemctl is-active` prints "activating" (exit 3) for the ~3 s RestartSec gap of the idle restart loop, so 2 of ~11 audit runs
+# raised a false CRIT. activating/reloading (incl. auto-restart) count as alive (a probe that finds active passes; an activating-only run WARNs, never CRITs);
+# only a state that stays dead across every probe is CRIT.
+# OVN_AUDIT_SVC_RETRIES (default 3) probes OVN_AUDIT_SVC_SLEEP (default 5) seconds apart. Kill switch: OVN_AUDIT_RESTART_GAP_OK=0 (activating counts as
+# dead again) together with OVN_AUDIT_SVC_RETRIES=1 is exactly the old single `is-active` probe.
+svc_state=""; svc_i=0
+while [ "$svc_i" -lt "${OVN_AUDIT_SVC_RETRIES:-3}" ]; do
+  svc_i=$((svc_i+1))
+  svc_state="$(systemctl is-active overnight-queue 2>/dev/null)" && svc_state="${svc_state:-active}"
+  case "$svc_state" in active) break;; esac   # activating/reloading keep probing: a restart gap clears to active within a probe or two, a crash loop does not
+  [ "$svc_i" -lt "${OVN_AUDIT_SVC_RETRIES:-3}" ] && sleep "${OVN_AUDIT_SVC_SLEEP:-5}"
+done
+case "$svc_state" in
+  active) pass "overnight-queue.service is active";;
+  activating|reloading) if [ "${OVN_AUDIT_RESTART_GAP_OK:-1}" != 0 ]; then
+                          # never active in any probe: not down (so no CRIT/push), but too long for a 3 s RestartSec gap = possible crash loop; not a silent pass
+                          nr="$(systemctl show -p NRestarts overnight-queue 2>/dev/null | sed -n 's/^NRestarts=//p')"
+                          warn "overnight-queue.service stayed '$svc_state' for all ${svc_i} probes (restart loop? NRestarts=${nr:-?}) - not down, but never seen active"
+                        else crit "overnight-queue.service is NOT active (state: $svc_state after ${svc_i} probes)"; fi;;
+  *) crit "overnight-queue.service is NOT active (state: ${svc_state:-unknown} after ${svc_i} probes)";;
+esac
 # LiteLLM requires an API key, so /health legitimately returns 401 when the service is UP.
 # "Reachable" means we got ANY HTTP response, not specifically a 2xx.
 litellm_code="$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' http://localhost:4000/health 2>/dev/null)"
@@ -232,4 +248,19 @@ echo
 echo "===================================================================="
 echo "Pipeline audit: $OK OK, $WARN warnings, $CRIT critical"
 echo "===================================================================="
+# 2026-10-09: the CRITICAL push used to live ONLY in the crontab line (`|| curl ... https://ntfy.sh/...`), which bypassed the notification relay
+# (policy: the relay pushes emergencies + one hourly update; direct ntfy.sh posts burn the shared per-IP quota). Post it here through the relay
+# at "$NTFY_SERVER/$topic" (cron exports NTFY_SERVER=<relay>); priority urgent = relay emergency. There is NO direct ntfy.sh fallback: with
+# NTFY_SERVER unset/empty (an interactive `bash ovn_pipeline_audit.sh`, systemd, any other caller) nothing is pushed, the CRIT lines are only
+# appended to state/alerts.log. OVN_AUDIT_NOTIFY=0 disables the push. The cron line's own `|| curl` is dropped by the deploy step.
+if [ "$CRIT" -gt 0 ] && [ "${OVN_AUDIT_NOTIFY:-1}" != 0 ]; then
+  if [ -n "${NTFY_SERVER:-}" ]; then
+    curl -fsS --max-time 8 -H "Title: Pipeline audit found CRITICAL issues" -H "Tags: rotating_light" -H "Priority: urgent" \
+      -d "$(printf '%s\n' "${CRIT_LINES[@]}" | tail -c 1500)" "${NTFY_SERVER}/${NTFY_TOPIC:-shrike_ovn_311380987a}" >/dev/null 2>&1 \
+      || printf '%s crit | pipeline_audit | %s (relay at NTFY_SERVER unreachable: push FAILED)\n' "$(date '+%F %T')" "$(printf '%s; ' "${CRIT_LINES[@]}" | tail -c 600)" >> "$PWD/state/alerts.log" 2>/dev/null || true
+  else
+    mkdir -p "$PWD/state" 2>/dev/null
+    printf '%s crit | pipeline_audit | %s (no NTFY_SERVER: not pushed)\n' "$(date '+%F %T')" "$(printf '%s; ' "${CRIT_LINES[@]}" | tail -c 600)" >> "$PWD/state/alerts.log" 2>/dev/null || true
+  fi
+fi
 [ "$CRIT" -eq 0 ]

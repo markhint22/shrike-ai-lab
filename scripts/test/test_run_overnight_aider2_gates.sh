@@ -212,7 +212,7 @@ ok "T: second guard logged" 'logged "VERIFY-SKIP GUARD (post-fixup)"'
 setup_pytest_repo(){ # $1 = pytest exit code
   seed_add backend/app_mod.py 'def f():\n    return 1\n'
   seed_add backend/.venv/bin/pytest "#!/bin/sh\nexit $1\n" 755
-  seed_add backend/.venv/bin/ruff '#!/bin/sh\necho "app_mod.py:1:1: E501 too long"\necho "app_mod.py:2:1: F401 unused"\nexit 1\n' 755
+  seed_add backend/.venv/bin/ruff '#!/bin/sh\n# 2026-10-09: lint is a before/after DELTA now - only the NEW test file draws findings (a constant-output stub would show no net change on the modified app_mod.py)\ncase " $* " in *test_mod.py*) echo "test_mod.py:1:1: E501 too long"; echo "test_mod.py:2:1: F401 unused";; esac\nexit 1\n' 755
   seed_add web/node_modules/.bin/eslint '#!/bin/sh\necho "/x/a.js:1:2: Error - bad (no-undef)"\nexit 1\n' 755
 }
 mk_case rg_suspect
@@ -263,7 +263,8 @@ ok "direct: coverage check sees untested new def" '[ "$(cd "$REPO" && run_covera
 ok "direct: coverage check ok when tests changed" '[ "$(cd "$REPO" && run_coverage_check "$B1" "$B2")" = ok ]'
 ok "direct: coverage ok when no defs" '[ "$(cd "$REPO" && run_coverage_check "$B2" "$B2")" = ok ]'
 printf '#!/bin/sh\necho "a.py:1:1: E1 x"\necho "a.py:2:1: E2 y"\n' > "$HOME/aider-venv/bin/ruff"; chmod +x "$HOME/aider-venv/bin/ruff"
-ok "direct: lint via PATH ruff counts findings (2)" '[ "$(cd "$REPO" && run_lint_check "$B0" "$B1")" = 2 ]'
+ok "direct: lint via PATH ruff counts findings (2) [OVN_LINT_DELTA=off = the old absolute count]" '[ "$(cd "$REPO" && OVN_LINT_DELTA=off run_lint_check "$B0" "$B1")" = 2 ]'
+ok "direct: lint delta: a constant-output ruff on a MODIFIED file adds no net finding (0) - 2026-10-09 harness-credit-integrity item 13" '[ "$(cd "$REPO" && run_lint_check "$B0" "$B1")" = 0 ]'
 rm -f "$HOME/aider-venv/bin/ruff"
 ok "direct: lint 0 when no python/js changed" '[ "$(cd "$REPO" && run_lint_check "$B2" "$B2")" = 0 ]'
 

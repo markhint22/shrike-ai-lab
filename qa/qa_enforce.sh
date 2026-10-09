@@ -49,6 +49,13 @@ try:
     print("%-14s %-8s source=%-7s promote-time (promote_to_prod.sh): %s" % (pg.GATE, pm, psrc if psrc != "default" else "default(enforce)", "blocks a repo with a staging backend on FAIL / stale evidence" if pm == "enforce" else "log only"))
 except Exception as ex:
     print("staging_check  ?        promote_gate unavailable: %s" % type(ex).__name__)
+# promote-time live-staging e2e evidence (QA-N1, 2026-10-09): SHADOW by default; enforce blocks only a commit-matched, fresh FAIL
+try:
+    em, esrc = qc.mode_source("staging_e2e")
+    elast = last.get("staging_e2e")
+    print("%-14s %-8s source=%-7s promote-time (promote_to_prod.sh): %s; last change: %s" % ("staging_e2e", em, esrc, "blocks ONLY a FAIL of the commit under promote (< 12 h old)" if em == "enforce" else "evidence line only, never blocks", ("%s -> %s by %s at %s" % (elast.get("from"), elast.get("to"), elast.get("who"), elast.get("ts"))) if elast else "never (default)"))
+except Exception as ex:
+    print("staging_e2e    ?        unavailable: %s" % type(ex).__name__)
 bd = os.path.join(qc.state_dir(), "qa_blocked")
 try:
     for f in sorted(os.listdir(bd)):
@@ -74,7 +81,8 @@ PY
     case "$g" in ""|*[!a-z0-9_-]*) echo "qa_enforce: bad gate name '$g'" >&2; exit 2;; esac
     # refuse to enforce a gate that is not installed (a typo must not look like a successful flip); shadow/off are always allowed (rollback)
     # staging_check is a PROMOTE-time gate (qa/promote_gate.py), not a gate_*.py hygiene gate
-    if [ "$m" = enforce ] && [ ! -f "$GD/gate_$g.py" ] && ! { [ "$g" = staging_check ] && [ -f "$HERE/promote_gate.py" ]; }; then echo "qa_enforce: no such gate: $GD/gate_$g.py" >&2; exit 2; fi
+    # staging_e2e is promote-time too (promote_gate.py reads the live-staging e2e evidence)
+    if [ "$m" = enforce ] && [ ! -f "$GD/gate_$g.py" ] && ! { { [ "$g" = staging_check ] || [ "$g" = staging_e2e ]; } && [ -f "$HERE/promote_gate.py" ]; }; then echo "qa_enforce: no such gate: $GD/gate_$g.py" >&2; exit 2; fi
     QA_WHO="$(who)" QA_G="$g" QA_M="$m" HERE_PY="$HERE" "$PY" - <<'PY' || exit 1
 import os, sys
 sys.path.insert(0, os.environ["HERE_PY"])
@@ -82,5 +90,9 @@ import qa_common as qc
 prev = qc.set_gate_mode(os.environ["QA_G"], os.environ["QA_M"], os.environ["QA_WHO"])
 print("%s: %s -> %s (by %s)" % (os.environ["QA_G"], prev or "default(shadow)", os.environ["QA_M"], os.environ["QA_WHO"]))
 PY
+    if [ "$g" = staging_e2e ]; then
+      [ "$m" = enforce ] && echo "ENFORCING: a FAIL of the live-staging e2e for the commit being promoted (evidence < 12 h old, commit-matched) now holds that repo at promote_to_prod.sh; UNVERIFIED / stale / non-matching evidence never blocks. Rollback: $0 $g shadow"
+      exit 0
+    fi
     [ "$m" = enforce ] && echo "ENFORCING: a FAIL verdict from '$g' now blocks the offending commit(s) at the pre-push step of branch_hygiene.sh. Rollback: $0 $g shadow" ;;
 esac

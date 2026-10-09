@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "repo": "fx",
+  "kind": "handwritten",
+  "collected_at": "2026-10-01T00:00:00Z",
+  "tables": {
+    "users": {
+      "rows": 200,
+      "columns": {
+        "id":    {"null_frac": 0.0, "distinct": 200, "max_len": null},
+        "email": {"null_frac": 0.0, "distinct": 200, "max_len": 60},
+        "name":  {"null_frac": 0.2, "distinct": 150, "max_len": 50}
+      }
+    }
+  }
+}

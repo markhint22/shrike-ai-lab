@@ -18,6 +18,7 @@ usage:  ovn_notify.py serve [--port 8099]
         ovn_notify.py update [--dry-run] [--force]
         ovn_notify.py check  [--dry-run]
 env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIFY_DAILY_CAP (default 40), OVN_NOTIFY_DISABLE=1 (drop all pushes)
+        OVN_IDLE_LINE=0 (no "Lane idle" lines in the hourly update), OVN_IDLE_ALERT=0 (no "Fleet starved" emergency), OVN_IDLE_ALERT_H (default 6)
 """
 import base64
 import email.header
@@ -42,6 +43,9 @@ UPSTREAM = os.environ.get("OVN_NOTIFY_UPSTREAM", "https://ntfy.sh").rstrip("/")
 TOPIC = os.environ.get("NTFY_TOPIC", "shrike_ovn_311380987a")
 DAILY_CAP = int(os.environ.get("OVN_NOTIFY_DAILY_CAP", "40"))
 EMERGENCY_COOLDOWN = 3 * 3600
+IDLE_LANE_S = 30 * 60               # a lane with nothing pullable whose last real attempt is older than this is "idle" (hourly update line)
+STARVED_DEDUP_S = 12 * 3600         # "Fleet starved" is pushed at most once per 12 h
+IDLE_SCAN_BYTES = int(os.environ.get("OVN_IDLE_SCAN_MB", "64")) * 1_000_000   # idle lanes write a skip row every ~3 s: the last real attempt can be far back
 NOTE_WINDOW = 6 * 3600
 LAN = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "::1/128")]
 
@@ -282,6 +286,47 @@ def queue_depths():
     return out
 
 
+def _last_real_attempts():
+    """({repo: epoch of its newest NON-skip outcomes row}, epoch of the oldest row scanned or None). Read as bytes: 2 old rows hold NUL bytes
+    and are simply unparseable; ts is UTC. Skip rows (class "skipped", status "skip(...)") are the idle loop's own heartbeat, not work."""
+    last, first = {}, None
+    try:
+        size = os.path.getsize(_p("outcomes.jsonl"))
+        with open(_p("outcomes.jsonl"), "rb") as f:
+            f.seek(max(0, size - IDLE_SCAN_BYTES))
+            for line in f:
+                if b'"class":"skipped"' in line and first is not None:
+                    continue    # fast path: the bulk of the file; only the very first parseable row is needed from a skip row (lower bound)
+                try:
+                    d = json.loads(line)
+                    t = calendar.timegm(time.strptime(d["ts"][:19], "%Y-%m-%dT%H:%M:%S"))
+                except Exception:
+                    continue
+                if first is None:
+                    first = t
+                if d.get("class") == "skipped" or str(d.get("status", "")).startswith("skip"):
+                    continue
+                if t > last.get(d.get("repo"), 0):
+                    last[d.get("repo")] = t
+    except OSError:
+        pass
+    return last, first
+
+
+def idle_lanes(depths, at=None):
+    """[(repo, idle_seconds)] for active lanes with nothing pullable (depth 0) whose last real attempt is older than IDLE_LANE_S.
+    A lane with no real attempt in the scanned window is idle for at least as long as the window reaches back."""
+    t = at or now()
+    last, first = _last_real_attempts()
+    if first is None:
+        return []   # no outcomes data at all: cannot tell
+    return [(repo, t - last.get(repo, first)) for repo, n in sorted(depths.items()) if n == 0 and t - last.get(repo, first) > IDLE_LANE_S]
+
+
+def _hours(secs):
+    return "%dh" % int(secs // 3600) if secs >= 3600 else "<1h"
+
+
 def _pass_counts(rows):
     """(good, bad) over outcome rows, using the canonical severity axis (benign/skip/error excluded)."""
     good = sum(1 for r in rows if r.get("severity") == "good")
@@ -349,6 +394,11 @@ def compose_update(window=3600, at=None):
     depths = queue_depths()
     low = sorted((v, k) for k, v in depths.items() if v <= 3)
     lines.append("Queues low: " + ", ".join("%s (%d)" % (k, v) for v, k in low) if low else "Queues stocked")
+    # 2026-10-09: both lanes sat idle 11.5 of 36 h without any line saying so (an empty queue never tripped "Fleet stalled", which needs >10 queued items).
+    # OVN_IDLE_LINE=0 turns the line off. Hourly-update text only: no push channel of its own.
+    if os.environ.get("OVN_IDLE_LINE", "1") != "0":
+        for repo, age in idle_lanes(depths, t):
+            lines.append("Lane idle %s: %s" % (_hours(age), repo))
     if recovered:
         lines.append("Back up: " + ", ".join(re.sub(r"^.*?:\s*", "", t) for t in recovered[:4]))
     # 2026-10-08: an EMPTY active queue is the most important thing to know (the lane is idle) and used to hide under an "all good" title.
@@ -406,7 +456,29 @@ def http_ok(url, timeout=5):
         return False
 
 
-def emergency_checks():
+def starved_check(depths, paused, dry=False):
+    """'Fleet starved <N>h': ALL active lanes idle longer than OVN_IDLE_ALERT_H (default 6) AND nothing pullable anywhere, not paused (a pause is
+    deliberate idleness). Deduped to once per 12 h through state/notify_starved_last, which do_check() writes only after the push was 'sent'
+    (a dry run, a capped or a failed push never consume the window). OVN_IDLE_ALERT=0 = off."""
+    if paused or os.environ.get("OVN_IDLE_ALERT", "1") == "0" or not depths:
+        return []
+    # idle_lanes() only lists lanes with nothing pullable, so "every active lane is idle" already means "the queue is empty"
+    idle = idle_lanes(depths)
+    thr = float(os.environ.get("OVN_IDLE_ALERT_H", "6")) * 3600
+    if len(idle) != len(depths) or not all(age > thr for _, age in idle):
+        return []
+    try:
+        if now() - float(open(_p("notify_starved_last")).read().strip()) < STARVED_DEDUP_S:
+            return []
+    except (OSError, ValueError):
+        pass
+    # the dedupe marker is NOT written here: do_check() writes it only after forward() returned 'sent' (a capped / failed push must not
+    # consume the 12 h window, the emergency would be lost until it expires)
+    return [("🚨 Fleet starved %s" % _hours(min(age for _, age in idle)),
+             "Every active lane (%s) has been idle for more than %g h and nothing is queued. The fleet needs new work, it will not recover on its own." % (", ".join(sorted(depths)), thr / 3600))]
+
+
+def emergency_checks(dry=False):
     """Return [(title, body)] for conditions that warrant an immediate push."""
     out = []
     llm = os.environ.get("OVN_LLM_HEALTH_URL", "http://127.0.0.1:4000/health/readiness")
@@ -417,6 +489,7 @@ def emergency_checks():
     depths = queue_depths()
     if _bad_since("stalled", (not paused) and sum(depths.values()) > 10 and not any(r.get("class") == "landed" for r in rows), 0):
         out.append(("🚨 Fleet stalled 3h", "Nothing has landed in 3 hours although work is queued and the fleet is not paused."))
+    out.extend(starved_check(depths, paused, dry))
     try:
         du = shutil.disk_usage(ROOT)
         if du.used / du.total >= 0.92:
@@ -426,10 +499,18 @@ def emergency_checks():
     return out
 
 
+def mark_starved_sent():
+    os.makedirs(STATE, exist_ok=True)
+    open(_p("notify_starved_last"), "w").write(str(now()))
+
+
 def do_check(dry=False):
     res = []
-    for title, body in emergency_checks():
-        res.append("%s -> %s" % (title, forward(title, body, "urgent", "rotating_light", kind="emergency", dry=dry)))
+    for title, body in emergency_checks(dry=dry):
+        r = forward(title, body, "urgent", "rotating_light", kind="emergency", dry=dry)
+        if r == "sent" and title.startswith("🚨 Fleet starved"):
+            mark_starved_sent()
+        res.append("%s -> %s" % (title, r))
     return "\n".join(res) or "no emergencies"
 
 

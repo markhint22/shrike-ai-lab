@@ -110,6 +110,12 @@ for r in $REPOS; do
               -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -120)"
   [ -z "$layout" ] && { say "$r: no source layout found — skip"; continue; }
 
+  # 2026-10-09 (spec-compiler-v2): two prompt rules that stop the two spec shapes that could never land (verification-only items; deleting a definition before its
+  # references are gone - 10 remove/restore commits in 8 minutes on the enemy_faction_map batch). OVN_PLANNER_SPEC_RULES=off drops them (prompt byte-identical to before).
+  _spec_rules=""
+  if [ "${OVN_PLANNER_SPEC_RULES:-on}" != off ]; then
+    _spec_rules=$'\n- An item that only Verifies/Ensures/Checks is forbidden: every item must change code or tests.\n- For a Delete feature the FIRST items remove every reference to the symbol outside its definition (tests included); the LAST item deletes the definition.'
+  fi
   read -r -d '' PROMPT <<PROMPT_END || true
 You decompose a product FEATURE into small, self-verifying backlog items for an autonomous coding fleet (a 27B model driving aider). Output ONLY the item lines — no preamble, no prose.
 
@@ -132,7 +138,7 @@ Hard rules:
   (iptv_apps: iptv-backend/tests/ only; xlite: tests/ only, never test/).
 - Do NOT invent a new generic helper function (coercion, casting, formatting) in an unrelated file. Put the change
   INLINE in the function the FEATURE names, and write at most ONE test file per behaviour (no near-duplicate tests).
-- Do not add a step that only casts values already typed as int/str; every step must change observable behaviour.
+- Do not add a step that only casts values already typed as int/str; every step must change observable behaviour.${_spec_rules}
 - category is one of: python, typescript, vue, godot, endpoint, schema, test, docs, refactor.
 - No secrets, no deploy/DNS/keys (those are human tasks — skip them).
 PROMPT_END
@@ -202,6 +208,17 @@ PROMPT_END
     [ -s "$_gg_log" ] && say "$r: $(tr '\n' ' ' < "$_gg_log" | cut -c1-600)"
     rm -f "$_gg_log"
     n=$(printf '%s\n' "$items" | grep -c '^- \[ \]')
+  fi
+  # 2026-10-09 spec gate lint (spec-compiler-v2): static repairs R01-R03 (bare VERIFY -> backticked, vacuous echo idiom, narrated "fails") on the decomposition,
+  # only for the rules named in OVN_SPEC_GATE_ENFORCE_RULES (default empty: it just reports what it would repair); OVN_SPEC_GATE=off skips it. Same fail-safe
+  # contract as the guards above: a missing/crashing lint can never lose or alter a decomposition (it echoes its input on any error, and an empty answer is ignored).
+  _spec_gate="$HOME/overnight-queue/scripts/ovn_spec_gate.py"
+  if [ -f "$_spec_gate" ]; then
+    _sg_log="$(mktemp)"
+    _sg_out="$(printf '%s\n' "$items" | python3 "$_spec_gate" lint "repos/$r" 2>"$_sg_log")"
+    [ -n "$_sg_out" ] && items="$_sg_out"
+    [ -s "$_sg_log" ] && say "$r: $(tr '\n' ' ' < "$_sg_log" | cut -c1-600)"
+    rm -f "$_sg_log"
   fi
   # 2026-09-20 feature tracking: tag every item this feature decomposes into with a durable
   # [feat:ID] marker so a % complete / completion notification can be computed later (see

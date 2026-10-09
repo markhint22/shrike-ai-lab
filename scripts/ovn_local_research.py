@@ -16,7 +16,8 @@ Accepted items are appended to roadmap/<repo>.md as [ready] under a header that 
 drafts, and committed (that one file only). Nothing here touches code.
 
 usage: ovn_local_research.py <repo> [--dry-run] [--force] [--max N] [--evidence-only]
-env:   OVN_DIR (default ~/overnight-queue), LITELLM_BASE, LITELLM_MASTER_KEY, OVN_MODEL
+env:   OVN_DIR (default ~/overnight-queue), LITELLM_BASE, LITELLM_MASTER_KEY, OVN_MODEL,
+       OVN_LR_COVERED_MODE=open|legacy (default open: evidence is covered only by an OPEN line naming the same file AND symbol/line)
 exit:  0 always (research is best-effort); prints one summary line.
 """
 import datetime
@@ -198,6 +199,121 @@ def collect(root, skip=None):
     return out
 
 
+# ---------------------------------------------------------------- coverage (2026-10-09)
+# The old rule `e["file"] in roadmap_text` treated a file as covered if ANY roadmap line, of ANY status, ever named it. iptv_apps' 171 untested-function
+# and 10 unlimited-router findings were all "covered" by [x]/[decomposed] lines about other work in the same file, so every pass logged
+# "only 1 piece(s) of evidence - nothing to research" while the gaps were real. An evidence item is now covered only by an OPEN line that names the same
+# file AND the same symbol (or a line range containing the evidence line).
+HELD_RE = re.compile(r"HUMAN-ONLY|AUTO-SKIP|\(retired-")
+ROADMAP_LINE_RE = re.compile(r"^- \[( |x|X)\] \[P[1-4]\] \[([a-z-]+)\] (.*)$")
+OPEN_STATUSES = {"ready", "needs-research", "needs-decompose"}
+DECOMPOSED_GRACE_S = 24 * 3600
+# evidence kinds that carry no symbol of their own: an open line naming the file AND talking about the same kind of problem covers them
+KIND_WORDS = {
+    "no-rate-limit": r"rate.?limit|throttl|limiter",
+    "swallowed-exception": r"swallow|silent|bare .?pass|except",
+    "uncoerced-load": r"coerc|clamp|json|load",
+    "todo": r"todo|fixme",
+}
+
+
+def feat_slug(feature_text):
+    """The slug ovn_planner.sh puts in a [feat:<repo>-<YYYYMMDD>-<slug>] tag: lowercase, non-alnum runs -> '-', trimmed, first 40 chars."""
+    s = re.sub(r"[^a-z0-9]+", "-", feature_text.lower()).strip("-")[:40]
+    return s or "item"
+
+
+def decomposed_state(feature_text, feat_text, now):
+    """(has_open_subitems, decomposed_within_24h) for a [decomposed] roadmap feature, found through its [feat:...] tag in backlog/progress text."""
+    pat = re.compile(r"\[feat:[^\]\s]*-(\d{8})-%s\]" % re.escape(feat_slug(feature_text)))
+    open_sub, newest = False, None
+    for l in feat_text.split("\n"):
+        m = pat.search(l)
+        if not m:
+            continue
+        if l.lstrip().startswith("- [ ]") and not HELD_RE.search(l):
+            open_sub = True
+        try:
+            ts = datetime.datetime.strptime(m.group(1), "%Y%m%d").timestamp()
+        except ValueError:
+            continue
+        newest = ts if newest is None else max(newest, ts)
+    # the tag carries a DATE, not a time: only a same-day decomposition can be shown to be younger than 24h
+    return open_sub, (newest is not None and now - newest < DECOMPOSED_GRACE_S)
+
+
+def open_lines(text, feat_text="", now=None):
+    """Lines of `text` (roadmap + backlog + progress, concatenated) that still represent OPEN work.
+    roadmap lines `- [ ] [P#] [status] ...`: ready / needs-research / needs-decompose are open; done and `- [x]` are not; [decomposed] is open only while a
+    sub-item carrying its [feat:] tag is still open in feat_text (backlog/progress), or was decomposed less than 24h ago (grace for items still being
+    written/queued). Any other `- [ ]` line (backlog/progress T-items) is open unless held (HUMAN-ONLY / AUTO-SKIP / retired)."""
+    now = time.time() if now is None else now
+    out = []
+    for l in text.split("\n"):
+        m = ROADMAP_LINE_RE.match(l)
+        if m:
+            box, status, rest = m.groups()
+            if box != " ":
+                continue
+            if status in OPEN_STATUSES:
+                out.append(l)
+            elif status == "decomposed":
+                open_sub, recent = decomposed_state(rest, feat_text, now)
+                if open_sub or recent:
+                    out.append(l)
+            continue
+        if l.startswith("- [ ]") and not HELD_RE.search(l):
+            out.append(l)
+    return out
+
+
+def evidence_symbols(e):
+    """Names an open line must mention to be about THIS gap: backticked identifiers, `class X`, `.get("key")`, the assigned variable."""
+    t = e.get("text", "")
+    syms = set(re.findall(r"`([A-Za-z_][\w.]*)`", t))
+    syms.update(re.findall(r"\bclass (\w+)", t))
+    syms.update(re.findall(r"\.get\(\"(\w+)\"", t))
+    m = re.match(r"\s*(?:var )?(\w+)\s*(?::=|=)", t)
+    if m:
+        syms.add(m.group(1))
+    return {s for s in syms if len(s) > 1}
+
+
+def line_covers(line, e):
+    line = re.sub(r"\[feat:[^\]]*\]", "", line)  # the tag embeds a slug of the parent feature's title: not evidence that THIS line is about the symbol
+    f = e["file"]
+    if f not in line:
+        return False
+    for m in re.finditer(re.escape(f) + r":(\d+)(?:-(\d+))?", line):
+        lo = int(m.group(1))
+        hi = int(m.group(2)) if m.group(2) else lo
+        if lo <= e["line"] <= hi:
+            return True
+    syms = evidence_symbols(e)
+    if syms:
+        return any(re.search(r"(?<![\w])%s(?![\w])" % re.escape(s), line) for s in syms)
+    kw = KIND_WORDS.get(e.get("kind"))
+    return bool(kw and re.search(kw, line, re.I))
+
+
+def make_covered(mode, roadmap_text, backlog_text="", progress_text="", now=None, stats=None):
+    """skip(e) for collect(). mode 'legacy' = old rule (file named anywhere in the roadmap); 'open' (default) = see above."""
+    stats = stats if stats is not None else {}
+    if mode == "legacy":
+        def covered(e):
+            hit = e["file"] in roadmap_text
+            stats["covered"] = stats.get("covered", 0) + (1 if hit else 0)
+            return hit
+        return covered
+    lines = open_lines(roadmap_text + "\n" + backlog_text + "\n" + progress_text, backlog_text + "\n" + progress_text, now)
+
+    def covered(e):
+        hit = any(line_covers(l, e) for l in lines if e["file"] in l)
+        stats["covered"] = stats.get("covered", 0) + (1 if hit else 0)
+        return hit
+    return covered
+
+
 # ---------------------------------------------------------------- model + gates
 def existing_titles(roadmap_text):
     titles = []
@@ -309,17 +425,21 @@ def main(argv):
         if int(read(cnt) or 0) >= MAX_PER_DAY:
             print("%s: daily cap reached - skip" % repo)
             return 0
-    # 2026-10-07: evidence whose file the roadmap already names (any status) is covered - without this the same top evidence is re-proposed every pass,
-    # the validator drops the duplicates, and the rest of the evidence is never reached.
-    def covered(e):
-        return e["file"] in roadmap_text
+    # 2026-10-07: covered evidence is dropped before the MAX_EVIDENCE cap - without this the same top evidence is re-proposed every pass, the validator
+    # drops the duplicates, and the rest of the evidence is never reached.
+    # 2026-10-09: "covered" now means an OPEN roadmap/backlog/progress line names the same file AND symbol/line; OVN_LR_COVERED_MODE=legacy restores the
+    # old rule (any line of any status names the file).
+    mode = os.environ.get("OVN_LR_COVERED_MODE", "open")
+    stats = {}
+    covered = make_covered(mode, roadmap_text, read(os.path.join(OVN_DIR, "backlog", repo + ".md")),
+                           read(os.path.join(root, "OVERNIGHT_PROGRESS.md")), stats=stats)
     evidence = collect(root, skip=covered)
     if "--evidence-only" in flags:
         for e in evidence:
             print("[%s] %s:%d %s" % (e["kind"], e["file"], e["line"], e["text"]))
         return 0
     if len(evidence) < 2:
-        print("%s: only %d piece(s) of evidence - nothing to research" % (repo, len(evidence)))
+        print("%s: only %d piece(s) of evidence - nothing to research (%d finding(s) covered by open lines, mode=%s)" % (repo, len(evidence), stats.get("covered", 0), mode))
         open(marker, "w").write(str(time.time()))
         return 0
     try:

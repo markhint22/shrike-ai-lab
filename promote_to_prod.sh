@@ -74,6 +74,8 @@ for repo in "${args[@]}"; do
   echo "=================================================================="
   echo "$name: develop is +$ahead ahead of $DEF"
   [ "${ahead:-0}" -eq 0 ] && { echo "  nothing to promote."; continue; }
+  # 2026-10-09: develop "+1" that is only a tree-identical reconcile/sync commit used to create an empty "release: promote" merge + a prod deploy every day. OVN_PROMOTE_SKIP_IDENTICAL=0 = old behaviour; --force still promotes.
+  [ "${OVN_PROMOTE_SKIP_IDENTICAL:-1}" != "0" ] && [ "$FORCE" -ne 1 ] && git -C "$repo" diff --quiet "origin/$DEF" origin/develop 2>/dev/null && { echo "  nothing to promote (tree identical)."; continue; }
   git -C "$repo" log --oneline "origin/$DEF..origin/develop" | sed 's/^/    /' | head -20
   echo "  files:"; git -C "$repo" diff --stat "origin/$DEF..origin/develop" | tail -12 | sed 's/^/    /'
 

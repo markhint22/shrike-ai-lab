@@ -279,6 +279,39 @@ ok "env.py mentioning async_engine_from_config -> sqlite+aiosqlite:/// URL" "$(s
 ok "an existing ANTHROPIC_API_KEY is preserved (setdefault, not overwrite)" "$([ "$(sed -n 2p "$OVN_REC")" = "'sk-keep'" ] && echo 1 || echo 0)"
 ok "async-flavour project still generates/validates fine (NODRIFT on a clean project)" "$( ( cd "$P" && "$PYX" "$PYS" --message x >/dev/null 2>&1; [ $? = 10 ] ) && echo 1 || echo 0)"
 
+# ---- REFUSE: columns whose type op.add_column cannot create on PostgreSQL (2026-10-02) ----
+# sa.Enum add_column replays on SQLite but on postgresql alembic emits no CREATE TYPE -> prod upgrade fails.
+pgcase() {  # $1 label  $2 model column line  $3 extra import  $4 expected-REFUSE-regex
+  local P out rc; P="$(mkproj sync normal good)"
+  python3 - "$P/app/models.py" "$2" "$3" <<'PY'
+import sys; p,line,imp=sys.argv[1:4]; s=open(p).read()
+if imp: s=imp+"\n"+s
+open(p,"w").write(s+"    "+line+"\n")
+PY
+  out="$(runpy "$P" --message "pg $1")"; rc=$?
+  ok "$1 add_column -> 'REFUSE add_column items.k type ...', exit 11, no file" "$([ $rc = 11 ] && printf '%s' "$out" | grep -Eq "^REFUSE add_column items.k type $4" && [ "$(nver "$P")" = 1 ] && echo 1 || echo "0: rc=$rc $out")"
+}
+pgcase "sa.Enum" 'k = Column(Enum("a", "b", name="kindenum"), nullable=True)' "from sqlalchemy import Enum" 'Enum \(needs CREATE TYPE'
+pgcase "python enum.Enum" 'k = Column(Enum(_PE), nullable=True)' $'import enum\nfrom sqlalchemy import Enum\nclass _PE(enum.Enum):\n    a = 1\n    b = 2' 'Enum \(needs CREATE TYPE'
+pgcase "postgresql JSONB" 'k = Column(JSONB, nullable=True)' "from sqlalchemy.dialects.postgresql import JSONB" 'JSONB \(dialect-specific'
+pgcase "ARRAY" 'k = Column(ARRAY(String(5)), nullable=True)' "from sqlalchemy import ARRAY" 'ARRAY \(postgresql-only'
+pgcase "Enum behind with_variant" 'k = Column(String(5).with_variant(Enum("a", "b", name="ve"), "postgresql"), nullable=True)' "from sqlalchemy import Enum" 'Enum \(needs CREATE TYPE'
+# benign: portable types still generate; an Enum inside a NEW table is fine (create_table fires CREATE TYPE itself)
+P="$(mkproj sync normal good)"; python3 - "$P/app/models.py" <<'PY'
+import sys; p=sys.argv[1]
+s=open(p).read().replace("import Column, Integer, String","import Column, Integer, String, JSON, Boolean, DateTime, Numeric, Text")
+open(p,"w").write(s+"    j = Column(JSON, nullable=True)\n    b = Column(Boolean, nullable=True)\n    d = Column(DateTime, nullable=True)\n    n = Column(Numeric(10, 2), nullable=True)\n    t = Column(Text, nullable=True)\n")
+PY
+out="$(runpy "$P" --message portable)"; rc=$?
+ok "benign: portable JSON/Boolean/DateTime/Numeric/Text columns still GENERATED (exit 0)" "$([ $rc = 0 ] && printf '%s' "$out" | grep -q '^GENERATED' && echo 1 || echo "0: $out")"
+P="$(mkproj sync normal good)"; python3 - "$P/app/models.py" <<'PY'
+import sys; p=sys.argv[1]
+s=open(p).read().replace("import Column, Integer, String","import Column, Integer, String, Enum")
+open(p,"w").write(s+'class Other(Base):\n    __tablename__ = "others"\n    id = Column(Integer, primary_key=True)\n    kind = Column(Enum("a", "b", name="otherkind"), nullable=True)\n')
+PY
+out="$(runpy "$P" --message newtable)"; rc=$?
+ok "benign: Enum column inside a brand-new table (create_table) is still GENERATED" "$([ $rc = 0 ] && printf '%s' "$out" | grep -q '^GENERATED' && echo 1 || echo "0: $out")"
+
 # ---- leak check ----
 left="$(ls "$TMPDIR" | grep -c '^ovn-autogen-')"
 kb "each run leaves its mkdtemp dir (ovn-autogen-XXXX with autogen.db) behind in \$TMPDIR; it is never removed (ovn_alembic_autogen.py:tempfile.mkdtemp, no cleanup on any exit path) - ${left} leaked over this test run" "$([ "$left" = 0 ] && echo 1 || echo 0)"

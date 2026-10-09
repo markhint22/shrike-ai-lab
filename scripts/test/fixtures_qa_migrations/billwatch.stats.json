@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "repo": "billwatch",
+  "kind": "handwritten",
+  "collected_at": "2026-10-01T00:00:00Z",
+  "_comment": "HAND-WRITTEN test fixture shaped like a small production billwatch (invented numbers, no real data). Replace with `prodshape.py collect` output for real runs.",
+  "tables": {
+    "users": {"rows": 400, "columns": {
+      "email": {"null_frac": 0.0, "distinct": 400, "max_len": 64},
+      "display_name": {"null_frac": 0.35, "distinct": 230, "max_len": 40},
+      "address": {"null_frac": 0.6, "distinct": 150, "max_len": 120},
+      "stripe_customer_id": {"null_frac": 0.9, "distinct": 40, "max_len": 18},
+      "tier": {"null_frac": 0.0, "distinct": 3, "max_len": 8}
+    }},
+    "legislators": {"rows": 540, "columns": {
+      "bioguide_id": {"null_frac": 0.0, "distinct": 540, "max_len": 7},
+      "thomas_id": {"null_frac": 0.3, "distinct": 380, "max_len": 5},
+      "district": {"null_frac": 0.2, "distinct": 53, "max_len": null}
+    }},
+    "bills": {"rows": 3000, "columns": {
+      "congress_id": {"null_frac": 0.0, "distinct": 3000, "max_len": 24},
+      "title": {"null_frac": 0.0, "distinct": 2950, "max_len": 900},
+      "short_title": {"null_frac": 0.55, "distinct": 1300, "max_len": 180},
+      "sponsor_bioguide_id": {"null_frac": 0.02, "distinct": 520, "max_len": 7},
+      "status": {"null_frac": 0.0, "distinct": 9, "max_len": 24}
+    }},
+    "bill_summaries": {"rows": 1200, "columns": {
+      "bill_id": {"null_frac": 0.0, "distinct": 900, "max_len": null},
+      "summary": {"null_frac": 0.0, "distinct": 1200, "max_len": 4000},
+      "model": {"null_frac": 0.0, "distinct": 2, "max_len": 40}
+    }},
+    "bill_alerts": {"rows": 250, "columns": {
+      "name": {"null_frac": 0.0, "distinct": 120, "max_len": 60},
+      "keywords": {"null_frac": 0.0, "distinct": 200, "max_len": 200}
+    }},
+    "notifications": {"rows": 5000, "columns": {
+      "bill_id": {"null_frac": 0.4, "distinct": 800, "max_len": null},
+      "title": {"null_frac": 0.0, "distinct": 300, "max_len": 120}
+    }},
+    "topics": {"rows": 25, "columns": {
+      "name": {"null_frac": 0.0, "distinct": 25, "max_len": 40},
+      "slug": {"null_frac": 0.0, "distinct": 25, "max_len": 40}
+    }}
+  }
+}

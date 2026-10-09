@@ -86,7 +86,7 @@ try:
 except FileNotFoundError:
     sys.exit(0)
 
-SKIP_MARK = re.compile(r"AUTO-SKIP|HUMAN-ONLY|BLOCKED", re.I)
+SKIP_MARK = re.compile(r"AUTO-SKIP|HUMAN-ONLY|(?-i:BLOCKED)", re.I)
 
 for tag, b in sorted(batches.items()):
     rows = b["rows"]

@@ -34,4 +34,33 @@ else
   mkdir "$T/ovn/state/qa_shadow.lock.d"; env -i HOME="$HOME" PATH=/usr/bin:/bin QA_LOCK_WAIT=1 bash "$T/ovn/qa/qa_run_shadow.sh" demo x y; rmdir "$T/ovn/state/qa_shadow.lock.d"
 fi
 ok "lock contention skips (does not fail or hang)" "$(tail -1 "$L" | grep -q 'skipping' && echo 1 || echo 0)"
+# 2026-10-02: repo-scoped gates. gate_migrations (docker + postgres) must run only for repos in qa_repos.json, never log an NA row for the rest.
+M="$T/ovn2"; mkdir -p "$M/qa" "$M/state" "$M/logs"; cp "$Q/qa/qa_run_shadow.sh" "$Q/qa/qa_timeout.py" "$M/qa/"
+cat > "$M/qa/gate_migrations.py" <<'PY'
+import json
+print(json.dumps({"verdict":"PASS","gate":"migrations"}))
+PY
+cat > "$M/qa/gate_other.py" <<'PY'
+import json
+print(json.dumps({"verdict":"PASS","gate":"other"}))
+PY
+echo '{"_comment":"x","billwatch":{"backend_dir":"b"}}' > "$M/qa/qa_repos.json"
+ML="$M/logs/qa_shadow.log"
+runm(){ env -i HOME="$HOME" PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:8099 bash -c "cd '$M' && bash qa/qa_run_shadow.sh $1 aaa bbb"; }
+runm billwatch
+ok "registered repo (billwatch): migrations gate ran" "$(grep -q 'billwatch .*migrations: PASS' "$ML" && echo 1 || echo 0)"
+runm xlite
+ok "unregistered repo (xlite): migrations gate skipped, not run" "$(grep -q 'xlite .*migrations: skipped' "$ML" && ! grep -q 'xlite .*migrations: PASS' "$ML" && echo 1 || echo 0)"
+ok "benign: a non-scoped gate still runs for the unregistered repo" "$(grep -q 'xlite .*other: PASS' "$ML" && echo 1 || echo 0)"
+echo '{ this is not json' > "$M/qa/qa_repos.json"; runm gitlark
+ok "unreadable registry fails OPEN (gate runs and reports for itself)" "$(grep -q 'gitlark .*migrations: PASS' "$ML" && echo 1 || echo 0)"
+rm -f "$M/qa/qa_repos.json"; runm gitlark
+ok "missing registry fails OPEN too" "$(grep -c 'gitlark .*migrations: PASS' "$ML" | grep -q '^2$' && echo 1 || echo 0)"
+# the runner exports its timeout cap so gates can budget under it
+cat > "$M/qa/gate_capprobe.py" <<'PY'
+import os, sys
+sys.stderr.write("CAP=%s\n" % os.environ.get("QA_GATE_TIMEOUT"))
+PY
+runm demo
+ok "runner exports QA_GATE_TIMEOUT (default 900) to gates" "$(grep -q 'CAP=900' "$ML" && echo 1 || echo 0)"
 echo "  $P passed, $F failed"; [ "$F" = 0 ]

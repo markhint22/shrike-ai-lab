@@ -81,7 +81,7 @@ if not sys.argv[3:]:
     if _act:
         REPOS = [r for r in REPOS if r in _act]
 
-TOP_EXCLUDE_RE = re.compile(r'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]', re.IGNORECASE)
+TOP_EXCLUDE_RE = re.compile(r'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|(?-i:BLOCKED)|\[CLAUDE\]', re.IGNORECASE)
 PATH_RE = re.compile(r'\[T[1-5]\]\s+([\w./-]+\.\w+)')
 
 

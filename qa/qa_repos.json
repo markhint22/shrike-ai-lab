@@ -1,0 +1,51 @@
+{
+  "_comment": "Registry of repos with an alembic backend, read by qa/gate_migrations.py. Paths are relative to the clone root except 'venv' (relative to backend_dir). 'env' holds NON-SECRET placeholders only; the gate runs repo code with a scrubbed environment plus these values and DATABASE_URL pointing at the throwaway postgres. Verified 2026-10-01 by reading each repo's alembic.ini + alembic/env.py on the GPU box clones.",
+  "billwatch": {
+    "clone": "billwatch",
+    "backend_dir": "billwatch-backend",
+    "alembic_ini": "alembic.ini",
+    "script_location": "alembic",
+    "venv": ".venv",
+    "db_scheme": "postgresql+asyncpg",
+    "env": {},
+    "metadata": "alembic/env.py does `import app.main` then target_metadata = app.database.Base.metadata",
+    "openapi": {"method": "import app.main:app, app.openapi()", "module": "app.main:app"},
+    "notes": "app/database.py builds an ASYNC engine at import, so DATABASE_URL must be asyncpg-flavoured; env.py rewrites it to psycopg2 for alembic (psycopg2-binary is in the venv). The repo dir `billwatch-backend/alembic/` is also a python package that shadows the alembic library if the repo dir is first on sys.path - _migr_helper.py imports alembic before touching sys.path. 2026-09-14 prod 500 (model/DB drift) happened here."
+  },
+  "gitlark": {
+    "clone": "gitlark",
+    "backend_dir": "backend",
+    "alembic_ini": "alembic.ini",
+    "script_location": "alembic",
+    "venv": ".venv",
+    "db_scheme": "postgresql+asyncpg",
+    "env": {},
+    "metadata": "alembic/env.py imports app.core.database.Base plus an explicit list of app.models.* modules",
+    "openapi": {"method": "import app.main:app, app.openapi()", "module": "app.main:app"},
+    "notes": "env.py uses create_async_engine on DATABASE_URL (asyncpg only; venv has no psycopg2). Revision ids are numeric ('024'). Import warns about SECRET_KEY unset (harmless). Known pre-existing drift: String(36) model columns vs UUID migration columns."
+  },
+  "iptv_apps": {
+    "clone": "iptv_apps",
+    "backend_dir": "iptv-backend",
+    "alembic_ini": "alembic.ini",
+    "script_location": "alembic",
+    "venv": ".venv",
+    "db_scheme": "postgresql+asyncpg",
+    "env": {},
+    "metadata": "alembic/env.py does `import app.main` then target_metadata = app.database.Base.metadata",
+    "openapi": {"method": "import app.main:app, app.openapi()", "module": "app.main:app"},
+    "notes": "app.database reads DATABASE_URL and derives a sync psycopg2 URL for alembic. Revision ids are long slugs (e.g. 0004_add_dunning_tracking_columns, 33 chars) which overflow alembic_version.version_num varchar(32) on Postgres (SQLite never notices)."
+  },
+  "test-automation-agent": {
+    "clone": "test-automation-agent",
+    "backend_dir": "backend",
+    "alembic_ini": "alembic.ini",
+    "script_location": "alembic",
+    "venv": ".venv",
+    "db_scheme": "postgresql+asyncpg",
+    "env": {},
+    "metadata": "alembic/env.py does `import app.main` then target_metadata = app.core.database.Base.metadata",
+    "openapi": {"method": "import app.main:app, app.openapi()", "module": "app.main:app"},
+    "notes": "async env.py (async_engine_from_config) -> asyncpg URL. backend/ also holds a stale `venv/` dir; `.venv` is the maintained one. entrypoint.sh swallows a failed upgrade and falls back to create_all(), so a broken chain can hide in prod - exactly why the empty-DB upgrade is gated here."
+  }
+}

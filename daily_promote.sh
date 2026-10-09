@@ -39,7 +39,7 @@ REPOS="${OVN_PROMOTE_REPOS:-billwatch gitlark iptv_apps test-automation-agent xl
 # shellcheck source=./shrike_notify_lib.sh
 [ -f "$DIR/shrike_notify_lib.sh" ] && source "$DIR/shrike_notify_lib.sh"
 
-promoted=""; nothing=""; blocked=""; held=""; unverified=""; transient=""
+promoted=""; nothing=""; blocked=""; held=""; unverified=""; transient=""; identical=""
 # 2026-10-03: a hold whose reason is TRANSIENT (staging deploy of the candidate still BUILDING / staging BEHIND = hygiene merged into develop at :00, same minute as this
 # job, and staging has not deployed it yet) is retried ONCE after OVN_PROMOTE_RETRY_S (default 600; 0 = no retry). The first pass defers the alerts.log WARN + relay
 # note for such holds (OVN_PROMOTE_DEFER_NOTE=1), the retry pass writes them if the hold persists, so a 10-minute catch-up never pages or burns the once-per-candidate note.
@@ -55,6 +55,8 @@ run_repo(){  # $1=repo $2=defer-note(0|1)
   if echo "$out" | grep -q "PROMOTED" && echo "$out" | grep -q '^  \[unverified\]'; then unverified="$unverified $r"; fi
   if   echo "$out" | grep -q "PROMOTED";                 then promoted="$promoted $r"
   elif echo "$out" | grep -qiE "nothing to promote";     then nothing="$nothing $r"
+    # 2026-10-09: develop was +N ahead but tree-identical to main (reconcile/sync commits only): skipped, no empty release merge / prod deploy
+    echo "$out" | grep -q "nothing to promote (tree identical)" && identical="$identical $r"
   elif echo "$out" | grep -q "STAGING-GATE BLOCK";       then held="$held $r"
     echo "$out" | grep -q '^  \[transient-hold\]' && transient="$transient $r"
   else                                                        blocked="$blocked $r"; fi
@@ -74,6 +76,8 @@ fi
 body="Daily prod promote $(date '+%a %H:%M')
 Promoted:${promoted:- none}
 No change:${nothing:- none}"
+[ -n "$identical" ] && body="$body
+No change (tree identical):$identical"
 # 2026-09-28: a promote-BLOCKED repo (gate/conflict) is decision-needed — it stayed on its
 # last-good build and needs a human look — so it gets "high", not the same "default" tier
 # as a routine day where everything promoted cleanly or had nothing to do.

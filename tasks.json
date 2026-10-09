@@ -26,7 +26,7 @@
   {
     "id": "ongoing-billwatch",
     "type": "aider_fix",
-    "enabled": true,
+    "enabled": false,
     "persistent_branch": true,
     "repo": "/home/mhintermeister/overnight-queue/repos/billwatch",
     "prompt": "This is billwatch, a federal legislation tracker. Reading input is fast and cheap here, but each response now generates at ~85 tokens/second and is hard-killed at 600 seconds (~40000 tokens), so you have plenty of room - still ask only for the 1-2 files that actually matter, but write a COMPLETE, correct change; do NOT rush out a half-finished or syntactically broken diff to save budget. the overnight progress log always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: read the project's README, implement one small real improvement, and propose 5-10 future items using NEW: trailers in your commit message (the runner populates the Next Steps list). If it already has a real Next Steps list: pick the single top not-yet-done item (Skip any item whose line is tagged [AUTO-SKIP...], [HUMAN-ONLY...], [BLOCKED ITEM...], or [CLAUDE] (these are parked/escalated to a human, not real work) and pick the first line WITHOUT such a tag instead), ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it if the project has a test setup - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Commit the code with a clear message. Report progress ONLY via commit-message trailers (never edit the overnight progress log yourself - it is read-only, maintained by the runner): add 'DONE: <the exact item text you finished>', 'NEW: <a new item>', and/or 'DECISION: <what and why>' lines at the end of your commit message. Stay on the current branch only - never touch main or develop."
@@ -34,7 +34,7 @@
   {
     "id": "ongoing-gitlark",
     "type": "aider_fix",
-    "enabled": true,
+    "enabled": false,
     "persistent_branch": true,
     "repo": "/home/mhintermeister/overnight-queue/repos/gitlark",
     "prompt": "This is gitlark, an AI-powered code workspace (GitHub OAuth + Claude conversations + workspaces + code review): a FastAPI backend (pytest, in backend/) and a Vue 3 + Vite web app (vitest, in web/). Backend deps live in backend/.venv.\n\nWork the single top not-yet-done item in the overnight progress log Next Steps (Skip any item whose line is tagged [AUTO-SKIP...], [HUMAN-ONLY...], [BLOCKED ITEM...], or [CLAUDE] (these are parked/escalated to a human, not real work) and pick the first line WITHOUT such a tag instead); ask for only the 1-2 files it names.\n\nREPO RULES:\n- Each item is ONE small single-file change. Keep it minimal and keep existing tests green.\n- Verification is FAST and TARGETED: the runner uses backend/.ovn-verify.sh (a smoke set + the changed module test), NOT the slow full suite - so make a clean focused change and let it verify.\n- Add or update a focused test for any NEW behavior you introduce; do NOT author test suites for code you are not changing (skip pure test-coverage items).\n- Backend tests run from backend/ (the repo-root pytest.ini has a coverage gate - ignore it).",
@@ -86,7 +86,7 @@
   {
     "id": "ongoing-test-automation-agent",
     "type": "aider_fix",
-    "enabled": true,
+    "enabled": false,
     "persistent_branch": true,
     "repo": "/home/mhintermeister/overnight-queue/repos/test-automation-agent",
     "prompt": "This is test-automation-agent (SpecPilot), a test automation product. Reading input is fast and cheap here, but each response now generates at ~85 tokens/second and is hard-killed at 600 seconds (~40000 tokens), so you have plenty of room - still ask only for the 1-2 files that actually matter, but write a COMPLETE, correct change; do NOT rush out a half-finished or syntactically broken diff to save budget. the overnight progress log always exists (auto-created as a stub if this is the first run) - read it first. If it still just has the placeholder '(not yet reviewed)' text: read the project's README, implement one small real improvement, and propose 5-10 future items using NEW: trailers in your commit message (the runner populates the Next Steps list). Do not duplicate the existing overnight/2026-08-01/specpilot-railway-404 branch's work (a Railway 404 fix, already pushed separately). If it already has a real Next Steps list: pick the single top not-yet-done item (Skip any item whose line is tagged [AUTO-SKIP...], [HUMAN-ONLY...], [BLOCKED ITEM...], or [CLAUDE] (these are parked/escalated to a human, not real work) and pick the first line WITHOUT such a tag instead), ask to add ONLY the 1-2 specific files that item actually needs (not more), and implement ONLY that one item with a minimal, focused change. Add/update a test for it - this is a testing product, its own test coverage matters - actually run the test suite if you find one and report the real pass/fail result, don't claim untested work was tested. Commit the code with a clear message. Report progress ONLY via commit-message trailers (never edit the overnight progress log yourself - it is read-only, maintained by the runner): add 'DONE: <the exact item text you finished>', 'NEW: <a new item>', and/or 'DECISION: <what and why>' lines at the end of your commit message. Stay on the current branch only - never touch main or develop."
@@ -104,7 +104,7 @@
   {
     "id": "ongoing-shrike-notify",
     "type": "aider_fix",
-    "enabled": true,
+    "enabled": false,
     "persistent_branch": true,
     "repo": "/home/mhintermeister/overnight-queue/repos/shrike-notify",
     "prompt": "This is shrike-notify, a topic-based publish/subscribe notification service (FastAPI, ntfy-style) in the Shrike Dev Kit. Each response streams at ~85 tok/s, hard-killed at 600s, so write COMPLETE correct changes, not rushed broken diffs. the overnight progress log always exists - read it first. It already has a real Next Steps list: pick the single top not-yet-done item (Skip any item whose line is tagged [AUTO-SKIP...], [HUMAN-ONLY...], [BLOCKED ITEM...], or [CLAUDE] (these are parked/escalated to a human, not real work) and pick the first line WITHOUT such a tag instead), ask for ONLY the 1-2 files it needs, and implement ONLY that item with a minimal focused change. The backend is Python/FastAPI at backend/app with tests in backend/tests (pytest, asyncio_mode=auto) - add/update a test and actually run backend/.venv/bin/pytest, reporting the real pass/fail. Commit with a clear message. Report progress ONLY via commit trailers (never edit the overnight progress log): DONE: <exact item text>, NEW: <new item>, DECISION: <what/why>. Stay on the current branch only - never touch main or develop."
@@ -112,7 +112,7 @@
   {
     "id": "ongoing-shrike-monitor",
     "type": "aider_fix",
-    "enabled": true,
+    "enabled": false,
     "persistent_branch": true,
     "repo": "/home/mhintermeister/overnight-queue/repos/shrike-monitor",
     "prompt": "This is shrike-monitor, an uptime + heartbeat (dead-man's-switch) monitoring service (FastAPI) in the Shrike Dev Kit. Each response streams ~85 tok/s, hard-killed at 600s - write COMPLETE correct changes, not rushed broken diffs. the overnight progress log always exists - read it first; it has a real Next Steps list: pick the single top not-yet-done item (Skip any item whose line is tagged [AUTO-SKIP...], [HUMAN-ONLY...], [BLOCKED ITEM...], or [CLAUDE] (these are parked/escalated to a human, not real work) and pick the first line WITHOUT such a tag instead), ask for ONLY the 1-2 files it needs, implement ONLY that item minimally. Backend is Python/FastAPI at backend/app, tests in backend/tests (pytest) - add/update a test and actually run backend/.venv/bin/pytest, report real pass/fail. Commit clearly. Report ONLY via commit trailers (never edit the overnight progress log): DONE:/NEW:/DECISION:. Stay on the current branch - never touch main or develop."

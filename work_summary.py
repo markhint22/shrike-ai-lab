@@ -55,6 +55,10 @@ def main():
     landed = cls.get("landed", 0)
     lines = [f"Last {HOURS}h: {landed} landed · {cls.get('reverted',0)} reverted · "
              f"{cls.get('noop',0)} no-op · {cls.get('skipped',0)} skipped"]
+    # 2026-10-09: green pushes the auto-credit refused to tick (class landed-uncredited) are not landings; surface them as their own count
+    _unc = cls.get("landed-uncredited", 0)
+    if _unc:
+        lines[0] += f" · {_unc} uncredited push{'' if _unc == 1 else 'es'}"
     # by tier (the higher-tier-progress signal the whole exercise is about)
     if tier_landed:
         order = ["1", "2", "3", "4", "5", "?"]

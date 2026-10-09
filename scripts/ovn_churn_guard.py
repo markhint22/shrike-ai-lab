@@ -26,6 +26,12 @@ Per repo in OVN_CHURN_REPOS (default 'iptv_apps xlite'):
      decomposing the item and re-queuing the very loop - it excludes any AUTO-SKIP bracket containing 'recovery:').
   4. the edit is made in a TEMPORARY detached worktree of origin/overnight/feature (never in the live checkout), committed with the
      fleet identity and pushed NON-force with fetch + re-apply on the new tip + retry (up to 5 attempts; the fleet pushes every minute).
+  2b. (2026-10-09, harness-credit-integrity item 6) TWO MORE triggers, both through the same park path:
+        FAST WINDOW  the same oscillation test over a 1h window with OVN_CHURN_PER_HOUR (default 4; 0 = off) commits instead of 8 in 3h: the 3h rule took
+                     ~2.7 h to see a loop that was already obvious (xlite remove/restore ping-pong: 12 and 9 landed cycles, 21 pairs).
+        REMOVE/RESTORE PAIR  two commits touching the SAME file within OVN_CHURN_PINGPONG_GAP_MIN (30) minutes whose subjects read '(remove|delete|drop) ... X'
+                     and '(restore|re-add|revert) ... X' for the same identifier X (either order) park the file's open items immediately - no commit-count
+                     threshold. 'remove X' then 'add unrelated Y' never matches. OVN_CHURN_PINGPONG=off disables just this rule.
   5. one deduped alerts.log line per (repo, file, day): 'warn | churn-guard:<repo> | <file> had N fleet commits in Xh - parked K queue item(s)'
      (when no open item matches the alert says so: the loop then comes from the backlog/roadmap and a human/Claude must look).
 
@@ -42,7 +48,7 @@ at most OVN_CHURN_MAX_PARK (default 10) lines per run; checked lines and other r
   ovn_churn_guard.py                  one pass
   ovn_churn_guard.py --replay HOURS   read-only calibration: slide the detector over the last HOURS hours and print every file that
                                       WOULD have been flagged (no parking, no alerts)
-Env (tests): OVN_DIR OVN_REPOS_DIR OVN_STATE_DIR OVN_CHURN_REPOS OVN_CHURN_WINDOW_H OVN_CHURN_MIN OVN_CHURN_PAIR_MIN OVN_CHURN_MAX_PARK
+Env (tests): OVN_CHURN_PER_HOUR OVN_CHURN_PINGPONG OVN_CHURN_PINGPONG_GAP_MIN OVN_DIR OVN_REPOS_DIR OVN_STATE_DIR OVN_CHURN_REPOS OVN_CHURN_WINDOW_H OVN_CHURN_MIN OVN_CHURN_PAIR_MIN OVN_CHURN_MAX_PARK
 OVN_CHURN_MAX_FILES OVN_CHURN_REMOTE OVN_CHURN_BRANCH OVN_CHURN_PUSH_TRIES OVN_CHURN_BEFORE_PUSH_HOOK (shell command run before the first push attempt)
 """
 import collections
@@ -66,7 +72,7 @@ BOOKKEEP_FILE = re.compile(
     r"(^|/)(OVERNIGHT_[A-Z_]+|CLAUDE_QUEUE[A-Z_]*|ROADMAP|AGENTS|README|CHANGELOG)[^/]*$|\.(md|txt|rst|uid|import|lock|log|jsonl?)$|(^|/)(backlog|roadmap|state)/",
     re.I)
 REVERT_WORDS = re.compile(r"\b(revert|restore|undo|roll ?back|back to|reinstate)\b", re.I)
-INELIGIBLE = re.compile(r"HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\(retired-|\[CLAUDE\]", re.I)  # == the pickers' exclusion set
+INELIGIBLE = re.compile(r"HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|(?-i:BLOCKED)|\(retired-|\[CLAUDE\]", re.I)  # == the pickers' exclusion set
 # never parked by this guard (each has its own escalation path; AUTO-SKIP "parks it where nobody looks"): manual-test bugs (lib_bug_escalate.sh) and EMERGENCY lines
 PROTECTED = re.compile(r"\[feat:[^\]]*-manual-[0-9a-f]{8}(\.r[0-9]+)?\]|Manual-test bug \(reported by Mark.*src:manual|\[bug-escalated|EMERGENCY", re.I)
 RAW_RE = re.compile(r"^:\d+ \d+ ([0-9a-f]+) ([0-9a-f]+) ([A-Z])\d*\t(.+)$")
@@ -87,6 +93,9 @@ MAX_FILES = envi("OVN_CHURN_MAX_FILES", 25)
 PUSH_TRIES = envi("OVN_CHURN_PUSH_TRIES", 5)
 WIDE_H = envi("OVN_CHURN_WIDE_H", 12)      # alert-only WATCH pass (slow loops): window / min commits
 WIDE_MIN = envi("OVN_CHURN_WIDE_MIN", 14)
+PER_HOUR = envi("OVN_CHURN_PER_HOUR", 4)    # fast pass: this many commits on ONE file within 1h (+ the usual oscillation test); 0 disables
+PINGPONG = os.environ.get("OVN_CHURN_PINGPONG", "on") != "off"
+PINGPONG_GAP_S = envi("OVN_CHURN_PINGPONG_GAP_MIN", 30) * 60
 REMOTE = os.environ.get("OVN_CHURN_REMOTE", "origin")
 BRANCH = os.environ.get("OVN_CHURN_BRANCH", "overnight/feature")
 REF = "%s/%s" % (REMOTE, BRANCH)
@@ -240,6 +249,87 @@ def detect(commits, now, window_h=None, min_n=None, pair_min=None, min_r=3, min_
     return sorted(found.values(), key=lambda x: (-x["n"], x["file"]))
 
 
+REMOVE_VERB = re.compile(r"\b(remov\w*|delet\w*|drop(?:s|ped|ping)?)\b(.*)$", re.I)
+RESTORE_VERB = re.compile(r"\b(restor\w*|re-?add\w*|revert\w*|reinstat\w*|undo|undid|put back)\b(.*)$", re.I)
+_PP_STOP = frozenset("""the and for from with that this into onto back out all any not but are was were has have had its it's their there then than
+    unused dead code file files test tests case cases function functions method methods class classes import imports line lines call calls check checks
+    argument arguments param params parameter parameters value values default defaults type types input inputs output update updated updates fix fixed
+    add added adds new old extra test_ assert asserts assertion assertions only also still when after before instead because using use uses used
+    original previous previously change changes changed behavior behaviour logic handling helper helpers module removal deletion restoration undo undid
+    revert reverted restore restored remove removed delete deleted""".split())
+
+
+def _pp_idents(text):
+    """identifier-like tokens of a commit-subject fragment: snake_case / CamelCase / any word >= 5 chars that is not boilerplate."""
+    out = set()
+    for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", text):
+        tl = t.lower()
+        if tl in _PP_STOP:
+            continue
+        out.add(tl)
+    return out
+
+
+def _pp_side(subject):
+    """-> ('remove'|'restore'|None, identifier set) for a commit subject (type prefix 'fix(scope):' stripped; a leading 'revert' is the restore verb itself)."""
+    m_rv = re.match(r"^\s*revert\b[:(!]?(.*)$", subject, re.I)
+    if m_rv:
+        return "restore", _pp_idents(m_rv.group(1))
+    s = re.sub(r"^\w+(\([^)]*\))?!?:\s*", "", subject)
+    m_rm, m_rs = REMOVE_VERB.search(s), RESTORE_VERB.search(s)
+    if m_rs and (not m_rm or m_rs.start() <= m_rm.start()):
+        return "restore", _pp_idents(m_rs.group(2))
+    if m_rm:
+        return "remove", _pp_idents(m_rm.group(2))
+    return None, set()
+
+
+def detect_pingpong(commits, now, window_h=None, gap_s=None):
+    """-> churner dicts for files with a REMOVE/RESTORE pair: two commits touching the same (non-bookkeeping) file within gap_s seconds whose subjects read
+    'remove|delete|drop ... X' and 'restore|re-add|revert ... X' for the same identifier X (either order). Pure function over parsed commits."""
+    window_h = WINDOW_H if window_h is None else window_h
+    gap_s = PINGPONG_GAP_S if gap_s is None else gap_s
+    lo = now - window_h * 3600
+    win = sorted((c for c in commits if lo <= c["t"] <= now and not BOOKKEEP_SUBJECT.match(c["s"])), key=lambda c: c["t"])
+    byfile = collections.defaultdict(list)
+    for c in win:
+        files = [p for p in c["f"] if not BOOKKEEP_FILE.search(p)]
+        if not files or len(files) > MAX_FILES:
+            continue
+        for p in files:
+            byfile[p].append(c)
+    found = {}
+    for p, cl in byfile.items():
+        # tokens that merely NAME the file (its basename / stem / directories) are in every subject about it and prove nothing about a shared identifier
+        own = {t.lower() for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", p)} | {os.path.splitext(os.path.basename(p))[0].lower(), stem(p).lower()}
+        sides = [(c, k, ids - own) for c, k, ids in ((c,) + _pp_side(c["s"]) for c in cl)]
+        for i, (c1, k1, ids1) in enumerate(sides):
+            if k1 is None or not ids1:
+                continue
+            for c2, k2, ids2 in sides[i + 1:]:
+                if c2["t"] - c1["t"] > gap_s:
+                    break
+                if k2 is None or k2 == k1 or not ids2:
+                    continue
+                shared = ids1 & ids2
+                if shared:
+                    x = sorted(shared)[0]
+                    found[p] = {"file": p, "n": len(cl), "R": 0, "V": 2, "D": 0, "kind": "remove/restore(%s)" % x, "win": window_h}
+                    break
+            if p in found:
+                break
+    return sorted(found.values(), key=lambda x: (-x["n"], x["file"]))
+
+
+def merge_churners(*lists):
+    """Union by file, first list wins (the established 3h detector keeps its numbers); order = n desc for plan_parking's 'highest-n file wins'."""
+    seen = {}
+    for lst in lists:
+        for c in lst:
+            seen.setdefault(c["file"], c)
+    return sorted(seen.values(), key=lambda x: (-x["n"], x["file"]))
+
+
 # ---------------------------------------------------------------------------------------------------------------- queue matching / parking
 def open_lines(text):
     """-> list of (index, line) of eligible open queue lines (the pickers' exclusion set + protected bug/EMERGENCY lines)."""
@@ -312,7 +402,7 @@ def plan_parking(text, churners, window_h, budget, ambiguous=None):
                 if kind == "protected":
                     protected.append((ch["file"], ln))
                 elif sum(parked.values()) < budget:
-                    lines[idx] = "- [ ] " + tag_text(ch["file"], ch["n"], window_h) + ln[len("- [ ] "):]
+                    lines[idx] = "- [ ] " + tag_text(ch["file"], ch["n"], ch.get("win", window_h)) + ln[len("- [ ] "):]
                     parked[ch["file"]] += 1
                 break
     return "\n".join(lines), parked, protected
@@ -429,7 +519,7 @@ def apply_and_push(repo, clone, churners, budget, ambiguous):
             more = len(parked) - 1
             msg = "chore(queue): park %d item(s) in a churn loop on %s%s - fleet churn-loop guard (%dh window)\n\n%s\n" % (
                 sum(parked.values()), first, (" (+%d more file%s)" % (more, "s" if more > 1 else "")) if more else "", WINDOW_H,
-                "\n".join("- %s: %d item(s), %d fleet commits in %dh" % (c["file"], parked[c["file"]], c["n"], WINDOW_H)
+                "\n".join("- %s: %d item(s), %d fleet commits in %dh" % (c["file"], parked[c["file"]], c["n"], c.get("win", WINDOW_H))
                           for c in churners if parked[c["file"]]))
             rc, _, err = git(["add", "--", "OVERNIGHT_PROGRESS.md"], cwd=wt)
             rc2, _, err2 = git(FLEET_ID + ["-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", msg], cwd=wt, env=FLEET_ENV)
@@ -497,6 +587,11 @@ def one_repo(repo, now, state):
         return
     today = time.strftime("%Y-%m-%d")
     churners = detect(commits, now)
+    # 2026-10-09: fast 1h window (PER_HOUR commits) and the remove/restore ping-pong rule feed the same park path (see the module docstring, 2b)
+    if PER_HOUR > 0:
+        churners = merge_churners(churners, [dict(c, win=1) for c in detect(commits, now, window_h=1, min_n=PER_HOUR, pair_min=PER_HOUR)])
+    if PINGPONG:
+        churners = merge_churners(churners, detect_pingpong(commits, now))
     # alert-only WATCH pass: slower / longer loops (wide window, higher n, >=4 revisits). Never parks.
     names = {c["file"] for c in churners}
     watch = [] if WIDE_H <= WINDOW_H else [w for w in detect(commits, now, window_h=WIDE_H, min_n=WIDE_MIN, min_r=4, min_v=3, pairs=False) if w["file"] not in names]
@@ -510,7 +605,7 @@ def one_repo(repo, now, state):
         return
     ambiguous = add_tree_aliases(clone, churners)
     for c in churners:
-        log("%s: CHURNING %s n=%d R=%d V=%d D=%d [%s]" % (repo, c["file"], c["n"], c["R"], c["V"], c["D"], c["kind"]))
+        log("%s: CHURNING %s n=%d R=%d V=%d D=%d [%s]%s" % (repo, c["file"], c["n"], c["R"], c["V"], c["D"], c["kind"], (" win=%dh" % c["win"]) if c.get("win") else ""))
     rc, text, _ = git(["show", "%s:OVERNIGHT_PROGRESS.md" % REF], cwd=clone)
     if rc != 0:
         log("%s: infra (cannot read OVERNIGHT_PROGRESS.md on %s)" % (repo, REF))
@@ -546,9 +641,9 @@ def one_repo(repo, now, state):
         k = parked.get(c["file"], 0)
         nprot = sum(1 for f, _ in protected if f == c["file"])
         if not PARK:
-            msg = "%s had %d fleet commits in %dh - ALERT ONLY (OVN_CHURN_PARK=off): %d open queue item(s) would be parked" % (c["file"], c["n"], WINDOW_H, would.get(c["file"], 0))
+            msg = "%s had %d fleet commits in %dh - ALERT ONLY (OVN_CHURN_PARK=off): %d open queue item(s) would be parked" % (c["file"], c["n"], c.get("win", WINDOW_H), would.get(c["file"], 0))
         else:
-            msg = "%s had %d fleet commits in %dh - parked %d queue item(s)" % (c["file"], c["n"], WINDOW_H, k)
+            msg = "%s had %d fleet commits in %dh - parked %d queue item(s)" % (c["file"], c["n"], c.get("win", WINDOW_H), k)
             if k == 0:
                 msg += " (no open queue item names it: the loop may come from the backlog/roadmap or an already-parked item - a human/Claude should look)"
         if nprot:

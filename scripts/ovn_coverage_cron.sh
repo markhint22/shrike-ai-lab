@@ -21,6 +21,15 @@ D="${OVN_COV_NIGHTLY_DIR:-/tmp/ovn-cov-nightly}"
 ALERTS="$STATE/alerts.log"
 alert(){ echo "$(date '+%F %T') warn | coverage | $*" >> "$ALERTS"; }
 
+# 2026-10-09: the instrumented run failed 7-9 tests every night since 10-04 because coverage.py's own stderr warning ("CoverageWarning: Couldn't import
+# C tracer: ... (no-ctracer)", 246 lines per run on the box, where only the pure-python tracer is installed) leaked into the captured got-values of the
+# 'buckets' and 'outcomes: every row is valid JSON' tests (the uninstrumented 06:00 run is green). coverage's `disable_warnings` rc option would be the
+# tidy fix but the rc is written by scripts/cov/run_coverage.sh, so silence the same warnings through Python's own filter (inherited by every
+# instrumented child): no test file and no coverage floor changes. Messages are prefix-matched (case-sensitive): no-ctracer, couldnt-parse,
+# no-data-collected. OVN_COV_KEEP_WARNINGS=1 leaves them visible (debugging).
+if [ "${OVN_COV_KEEP_WARNINGS:-0}" != "1" ]; then
+  export PYTHONWARNINGS="${PYTHONWARNINGS:+$PYTHONWARNINGS,}ignore:Couldn't import C tracer,ignore:Couldn't parse Python file,ignore:No data was collected"
+fi
 OVN_COV_DIR="$D" bash "$RUNNER" > "$STATE/coverage_latest.txt" 2>&1
 cp "$D/report.json" "$STATE/coverage_latest.json" 2>/dev/null
 
@@ -44,7 +53,9 @@ if [ "${bash_pct%%.*}" = "-1" ] || [ "${py_pct%%.*}" = "-1" ]; then
   alert "coverage run produced no usable report (see $STATE/coverage_latest.txt)"; exit 0
 fi
 # 2026-10-02: was `failed, [1-9]`, which also matched "0 failed, 2 known-bug warning(s)" (a passing summary) - 34 false alerts on 10-01. Now only a NONZERO failed count.
-failed="$(grep -cE '❌|^  FAIL |(^|[^0-9])[1-9][0-9]* failed' "$D/run_all.log" 2>/dev/null)"; failed="${failed:-0}"
+# 2026-10-09: passing lines are dropped first - "  ok   cycle 1 (1 failed attempt)" / "2 failed attempts" / "after 2 failed (verify red) attempts" are PASSING tests that
+# merely talk about failed attempts; they kept failing=3 on the nightly even with the warning noise gone.
+failed="$(grep -av '^[[:space:]]*ok[[:space:]]' "$D/run_all.log" 2>/dev/null | grep -acE '❌|^  FAIL |(^|[^0-9])[1-9][0-9]* failed')"; failed="${failed:-0}"
 [ "$failed" -gt 0 ] && alert "$failed failing test line(s) in the instrumented suite run (see $D/run_all.log)"
 below=""
 python3 -c "import sys; sys.exit(0 if float('$bash_pct') >= float('$min_b') else 1)" || below="$below bash ${bash_pct}% < floor ${min_b}%"

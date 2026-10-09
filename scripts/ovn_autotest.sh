@@ -6,6 +6,9 @@
 # safe. Exits non-zero only on a real failure of the scoped tests.
 set -uo pipefail
 root="${1:-.}"
+# 2026-10-09: the queue dir (for state/godot_checkonly_cache) must be resolved BEFORE the cd below.
+_AT_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+QDIR="${OVN_DIR:-$(dirname "$_AT_SELF")}"
 cd "$root" 2>/dev/null || exit 0
 
 # 2026-10-01 FIX (feedback-loops analysis): run_overnight.sh lets aider AUTO-COMMIT each edit, and aider runs --test-cmd AFTER that commit,
@@ -27,11 +30,85 @@ fi
 #   2. godot --check-only — SEMANTIC/API (undeclared signals, unknown methods). Its EXIT CODE is
 #      buggy (always 0), so we scan its OUTPUT for "Parse Error" only. HARD fail on that.
 #   3. gdlint   — style/naming. ADVISORY only (xlite's own code emits lint warnings), never fails.
+# 2026-10-09 (xlite godot lane): (a) a fresh worktree has no .godot import cache, so --check-only reported undeclared-identifier / 'no resource
+# loaders' errors on UNEDITED files (the model chased non-errors for ~300s per attempt): run `--import` first when
+# .godot/global_script_class_cache.cfg is missing (OVN_AUTOTEST_GODOT_IMPORT=off disables). (b) BASELINE-RELATIVE: a check-only error fails the step only
+# when the same command does NOT report it on the pre-edit blob (OVN_BASE_SHA, else HEAD); the pre-edit result is cached by sha1(path+blob) in
+# state/godot_checkonly_cache/ (OVN_GODOT_BASELINE=off restores the absolute behaviour). The comparison is per message OCCURRENCE COUNT, not membership: an edit that
+# makes the engine report a message MORE times than the pre-edit blob did (a second use of an already-undeclared identifier) still fails the step. (c) when a hard error exists the gdlint advisories
+# (class-definitions-order, max-line-length, trailing-whitespace) are NOT shown: they drown the one error that matters.
 gd_changed="$(printf '%s\n' "$changed" | grep -iE '\.gd$' | grep -viE '(^|/)addons/' || true)"
 if [ -n "$gd_changed" ]; then
   GDP="$HOME/aider-venv/bin/gdparse"; GDL="$HOME/aider-venv/bin/gdlint"; GODOT="$HOME/godot/godot4"
-  gd_fail=0; gd_report=""
+  gd_fail=0; gd_report=""; gd_lint=""
   is_proj=0; [ -f project.godot ] && is_proj=1
+  if [ "$is_proj" = 1 ] && [ -x "$GODOT" ] && [ ! -f .godot/global_script_class_cache.cfg ] && [ "${OVN_AUTOTEST_GODOT_IMPORT:-on}" != off ]; then
+    timeout 120 "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
+  fi
+  _gd_esc="$(printf '\033')"
+  # normalise one check-only message for comparison: no colours, no line numbers, squeezed blanks
+  gd_norm() { printf '%s\n' "$1" | sed -E "s/${_gd_esc}\[[0-9;]*[A-Za-z]//g; s/:[0-9]+([: )]|\$)/:\\1/g; s/ at line [0-9]+//g; s/[[:space:]]+/ /g; s/^ //; s/ \$//"; }
+  # gd_overlay <file> <ref> <dest>: build <dest> as a copy of $PWD made of symlinks, except the directory chain down to <file>, which are real
+  # directories, and <file> itself, which is written from the blob at <ref>. Never writes into $PWD. .git is not linked.
+  gd_overlay() {
+    local f="$1" ref="$2" dst="$3" rest part ent b cs="$PWD" cd_="$3"
+    rest="$f"
+    while :; do
+      case "$rest" in */*) part="${rest%%/*}"; rest="${rest#*/}";; *) part="$rest"; rest="";; esac
+      for ent in "$cs"/* "$cs"/.[!.]*; do
+        [ -e "$ent" ] || [ -L "$ent" ] || continue
+        b="${ent##*/}"
+        [ "$b" = "$part" ] && continue
+        [ "$cs" = "$PWD" ] && [ "$b" = .git ] && continue
+        ln -s "$ent" "$cd_/$b" 2>/dev/null || true
+      done
+      if [ -z "$rest" ]; then git show "$ref:$f" > "$cd_/$part" 2>/dev/null || return 1; return 0; fi
+      mkdir "$cd_/$part" || return 1
+      cs="$cs/$part"; cd_="$cd_/$part"
+    done
+  }
+  # gd_sibling_sig <file> <ref> -> hash of every OTHER .gd that differs from <ref> in the live tree (edited since the base, or untracked): the pre-edit blob is
+  # checked against these live siblings (symlinked into the overlay), so a baseline computed while a sibling was broken must not be reused once it is fixed
+  gd_sibling_sig() {
+    { git diff --name-only "$2" -- '*.gd'; git ls-files --others --exclude-standard -- '*.gd'; } 2>/dev/null | sort -u | grep -vxF -- "$1" |
+      while IFS= read -r _s; do [ -f "$_s" ] && printf '%s %s\n' "$_s" "$(git hash-object "$_s" 2>/dev/null)"; done | git hash-object --stdin 2>/dev/null
+  }
+  # gd_baseline_errs <file> <ref> -> normalised check-only error lines the PRE-EDIT blob already produced (empty for a file that did not exist then). Duplicates are
+  # kept (the caller compares occurrence counts).
+  gd_baseline_errs() {
+    local f="$1" ref="$2" blob key cdir cf bout brc ov cc tmpf
+    blob="$(git rev-parse -q --verify "$ref:$f" 2>/dev/null)" || return 0
+    # the key covers the import-cache state too (absent, or its content: it lists the class_names the siblings resolve through) and the sibling state
+    cc="nocache"; [ -f .godot/global_script_class_cache.cfg ] && cc="$(git hash-object .godot/global_script_class_cache.cfg 2>/dev/null)"
+    key="$(printf '%s\n%s\n%s\n%s' "$f" "$blob" "$cc" "$(gd_sibling_sig "$f" "$ref")" | git hash-object --stdin 2>/dev/null)"
+    cdir="${OVN_GODOT_CACHE_DIR:-$QDIR/state/godot_checkonly_cache}"
+    cf="$cdir/$key"
+    if [ -n "$key" ] && [ -f "$cf" ]; then cat "$cf"; return 0; fi
+    # run the very same command against an OVERLAY of the project in which ONLY <file> holds the pre-edit blob (every other entry is a symlink to the
+    # live tree, so the class cache, preloads and sibling scripts resolve exactly as in the live run). The live file is never written: a TERM/kill -9
+    # of this script, or a timeout of the whole test-cmd, cannot leave the pre-edit blob in it or resurrect an edit that was already reverted.
+    ov="$(mktemp -d "${TMPDIR:-/tmp}/ovn_gdbase.XXXXXX")" || return 0
+    trap 'rm -rf "$ov"' EXIT
+    trap 'rm -rf "$ov"; exit 143' TERM INT
+    gd_overlay "$f" "$ref" "$ov" || { rm -rf "$ov"; trap - EXIT TERM INT; return 0; }
+    bout="$(cd "$ov" && timeout 60 "$GODOT" --headless --path . --check-only --script "res://$f" 2>&1)"; brc=$?
+    rm -rf "$ov"
+    trap - EXIT TERM INT
+    bout="$(printf '%s\n' "$bout" | grep -iE "$GD_ERR_RE" || true)"
+    bout="$(while IFS= read -r l; do [ -n "$l" ] && gd_norm "$l"; done <<< "$bout")"
+    # a timed-out baseline is unknown, not 'clean': do not cache it
+    # written to a temp file and moved into place (a concurrent reader never sees a half-written entry, which would read as a clean baseline); entries older
+    # than a day (and orphaned temp files) are dropped on every write
+    if [ "$brc" != 124 ] && [ -n "$key" ] && [ -d "$QDIR/state" ] && mkdir -p "$cdir" 2>/dev/null; then
+      find "$cdir" -maxdepth 1 -type f -mtime +0 -delete 2>/dev/null
+      tmpf="$cdir/.$key.tmp.$$"
+      { printf '%s\n' "$bout" > "$tmpf" && mv -f "$tmpf" "$cf"; } 2>/dev/null || rm -f "$tmpf" 2>/dev/null
+    fi
+    printf '%s\n' "$bout"
+  }
+  GD_ERR_RE='Parse Error|Invalid call|not declared|Identifier .* not'
+  gd_base_ref="HEAD"
+  if [ -n "${OVN_BASE_SHA:-}" ] && git rev-parse -q --verify "${OVN_BASE_SHA}^{commit}" >/dev/null 2>&1; then gd_base_ref="$OVN_BASE_SHA"; fi
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     # 1. syntax (hard)
@@ -47,7 +124,20 @@ $(printf '%s\n' "$perr" | head -6)"
     # 2. semantic/API via engine --check-only (parse OUTPUT, exit code is unreliable)
     if [ "$is_proj" = 1 ] && [ -x "$GODOT" ]; then
       cout="$(timeout 60 "$GODOT" --headless --path . --check-only --script "res://$f" 2>&1 || true)"
-      cerr="$(printf '%s\n' "$cout" | grep -iE 'Parse Error|Invalid call|not declared|Identifier .* not' | head -6)"
+      cerr="$(printf '%s\n' "$cout" | grep -iE "$GD_ERR_RE" || true)"
+      if [ -n "$cerr" ] && [ "${OVN_GODOT_BASELINE:-on}" != off ]; then
+        # keep only the messages the pre-edit blob did NOT already produce (the model is only ever told about errors its edit introduced)
+        base_errs="$(gd_baseline_errs "$f" "$gd_base_ref")"
+        new_cerr=""; used=""
+        while IFS= read -r ln; do
+          [ -n "$ln" ] || continue
+          n="$(gd_norm "$ln")"
+          # the first <baseline count> occurrences of a message are the old ones; any further occurrence is new
+          if [ "$(grep -cxF -- "$n" <<< "$used")" -lt "$(grep -cxF -- "$n" <<< "$base_errs")" ]; then used="${used}${n}"$'\n'; else new_cerr="${new_cerr}${ln}"$'\n'; fi
+        done <<< "$cerr"
+        cerr="${new_cerr%$'\n'}"
+      fi
+      cerr="$(printf '%s\n' "$cerr" | head -6)"
       if [ -n "$cerr" ]; then
         gd_fail=1
         gd_report="${gd_report}
@@ -58,7 +148,7 @@ $cerr"
     # 3. lint (advisory — surfaces Godot-3 naming/structure hints without blocking)
     if [ -x "$GDL" ]; then
       lout="$("$GDL" "$f" 2>&1 | grep -iE 'Error:|Warning:' | head -4 || true)"
-      [ -n "$lout" ] && gd_report="${gd_report}
+      [ -n "$lout" ] && gd_lint="${gd_lint}
 [lint-advisory] $f:
 $lout"
     fi
@@ -69,6 +159,7 @@ $lout"
     exit 1
   fi
   # .gd validated clean; if the change was ONLY gdscript, we're done (no vitest/pytest needed)
+  gd_report="${gd_report}${gd_lint}"   # advisories are only shown when no hard error was found
   printf '%s\n' "$changed" | grep -viE '\.gd$' | grep -qE '\.(ts|tsx|vue|js|jsx|py)$' || { [ -n "$gd_report" ] && printf '%s\n' "$gd_report"; exit 0; }
 fi
 

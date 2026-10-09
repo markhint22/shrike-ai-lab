@@ -129,6 +129,9 @@ guard(){ # <repo> <status> <state> <id> [log] -> runs the guard as cron would (e
   bash "$G" "$1" "$2" "$3" "$4" "${5:-}" >/dev/null 2>&1
 }
 mklog(){ printf 'Tokens: %sk sent, 100 received.\n' "$1" > "$tmp/log_$2.log"; echo "$tmp/log_$2.log"; }
+# a staged cycle's task log: since harness-credit-integrity item 8 the stage runner records WHICH item it worked ('stage-item-hash'/'stage-item-line', written by
+# run_overnight.sh from the runner's journal) and the guard bills THAT item; a stage status with no marker bills nothing. <k tokens> <id> <full open "- [ ] ..." line>
+mklog_stage(){ local f; f="$(mklog "$1" "$2")"; printf 'stage-item-hash %s\nstage-item-line %s\n' "$(printf '%s' "$3" | md5sum | cut -d' ' -f1)" "${3#- \[ \] }" >> "$f"; echo "$f"; }
 prog(){ cat "$1/OVERNIGHT_PROGRESS.md"; }
 
 r="$(new_repo e1 "$RA" "$BUG1" "$RB")"; st="$tmp/st1"; mkdir -p "$st"; : > "$tmp/curl.calls"
@@ -138,7 +141,7 @@ guard "$r" 'reverted(build-break)' "$st" ongoing-x "$(mklog 5 e1a)"
 ok "1st failed attempt: NOT escalated yet" "! prog '$r' | grep -q 'bug-escalated'"
 ok "1st failed attempt: bug counter is 1" "[ \"\$(cat '$st'/item_fails/ongoing-x.*.bugcount)\" = 1 ]"
 ok "no relay note yet" "[ ! -s '$tmp/curl.calls' ]"
-guard "$r" 'no-op(stage-unverified) stage(higher-tier)' "$st" ongoing-x "$(mklog 5 e1b)"
+guard "$r" 'no-op(stage-unverified) stage(higher-tier)' "$st" ongoing-x "$(mklog_stage 5 e1b "$BUG1")"
 ok "2nd failed attempt: the bug line is tagged [CLAUDE] [bug-escalated: ...]" "prog '$r' | grep -F 'Foo.kt' | grep -q '^- \\[ \\] \\[CLAUDE\\] \\[bug-escalated: 2 failed attempts (cap 2), last: no-op(stage-unverified)'"
 ok "NOT silently AUTO-SKIPped" "! prog '$r' | grep -q 'AUTO-SKIP'"
 eq "the roadmap lines are untouched" "$RA" "$(prog "$r" | grep -F 'roadmap_a.py')"
@@ -181,7 +184,7 @@ r="$(new_repo e3e "$BUG1")"; st="$tmp/st3e"; mkdir -p "$st"
 guard "$r" 'no-op(BLOCKED)' "$st" ongoing-y "$(mklog 5 e3i)"; guard "$r" 'no-op(NEEDS-DECISION)' "$st" ongoing-y "$(mklog 5 e3j)"
 ok "BLOCKED / NEEDS-DECISION no-ops DO count as failed attempts for a bug (2 -> escalated, not parked at the generic 4)" "prog '$r' | grep -q 'bug-escalated' && ! prog '$r' | grep -q 'AUTO-SKIP'"
 r="$(new_repo e3f "$BUG1")"; st="$tmp/st3f"; mkdir -p "$st"
-guard "$r" 'no-op(stage-unverified) stage(higher-tier)' "$st" ongoing-y "$(mklog 250 e3k)"
+guard "$r" 'no-op(stage-unverified) stage(higher-tier)' "$st" ongoing-y "$(mklog_stage 250 e3k "$BUG1")"
 ok "one cycle that burns 250k tokens escalates by spend (reason says so)" "prog '$r' | grep -q 'bug-escalated: 250000 tokens spent in 1 attempt(s) without a fix'"
 r="$(new_repo e3g "$SB")"; st="$tmp/st3g"; mkdir -p "$st"
 guard "$r" 'reverted(x)' "$st" ongoing-y "$(mklog 5 e3l)"; guard "$r" 'reverted(x)' "$st" ongoing-y "$(mklog 5 e3m)"

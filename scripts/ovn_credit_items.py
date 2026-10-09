@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ovn_path_gate import leading_target  # noqa: E402
 
-SKIP = re.compile(r"HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]", re.I)
+SKIP = re.compile(r"HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|(?-i:BLOCKED)|\[CLAUDE\]", re.I)
 OPEN = re.compile(r"^- \[ \] ")
 
 

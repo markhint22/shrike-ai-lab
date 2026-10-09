@@ -22,18 +22,14 @@
 # --- 27B-decomposed from roadmap [2026-09-09]: Easy self-serve cancellation + billing transparency (beat competitor gripes) {cat: web+bac (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-10]: App Store + Play Store submission blockers — RevenueCat is already SDK-wired for iOS/Andro (review + tweak) ---
-- [ ] [T2] iptv-backend/app/routers/streams.py — Update stream import endpoint to enforce `validate_content_rights` before processing M3U/Xtream imports. VERIFY: pytest tests/test_streams_import_guard.py::test_unlicensed_import_blocked -q (cat:endpoint; multifile:no)
 
 # --- 27B-decomposed from roadmap [2026-09-10]: YouTube support follow-through — an MVP already exists (curated news/government/space/loca (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-10]: Watchlist/Continue-watching parity across web + mobile {cat: web+mobile; size: M; multifil (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-10]: Profiles + parental controls depth; kids mode — Chickadee already has `Profile`/`ParentalS (review + tweak) ---
-- [ ] [T1] iptv-backend/app/services/parental_rating_gate.py — Implement `is_content_allowed(rating: str, kid_max_rating: str, blocked_categories: list[str]) -> bool` using the existing hierarchy map. VERIFY: python -m pytest iptv-backend/tests/test_parental_rating_gate.py::test_is_content_allowed_blocks_higher_rating -q. (cat:python; multifile:no)
 
 # --- 27B-decomposed from roadmap [2026-09-10]: Profiles + parental controls depth; kids mode — Chickadee already has `Profile`/`ParentalS (review + tweak) ---
-- [ ] [T1] iptv-backend/app/services/parental_rating_gate.py — Add `is_content_allowed(rating: str, kid_max_rating: str, blocked_categories: list[str])` pure function that returns False if rating exceeds max or category is blocked. VERIFY: pytest iptv-backend/tests/test_parental_rating_gate.py::test_is_content_allowed_blocks_higher_rating -q. (cat:python; multifile:no)
-- [ ] [T2] iptv-backend/app/services/parental_rating_gate.py — Add `filter_streams_for_profile(streams: list[dict], profile: dict)` pure function that applies rating and category filters to a stream list. VERIFY: pytest iptv-backend/tests/test_parental_rating_gate.py::test_filter_streams_for_profile_excludes_blocked -q. (cat:python; multifile:no)
 
 # --- 27B-decomposed from roadmap [2026-09-10]: Personalized discover/recommendations — Chickadee's `StreamDiscoveryService` already expos (review + tweak) ---
 
@@ -68,7 +64,6 @@
 # --- 27B-decomposed from roadmap [2026-09-16]: Make iOS WatchlistViewModel dependency-injectable and add its first unit tests — iptv-ios/ (review + tweak) ---
 
 # --- 27B-decomposed from roadmap [2026-09-17]: Wire the backend's already-implemented EPG auto-map endpoint into Android and iOS's EPG "A (review + tweak) ---
-- [ ] [T3] iptv-ios/ChickadeeStreams/Services/APIService+Extended.swift — Modify `addEPGSource()` to call `autoMap(sourceId:)` in a `Task` or `fire-and-forget` manner after successful source addition, ensuring the main flow is not blocked by potential auto-map latency. VERIFY: `grep -A 10 "func addEPGSource" iptv-ios/ChickadeeStreams/Services/APIService+Extended.swift | grep -q "autoMap"`. (cat:ios; multifile:no)
 
 # --- 27B-decomposed from roadmap [2026-09-17]: Wire the already-implemented, already-tested favorites/watchlist ordering helper into a re (review + tweak) ---
 
@@ -157,7 +152,6 @@
 # --- research pass [2026-09-23]: coverage-gap + dead-code sweep, grounded via pytest --cov (backend) and npm run test:coverage (web) ---
 
 # --- research pass [2026-09-23]: web Pinia store coverage gaps, grounded via npm run test:coverage ---
-- [ ] [T2] iptv-web/src/stores/parental.ts — `setupPIN()`, `removePIN()`, `blockStream()`, `unblockStream()`, and `fetchBlockedStreams()` (all called live from `ParentalView.vue`) are only referenced as `vi.fn()` mocks of the `api` module in `iptv-web/src/stores/__tests__/parental.test.ts` — none of the store actions themselves are ever invoked in a test, leaving this security-relevant PIN/blocking logic at 62.13% coverage per `npm run test:coverage`. Add tests that call each store action directly and assert on resulting state (`blockedStreams`, `error`) and the API call args. VERIFY: cd iptv-web && npx vitest run src/stores/__tests__/parental.test.ts -t "setupPIN|blockStream|unblockStream". (cat:test; multifile:no) [feat:iptv_apps-20260923-web-store-coverage]
 
 # --- research pass [2026-09-23 round 2]: native-client (Android/iOS) API-parity sweep + backend dead-table/dead-model sweep, grounded via direct grep across iptv-backend/iptv-android/iptv-ios (no coverage tooling this round) ---
 
@@ -167,7 +161,6 @@
 
 
 
-- [ ] [T3] iptv-android/app/src/main/java/com/chickadeestreams/iptv/data/api/ChickadeeApi.kt — Android's parental-controls surface is read/PIN-only and missing most of the backend's actual enforcement API: only `GET /settings`, `GET /pin/session`, `POST /pin/setup`, `POST /pin/verify` are declared (4 of 13 routes on `iptv-backend/app/routers/parental.py`). Missing entirely: `PUT /settings` (update restriction config), `DELETE /pin` (remove PIN), `GET/POST /blocked` + `DELETE /blocked/{stream_id}` (per-stream blocking — the actual parental block/unblock feature), `POST /check` (content-rating check), `POST /usage` + `GET /limit` + `GET /time-check` (daily screen-time limits). Android users can set up a parental PIN but can never block/unblock an individual stream or have daily time limits enforced client-side. VERIFY: `grep -c "api/parental/" iptv-android/app/src/main/java/com/chickadeestreams/iptv/data/api/ChickadeeApi.kt` (currently 4; backend has 13 distinct `@router.` routes in `parental.py`). (cat:android; multifile:yes) [feat:iptv_apps-20260923-android-parental-endpoints-gap]
 
 # --- research pass [2026-09-24]: 3rd starvation streak, grounded via fresh pytest --cov (backend) + direct grep across iptv-backend/iptv-ios (iOS given deeper look per instructions) ---
 
@@ -206,27 +199,179 @@
 # --- 27B-decomposed from roadmap [2026-09-30]: Expired device-pairing rows and email-verification tokens are never purged — iptv-backend/ (review + tweak) [feat:iptv_apps-20260930-expired-device-pairing-rows-and-email-ve] ---
 
 # --- 27B-decomposed from roadmap [2026-10-01]: Fix vod.py double module body — iptv-backend/app/routers/vod.py contains two concatenated  (review + tweak) [feat:iptv_apps-20261001-fix-vod-py-double-module-body-iptv-backe] ---
-- [ ] [T1] iptv-backend/app/routers/vod.py — Delete lines 1-50 to remove the duplicate module definition and retain only the single canonical router with `limit: int = Query(20, ge=1, le=100)`. VERIFY: `grep -c "def get_vod" iptv-backend/app/routers/vod.py` returns 1. (cat:python; multifile:no) [feat:iptv_apps-20261001-fix-vod-py-double-module-body-iptv-backe]
-- [ ] [T1] iptv-backend/app/routers/vod.py — Ensure the remaining `limit` parameter in the VOD endpoint explicitly includes `le=100` in its Query definition. VERIFY: `grep -n "le=100" iptv-backend/app/routers/vod.py` returns at least one match. (cat:python; multifile:no) [feat:iptv_apps-20261001-fix-vod-py-double-module-body-iptv-backe]
-- [ ] [T2] iptv-backend/tests/test_vod_router.py — Create a new test file that imports the VOD router and asserts the `limit` query parameter schema has a maximum value of 100. VERIFY: `pytest iptv-backend/tests/test_vod_router.py -v` passes. (cat:test; multifile:no) [feat:iptv_apps-20261001-fix-vod-py-double-module-body-iptv-backe]
-- [ ] [T2] iptv-backend/tests/test_vod_limit_bound.py — Add a specific unit test that mocks the database and calls the VOD endpoint with `limit=999999`, asserting that a 422 validation error is returned. VERIFY: `pytest iptv-backend/tests/test_vod_limit_bound.py -v` passes. (cat:test; multifile:no) [feat:iptv_apps-20261001-fix-vod-py-double-module-body-iptv-backe]
-- [ ] [T3] iptv-backend/app/main.py — Verify the VOD router import and mount at line 225 correctly references the cleaned-up module without import errors. VERIFY: `python -c "from iptv_backend.app.main import app; print('OK')"` executes without ImportError. (cat:python; multifile:no) [feat:iptv_apps-20261001-fix-vod-py-double-module-body-iptv-backe]
-- [ ] [T4] iptv-backend/app/routers/vod.py — Run a static analysis check to ensure no duplicate function definitions or conflicting module-level variables remain in the file. VERIFY: `flake8 iptv-backend/app/routers/vod.py --select=F811` returns no errors. (cat:refactor; multifile:no) [feat:iptv_apps-20261001-fix-vod-py-double-module-body-iptv-backe]
 
 # --- 27B-decomposed from roadmap [2026-10-01]: Fix EPG XMLTV import N+1 queries — _import_xmltv_for_source() in iptv-backend/app/routers/ (review + tweak) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-] ---
-- [ ] [T1] iptv-backend/app/services/epg_bulk_loader.py — Create new module with function `load_epg_programs_map(db: Session, source_id: int) -> dict[tuple[str, datetime], EPGProgram]` that executes a single `db.query(EPGProgram).filter(EPGProgram.source_id == source_id).all()` and returns a dictionary keyed by `(channel_id, start_time)`. VERIFY: Run `pytest iptv-backend/app/services/test_epg_bulk_loader.py -v` which asserts the function returns a dict with correct keys for a mocked DB session containing 3 rows. (cat:python; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
-- [ ] [T1] iptv-backend/app/services/epg_diff_engine.py — Create new module with function `diff_programs(existing_map: dict, new_programs: list[dict]) -> tuple[list[EPGProgram], list[dict]]` that compares the existing map against new program data and returns lists of objects to update and dicts to insert. VERIFY: Run `pytest iptv-backend/app/services/test_epg_diff_engine.py -v` which verifies correct separation of updates vs inserts for a sample dataset. (cat:python; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
-- [ ] [T2] iptv-backend/app/services/epg_bulk_upsert.py — Create new module with function `bulk_upsert_programs(db: Session, to_update: list[EPGProgram], to_insert: list[dict]) -> None` that calls `db.bulk_save_objects(to_update)` and `db.bulk_insert_mappings(EPGProgram, to_insert)` within a single transaction. VERIFY: Run `pytest iptv-backend/app/services/test_epg_bulk_upsert.py -v` which mocks the DB session and asserts `bulk_save_objects` and `bulk_insert_mappings` are called exactly once with the correct arguments. (cat:python; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
-- [ ] [T3] iptv-backend/app/routers/epg.py — Refactor `_import_xmltv_for_source()` to replace the per-row `db.query(EPGProgram).filter(...).first()` loop with calls to `load_epg_programs_map`, `diff_programs`, and `bulk_upsert_programs`. VERIFY: Run `pytest iptv-backend/app/routers/test_epg_import.py -v` which mocks the service functions and asserts they are called once per import run, not per program. (cat:refactor; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
-- [ ] [T2] iptv-backend/app/services/test_epg_bulk_loader.py — Create unit test file for `epg_bulk_loader.py` using `unittest.mock` to simulate a SQLAlchemy session returning a list of `EPGProgram` instances, verifying the returned dictionary structure. VERIFY: Run `pytest iptv-backend/app/services/test_epg_bulk_loader.py -v` and ensure all tests pass. (cat:test; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
-- [ ] [T2] iptv-backend/app/services/test_epg_diff_engine.py — Create unit test file for `epg_diff_engine.py` testing edge cases where a program exists in both maps (update), only in new data (insert), and only in existing map (no-op). VERIFY: Run `pytest iptv-backend/app/services/test_epg_diff_engine.py -v` and ensure all tests pass. (cat:test; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
-- [ ] [T2] iptv-backend/app/services/test_epg_bulk_upsert.py — Create unit test file for `epg_bulk_upsert.py` verifying that `db.bulk_save_objects` is called with the update list and `db.bulk_insert_mappings` is called with the insert list, and that `db.commit()` is invoked. VERIFY: Run `pytest iptv-backend/app/services/test_epg_bulk_upsert.py -v` and ensure all tests pass. (cat:test; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
-- [ ] [T3] iptv-backend/app/routers/test_epg_import.py — Create/update integration test for the EPG import endpoint that mocks the XML parsing and DB interactions to verify that only 1 SELECT query is issued for existing programs instead of N, by asserting `db.query` call count. VERIFY: Run `pytest iptv-backend/app/routers/test_epg_import.py -v` and ensure the query count assertion passes. (cat:test; multifile:no) [feat:iptv_apps-20261001-fix-epg-xmltv-import-n-1-queries-import-]
 
 # --- 27B-decomposed from roadmap [2026-10-01]: Scrub LLM reasoning comments from discover.py — iptv-backend/app/routers/discover.py lines (review + tweak) [feat:iptv_apps-20261001-scrub-llm-reasoning-comments-from-discov] ---
-- [ ] [T1] iptv-backend/app/routers/discover.py — Remove all lines containing "Wait, the prompt says" or "I cannot edit discover_denylist.py" within lines 652-710. VERIFY: `grep -n "Wait, the prompt says\|I cannot edit discover_denylist.py" iptv-backend/app/routers/discover.py` returns no results. (cat:refactor; multifile:no) [feat:iptv_apps-20261001-scrub-llm-reasoning-comments-from-discov]
-- [ ] [T1] iptv-backend/app/routers/discover.py — Ensure line 704 starts with valid Python code (e.g., `def` or `return`) and is not a comment. VERIFY: `sed -n '704p' iptv-backend/app/routers/discover.py | grep -qE "^\s*(def|return|if|else|elif|try|except|finally|with|for|while|class|import|from)"`. (cat:refactor; multifile:no) [feat:iptv_apps-20261001-scrub-llm-reasoning-comments-from-discov]
-- [ ] [T2] iptv-backend/app/routers/test_discover_scrub.py — Create a new test file that imports `discover` and asserts no lines in the source code of `iptv-backend/app/routers/discover.py` contain "Wait, the prompt says". VERIFY: `pytest iptv-backend/app/routers/test_discover_scrub.py -v`. (cat:test; multifile:no) [feat:iptv_apps-20261001-scrub-llm-reasoning-comments-from-discov]
-- [ ] [T2] iptv-backend/app/routers/test_discover_scrub.py — Add a test that verifies the function or code block previously obscured by comments (around line 704) is syntactically valid and executable. VERIFY: `python -c "import ast; ast.parse(open('iptv-backend/app/routers/discover.py').read())"`. (cat:test; multifile:no) [feat:iptv_apps-20261001-scrub-llm-reasoning-comments-from-discov]
-- [ ] [T3] iptv-backend/app/routers/discover.py — Verify that the logic between lines 652 and 710 remains functionally identical after comment removal by running existing discover tests. VERIFY: `pytest iptv-backend/app/routers/test_discover.py -v` (assuming existing tests exist) or `python -m pytest iptv-backend/app/routers/ -k "discover"`. (cat:refactor; multifile:no) [feat:iptv_apps-20261001-scrub-llm-reasoning-comments-from-discov]
-- [ ] [T1] iptv-backend/app/routers/discover.py — Confirm that no other LLM reasoning artifacts (e.g., "Let me check", "Actually,") remain in the file. VERIFY: `grep -n "Let me check\|Actually,\|Hmm,\|Wait," iptv-backend/app/routers/discover.py` returns no results. (cat:refactor; multifile:no) [feat:iptv_apps-20261001-scrub-llm-reasoning-comments-from-discov]
+
+# --- 27B-decomposed from roadmap [2026-10-02]: Remove 4th dead stream-limit implementation — iptv-backend/app/services/playlist.py:79 def (review + tweak) [feat:iptv_apps-20261002-remove-4th-dead-stream-limit-implementat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-02]: Eliminate aiohttp from playlist.py — iptv-backend/app/services/playlist.py line 14 imports (review + tweak) [feat:iptv_apps-20261002-eliminate-aiohttp-from-playlist-py-iptv-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Wire token_version session invalidation — `create_access_token` (iptv-backend/app/services (review + tweak) [feat:iptv_apps-20261003-wire-token-version-session-invalidation-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Fix xmltv_parser crash on invalid env var values — iptv-backend/app/services/xmltv_parser. (review + tweak) [feat:iptv_apps-20261003-fix-xmltv-parser-crash-on-invalid-env-va] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Complete aiohttp→httpx migration beyond playlist.py — the existing "Eliminate aiohttp from (review + tweak) [feat:iptv_apps-20261003-complete-aiohttp-httpx-migration-beyond-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Bound XMLTV download at the network layer before parsing — iptv-backend/app/services/xmltv (review + tweak) [feat:iptv_apps-20261003-bound-xmltv-download-at-the-network-laye] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Scrub "Hey!" LLM artifact docstrings from stream_limit.py — iptv-backend/app/services/stre (review + tweak) [feat:iptv_apps-20261003-scrub-hey-llm-artifact-docstrings-from-s] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Fix `update_watch_position` silently 404-ing for global/Discover streams — `iptv-backend/a (review + tweak) [feat:iptv_apps-20261003-fix-update-watch-position-silently-404-i] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Wire `watchlist_dedupe.dedupe_watchlist()` into the favorites GET endpoint — `iptv-backend (review + tweak) [feat:iptv_apps-20261003-wire-watchlist-dedupe-dedupe-watchlist-i] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Replace `datetime.utcnow()` with `datetime.now(timezone.utc)` across 15 app files — `grep  (review + tweak) [feat:iptv_apps-20261003-replace-datetime-utcnow-with-datetime-no] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Scrub "Hey!" LLM artifact from `normalization.py` module docstring — `iptv-backend/app/ser (review + tweak) [feat:iptv_apps-20261003-scrub-hey-llm-artifact-from-normalizatio] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Fix `check_all_streams` silently dropping health state on gather exceptions — `iptv-backen (review + tweak) [feat:iptv_apps-20261003-fix-check-all-streams-silently-dropping-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Fix `url_safety.assert_public_url` blocking event loop via synchronous `socket.getaddrinfo (review + tweak) [feat:iptv_apps-20261003-fix-url-safety-assert-public-url-blockin] ---
+
+# --- 27B-decomposed from roadmap [2026-10-03]: Replace `discover.py` unbounded process-global `_cache` dict with a TTLCache — `iptv-backe (review + tweak) [feat:iptv_apps-20261003-replace-discover-py-unbounded-process-gl] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Fix `get_content_engagement` type mismatch silently returning zero results — `iptv-backend (review + tweak) [feat:iptv_apps-20261004-fix-get-content-engagement-type-mismatch] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Fix PIN lockout bypass in parental `unblock_stream` endpoint — `DELETE /api/parental/block (review + tweak) [feat:iptv_apps-20261004-fix-pin-lockout-bypass-in-parental-unblo] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Fix `run_cleanup` crash + add tests — `iptv-backend/app/jobs/cleanup_job.py:79` uses `Watc (review + tweak) [feat:iptv_apps-20261004-fix-run-cleanup-crash-add-tests-iptv-bac] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Wire `track_engagement` POST endpoint — `iptv-backend/app/routers/engagement.py` docstring (review + tweak) [feat:iptv_apps-20261004-wire-track-engagement-post-endpoint-iptv] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Add rate limiting to engagement scan endpoints — `iptv-backend/app/routers/engagement.py`  (review + tweak) [feat:iptv_apps-20261004-add-rate-limiting-to-engagement-scan-end] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Fix apply_trial_expiry querying wrong/dead table — `iptv-backend/app/services/premium.py:2 (review + tweak) [feat:iptv_apps-20261004-fix-apply-trial-expiry-querying-wrong-de] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Wrap email-send failures in auth.py so registration can't leave users in unverifiable limb (review + tweak) [feat:iptv_apps-20261004-wrap-email-send-failures-in-auth-py-so-r] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Wire epg_now_next.pick_now_next() into the now-playing endpoint and eliminate its 2N query (review + tweak) [feat:iptv_apps-20261004-wire-epg-now-next-pick-now-next-into-the] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Delete or wire dead subscription_tier_rank helpers — `iptv-backend/app/services/subscripti (review + tweak) [feat:iptv_apps-20261004-delete-or-wire-dead-subscription-tier-ra] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Add missing request: Request param to get_content_engagement to fix AUTO-SKIP rate-limit l (review + tweak) [feat:iptv_apps-20261004-add-missing-request-request-param-to-get] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Move 2 ghost auth resilience tests from app/jobs/ to tests/ and delete 4 dead stubs — `ipt (review + tweak) [feat:iptv_apps-20261004-move-2-ghost-auth-resilience-tests-from-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Delete dead `validate_content_rights()` and its ghost test `tests/test_playlist_rights.py` (review + tweak) [feat:iptv_apps-20261004-delete-dead-validate-content-rights-and-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Delete `test_content_service_cleanup.py` — it asserts `validate_content_rights` EXISTS (li (review + tweak) [feat:iptv_apps-20261004-delete-test-content-service-cleanup-py-i] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Delete orphaned fleet-added referral stubs — `iptv-backend/app/services/referral_service.p (review + tweak) [feat:iptv_apps-20261004-delete-orphaned-fleet-added-referral-stu] ---
+
+# --- 27B-decomposed from roadmap [2026-10-04]: Fix `test_vod_api.py` doubled module body — `iptv-backend/tests/test_vod_api.py` (48 lines (review + tweak) [feat:iptv_apps-20261004-fix-test-vod-api-py-doubled-module-body-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Fix unauthenticated `GET /api/epg/analytics/trending` leaking all-user watch data — `iptv- (review + tweak) [feat:iptv_apps-20261005-fix-unauthenticated-get-api-epg-analytic] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Move 2 ghost tests from `app/routers/` to `tests/` and delete originals — `iptv-backend/ap (review + tweak) [feat:iptv_apps-20261005-move-2-ghost-tests-from-app-routers-to-t] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Delete dead web utility `dedupe.ts` and its test — `iptv-web/src/utils/dedupe.ts`'s `dedup (review + tweak) [feat:iptv_apps-20261005-delete-dead-web-utility-dedupe-ts-and-it] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Delete misleading `playback.ts` stub that generates a fake UUID instead of calling the rea (review + tweak) [feat:iptv_apps-20261005-delete-misleading-playback-ts-stub-that-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Fix wrong `UUID` annotation on all three `EPGAnalyticsService` methods and remove unused r (review + tweak) [feat:iptv_apps-20261005-fix-wrong-uuid-annotation-on-all-three-e] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Add missing auth guard to `GET /api/discovery/trending` — `iptv-backend/app/routers/discov (review + tweak) [feat:iptv_apps-20261005-add-missing-auth-guard-to-get-api-discov] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Delete `iptv-backend/app/routers/test_epg_analytics_import.py` ghost test — file exists at (review + tweak) [feat:iptv_apps-20261005-delete-iptv-backend-app-routers-test-epg] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Delete `iptv-backend/app/services/test_epg_analytics_service.py` empty placeholder — file  (review + tweak) [feat:iptv_apps-20261005-delete-iptv-backend-app-services-test-ep] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Rate-limit the unauthenticated device-pairing endpoints — `iptv-backend/app/routers/device (review + tweak) [feat:iptv_apps-20261005-rate-limit-the-unauthenticated-device-pa] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Route the stream proxy and health check through the SSRF guard — `iptv-backend/app/service (review + tweak) [feat:iptv_apps-20261005-route-the-stream-proxy-and-health-check-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Make logout and password change actually revoke tokens — `iptv-backend/app/routers/auth.py (review + tweak) [feat:iptv_apps-20261005-make-logout-and-password-change-actually] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Rate-limit the public feedback and discovery endpoints — `iptv-backend/app/routers/feedbac (review + tweak) [feat:iptv_apps-20261005-rate-limit-the-public-feedback-and-disco] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Stop exposing process internals on the public `/metrics` endpoint — `iptv-backend/app/main (review + tweak) [feat:iptv_apps-20261005-stop-exposing-process-internals-on-the-p] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Remove the hardcoded stub `GET /api/vod` route — `iptv-backend/app/routers/vod.py:24` serv (review + tweak) [feat:iptv_apps-20261005-remove-the-hardcoded-stub-get-api-vod-ro] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Add the missing `type="button"` to two web buttons so they cannot submit a surrounding for (review + tweak) [feat:iptv_apps-20261005-add-the-missing-type-button-to-two-web-b] ---
+
+# --- 27B-decomposed from roadmap [2026-10-05]: Replace the stray `console.log` in the player's CORS-retry path with the app's logger or r (review + tweak) [feat:iptv_apps-20261005-replace-the-stray-console-log-in-the-pla] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Fix unauthenticated `POST /api/subscription/init` — `iptv-backend/app/routers/subscription (review + tweak) [feat:iptv_apps-20261007-fix-unauthenticated-post-api-subscriptio] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Gate admin YouTube channel mutations behind `ADMIN_SECRET` — `iptv-backend/app/routers/adm (review + tweak) [feat:iptv_apps-20261007-gate-admin-youtube-channel-mutations-beh] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Rate-limit reminders router — Add `@limiter.limit` decorators to the 5 routes in `iptv-bac (review + tweak) [feat:iptv_apps-20261007-rate-limit-reminders-router-add-limiter-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Rate-limit content router — Add `@limiter.limit` decorators to the 13 routes in `iptv-back (review + tweak) [feat:iptv_apps-20261007-rate-limit-content-router-add-limiter-li] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Log swallowed exception in favorites idempotency — Replace bare `pass` with `logger.except (review + tweak) [feat:iptv_apps-20261007-log-swallowed-exception-in-favorites-ide] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Test youtube channel accurate job — Add a test for `youtube_channel_accurate_check_job` in (review + tweak) [feat:iptv_apps-20261007-test-youtube-channel-accurate-job-add-a-] ---
+
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Rate-limit downloads router — Add `@limiter.limit` decorators to the 6 routes in `iptv-bac (review + tweak) [feat:iptv_apps-20261007-rate-limit-downloads-router-add-limiter-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Log swallowed exception in tmdb service — Replace bare `pass` with `logger.exception` in ` (review + tweak) [feat:iptv_apps-20261007-log-swallowed-exception-in-tmdb-service-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Rate-limit account router — Add `@limiter.limit` decorators to the 2 routes in `iptv-backe (review + tweak) [feat:iptv_apps-20261007-rate-limit-account-router-add-limiter-li] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Test create_download endpoint — Add tests for `create_download` in `iptv-backend/app/route (review + tweak) [feat:iptv_apps-20261007-test-create-download-endpoint-add-tests-] ---
+
+# --- hand-written by Claude 2026-10-07 (Mark: make /api/vod real; Qwen's own decomposition had VERIFYs that could never pass) [feat:iptv_apps-20261007-make-get-api-vod-a-real-catalog-instead-] ---
+
+# --- hand-written by Claude 2026-10-07 (web referral UI; backend already shipped) [feat:iptv_apps-20261007-add-the-web-client-for-referra] ---
+
+# --- 27B-decomposed from roadmap [2026-10-07]: Rate-limit notifications router — Add `@limiter.limit` decorators to the 5 routes in `iptv (review + tweak) [feat:iptv_apps-20261007-rate-limit-notifications-router-add-limi] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Log swallowed exception in push_sender — Replace bare `pass` with `logger.exception` in `i (review + tweak) [feat:iptv_apps-20261008-log-swallowed-exception-in-push-sender-r] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Test notifications device endpoints — Add tests for `register_device`, `list_devices`, `re (review + tweak) [feat:iptv_apps-20261008-test-notifications-device-endpoints-add-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Implement recordings API calls — Replace TODOs in `iptv-web/src/stores/recordings.ts:13` a (review + tweak) [feat:iptv_apps-20261008-implement-recordings-api-calls-replace-t] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Rate-limit stream analytics endpoints — Add `@limiter.limit` decorators to the 3 routes in (review + tweak) [feat:iptv_apps-20261008-rate-limit-stream-analytics-endpoints-ad] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Rate-limit content groups endpoints — Add `@limiter.limit` decorators to the 4 routes in ` (review + tweak) [feat:iptv_apps-20261008-rate-limit-content-groups-endpoints-add-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Test content groups endpoints — Add tests for `get_group`, `get_alternates`, `set_preferre (review + tweak) [feat:iptv_apps-20261008-test-content-groups-endpoints-add-tests-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Test referrals endpoints — Add tests for `create_referral_code`, `list_my_referrals`, and  (review + tweak) [feat:iptv_apps-20261008-test-referrals-endpoints-add-tests-for-c] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Test `check_discover_denylist` — Add unit tests for `iptv-backend/app/services/discover.py (review + tweak) [feat:iptv_apps-20261008-test-check-discover-denylist-add-unit-te] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Test `extract_stream_id_from_query` — Add unit tests for `iptv-backend/app/services/discov (review + tweak) [feat:iptv_apps-20261008-test-extract-stream-id-from-query-add-un] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Test `recompute_representative` — Add unit tests for `iptv-backend/app/services/content_de (review + tweak) [feat:iptv_apps-20261008-test-recompute-representative-add-unit-t] ---
+
+# --- 27B-decomposed from roadmap [2026-10-08]: Test `register_device_token` — Add unit tests for `iptv-backend/app/services/notifications (review + tweak) [feat:iptv_apps-20261008-test-register-device-token-add-unit-test] ---
+
+# --- deterministic work supply 2026-10-08 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-08 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-08 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-08 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-08 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-09]: Test profile CRUD endpoints — Add tests for `list_profiles`, `create_profile`, `get_profil (review + tweak) [feat:iptv_apps-20261009-test-profile-crud-endpoints-add-tests-fo] ---
+
+# --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-09]: Test watch history enrichment — Add tests for `enrich_watch_history`, `enrich_continue_wat (review + tweak) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-] ---
+- [ ] [T1] iptv-backend/tests/test_watch_history_enrichment.py — Add test verifying `enrich_watch_history` correctly joins stream metadata (title, thumbnail) to history items. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_enrich_watch_history_joins_metadata -v. (cat:test; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
+- [ ] [T1] iptv-backend/tests/test_watch_history_enrichment.py — Add test verifying `enrich_continue_watching` filters out completed episodes and sorts by last watched timestamp. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_enrich_continue_watching_filters_and_sorts -v. (cat:test; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
+- [ ] [T1] iptv-backend/tests/test_watch_history_enrichment.py — Add test verifying `get_watch_history` returns paginated results with enriched stream data. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_get_watch_history_paginated_enriched -v. (cat:test; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
+- [ ] [T2] iptv-backend/app/routers/watch_history.py — Refactor `enrich_watch_history` to use a single database query with `joinedload` for stream metadata instead of N+1 queries. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py -v && grep -q "joinedload" iptv-backend/app/routers/watch_history.py. (cat:python; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
+- [ ] [T2] iptv-backend/app/routers/watch_history.py — Update `enrich_continue_watching` to exclude items where `progress` is 100% and ensure consistent sorting logic. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_enrich_continue_watching_filters_and_sorts -v. (cat:python; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
+- [ ] [T2] iptv-backend/app/routers/watch_history.py — Modify `get_watch_history` to apply pagination parameters and call enrichment functions before returning response. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_get_watch_history_paginated_enriched -v. (cat:python; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
+
+# --- 27B-decomposed from roadmap [2026-10-09]: Test stream model validation — Add tests for `validate_cast_device_info` in `iptv-backend/ (review + tweak) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f] ---
+- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` correctly parses a valid Cast device payload dictionary containing 'device' and 'cast' keys. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_valid_payload -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
+- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` raises a ValueError when the input payload is missing the required 'device' key. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_missing_device_key -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
+- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` raises a ValueError when the input payload is missing the required 'cast' key. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_missing_cast_key -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
+- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` raises a TypeError when the input is not a dictionary. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_invalid_type -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
+- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` returns the parsed device name and cast ID as a tuple for a valid payload. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_return_value -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]

@@ -120,6 +120,33 @@ eqv "dir already gone -> nothing swept, no output" "" "$out"
 chk "stale registration pruned" bash -c "! git -C '$Q/repos/alpha' worktree list | grep -q '$Wg'"
 chk "no alert for an already-gone dir" bash -c "! test -s '$ALERTS'"
 
+echo "== live ovn_test_watch worktrees (wt-tw-*) are protected while test_watch.lock is held =="
+if command -v flock >/dev/null 2>&1; then
+  mkq; mkrepo alpha
+  mktw(){ local wt; wt="$(mktemp -d /tmp/wt-tw-alpha.XXXXXX)"; EXTRA+=("$wt"); git -C "$Q/repos/alpha" worktree add -q --detach "$wt" >/dev/null 2>&1; touch -d "$1 minutes ago" "$wt"; echo "$wt"; }
+  Wtw="$(mktw 180)"; Wother="$(mkwt alpha /tmp 180)"
+  ( flock -x 9; exec sleep 60 ) 9>"$Q/state/test_watch.lock" & HOLD=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do ( flock -n 9 ) 9>>"$Q/state/test_watch.lock" 2>/dev/null || break; sleep 0.3; done
+  out="$(sweep)"
+  chk "old wt-tw-* worktree KEPT while a live test-watch holds test_watch.lock" test -d "$Wtw"
+  chk "...but an equally old unrelated worktree is still swept (protection is scoped)" test ! -d "$Wother"
+  eqv "summary counts only the unrelated one" "worktree sweep: removed 1 orphaned worktree(s)" "$out"
+  chk "kept worktree still registered" bash -c "git -C '$Q/repos/alpha' worktree list | grep -q '$Wtw'"
+  kill "$HOLD" 2>/dev/null; wait "$HOLD" 2>/dev/null
+  out="$(sweep)"
+  chk "lock free (killed sweep's orphan): old wt-tw-* worktree is reaped" test ! -d "$Wtw"
+  eqv "summary counts the orphan" "worktree sweep: removed 1 orphaned worktree(s)" "$out"
+  Wnew="$(mktw 5)"
+  out="$(sweep)"
+  chk "benign: a young wt-tw-* worktree (lock free) is still kept by the age rule" test -d "$Wnew"
+  rm -rf "$Wnew"   # (mktw runs in a $(...) subshell, so EXTRA+= cannot register it)
+  mkq; mkrepo alpha; Wnolock="$(mktw 180)"
+  out="$(sweep)"
+  chk "no test_watch.lock file at all: sweeps as before (nothing breaks)" test ! -d "$Wnolock"
+else
+  echo "  (skip: flock missing)"
+fi
+
 echo "== multiple repos / state dir arg =="
 mkq; mkrepo alpha; mkrepo bravo
 Wa="$(mkwt alpha /tmp 200)"; Wb="$(mkwt bravo /tmp 200)"; Wb2="$(mkwt bravo /tmp 300)"

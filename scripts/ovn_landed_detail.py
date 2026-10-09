@@ -25,6 +25,7 @@ resolving that id to a human title from roadmap/<repo>.md. Items with no feature
 (older/ungrouped backlog, or a title that can't be resolved) keep the original
 file-only format unchanged — never fabricated.
 """
+import json
 import os
 import re
 import sys
@@ -39,6 +40,11 @@ except Exception:
 P = os.environ.get("TASK_STATS", os.path.expanduser("~/overnight-queue/state/task_stats.log"))
 if not os.path.exists(P) and os.path.exists("state/task_stats.log"):
     P = "state/task_stats.log"
+
+# 2026-10-09 (harness-credit-integrity item 4): task_stats.log (the source below) cannot tell a credited landing from a green push the auto-credit refused to
+# tick, so the uncredited pushes are counted from state/outcomes.jsonl (class landed-uncredited) and shown as their own line.
+OUTCOMES = os.environ.get("OUTCOMES", os.path.join(os.path.dirname(os.path.abspath(P)), "outcomes.jsonl"))
+UNCREDITED_CLASS = "landed-uncredited"
 
 TAG_RE = re.compile(r'\{([^.·]*)[.·]([^.·]*)[.·]([^.·]*)[.·]([^}]*)\}')
 
@@ -67,6 +73,36 @@ def _feature_for(repo, fpath):
             except Exception:
                 return feat_id, None
     return None
+
+
+def _uncredited_by_repo(cutoff):
+    """{repo: n} of landed-uncredited rows newer than cutoff (epoch seconds) in outcomes.jsonl; any read/parse problem => {} (enrichment only)."""
+    out = {}
+    try:
+        import datetime
+        with open(OUTCOMES, errors="replace") as fh:
+            for ln in fh:
+                if UNCREDITED_CLASS not in ln:
+                    continue
+                try:
+                    o = json.loads(ln)
+                    t = datetime.datetime.fromisoformat(str(o.get("ts", "")).replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    continue
+                if o.get("class") != UNCREDITED_CLASS or t < cutoff:
+                    continue
+                out[o.get("repo", "?")] = out.get(o.get("repo", "?"), 0) + 1
+    except OSError:
+        return {}
+    return out
+
+
+def _uncredited_line(by_repo):
+    n = sum(by_repo.values())
+    if not n:
+        return ""
+    top = ", ".join("%s %d" % (r, c) for r, c in sorted(by_repo.items(), key=lambda kv: -kv[1])[:4])
+    return "⚠️ %d uncredited push%s (green, item not ticked: %s)" % (n, "" if n == 1 else "es", top)
 
 
 def _int_arg(args, flag, default):
@@ -110,7 +146,10 @@ def main():
             cat = m.group(2) if m else '?'
             by_repo.setdefault(repo, []).append((ts, tier, cat, fpath))
 
+    unc = _uncredited_line(_uncredited_by_repo(cutoff))
     if not by_repo:
+        if unc:
+            print(unc)
         return
 
     lines = [f"📝 Landed detail (last {hours:g}h):"]
@@ -138,7 +177,11 @@ def main():
                 lines.append(f"  {repo} ({tier_disp}·{cat}): {fdisp}")
             total += 1
     if total == 0:
+        if unc:
+            print(unc)
         return
+    if unc:
+        lines.append(unc)
     print("\n".join(lines))
 
 

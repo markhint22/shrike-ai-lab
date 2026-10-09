@@ -1613,7 +1613,7 @@ def check_items_parse(lines, feat):
             bad.append("does not parse as a queue item: %s" % ln[:80])
         if "Manual-test bug (reported by Mark" not in ln or ("[feat:%s]" % feat) not in ln or ln.count("VERIFY:") != 1:
             bad.append("marker / feat tag / single VERIFY missing: %s" % ln[:80])
-        if re.search(r"AUTO-SKIP|HUMAN-ONLY|HARD FILE BAN|BLOCKED|\[CLAUDE\]", ln, re.I):
+        if re.search(r"AUTO-SKIP|HUMAN-ONLY|HARD FILE BAN|(?-i:BLOCKED)|\[CLAUDE\]", ln, re.I):
             bad.append("contains a parked-item keyword: %s" % ln[:80])
         if "\n" in ln:
             bad.append("multi-line item")
@@ -1625,7 +1625,7 @@ def check_items_parse(lines, feat):
 # ----------------------------------------------------------------------------------------------------------------------
 # progress-file edit (pure) - the caller applies it atomically through manual_notes_ingest.edit_progress
 # ----------------------------------------------------------------------------------------------------------------------
-_PARKED = re.compile(r"AUTO-SKIP|HUMAN-ONLY|human/|\[CLAUDE\]|BLOCKED|\(retired-|\[unworkable", re.I)
+_PARKED = re.compile(r"AUTO-SKIP|HUMAN-ONLY|human/|\[CLAUDE\]|(?-i:BLOCKED)|\(retired-|\[unworkable", re.I)
 
 
 def apply_to_text(text, feat, lines, insert_if_missing=False):

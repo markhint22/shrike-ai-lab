@@ -58,6 +58,27 @@ BAD = frozenset({"revert", "noop:gate", "noop:flail", "noop"})
 BENIGN = frozenset({"noop:done", "noop:blocked", "skip", "error"})
 
 
+# 2026-10-09 (harness-credit-integrity item 4): record_outcome() writes class "landed-uncredited" (severity neutral) for a green push whose item the
+# auto-credit refused to tick. It is its OWN bucket: neither a landing nor a failure, so it is excluded from good, bad and the pass rate, and reports
+# show it as "N uncredited pushes". Every reader that counts `class == "landed"` already excludes it; use is_uncredited()/count_uncredited() to report it.
+UNCREDITED_CLASS = "landed-uncredited"
+
+
+def is_uncredited(row):
+    """True for a state/outcomes.jsonl row recorded as a green push that was not credited."""
+    return isinstance(row, dict) and row.get("class") == UNCREDITED_CLASS
+
+
+def count_uncredited(rows):
+    """Number of landed-uncredited rows in an iterable of outcomes.jsonl rows."""
+    return sum(1 for r in rows if is_uncredited(r))
+
+
+def uncredited_label(n):
+    """'N uncredited pushes' (singular for 1), or '' when there are none - the one phrase every report uses."""
+    return "" if not n else "%d uncredited push%s" % (n, "" if n == 1 else "es")
+
+
 def bucket(oc):
     """state/task_stats.log's `oc` column -> "good" | "bad" | "benign".
 
@@ -106,6 +127,8 @@ def bucket_from_outcome_row(row):
     # status/severity said (it was recorded as error(...) = benign, which hid the overflow cycles from the pass rate).
     if row.get("fail_reason") == "context-exceeded" and row.get("class") != "landed":
         return "bad"
+    if row.get("class") == UNCREDITED_CLASS:   # its own bucket (see is_uncredited): never a win, never a failure, whatever the severity field says
+        return "benign"
     severity = row.get("severity")
     if severity is not None:
         return bucket_from_severity(severity)

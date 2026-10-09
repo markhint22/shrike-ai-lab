@@ -98,6 +98,7 @@ new_repo(){ local r="$tmp/$1"; shift; mkdir -p "$r"
   ( cd "$r" && git init -q && git config user.email t@t.com && git config user.name t \
     && { echo '# Progress'; echo; echo '## Next Steps'; printf '%s\n' "$@"; } > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m init ); echo "$r"; }
 guard(){ ( cd "$tmp" && env -i PATH="$PATH" bash "$G" "$1" "$2" "$3" "$4" "" ) >/dev/null 2>&1; }
+guard_oldbill(){ ( cd "$tmp" && env -i PATH="$PATH" OVN_STAGE_BILLING=off bash "$G" "$1" "$2" "$3" "$4" "" ) >/dev/null 2>&1; }
 BUGLINE="- [ ] [CLAUDE] [bug-escalated: 2 failed attempts (cap 2)] - [ ] [T3] \`a.py\` — Manual-test bug (reported by Mark, flow f, 2026-10-02): x. (cat:bugfix; src:manual) [feat:osr-20261002-manual-aaaa1111]"
 RA='- [ ] [T2] `app/roadmap_a.py` — new feature A. (cat:python)'
 BH='no-op(stage-unverified) stage(higher-tier) bug-handled'
@@ -108,7 +109,10 @@ for i in 4 5; do guard "$r" "$BH" "$st" ongoing-x; done
 t "...and the roadmap item is not AUTO-SKIPped" bash -c "! grep -q 'AUTO-SKIP' '$r/OVERNIGHT_PROGRESS.md'"
 r="$(new_repo g2 "$BUGLINE" "$RA")"; st="$tmp/g2st"; mkdir -p "$st"
 for i in 1 2 3 4; do guard "$r" 'no-op(stage-unverified) stage(higher-tier)' "$st" ongoing-x; done
-t "CONTROL (the old behaviour): the same status WITHOUT the marker is billed to the roadmap item and parks it after 4" bash -c "grep -F 'roadmap_a.py' '$r/OVERNIGHT_PROGRESS.md' | grep -q 'AUTO-SKIP after 4 no-op cycles'"
+t "stage status WITHOUT a stage-item marker (harness-credit-integrity item 8): bills NOTHING - the unrelated top roadmap item is not parked" bash -c "! grep -q 'AUTO-SKIP' '$r/OVERNIGHT_PROGRESS.md' && [ -z \"\$(ls '$st'/item_fails 2>/dev/null)\" ]"
+r="$(new_repo g2b "$BUGLINE" "$RA")"; st="$tmp/g2bst"; mkdir -p "$st"
+for i in 1 2 3 4; do guard_oldbill "$r" 'no-op(stage-unverified) stage(higher-tier)' "$st" ongoing-x; done
+t "CONTROL (the old behaviour, OVN_STAGE_BILLING=off): the same status WITHOUT the marker is billed to the roadmap item and parks it after 4" bash -c "grep -F 'roadmap_a.py' '$r/OVERNIGHT_PROGRESS.md' | grep -q 'AUTO-SKIP after 4 no-op cycles'"
 t "run_overnight.sh best-of-N loop does not retry a 'bug-handled' status (the runner already counted it)" bash -c "grep -q \"grep -qF 'bug-handled' && echo\" '$REALQ/run_overnight.sh'"
 # fail-safe: the guard without the shared helper must not run an uncapped open loop on a bug
 mkdir -p "$tmp/gnolib/scripts"; cp "$G" "$REALQ/scripts/lib_item_select.sh" "$tmp/gnolib/scripts/"; [ -f "$REALQ/scripts/ovn_extract_failure.sh" ] && cp "$REALQ/scripts/ovn_extract_failure.sh" "$tmp/gnolib/scripts/"

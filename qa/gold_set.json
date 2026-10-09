@@ -114,9 +114,11 @@
    "repo": "iptv_apps",
    "base": "1545624b65fe85386afed2e19d8beb5034754c21",
    "head": "7d87fbd174a6ea5e9fba973f4a13b6acfec23153",
-   "gate": "none",
-   "kind": "known_gap",
-   "title": "?token= playback-only change: get_current_user_or_token_param now demands expected_type='playback' while the web player and Roku send access tokens (half-finished feature in an 'auto-credit' commit); no gate covers it",
+   "gate": "pending:staging_e2e_playback_token",
+   "kind": "true_positive",
+   "title": "?token= playback-only change: get_current_user_or_token_param now demands expected_type='playback' while the web player and Roku send access tokens (half-finished feature in an 'auto-credit' commit); covered by the live-staging e2e cell playback_token (shadow), replayed against a stub",
+   "pending": "live-staging e2e v2 (QA-N1): cell playback_token (GET the stream proxy with the access token in ?token= must not be 401) runs on staging per deployed commit; its replay against a stub reproducing the 7d87fbd1 behaviour is scripts/test/test_qa_staging_e2e.py (a gate_*.py replay script is deliberately NOT shipped: it would join the hygiene pre-push enforce set)",
+   "live_check": {"cell": "playback_token", "stub_mode": "token_query_playback_only", "fixed_by": "7a986d1b46a30c9a7566135c6e2b10e76cf2a9a6"},
    "date": "2026-10-02"
   },
   {

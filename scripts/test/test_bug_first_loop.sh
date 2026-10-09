@@ -10,7 +10,7 @@ unset OVN_BUG_FIRST OVN_BUG_FOCUS OVN_BUG_ATTEMPT_CAP OVN_GUARD_ATTEMPTS NTFY_SE
 ro_init
 ro_hook_stubs
 ro_link update_progress.py dedupe_progress_headers.py dedupe_gd_duplicate_functions.py dedupe_python_duplicate_defs.py \
-        scripts/ovn_classify.py scripts/ovn_progress_slice.py scripts/ovn_credit_already_satisfied.sh scripts/ovn_retire_vague.py scripts/ovn_extract_failure.sh
+        scripts/ovn_classify.py scripts/ovn_delete_executor.py scripts/ovn_progress_slice.py scripts/ovn_credit_already_satisfied.sh scripts/ovn_retire_vague.py scripts/ovn_extract_failure.sh
 ST="$T/tree/state"; R="$T/repos"; mkdir -p "$ST"
 row(){ printf '%s\n' "$REP" | grep -F "| $1 |" | head -1; }
 oc(){ jq -r --arg id "$1" --arg f "$2" 'select(.id==$id) | .[$f]' "$ST/outcomes.jsonl" | tail -1; }
@@ -89,6 +89,17 @@ rm -f "$ST/pilot_flags.env"
 
 echo "=== D: full main-loop escalation with the REAL guard ==="
 rm -f "$T/tree/scripts/ovn_item_guard.sh"; ro_link scripts/ovn_item_guard.sh
+# a stand-in stage runner: like the real one it journals the item it DECOMPOSED (state/stage_runs/<repo>-*.jsonl), which run_overnight.sh turns into the
+# 'stage-item-hash'/'stage-item-line' markers (harness-credit-integrity item 8) the guard bills; the item it works is whatever $T/stage_item says
+# (the test flips it to the roadmap line after the bug is escalated: "the lane moves on"). It fails the cycle (no summary event => no-op(stage-unverified)).
+cat > "$T/tree/ovn_stage_runner.sh" <<EOSR
+#!/bin/bash
+mkdir -p state/stage_runs
+jq -nc --arg i "\$(cat "$T/stage_item")" '{run:"r",event:"decomposed",item:\$i}' > "state/stage_runs/\$1-run.jsonl"
+echo "ITEM stub"
+exit 1
+EOSR
+stage_item(){ printf '%s' "${1#- \[ \] }" > "$T/stage_item"; }
 d_run(){ # 1 cycle
   : > "$RO_STUB/aider_n"; rm -f "$RO_STUB/impl_n" "$RO_STUB/aider_kinds" "$T/tree/reports"/*
   ro_run_main "$@"; REP="$(ro_report)"
@@ -97,6 +108,7 @@ ro_mkrepo r-d1 "$(mkp "$RA" "$RB" "$BUG")" >/dev/null
 printf 'IMPL_SEQ=none; SCOUT_EXTRA="a multi-file change"\n' > "$RO_STUB/scn"
 echo "topic-d" > "$ST/ntfy_topic"
 ro_tasks "$(jq -nc --arg R "$R" '[{id:"ongoing-d1",repo:($R+"/r-d1"),prompt:"Work the single top not-yet-done item in the overnight progress log."}]')"
+stage_item "$BUG"
 d_run
 P1="$(cat "$R/r-d1/OVERNIGHT_PROGRESS.md")"
 hasnt "cycle 1 (1 failed attempt): not escalated yet" "$P1" "bug-escalated"
@@ -106,6 +118,7 @@ P2="$(cat "$R/r-d1/OVERNIGHT_PROGRESS.md")"
 has "cycle 2: the bug line is now '[CLAUDE] [bug-escalated: ...]'" "$(printf '%s\n' "$P2" | grep -F 'Manual-test bug')" "[CLAUDE] [bug-escalated: 2 failed attempts (cap 2)"
 hasnt "cycle 2: NOT AUTO-SKIPped" "$P2" "AUTO-SKIP"
 ok "bug_escalations.jsonl written by the real loop (one line, repo r-d1)" "$([ "$(wc -l < "$ST/bug_escalations.jsonl" 2>/dev/null | tr -d ' ')" = 1 ] && grep -q '"repo":"r-d1"' "$ST/bug_escalations.jsonl" && echo 1 || echo 0)"
+stage_item "$RA"      # the bug is parked/escalated: the stage runner now picks the roadmap item
 d_run
 d_run
 P3="$(cat "$R/r-d1/OVERNIGHT_PROGRESS.md")"

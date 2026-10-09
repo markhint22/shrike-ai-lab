@@ -53,6 +53,14 @@
 #   <lines> | ovn_bug_first_order           -> reorders/narrows as above (stdin lines may carry a 'N:' grep -n prefix)
 #   <lines> | ovn_has_bug_line              -> 0 when any input line is a manual-test bug
 #   ovn_open_bug_count <repo_dir>           -> number of open, not-parked manual bugs in <repo_dir>/OVERNIGHT_PROGRESS.md
+# spec-compiler-v2 (2026-10-09): the parked-line patterns live in ONE place (lib_parked_pattern.sh; twin of ovn_backlog_eligibility.py). BLOCKED is a
+# case-sensitive TAG - the old case-insensitive `grep -viE '...|BLOCKED|...'` parked every line that merely contained the word "blocked" (all 10 open iptv_apps
+# items). Inline fallback (identical values) for a deployment that has not got the library yet.
+_LIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+[ -f "$_LIS_DIR/lib_parked_pattern.sh" ] && . "$_LIS_DIR/lib_parked_pattern.sh"
+: "${OVN_PARKED_CI_ERE:=AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}"
+: "${OVN_PARKED_CS_ERE:=BLOCKED}"
+[ "${OVN_PARKED_BLOCKED_CI:-off}" = on ] && [ -z "${_LIS_BLOCKED_CI_DONE:-}" ] && { OVN_PARKED_CI_ERE="$OVN_PARKED_CI_ERE|BLOCKED"; _LIS_BLOCKED_CI_DONE=1; }   # kill switch: legacy case-insensitive BLOCKED (idempotent)
 ovn_is_manual_bug_text() {
   [ "${OVN_BUG_FIRST:-on}" = off ] && return 1
   printf '%s' "${1:-}" | grep -qE '\[feat:[^]]*-manual-[0-9a-f]{8}(\.r[0-9]+)?\]|Manual-test bug \(reported by Mark.*src:manual'
@@ -83,7 +91,7 @@ ovn_open_bug_count() {
   local prog="${1:-.}/OVERNIGHT_PROGRESS.md"
   [ -f "$prog" ] || { printf '0'; return 0; }
   [ "${OVN_BUG_FIRST:-on}" = off ] && { printf '0'; return 0; }
-  grep -E '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED|\(retired-|\[CLAUDE\]' \
+  grep -E '^- \[ \]' "$prog" 2>/dev/null | grep -viE "$OVN_PARKED_CI_ERE|\(retired-" | grep -vE "$OVN_PARKED_CS_ERE" \
     | grep -cE '\[feat:[^]]*-manual-[0-9a-f]{8}(\.r[0-9]+)?\]|Manual-test bug \(reported by Mark.*src:manual' || true
 }
 
@@ -100,7 +108,7 @@ ovn_resolve_top_item() {
                 | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}" | grep -vE "\.md$" | sort -u)"
     while IFS= read -r f; do
       [ -z "$f" ] && continue
-      top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | grep -F -- "$f" | head -1)"
+      top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE "$OVN_PARKED_CI_ERE" | grep -vE "$OVN_PARKED_CS_ERE" | ovn_bug_first_order | grep -F -- "$f" | head -1)"
       if [ -n "$top" ]; then
         printf '%s' "$top"
         return 0
@@ -109,7 +117,7 @@ ovn_resolve_top_item() {
   fi
   # Fallback: no task_log, no scout signal, or the scouted file isn't literally in the
   # progress file — the original top-of-file behavior, unchanged.
-  top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | head -1)"
+  top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE "$OVN_PARKED_CI_ERE" | grep -vE "$OVN_PARKED_CS_ERE" | ovn_bug_first_order | head -1)"
   printf '%s' "$top"
 }
 
@@ -302,11 +310,11 @@ ovn_log_has_api_error() {
   body="$(ovn_strip_lint_blocks "$log")"
   [ -n "$body" ] || return 1
   # named API / transport exceptions anywhere in the (non-lint) output
-  if printf '%s\n' "$body" | grep -qE 'ContextWindowExceededError|BadRequestError|APIError|RateLimitError|APIConnectionError|APITimeoutError|ServiceUnavailableError|InternalServerError|litellm\.[A-Za-z]+(Error|Exception)|openai\.[A-Za-z]+Error|Connection (reset|aborted|refused)|ConnectionError|Read timed out|Max retries exceeded'; then
+  if grep -qE 'ContextWindowExceededError|BadRequestError|APIError|RateLimitError|APIConnectionError|APITimeoutError|ServiceUnavailableError|InternalServerError|litellm\.[A-Za-z]+(Error|Exception)|openai\.[A-Za-z]+Error|Connection (reset|aborted|refused)|ConnectionError|Read timed out|Max retries exceeded' <<< "$body"; then
     return 0
   fi
   # an unindented networking/LLM-library exception line (the tail of a transport traceback whose header a lint block may have swallowed)
-  if printf '%s\n' "$body" | grep -qE '^(litellm|openai|httpx|httpcore|requests|urllib3|aiohttp|socket|ssl)[.A-Za-z_]*(Error|Exception|Timeout)'; then
+  if grep -qE '^(litellm|openai|httpx|httpcore|requests|urllib3|aiohttp|socket|ssl)[.A-Za-z_]*(Error|Exception|Timeout)' <<< "$body"; then
     return 0
   fi
   # a traceback whose final exception line is an API/transport exception of a networking/LLM library

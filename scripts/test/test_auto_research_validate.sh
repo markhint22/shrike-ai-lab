@@ -36,6 +36,12 @@ ok "drops in-batch duplicate" "$(grep -q 'duplicate title: Fix beta crash' "$T/e
 ok "drops a RE-WORDED duplicate (same file + same title words)" "$(grep -q 'near-duplicate.*Broker silently drops' "$T/err" && echo 1 || echo 0)"
 ok "keeps a different item in a different file" "$(printf '%s' "$out" | grep -q 'Good gamma' && echo 1 || echo 0)"
 ok "drops bad priority P9" "$(grep -q 'bad format: - \[ \] \[P9\]' "$T/err" && echo 1 || echo 0)"
+# 2026-10-09: titles with the singular word 'import' are user-visible features, not import hygiene (the mechanical-gap rule used to reject them); plural/statement forms still are
+mg(){ python3 -c "import sys,os; sys.path.insert(0, os.path.dirname('$V')); import ovn_auto_research_validate as V; print(int(V.mechanical_gap(sys.argv[1], '')))" "$1"; }
+ok "feature 'Remove duplicate channels on M3U playlist import' is NOT a mechanical gap" "$([ "$(mg 'Remove duplicate channels on M3U playlist import')" = 0 ] && echo 1 || echo 0)"
+ok "feature 'Cleanup the playlist import flow' is NOT a mechanical gap" "$([ "$(mg 'Cleanup the playlist import flow')" = 0 ] && echo 1 || echo 0)"
+ok "'Remove unused imports in app/x.py' IS a mechanical gap" "$([ "$(mg 'Remove unused imports in app/x.py')" = 1 ] && echo 1 || echo 0)"
+ok "'Tidy up the imports in streams.py' IS a mechanical gap" "$([ "$(mg 'Tidy up the imports in streams.py')" = 1 ] && echo 1 || echo 0)"
 : > "$T/empty.md"
 out2="$(python3 "$V" "$T/empty.md" "$T/roadmap.md" 12 2>"$T/err2")"; rc=$?
 ok "empty proposal is valid (rc 0, no output)" "$([ $rc = 0 ] && [ -z "$out2" ] && echo 1 || echo 0)"

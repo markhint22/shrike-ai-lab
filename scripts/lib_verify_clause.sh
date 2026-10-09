@@ -18,6 +18,12 @@
 # heavy cap; and because GUT exits 0 even when tests FAIL, a GUT clause only PASSes when its output has no "Failing Tests N>0" / "[Failed]" and (when the
 # clause writes a junit xml) the xml is green (scripts/lib_gut_xml.sh). Within ONE auto-credit call identical VERIFY commands run once (_VC_MEMO_ON=1).
 # After a call: _LAST_VERIFY_RC, _LAST_VERIFY_TIMEOUT (the cap that applied), _LAST_VERIFY_WHY (one-line reason for TIMEOUT/UNRUNNABLE).
+# spec-compiler-v2 (2026-10-09), both with kill switches:
+#   B1 GUT with a missing -gtest target prints "[ERROR]: Could not find script", then runs the WHOLE suite (391 scripts, 2987 tests) and exits 0 - shadow_check
+#      returned PASS and every xlite "create test file X" item looked already satisfied. Now FAIL, _LAST_VERIFY_WHY="GUT target missing".
+#      OVN_GUT_MISSING_TARGET=fail|ignore (default fail).
+#   B2 pytest `path::name` that exits rc=4 (not found; a class-based test is only addressable as path::Class::name) is resolved by collecting the file and
+#      retried ONCE as the fully qualified id (`path::Class::name`) - only on an EXACT name match (never a -k substring match). rc=5 / "no tests ran" is a FAIL with _LAST_VERIFY_WHY="no tests collected". OVN_VERIFY_NODEID_FALLBACK=off disables the retry.
 
 # Substitute a nearby repo .venv's python for a bare `python`/`python3` token, so a
 # VERIFY clause that omits the .venv/ prefix (some do, some don't - an authoring
@@ -151,6 +157,76 @@ _verify_fix_gut_exit(){
 }
 _verify_is_gut(){ case "$1" in *gut_cmdln*) return 0;; esac; return 1; }
 _verify_is_narrow_gut(){ _verify_is_gut "$1" || return 1; case "$1" in *-gtest*|*-gselect*|*-gunit_test_name*) return 0;; esac; return 1; }
+_verify_is_pytest(){ case "$1" in *pytest*) return 0;; esac; return 1; }
+# B2: replace the first occurrence of the literal $2 in the command $1 by $3 (sed with `|` delimiter; bash 3.2 safe: no ${var/pat/rep} with quoted patterns). $2 is a node-id token
+# ([A-Za-z0-9_./:-]), $3 is a space separated list of such tokens, so neither can contain `|`, `&` or `\`.
+_verify_replace_first(){
+  local c="$1" from="$2" to="$3" esc
+  esc="$(printf '%s' "$from" | sed 's/\./\\./g')"   # the only regex metacharacter a node-id token can contain is `.`
+  printf '%s' "$c" | sed "s|${esc}|${to}|"
+}
+# B2: a pytest node id `a/b.py::name` that rc=4'd (class-based tests are only addressable as a/b.py::Class::name) is resolved by COLLECTING the file (`--collect-only -q`) and
+# accepting only an EXACT match: a collected id whose segments after the path equal `name` or end with `::name` (a trailing [param] id is ignored). A substring match is NOT
+# a match (`-k test_foo` selects test_foo_bar, which would credit an unimplemented "add test_foo" item). On a match it prints the command with the node id replaced by the
+# fully qualified collected id(s) (so only those tests run); it prints nothing when there is no exact match or the command has no node id. $2 = timeout seconds.
+_verify_nodeid_fallback_cmd(){
+  local c="$1" tmo="${2:-60}" tok path name ccmd cout line first id idrest ids="" rep
+  _verify_is_pytest "$c" || return 0
+  tok="$(printf '%s' "$c" | grep -oE '[A-Za-z0-9_./-]+\.py::[A-Za-z0-9_:.-]+' | head -1)"
+  [ -n "$tok" ] || return 0
+  path="${tok%%::*}"; name="${tok#*::}"
+  [ -n "$name" ] || return 0
+  # the collection command: same command, node id -> its file, verbosity flags dropped, `--collect-only -q` (one `file::Class::name[param]` id per line)
+  ccmd="$(_verify_replace_first "$c" "$tok" "$path" | sed -E 's/ -(q+|v+)( |$)/ /g; s/ -(q+|v+)( |$)/ /g')"
+  cout="$(CI=true timeout "$tmo" bash -c "$ccmd --collect-only -q" 2>&1 </dev/null)" || true
+  while IFS= read -r line; do
+    first="${line%% *}"
+    case "$first" in
+      "$path"::*) ;;
+      *) continue ;;
+    esac
+    id="${first%%\[*}"; idrest="${id#*::}"
+    if [ "$idrest" = "$name" ] || case "$idrest" in *"::$name") true ;; *) false ;; esac; then
+      case "
+$ids
+" in
+        *"
+$id
+"*) ;;
+        *) ids="${ids:+$ids
+}$id" ;;
+      esac
+    fi
+  done <<< "$cout"
+  [ -n "$ids" ] || return 0
+  rep="$(printf '%s' "$ids" | tr '\n' ' ' | sed 's/ $//')"
+  _verify_replace_first "$c" "$tok" "$rep"
+}
+# B1b: 0 (true) when a GUT clause's -gdir=<dir>[,<dir>...] names a FILE-LIKE path (it ends in `.gd`: a test file passed where a directory belongs) that does not exist (relative to the
+# cwd = the project root, `res://` stripped; also tried under a leading `cd X &&` / `--path X`). GUT then reports nothing wrong and the run exits 0 (live xlite item:
+# `-gdir=res://test/battle/test_overwatch.gd`, a file that never existed, came back passes-before) - the target is not there, same class as the -gtest hole.
+# Deliberately NOT flagged: a plain nonexistent directory (`-gdir=res://tests`): the existing test_run_integrity_lib fixtures run a stub godot against an empty tree with exactly
+# that clause and expect PASS; flagging directories needs that fixture to create the directory first (left to the owner of that suite).
+_verify_gut_gdir_missing(){
+  local c="$1" spec ent base="" bases=. b found
+  spec="$(printf '%s' "$c" | grep -oE -- '-gdir=[^ ]+' | head -1 | sed 's/^-gdir=//; s/["'"'"']//g')"
+  [ -n "$spec" ] || return 1
+  case "$c" in "cd "*) base="$(printf '%s' "$c" | sed -E 's/^cd +([^ ;&]+).*/\1/')"; [ -n "$base" ] && bases="$bases $base" ;; esac
+  base="$(printf '%s' "$c" | grep -oE -- '--path[= ][^ ]+' | head -1 | sed -E 's/^--path[= ]//; s/["'"'"']//g')"
+  [ -n "$base" ] && bases="$bases $base"
+  local IFS_OLD="$IFS"; IFS=,
+  for ent in $spec; do
+    IFS="$IFS_OLD"
+    ent="${ent#res://}"
+    case "$ent" in *.gd) ;; *) continue ;; esac
+    found=0
+    for b in $bases; do [ -e "$b/$ent" ] && { found=1; break; }; done
+    if [ "$found" = 0 ]; then IFS="$IFS_OLD"; return 0; fi
+    IFS=,
+  done
+  IFS="$IFS_OLD"
+  return 1
+}
 # 0 (true) when GUT output reports failures. Real GUT 9.4.0 output (captured on the box): the summary is "  Failing         1" (printed only when
 # non-zero, no word "Tests") and each detail line is ANSI-coloured: ESC[31m    [Failed]:  ... - so strip ANSI first. Older/other layouts kept:
 # "Failing Tests  N", "---- N failing tests ----".
@@ -228,8 +304,29 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   # 2026-10-02 (follow-up 3): CI=true so watch-mode runners (vitest/jest: `npm run test -- X` printed "Waiting for file changes" after passing in 1.4s and then sat
   # until the timeout: 48 of the 50 rc=124 rows in the shadow log) run once and exit.
   out="$(CI=true timeout "$tmo" bash -c "$vcmd" 2>&1 </dev/null)"; rc=$?
+  # B2: a pytest node id that does not resolve (rc=4) is retried once as `path -k name` (class-based tests are only addressable as path::Class::name)
+  if [ "$rc" -eq 4 ] && [ "${OVN_VERIFY_NODEID_FALLBACK:-on}" != off ]; then
+    local _v2; _v2="$(_verify_nodeid_fallback_cmd "$vcmd" "$tmo")"
+    if [ -n "$_v2" ]; then
+      out="$(CI=true timeout "$tmo" bash -c "$_v2" 2>&1 </dev/null)"; rc=$?
+      vcmd="$_v2"
+    elif _verify_is_pytest "$vcmd" && printf '%s' "$vcmd" | grep -qE '\.py::'; then
+      _LAST_VERIFY_WHY="no tests collected"   # the node id names no collected test (no exact match): stays rc=4 / FAIL
+    fi
+  fi
   _LAST_VERIFY_RC="$rc"
   tail_out="$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"
+  # B2: nothing collected is not a pass (and not "no signal" either): rc=5, or rc=0 with pytest's "no tests ran"
+  if _verify_is_pytest "$vcmd"; then
+    if [ "$rc" -eq 5 ]; then _LAST_VERIFY_WHY="no tests collected"
+    elif [ "$rc" -eq 0 ] && grep -aq 'no tests ran' <<< "$out"; then rc=1; _LAST_VERIFY_WHY="no tests collected"; tail_out="no-tests-ran $tail_out"; fi
+  fi
+  # B1: GUT prints "Could not find script" for a missing -gtest target, then runs the whole suite and exits 0 - the target is not there, so the clause did not pass
+  if _verify_is_gut "$vcmd" && [ "${OVN_GUT_MISSING_TARGET:-fail}" != ignore ] && { grep -aq 'Could not find script' <<< "$out" || _verify_gut_gdir_missing "$vcmd"; }; then
+    [ "$rc" -eq 0 ] && rc=1
+    _LAST_VERIFY_WHY="GUT target missing"
+    tail_out="GUT-target-missing $tail_out"
+  fi
   # GUT exits 0 on failing tests: the output summary / junit xml decide, not the exit code
   if [ "$rc" -eq 0 ] && _verify_is_gut "$vcmd"; then
     local _gx; _gx="$(_verify_gut_xml_path "$vcmd")"

@@ -1,0 +1,17 @@
+{
+  "_doc": "Specs known to fail for a reason that is NOT an app regression. They still run (once, no retry) so we notice when they recover, but a failure never raises FLAG. category: obsolete_spec = spec asserts UI the app no longer has (needs repo-side fix); needs_fixture = needs data that must be hosted first (see README, DL_GUIDE_MULTI_URL).",
+  "favorites-screen.test.mjs": {
+    "category": "obsolete_spec",
+    "reason": "spec opens a 'Favorites' DRAWER item; the drawer has no such item (Favorites is the toolbar star, covered by favorites.test.mjs)"
+  },
+  "guide-channel-picker.test.mjs": {
+    "category": "needs_fixture",
+    "reason": "needs >=2 EPG-mapped channels; the canonical staging guide feed has 1 channel/1 program. Unquarantined automatically when DL_GUIDE_MULTI_URL is set",
+    "unless_env": "DL_GUIDE_MULTI_URL"
+  },
+  "guide-program-loadmore.test.mjs": {
+    "category": "needs_fixture",
+    "reason": "needs a mapped channel with many programs (load-more paging); canonical feed has 1 program. Unquarantined when DL_GUIDE_MULTI_URL is set",
+    "unless_env": "DL_GUIDE_MULTI_URL"
+  }
+}

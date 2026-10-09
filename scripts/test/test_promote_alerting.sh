@@ -8,6 +8,9 @@
 #   D. staging_smoke.sh + staging_smoke.py PROVENANCE: healthy-but-stale deploy is refused
 #   E. deploy_watch.sh: STAGING services watched, FAILED staging/prod => ONE emergency (urgent) + ONE alerts.log line per (repo, env, sha); ripple gone
 #   F. qa_daily_shadow.sh --staging-only: one alerts.log WARN per (repo, candidate) on FAIL
+#   A2 (2026-10-09, QA-N1; sits between A and B): live-staging e2e evidence through the real promote: a FAIL at the candidate HOLDS the repo only under enforce (env or qa_enforce.sh flip);
+#      shadow / stale / non-matching / UNVERIFIED / corrupt / empty evidence never blocks or crashes; no e2e file = byte-identical gate output; only iptv_apps is concerned; the
+#      installed promote_gate.py is MUTATED (commit-match, mode, age, repo scope) and the matching scenario must then flip
 # Every new behaviour has a NEGATIVE control (the seeded bad input is caught) and a BENIGN control (the clean input passes).
 # curl is a PATH shim that only logs: nothing here can reach ntfy.sh, the relay or any network.
 set -uo pipefail
@@ -173,6 +176,147 @@ assert d(\"enforce\",\"UNVERIFIED\",\"\",True,\"stale\")[0]
 r=d(\"shadow\",\"UNVERIFIED\",\"\",True,\"missing\"); assert r[0] is False and r[1] is True
 r=d(\"enforce\",\"UNVERIFIED\",\"\",True,\"ok\"); assert r[0] is False and r[1] is True
 '"
+
+# ===== A2. live-staging e2e evidence (QA-N1, 2026-10-09): shadow by default; enforce blocks ONLY a commit-matched, fresh FAIL =====
+# state/staging_e2e_box.json (box runner) and state/qa_staging_e2e.json (Mac RevenueCat lifecycle) are written by hand here; the real writers are tested in test_qa_staging_e2e.py.
+e2e(){  # $1=box|mac  $2=age seconds  $3=commit  then cell:VERDICT ... (the Mac legacy shape {passed,total,failed} when $1=maclegacy-fail|maclegacy-ok)
+  local who="$1" age="$2" commit="$3"; shift 3
+  "$PYB" - "$Q/state" "$who" "$age" "$commit" "$@" <<'PY'
+import json, sys, time
+state, who, age, commit, specs = sys.argv[1], sys.argv[2], float(sys.argv[3]), sys.argv[4], sys.argv[5:]
+ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age))
+if who.startswith("maclegacy"):
+    bad = who.endswith("fail")
+    json.dump({"ts": ts, "base": "x", "staging_commit": commit, "passed": 15 if bad else 17, "total": 17, "failed": ["a check", "another check"] if bad else []}, open(state + "/qa_staging_e2e.json", "w"))
+else:
+    cells = [{"cell": s.split(":")[0], "verdict": s.split(":")[1], "ms": 1, "detail": "stub"} for s in specs]
+    json.dump({"ts": ts, "base": "x", "staging_commit": commit, "deploy_commit": commit, "cells": cells}, open(state + ("/staging_e2e_box.json" if who == "box" else "/qa_staging_e2e.json"), "w"))
+PY
+}
+gate_json(){ cronenv OVN_DIR="$Q" QA_STATE_DIR="$Q/state" "${@:2}" bash -c "cd $Q/qa && $PYB promote_gate.py check --repo $1" 2>/dev/null | tail -1; }
+jf(){ "$PYB" -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d[sys.argv[2]]; print(json.dumps(v) if isinstance(v,(list,dict)) else v)' "$1" "$2"; }
+a2setup(){ setup; mkrepo iptv_apps; snap iptv_apps "SUCCESS:$(sha iptv_apps develop)"; }
+FAILCELLS=(health_provenance:PASS ssrf_refusal:FAIL playback_token:PASS referral_flow:NA)
+PASSCELLS=(health_provenance:PASS ssrf_refusal:PASS playback_token:PASS referral_flow:NA)
+
+# --- no e2e file: byte-identical to the behaviour before the feature (same as the feature switched OFF), no e2e line, no crash
+a2setup; m0="$(sha iptv_apps main)"; D="$(sha iptv_apps develop)"
+gate_json iptv_apps > "$T/j1.json"; gate_json iptv_apps OVN_QA_STAGING_E2E=off > "$T/j2.json"
+ck "A2: NO e2e file: log_lines are byte-identical to the feature OFF (the pre-feature output), no [staging-e2e] line, block/reason unchanged" \
+  "[ \"\$(jf $T/j1.json log_lines)\" = \"\$(jf $T/j2.json log_lines)\" ] && [ \"\$(grep -c 'staging-e2e' $T/j1.json)\" = 0 ] && [ \"\$(jf $T/j1.json block)\" = False ] && [ \"\$(jf $T/j1.json e2e_present)\" = False ] && [ \"\$(jf $T/j1.json reason)\" = \"\$(jf $T/j2.json reason)\" ] && [ -n \"\$(jf $T/j1.json log_lines)\" ]"
+EXTRA=(OVN_POSTCHECK=off); runp --yes "$Q/repos/iptv_apps"
+ck "A2: NO e2e file: the promote behaves exactly as today (MATCH => PROMOTED, no e2e line)" "has 'PROMOTED iptv_apps' && ! has 'staging-e2e'"
+
+# --- FAIL at the candidate, enforce => HELD with the failing cell named
+a2setup; m0="$(sha iptv_apps main)"; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-neg: e2e FAIL at the candidate + mode enforce => HELD: block line names E2E_FAIL:ssrf_refusal, [staging-e2e] ... BLOCK, main untouched, no PROMOTED" \
+  "has 'STAGING-GATE BLOCK' && has 'E2E_FAIL:ssrf_refusal' && has '[staging-e2e] mode=enforce e2e=FAIL fail=ssrf_refusal' && has 'match=yes' && has '-> BLOCK' && ! has PROMOTED && [ \"\$(sha iptv_apps main)\" = $m0 ]"
+ck "A2-neg: the hold is alerted once like any gate hold (alerts.log WARN with the reason, ONE relay note)" "[ \"\$(nalerts 'iptv_apps promote SKIPPED')\" = 1 ] && grep -q 'E2E_FAIL:ssrf_refusal' $Q/state/alerts.log && [ \"\$(nnotes iptv_apps)\" = 1 ]"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes --force "$Q/repos/iptv_apps"
+ck "A2: --force still overrides an e2e hold loudly (a human decision)" "has 'would block iptv_apps but --force given' && has 'PROMOTED iptv_apps'"
+
+# --- shadow (default) never blocks, but says it would
+a2setup; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off); runp --yes "$Q/repos/iptv_apps"
+ck "A2: the SAME FAIL in SHADOW (the default) never blocks: PROMOTED, line says 'proceed (shadow: would block)', mode=shadow" "has 'PROMOTED iptv_apps' && has '[staging-e2e] mode=shadow e2e=FAIL' && has 'proceed (shadow: would block)' && ! has 'STAGING-GATE BLOCK'"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=shadow); a2setup; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${FAILCELLS[@]}"; runp --yes "$Q/repos/iptv_apps"
+ck "A2: explicit OVN_QA_STAGING_E2E=shadow behaves the same" "has 'PROMOTED iptv_apps'"
+
+# --- evidence that cannot be trusted for THIS candidate never blocks (proceeds)
+a2setup; D="$(sha iptv_apps develop)"; e2e box $((13*3600)) "$D" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-benign: enforce + a FAIL that is 13 h old (stale) => proceeds, PROMOTED" "has 'PROMOTED iptv_apps' && has 'e2e=FAIL' && ! has 'STAGING-GATE BLOCK'"
+a2setup; e2e box 600 "0123456789abcdef0123456789abcdef01234567" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-benign: enforce + a FAIL for a commit that is neither the candidate nor its descendant (unknown to the clone) => proceeds, match=no" "has 'PROMOTED iptv_apps' && has 'match=no' && ! has 'STAGING-GATE BLOCK'"
+a2setup; D="$(sha iptv_apps develop)"; e2e box 600 "$D" health_provenance:UNVERIFIED auth_login:UNVERIFIED
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-benign: enforce + UNVERIFIED e2e => proceeds UNVERIFIED-style, never blocks" "has 'PROMOTED iptv_apps' && has 'e2e=UNVERIFIED' && ! has 'STAGING-GATE BLOCK'"
+a2setup; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${PASSCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-benign: enforce + a clean result at the candidate (PASS + one NA = partial) => PROMOTED, e2e=FLAG shown" "has 'PROMOTED iptv_apps' && has 'e2e=FLAG' && has 'match=yes' && has '1 NA, 3 PASS'"
+a2setup; printf '{corrupt' > "$Q/state/staging_e2e_box.json"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"; gate_json iptv_apps OVN_QA_STAGING_E2E=enforce > "$T/jc.json"
+ck "A2-neg: a CORRUPT e2e file never crashes the promote and never blocks (enforce): PROMOTED, 'unreadable' reported, gate JSON still valid with block=False" "has 'PROMOTED iptv_apps' && has 'unreadable' && [ \"\$(jf $T/jc.json block)\" = False ]"
+a2setup; : > "$Q/state/staging_e2e_box.json"; printf 'null' > "$Q/state/qa_staging_e2e.json"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-neg: an EMPTY box file and a JSON 'null' Mac file => PROMOTED (no crash)" "has 'PROMOTED iptv_apps'"
+a2setup; D="$(sha iptv_apps develop)"; e2e maclegacy-fail 600 "$D"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-neg: the LEGACY Mac file {passed,total,failed} with failed checks is a FAIL of cell revenuecat_lifecycle and blocks under enforce" "has 'E2E_FAIL:revenuecat_lifecycle' && has 'STAGING-GATE BLOCK' && ! has PROMOTED"
+a2setup; D="$(sha iptv_apps develop)"; e2e maclegacy-ok 600 "$D"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-benign: the legacy Mac file with all 17 checks passing => PROMOTED, e2e=PASS" "has 'PROMOTED iptv_apps' && has 'e2e=PASS' && has 'source=mac'"
+
+# --- scope + precedence + kill switch
+a2setup; mkrepo billwatch; snap billwatch "SUCCESS:$(sha billwatch develop)"; e2e box 600 "$(sha billwatch develop)" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/billwatch"
+ck "A2: the e2e only concerns iptv_apps: billwatch promotes with no e2e line even with a FAIL file naming ITS OWN candidate commit and enforce" "has 'PROMOTED billwatch' && ! has 'staging-e2e'"
+a2setup; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${FAILCELLS[@]}"; snap iptv_apps "FAILED:$(sha iptv_apps develop)" "SUCCESS:$(sha iptv_apps main)"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2: when staging_check ALREADY blocks, its reason stays (the e2e adds its line, never rewrites the reason)" "has 'FAIL:MISMATCH_FAILED' && ! has 'E2E_FAIL' && has '[staging-e2e]'"
+a2setup; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=off); runp --yes "$Q/repos/iptv_apps"
+ck "A2: kill switch OVN_QA_STAGING_E2E=off => the e2e is not evaluated at all (PROMOTED, no e2e line)" "has 'PROMOTED iptv_apps' && ! has 'staging-e2e'"
+
+# --- qa_enforce.sh: staging_e2e listed, flip file, rollback
+a2setup; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${FAILCELLS[@]}"; EXTRA=(OVN_DIR="$Q" QA_STATE_DIR="$Q/state")
+cronenv OVN_DIR="$Q" QA_STATE_DIR="$Q/state" bash "$Q/qa/qa_enforce.sh" status > "$OUT" 2>&1
+ck "A2: qa_enforce.sh status lists staging_e2e as SHADOW (source=default) next to staging_check, whose line is unchanged" "grep -qE '^staging_e2e +shadow +source=default' $OUT && grep -q 'staging_check .*enforce .*default(enforce)' $OUT"
+cronenv OVN_DIR="$Q" QA_STATE_DIR="$Q/state" bash "$Q/qa/qa_enforce.sh" staging_e2e enforce > "$OUT" 2>&1; echo $? > "$T/rc"
+ck "A2: qa_enforce.sh staging_e2e enforce is accepted (promote_gate.py present), exit 0, says what it blocks" "[ \"\$(cat $T/rc)\" = 0 ] && grep -q 'ENFORCING: a FAIL of the live-staging e2e' $OUT && grep -q 'staging_e2e: default(shadow) -> enforce' $OUT"
+cronenv OVN_DIR="$Q" QA_STATE_DIR="$Q/state" bash "$Q/qa/qa_enforce.sh" status > "$OUT" 2>&1
+ck "A2: status now shows enforce with source=file and the who/when" "grep -qE '^staging_e2e +enforce +source=file' $OUT && grep -q 'last change: None -> enforce by' $OUT"
+EXTRA=(OVN_POSTCHECK=off); runp --yes "$Q/repos/iptv_apps"
+ck "A2-neg: with the flip file at enforce (no env) the FAIL holds the repo" "has 'E2E_FAIL:ssrf_refusal' && has 'STAGING-GATE BLOCK' && ! has PROMOTED"
+cronenv OVN_DIR="$Q" QA_STATE_DIR="$Q/state" bash "$Q/qa/qa_enforce.sh" staging_e2e shadow > "$OUT" 2>&1
+EXTRA=(OVN_POSTCHECK=off); runp --yes "$Q/repos/iptv_apps"
+ck "A2: rollback = qa_enforce.sh staging_e2e shadow (nothing to restart): the same FAIL now promotes" "has 'PROMOTED iptv_apps' && has 'mode=shadow'"
+mkdir -p "$T/qa_nopg"; cp "$QA/qa_enforce.sh" "$QA/qa_common.py" "$T/qa_nopg/"
+cronenv OVN_DIR="$T/qa_nopg/.." QA_STATE_DIR="$T/nopg_state" bash "$T/qa_nopg/qa_enforce.sh" staging_e2e enforce > "$OUT" 2>&1; echo $? > "$T/rc"
+ck "A2-neg: qa_enforce.sh staging_e2e enforce is REFUSED (exit 2) where promote_gate.py is not installed (a typo/stale install cannot look like a flip)" "[ \"\$(cat $T/rc)\" = 2 ] && grep -q 'no such gate' $OUT"
+cronenv OVN_DIR="$T/qa_nopg/.." QA_STATE_DIR="$T/nopg_state" bash "$T/qa_nopg/qa_enforce.sh" staging_e2e shadow > "$OUT" 2>&1
+ck "A2: ... while shadow/off (the rollback) is always allowed" "grep -q 'staging_e2e: default(shadow) -> shadow' $OUT"
+cronenv OVN_DIR="$Q" QA_STATE_DIR="$Q/state" bash "$Q/qa/qa_enforce.sh" nope enforce > "$OUT" 2>&1; echo $? > "$T/rc"
+ck "A2-neg: an unknown gate name still cannot be enforced (existing behaviour unchanged)" "[ \"\$(cat $T/rc)\" = 2 ] && grep -q 'no such gate' $OUT"
+EXTRA=()
+
+# --- pure decisions
+ck "A2: decide_e2e_block: only enforce + FAIL + match + fresh blocks (shadow / off / no match / stale 12 h / UNVERIFIED / PASS / FLAG / NA never)" \
+  "cd $Q/qa && $PYB -c '
+import promote_gate as g
+d=g.decide_e2e_block
+assert d(\"enforce\",\"FAIL\",True,600) is True
+assert d(\"shadow\",\"FAIL\",True,600) is False and d(\"off\",\"FAIL\",True,600) is False
+assert d(\"enforce\",\"FAIL\",False,600) is False and d(\"enforce\",\"FAIL\",None,600) is False
+assert d(\"enforce\",\"FAIL\",True,12*3600) is False and d(\"enforce\",\"FAIL\",True,12*3600-1) is True and d(\"enforce\",\"FAIL\",True,None) is False
+assert not any(d(\"enforce\",v,True,60) for v in (\"UNVERIFIED\",\"PASS\",\"FLAG\",\"NA\",\"\"))
+'"
+
+# --- mutation checks: break the e2e logic in the installed copy => the matching scenario above flips
+mutg(){  # $1=old $2=new : rewrite $Q/qa/promote_gate.py (exact, once)
+  "$PYB" - "$Q/qa/promote_gate.py" "$1" "$2" <<'PY'
+import sys
+p, old, new = sys.argv[1:4]
+s = open(p).read()
+assert s.count(old) == 1, (old, s.count(old))
+open(p, "w").write(s.replace(old, new))
+PY
+}
+a2setup; mutg 'and match is True and age_s is not None' 'and age_s is not None'; e2e box 600 "0123456789abcdef0123456789abcdef01234567" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-mutation: without the commit-match condition the non-matching FAIL scenario HOLDS (so the 'match=no => proceeds' test above can fail)" "has 'STAGING-GATE BLOCK' && ! has PROMOTED"
+a2setup; mutg 'mode == "enforce" and verdict == "FAIL"' 'mode in ("enforce", "shadow") and verdict == "FAIL"'; D="$(sha iptv_apps develop)"; e2e box 600 "$D" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off); runp --yes "$Q/repos/iptv_apps"
+ck "A2-mutation: if shadow could block, the shadow scenario HOLDS (so 'shadow never blocks' can fail)" "has 'STAGING-GATE BLOCK' && ! has PROMOTED"
+a2setup; mutg '0 <= age_s < max_age_s' '0 <= age_s'; D="$(sha iptv_apps develop)"; e2e box $((13*3600)) "$D" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/iptv_apps"
+ck "A2-mutation: without the age limit the stale-FAIL scenario HOLDS (so 'stale never blocks' can fail)" "has 'STAGING-GATE BLOCK' && ! has PROMOTED"
+a2setup; mutg 'if repo not in E2E_REPOS:' 'if False:'; mkrepo billwatch; snap billwatch "SUCCESS:$(sha billwatch develop)"; e2e box 600 "$(sha billwatch develop)" "${FAILCELLS[@]}"
+EXTRA=(OVN_POSTCHECK=off OVN_QA_STAGING_E2E=enforce); runp --yes "$Q/repos/billwatch"
+ck "A2-mutation: without the repo scope billwatch would be held by iptv_apps' FAIL (so 'only iptv_apps' can fail)" "has 'STAGING-GATE BLOCK'"
+EXTRA=()
 
 # ===== B. post-promote check =====
 # B1 detached from the cron critical path: the watcher keeps polling (deploy BUILDING) while promote + a $(...) capture return at once
