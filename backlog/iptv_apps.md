@@ -362,16 +362,21 @@
 # --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- 27B-decomposed from roadmap [2026-10-09]: Test watch history enrichment — Add tests for `enrich_watch_history`, `enrich_continue_wat (review + tweak) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-] ---
-- [ ] [T1] iptv-backend/tests/test_watch_history_enrichment.py — Add test verifying `enrich_watch_history` correctly joins stream metadata (title, thumbnail) to history items. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_enrich_watch_history_joins_metadata -v. (cat:test; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
-- [ ] [T1] iptv-backend/tests/test_watch_history_enrichment.py — Add test verifying `enrich_continue_watching` filters out completed episodes and sorts by last watched timestamp. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_enrich_continue_watching_filters_and_sorts -v. (cat:test; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
-- [ ] [T1] iptv-backend/tests/test_watch_history_enrichment.py — Add test verifying `get_watch_history` returns paginated results with enriched stream data. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_get_watch_history_paginated_enriched -v. (cat:test; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
-- [ ] [T2] iptv-backend/app/routers/watch_history.py — Refactor `enrich_watch_history` to use a single database query with `joinedload` for stream metadata instead of N+1 queries. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py -v && grep -q "joinedload" iptv-backend/app/routers/watch_history.py. (cat:python; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
-- [ ] [T2] iptv-backend/app/routers/watch_history.py — Update `enrich_continue_watching` to exclude items where `progress` is 100% and ensure consistent sorting logic. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_enrich_continue_watching_filters_and_sorts -v. (cat:python; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
-- [ ] [T2] iptv-backend/app/routers/watch_history.py — Modify `get_watch_history` to apply pagination parameters and call enrichment functions before returning response. VERIFY: pytest iptv-backend/tests/test_watch_history_enrichment.py::test_get_watch_history_paginated_enriched -v. (cat:python; multifile:no) [feat:iptv_apps-20261009-test-watch-history-enrichment-add-tests-]
 
 # --- 27B-decomposed from roadmap [2026-10-09]: Test stream model validation — Add tests for `validate_cast_device_info` in `iptv-backend/ (review + tweak) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f] ---
-- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` correctly parses a valid Cast device payload dictionary containing 'device' and 'cast' keys. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_valid_payload -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
-- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` raises a ValueError when the input payload is missing the required 'device' key. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_missing_device_key -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
-- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` raises a ValueError when the input payload is missing the required 'cast' key. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_missing_cast_key -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
-- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` raises a TypeError when the input is not a dictionary. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_invalid_type -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
-- [ ] [T1] iptv-backend/tests/test_stream_model_validation.py — Add a test verifying that `validate_cast_device_info` returns the parsed device name and cast ID as a tuple for a valid payload. VERIFY: pytest iptv-backend/tests/test_stream_model_validation.py::test_validate_cast_device_info_return_value -v (cat:test; multifile:no) [feat:iptv_apps-20261009-test-stream-model-validation-add-tests-f]
+
+# --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-09]: Test watch history progress and position updates — Add tests for `update_watch_progress` a (review + tweak) [feat:iptv_apps-20261009-test-watch-history-progress-and-position] ---
+
+# --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-09]: Test continue watching CRUD operations — Add tests for `get_continue_watching`, `add_to_co (review + tweak) [feat:iptv_apps-20261009-test-continue-watching-crud-operations-a] ---
+
+# --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-09 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-09]: Test EPG source management endpoints — Add tests for `list_epg_sources`, `create_epg_sourc (review + tweak) [feat:iptv_apps-20261009-test-epg-source-management-endpoints-add] ---
+
+# --- 27B-decomposed from roadmap [2026-10-09]: Test system status and version endpoints — Add tests for `status_endpoint` and `version_en (review + tweak) [feat:iptv_apps-20261009-test-system-status-and-version-endpoints] ---
