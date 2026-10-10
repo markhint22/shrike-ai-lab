@@ -249,3 +249,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 ## Local research 2026-10-09 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test EPG source management endpoints — Add tests for `list_epg_sources`, `create_epg_source`, `update_epg_source`, and `activate_epg_source` in `iptv-backend/app/routers/epg.py:254` to verify CRUD operations, validation, and activation state transitions {cat: test; size: M; multifile: no; research: none}
 - [ ] [P3] [decomposed] Test system status and version endpoints — Add tests for `status_endpoint` and `version_endpoint` in `iptv-backend/app/main.py:315` to verify correct HTTP responses, payload structure, and version string consistency {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-10 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `metrics_endpoint` — Add tests for `metrics_endpoint` in `iptv-backend/app/main.py:328` to verify it returns valid JSON and does not leak sensitive process internals (complementing the existing roadmap item to stop exposing internals) {cat: test; size: S; multifile: no; research: none}
