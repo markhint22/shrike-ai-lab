@@ -1,0 +1,1 @@
+- [ ] [T5] scripts/battle/battle.gd — Add assertion in mission load path that `mission_data.is_valid()` is true before processing VERIFY: grep -q "assert.*is_valid" scripts/battle/battle.gd || grep -q "if !.*is_valid" scripts/battle/battle.gd. (cat:godot; multifile:no) [feat:xlite-20261010-fix-mission-data-gd-is-valid-accepts-out]  <!-- spec-gate:R04 2026-10-10T06:28:25Z -->

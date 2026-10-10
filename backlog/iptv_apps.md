@@ -380,3 +380,21 @@
 # --- 27B-decomposed from roadmap [2026-10-09]: Test EPG source management endpoints — Add tests for `list_epg_sources`, `create_epg_sourc (review + tweak) [feat:iptv_apps-20261009-test-epg-source-management-endpoints-add] ---
 
 # --- 27B-decomposed from roadmap [2026-10-09]: Test system status and version endpoints — Add tests for `status_endpoint` and `version_en (review + tweak) [feat:iptv_apps-20261009-test-system-status-and-version-endpoints] ---
+
+# --- 27B-decomposed from roadmap [2026-10-10]: Test `metrics_endpoint` — Add tests for `metrics_endpoint` in `iptv-backend/app/main.py:32 (review + tweak) [feat:iptv_apps-20261010-test-metrics-endpoint-add-tests-for-metr] ---
+
+# --- 27B-decomposed from roadmap [2026-10-10]: Fix `/version` endpoint to read from `build_info.__version__` — `app/main.py:374` returns  (review + tweak) [feat:iptv_apps-20261010-fix-version-endpoint-to-read-from-build-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-10]: Fix `device_auth.py` `VERIFICATION_URI` wrong domain shown on TV — `app/routers/device_aut (review + tweak) [feat:iptv_apps-20261010-fix-device-auth-py-verification-uri-wron] ---
+
+# --- 27B-decomposed from roadmap [2026-10-10]: Fix inline stream health check using naive `datetime.utcnow()` for `DateTime(timezone=True (review + tweak) [feat:iptv_apps-20261010-fix-inline-stream-health-check-using-nai] ---
+
+# --- 27B-decomposed from roadmap [2026-10-10]: Fix misleading SSRF debug log in `url_safety.py::resolve_public_sync` — `app/services/url_ (review + tweak) [feat:iptv_apps-20261010-fix-misleading-ssrf-debug-log-in-url-saf] ---
+
+# --- deterministic work supply 2026-10-10 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-10]: Move ghost test `app/jobs/test_auth_change_email_resilience.py` to `iptv-backend/tests/` — (review + tweak) [feat:iptv_apps-20261010-move-ghost-test-app-jobs-test-auth-chang] ---
+
+# --- deterministic work supply 2026-10-10 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-10 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
