@@ -267,3 +267,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-11 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Replace hardcoded RevenueCat API key placeholder — `iptv-android/app/src/main/java/com/chickadeestreams/iptv/data/subscription/RevenueCatManager.kt:29` contains a TODO to replace the placeholder with the actual key; fix by injecting the key via `BuildConfig` or environment variable and adding a unit test that verifies the manager initializes with the injected value instead of the hardcoded string {cat: mobile; size: S; multifile: no; research: none}
+
+## Local research 2026-10-11 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `unlock_profile` endpoint — Add a test for `unlock_profile` in `iptv-backend/app/routers/profiles.py:227` to verify the unlock logic and response status, as it is currently untested {cat: backend; size: S; multifile: no; research: none}
