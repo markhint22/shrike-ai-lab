@@ -388,5 +388,20 @@ echo; echo "===== r10: ssh guard ====="; bash test_ssh_guard.sh || rc=1
 echo; echo "===== r10: stage helper hint r10 ====="; bash test_stage_helper_hint_r10.sh || rc=1
 echo; echo "===== r10: stage runner no edit ====="; bash test_stage_runner_no_edit.sh || rc=1
 echo; echo "===== r10: wait litellm dropin ====="; bash test_wait_litellm_dropin.sh || rc=1
+echo; echo "===== r11: credit only class ====="; bash test_credit_only_class.sh || rc=1
+echo; echo "===== r11: cron r11 doc ====="; bash test_cron_r11_doc.sh || rc=1
+echo; echo "===== r11: delplan ====="; bash test_delplan.sh || rc=1
+echo; echo "===== r11: delplan move hook ====="; bash test_delplan_move_hook.sh || rc=1
+echo; echo "===== r11: delplan planner ====="; bash test_delplan_planner.sh || rc=1
+echo; echo "===== r11: gutparity r11 hygiene ====="; bash test_gutparity_r11_hygiene.sh || rc=1
+echo; echo "===== r11: gutparity r11 lib ====="; bash test_gutparity_r11_lib.sh || rc=1
+echo; echo "===== r11: gutparity r11 verify ====="; bash test_gutparity_r11_verify.sh || rc=1
+echo; echo "===== r11: ovn daily fail digest ====="; python3 test_ovn_daily_fail_digest.py || rc=1
+echo; echo "===== r11: roadmap floor alert ====="; bash test_roadmap_floor_alert.sh || rc=1
+echo; echo "===== r11: state guard r11 ====="; bash test_state_guard_r11.sh || rc=1
+echo; echo "===== r11: stub guard ====="; bash test_stub_guard.sh || rc=1
+echo; echo "===== r11: stub guard e2e ====="; bash test_stub_guard_e2e.sh || rc=1
+echo; echo "===== r11: stub leak hygiene ====="; bash test_stub_leak_hygiene.sh || rc=1
+echo; echo "===== r11: walltime markers ====="; bash test_walltime_markers.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

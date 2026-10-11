@@ -4,7 +4,7 @@
 #
 #   A5 NO-NEW-RED baseline subtraction. The NO-NEW-RED guard assumed a green baseline, so ONE landed defect (a docstring-only alembic file) turned every
 #      iptv cycle into a revert: the 3 PRE-EXISTING failing migration tests + 2 new ones were all billed to the model's clean commit.
-#        ovn_ri_failing_ids <log> [byte-offset]      the sorted failing test ids (pytest FAILED/ERROR, vitest/jest FAIL) from the verify output
+#        ovn_ri_failing_ids <log> [byte-offset]      the sorted failing test ids (pytest FAILED/ERROR, vitest FAIL, GUT '--- GUT-FAIL-ID:' lines) from the verify output
 #        ovn_ri_subtract <log> <offset> <repo> <before_sha> <state_dir>
 #            sets OVN_RI_STATUS = no-ids | incomplete | baseline-unknown | baseline-green | subtracted | all-baseline
 #            and OVN_RI_NEW (newline list), OVN_RI_BASE_FILE (cached baseline ids), OVN_RI_BASE_N. rc 0 only for all-baseline (NO new red).
@@ -18,7 +18,8 @@
 
 # ---- A5 ----------------------------------------------------------------------------------------------------------------------------------------
 # failing ids from the verify output (only the bytes after <offset>, so an earlier verify in the same cycle log cannot leak in)
-# Supported: pytest (FAILED/ERROR <nodeid>) and vitest (FAIL/x <file>.test.ts ...). A trailing duration ("3ms") is stripped so the id matches the
+# Supported: pytest (FAILED/ERROR <nodeid>), vitest (FAIL/x <file>.test.ts ...) and GUT ("--- GUT-FAIL-ID: tests/foo.gd::test_x", written by run_overnight.sh's GUT block from the
+# junit XML via lib_gut_xml.sh gut_xml_emit_fail_ids; the prefix cannot be confused with a pytest id). A trailing duration ("3ms") is stripped so the id matches the
 # baseline. NOT supported: jest (its summary is "Tests:       N failed" with a colon and its FAIL id is file-level, which would hide a newly broken test
 # in an already-red file) - jest repos get status=incomplete and keep the old revert behaviour. Do not loosen the summary regex without parsing the
 # per-test "●" lines instead.
@@ -27,8 +28,16 @@ ovn_ri_failing_ids() {
   [ -f "$log" ] || return 0
   case "$off" in ''|*[!0-9]*) off=0;; esac
   tail -c +$((off + 1)) "$log" 2>/dev/null | {
-    grep -aE '^(FAILED|ERROR) [^ ]+|^ *(FAIL|×|✗) +[^ ]+\.(test|spec)\.[jt]sx?' || true
-  } | sed -E 's/^(FAILED|ERROR) ([^ ]+).*/\2/; s/^ *(FAIL|×|✗) +//; s/[[:space:]]+[0-9.]+ ?m?s$//; s/[[:space:]]+$//' | cut -c1-300 | sort -u
+    grep -aE '^(FAILED|ERROR) [^ ]+|^ *(FAIL|×|✗) +[^ ]+\.(test|spec)\.[jt]sx?|^--- GUT-FAIL-ID: [^ ]+' || true
+  } | sed -E 's/^--- GUT-FAIL-ID: +//; s/^(FAILED|ERROR) ([^ ]+).*/\2/; s/^ *(FAIL|×|✗) +//; s/[[:space:]]+[0-9.]+ ?m?s$//; s/[[:space:]]+$//' | cut -c1-300 | sort -u
+}
+
+# _ovn_ri_tail_has <log> <byte-offset> <ERE>: rc 0 when a line after <offset> matches. Counts with grep -c (reads the WHOLE stream) instead of `tail | grep -q`: grep -q exits at the
+# first match, tail then dies of SIGPIPE and `set -o pipefail` reports the pipeline as FAILED - on a multi-MB verify log (xlite's GUT report alone is ~1.8 MB) a real match early in
+# the log read as "no match" (2026-10-11 gutparity: that made ovn_ri_has_summary false => status=incomplete, and ovn_ri_foreign_red false => a veto silently lost).
+_ovn_ri_tail_has() {
+  local c; c="$(tail -c +$((${2:-0} + 1)) "$1" 2>/dev/null | grep -acE -- "$3")"
+  [ "${c:-0}" -gt 0 ] 2>/dev/null
 }
 
 # True when the verify output holds a runner SUMMARY line: a run that was killed by the 600s cap or crashed mid-way has partial FAILED lines and no
@@ -37,7 +46,7 @@ ovn_ri_has_summary() {
   local log="${1:-}" off="${2:-0}"
   [ -f "$log" ] || return 1
   case "$off" in ''|*[!0-9]*) off=0;; esac
-  tail -c +$((off + 1)) "$log" 2>/dev/null | grep -aqE '[0-9]+ (failed|passed|error)[^|]* in [0-9.]+s|^ *Tests +[0-9]+ (failed|passed)|^ *Test Files +[0-9]+ (failed|passed)'
+  _ovn_ri_tail_has "$log" "$off" '[0-9]+ (failed|passed|error)[^|]* in [0-9.]+s|^ *Tests +[0-9]+ (failed|passed)|^ *Test Files +[0-9]+ (failed|passed)|^---- Totals ----'
 }
 
 # True (rc 0) when the verify output carries a failure marker that is NOT a parsed pytest/vitest id: run_repo_verification ORs pytest, npm test, gradle,
@@ -49,13 +58,31 @@ ovn_ri_foreign_red() {
   case "$off" in ''|*[!0-9]*) off=0;; esac
   # run_repo_verification logs one "--- verify-suite-red: <kind> in <dir> rc=N ---" per red suite: more than one, or a kind that is not pytest/.ovn-verify
   # (gradle, npm, gut), means the red is not confined to the id-parsed suite. An older run_overnight without the marker falls through to the regex.
-  local reds
-  reds="$(tail -c +$((off + 1)) "$log" 2>/dev/null | grep -a '^--- verify-suite-red: ' || true)"
+  local reds gutok=0 nreds
+  # the marker may be GLUED to the previous line: GUT's junit XML ends without a newline and run_overnight.sh appended the marker straight after "</testsuites>" until
+  # 2026-10-11 (gutparity) - so match it at a line start OR right after a '>'.
+  reds="$(tail -c +$((off + 1)) "$log" 2>/dev/null | grep -aoE '(^|>)--- verify-suite-red: [^ ]+ in [^ ]+ rc=[^ ]+ ---' | sed 's/^>//' || true)"
   if [ -n "$reds" ]; then
-    [ "$(printf '%s\n' "$reds" | wc -l | tr -d ' ')" -gt 1 ] && return 0
-    printf '%s\n' "$reds" | grep -qaE '^--- verify-suite-red: (pytest|ovn-verify|repo-script) ' || return 0
+    nreds="$(printf '%s\n' "$reds" | wc -l | tr -d ' ')"
+    [ "$nreds" -gt 1 ] && return 0
+    if ! grep -qaE '^--- verify-suite-red: (pytest|ovn-verify|repo-script) ' <<< "$reds"; then
+      # GUT (2026-10-11, gutparity X2): the ONE recorded red suite is gut and the junit report named EVERY red test (GUT-FAIL-IDS-COMPLETE) -> the red is confined to
+      # parsed ids, exactly like pytest. A second red (parse/load error, run_repo_verification records its own gut mark for those) already vetoed above.
+      if [ "${OVN_BASELINE_SUBTRACT_GUT:-on}" != off ] && grep -qaE '^--- verify-suite-red: gut ' <<< "$reds" \
+         && _ovn_ri_tail_has "$log" "$off" '^--- GUT-FAIL-IDS-COMPLETE ---'; then
+        gutok=1
+      else
+        return 0
+      fi
+    fi
   fi
-  tail -c +$((off + 1)) "$log" 2>/dev/null | grep -aqE 'FAILURE: Build failed|BUILD FAILED|> Task [^ ]+ FAILED|--- GUT RED|SCRIPT ERROR|npm ERR!|ELIFECYCLE|Command failed with exit code|error TS[0-9]+:|^error: |Build failed|error during build|timed out|Terminated$|Killed$|\[Failed\]:|^[[:space:]]*Failing[[:space:]]+[1-9]'
+  if [ "$gutok" = 1 ]; then
+    # GUT's own failure text ("--- GUT RED", "[Failed]:", "Failing N") IS the red the ids describe, and xlite's GUT output is full of benign "SCRIPT ERROR" lines from tests
+    # (run_repo_verification already filtered the non-benign ones into the second mark above): none of those four may veto here. Everything else still does.
+    _ovn_ri_tail_has "$log" "$off" 'FAILURE: Build failed|BUILD FAILED|> Task [^ ]+ FAILED|npm ERR!|ELIFECYCLE|Command failed with exit code|error TS[0-9]+:|^error: |Build failed|error during build|timed out|Terminated$|Killed$'
+    return
+  fi
+  _ovn_ri_tail_has "$log" "$off" 'FAILURE: Build failed|BUILD FAILED|> Task [^ ]+ FAILED|--- GUT RED|SCRIPT ERROR|npm ERR!|ELIFECYCLE|Command failed with exit code|error TS[0-9]+:|^error: |Build failed|error during build|timed out|Terminated$|Killed$|\[Failed\]:|^[[:space:]]*Failing[[:space:]]+[1-9]'
 }
 
 # Run the repo verification at <sha> in the live clone's own tree (detached checkout, restored afterwards) and write the cache file.

@@ -56,7 +56,7 @@ EOS
   chmod +x "$FAKEBIN/ssh" "$FAKEBIN/scp" "$FAKEBIN/claude"
   : > "$BOX/ssh.log"
   # the stubs must be what the script's PATH resolves (never the real ssh/scp/claude)
-  [ "$(PATH="$FAKEBIN:$PYDIR:/usr/bin:/bin" command -v ssh)" = "$FAKEBIN/ssh" ] || { echo "FATAL: stub ssh is not first on PATH"; exit 2; }
+  [ "$(PATH="$FAKEBIN:$PYDIR:/usr/bin:/bin" type -P ssh)" = "$FAKEBIN/ssh" ] || { echo "FATAL: stub ssh is not first on PATH"; exit 2; }
 }
 
 ar_starving(){   # repo:hours ...

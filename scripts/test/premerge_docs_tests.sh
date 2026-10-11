@@ -4,13 +4,13 @@
 # so the nightly run_all.sh on the box never exercises them. Run this on the Mac (or any checkout of the shared repo) before merging/installing a change to either docs/patches file:
 #   bash scripts/overnight-queue/scripts/test/premerge_docs_tests.sh
 # Host matrix of the package's tests that SKIP part or all of themselves (each says so on its own SKIP line):
-#   test_cron_r10, test_cron_r10_edit_safe, test_gitignore_live_dir ... checkout only (need docs/); this wrapper makes a skip a failure
+#   test_cron_r10, test_cron_r10_edit_safe, test_gitignore_live_dir, test_cron_r11_doc ... checkout only (need docs/); this wrapper makes a skip a failure
 #   test_hygiene_gate_cap part 2 (real script) .... box only (flock -w 0 is rejected by macOS flock); part 1 runs everywhere
 #   test_cov_copy_measure ......................... hosts whose python3 has coverage.py (the box; a Mac venv works)
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 rc=0
-for t in test_cron_r10.sh test_cron_r10_edit_safe.sh test_gitignore_live_dir.sh; do
+for t in test_cron_r10.sh test_cron_r10_edit_safe.sh test_gitignore_live_dir.sh test_cron_r11_doc.sh; do
   echo "===== $t (OVN_TEST_REQUIRE_DOCS=1) ====="
   out="$(OVN_TEST_REQUIRE_DOCS=1 timeout 600 bash "$HERE/$t" 2>&1)"; trc=$?
   printf '%s\n' "$out"

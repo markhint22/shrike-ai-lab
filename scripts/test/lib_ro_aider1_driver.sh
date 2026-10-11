@@ -383,6 +383,13 @@ FILES: NONE"
     reject_hook
     call ;;
   sc_ungrounded) proceed "make it better somehow" "NONE"; call ;;
+  # 2026-10-11 (gutparity X7a): a plan naming a DIRECTORY is grounded; 'and/or' / 'read/write' are not paths
+  sc_ungrounded_dir) mkdir -p "$R/app/legacy_dir"; touch "$R/app/legacy_dir/.keep"; proceed "Delete the typo directory app/legacy_dir and its empty artifact file using the DELETE trailer mechanism." "NONE"; call ;;
+  # 2026-10-11 (gutparity fix2): a whole-file DELETE plan that names no file ("FILES: NONE") is grounded by the open top item's own existing head path (app/foo.py);
+  # a NON-delete plan ("remove the unused import in this file") with the very same top item stays ungrounded - the head path is NOT a blanket grounding
+  sc_ungrounded_delete) proceed "Delete the inert foo class file and its corresponding test file using the DELETE trailer mechanism." "NONE"; call ;;
+  sc_ungrounded_notdelete) proceed "Remove the unused import in this file and tidy the module somehow." "NONE"; call ;;
+  sc_ungrounded_andor) proceed "make it better and/or faster, read/write whatever fits" "NONE"; call ;;
   sc_forceload)
     MAXF=1; PROT="app/prot.py"
     proceed "change app/bar.py app/foo.py app/prot.py and README.md" "app/bar.py

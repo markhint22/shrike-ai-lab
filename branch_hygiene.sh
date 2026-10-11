@@ -55,7 +55,7 @@ source "$SCRIPT_DIR/scripts/lib_pytest_parallel.sh" 2>/dev/null || ovn_pytest_pa
 source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_abs_symlinks(){ :; }
 # shellcheck source=./scripts/lib_gut_xml.sh
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors) - the old grep 'failures="0"' matched any per-file line and passed red suites.
-source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
+source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; gut_xml_emit_fail_ids(){ :; }; }
 FEAT="${HYGIENE_FEATURE_BRANCH:-overnight/feature}"  # land which agent branch: overnight/feature (27B) | claude/feature (Claude)
 NOW_EPOCH="$(date +%s)"
 
@@ -134,10 +134,50 @@ hyg_gate_run() {
   if [ -z "$tmp" ]; then ( cd "$dir" && "$@" 2>&1 ); return $?; fi
   ( cd "$dir" && "$@" ) > "$tmp" 2>&1; rc=$?
   hyg_gate_cap "$kind" < "$tmp"
+  if [ "$rc" -ne 0 ] && declare -F hyg_fail_detail >/dev/null 2>&1; then _GATE_FAIL_DETAIL="$(hyg_fail_detail "$tmp")"; fi   # the failing test for the streak alert (before the file is removed; guarded: test_hygiene_gate_cap extracts this function alone)
   rm -f "$tmp"
   return $rc
 }
 report(){ [ -n "$REPORT_FILE" ] && echo "$*" >> "$REPORT_FILE" || true; }
+
+# --- gate-failure STREAK alert (2026-10-11, gutparity X1) -------------------------------------------------------------------------------------------
+# xlite's overnight/feature gate failed 5 consecutive passes (05:03-09:03, one identical GUT test) and alerts.log said nothing: each pass only logged "gate FAILED" and wrote
+# the per-repo review flag. hyg_gate_streak counts CONSECUTIVE failed gates (g==1) per (repo, feature branch) in state/hygiene_gate_streak/, resets on a green gate (g==0; g==2 =
+# no gate available changes nothing), and appends ONE alerts.log 'warn' at OVN_HYG_STREAK_WARN (default 3) and ONE 'crit' at OVN_HYG_STREAK_CRIT (default 6) per streak (flags
+# in the streak file = dedup), naming the failing test via ovn_extract_failure.sh (_GATE_FAIL_DETAIL, set by run_gate). OVN_HYG_STREAK_ALERT=off disables; DRY_RUN=1 never writes.
+_GATE_FAIL_DETAIL=""
+hyg_fail_detail() {   # <file with gate output or GUT-FAIL-ID lines> -> one line, never fails
+  [ -s "${1:-}" ] && [ -x "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" ] || return 0
+  bash "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" "$1" 2>/dev/null | cut -c1-300
+  return 0
+}
+hyg_gate_streak() {   # <repo name> <feature branch> <gate result 0|1|2>
+  [ "${OVN_HYG_STREAK_ALERT:-on}" = off ] && return 0
+  [ "$DRY_RUN" = 1 ] && return 0
+  local nm="${1:-?}" feat="${2:-?}" g="${3:-}" sdir f n w c first warn crit ts lvl msg
+  sdir="$STATE_DIR/hygiene_gate_streak"; f="$sdir/${nm}__${feat//[^A-Za-z0-9._-]/_}"
+  case "$g" in
+    0) rm -f "$f" 2>/dev/null; return 0;;
+    1) ;;
+    *) return 0;;
+  esac
+  mkdir -p "$sdir" 2>/dev/null || return 0
+  n=0; w=0; c=0; first=""
+  [ -f "$f" ] && read -r n w c first < "$f" 2>/dev/null
+  case "$n$w$c" in *[!0-9]*) n=0; w=0; c=0; first="";; esac
+  n=$((n + 1)); [ -n "$first" ] || first="$(date '+%F %H:%M:%S')"
+  warn="${OVN_HYG_STREAK_WARN:-3}"; crit="${OVN_HYG_STREAK_CRIT:-6}"
+  case "$warn$crit" in *[!0-9]*) warn=3; crit=6;; esac
+  ts="$(date '+%Y-%m-%d %H:%M:%S')"; lvl=""
+  if [ "$n" -ge "$crit" ] && [ "$c" -eq 0 ]; then lvl=crit; c=1; w=1
+  elif [ "$n" -ge "$warn" ] && [ "$n" -lt "$crit" ] && [ "$w" -eq 0 ]; then lvl=warn; w=1; fi
+  printf '%s %s %s %s\n' "$n" "$w" "$c" "$first" > "$f.$$" 2>/dev/null && mv -f "$f.$$" "$f" 2>/dev/null
+  [ -n "$lvl" ] || return 0
+  msg="hygiene gate FAILED ${n} consecutive passes for ${nm} ${feat} (first failure ${first}) - nothing from this lane reaches ${mt:-develop} until it is green"
+  [ -n "${_GATE_FAIL_DETAIL:-}" ] && msg="${msg}; failing: ${_GATE_FAIL_DETAIL}"
+  echo "[$ts] ${lvl} | hygiene-gate-streak:${nm} | ${msg}" >> "$STATE_DIR/alerts.log" 2>/dev/null
+  return 0
+}
 
 # --- resolve repo list -------------------------------------------------------
 #   --repos-dir <dir>  : every git repo directly under <dir>   (server layout)
@@ -173,7 +213,7 @@ fi
 # a GUT gate for Godot repos.
 run_gate() {
   local repo="$1" dir="$2" ran=0 rc=0
-  _GATE_TIMEOUT_HIT=0
+  _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""
   # migration safety gate: multi-head + String-FK-to-uuid crash-loop prod (2026-09-03)
   if [ -f "$HOME/overnight-queue/scripts/check_migrations.py" ] && \
      ! python3 "$HOME/overnight-queue/scripts/check_migrations.py" "$dir" >/dev/null 2>&1; then
@@ -184,6 +224,20 @@ run_gate() {
   if [ -f "$HOME/overnight-queue/scripts/lib_dep_import_check.py" ] && \
      ! _dg="$(python3 "$HOME/overnight-queue/scripts/lib_dep_import_check.py" clean-import --repo "$dir" 2>&1)"; then
     log "  gate: DEP-IMPORT FAILED: $(printf '%s' "$_dg" | head -2 | tr '\n' ' ')"; return 1
+  fi
+  # stub-leak FLAG (r11, package stub; SHADOW): a non-test source file whose WHOLE content is the generated "Placeholder - the implement step fills this
+  # in." marker means the pre-scout stub step's file was never filled and is about to be merged (and later promoted: 2026-10-11 iptv_apps main held a
+  # junk build.gradle.kt + RatingPromptManager.kt, xlite main in_range.gd/scatter.gd). Logs + state/stub_leak_<repo>.txt only; blocks ONLY with
+  # OVN_STUB_LEAK=enforce. OVN_STUB_LEAK=off disables. Test-file placeholders are listed in the state file as informational (never flagged/blocked).
+  if [ "${OVN_STUB_LEAK:-shadow}" != "off" ] && [ -f "$SCRIPT_DIR/scripts/ovn_stub_guard.py" ]; then
+    _sl_all="$(timeout 60 python3 "$SCRIPT_DIR/scripts/ovn_stub_guard.py" scan "$dir" 2>/dev/null || true)"
+    _sl_src="$(printf '%s\n' "$_sl_all" | grep '^SOURCE' | cut -f2 | head -20 | tr '\n' ' ')"
+    if [ -n "$_sl_all" ] && [ -d "$STATE_DIR" ]; then printf '%s\n' "$_sl_all" > "$STATE_DIR/stub_leak_$(basename "$repo").txt" 2>/dev/null || true
+    else rm -f "$STATE_DIR/stub_leak_$(basename "$repo").txt" 2>/dev/null || true; fi
+    if [ -n "$_sl_src" ]; then
+      log "  gate: STUB-LEAK FLAG (${OVN_STUB_LEAK:-shadow}): placeholder-only source file(s) in the merge candidate: ${_sl_src}"
+      if [ "${OVN_STUB_LEAK:-shadow}" = "enforce" ]; then return 1; fi
+    fi
   fi
   # web build+test (self-provisions via npm ci in the worktree). 2026-08-25 #6:
   # scan root AND one-level subdirs (web/, billwatch-web/, ...) - the frontend
@@ -320,7 +374,7 @@ run_gate() {
   # failures count + no-asserts + a parse-error scan of --import output (same
   # rules as the queue's run_repo_verification Godot branch).
   if [ -f "$dir/project.godot" ] && [ -x "$HOME/godot/godot4" ]; then
-    local gout xml; gout="$(mktemp)"
+    local gout xml _ftmp; gout="$(mktemp)"
     ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >/dev/null 2>&1  # warm cache (class_names + assets) first
     ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >"$gout" 2>&1
     if { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; }; then rm -f "$gout"; return 1; fi
@@ -332,7 +386,12 @@ run_gate() {
       # battle.gd compile break. Scan for the load/compile-failure signatures.
       # (NOT bare "SCRIPT ERROR": vendored gut_loader.gd emits a benign one each run.)
       if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
-      if [ ! -s "$xml" ] || ! gut_xml_green "$xml"; then log "  GUT RED: $(gut_xml_summary "$xml")"; rm -f "$xml" "$gout"; return 1; fi
+      if [ ! -s "$xml" ] || ! gut_xml_green "$xml"; then
+        log "  GUT RED: $(gut_xml_summary "$xml")"
+        _ftmp="$(mktemp 2>/dev/null)" && { { echo "--- GUT RED"; gut_xml_emit_fail_ids "$xml"; } > "$_ftmp" 2>/dev/null; _GATE_FAIL_DETAIL="$(hyg_fail_detail "$_ftmp")"; rm -f "$_ftmp"; }
+        [ -n "$_GATE_FAIL_DETAIL" ] || _GATE_FAIL_DETAIL="GUT red (no failing test id in the junit report)"
+        rm -f "$xml" "$gout"; return 1
+      fi
       # shadow: warn about silently skipped GUT scripts (names ALL of them, and the ones NEW vs the merge target). Blocks only with OVN_GUT_SKIPS_NEW=enforce (default shadow) and a NEW one.
       if declare -F gut_log_skips_note >/dev/null 2>&1 && ! gut_log_skips_note "$gout" "${name:-$(basename "$dir")}" "$STATE_DIR" "$dir" "origin/${mt:-develop}"; then
         log "  GUT: NEW ignored script(s) vs origin/${mt:-develop} (OVN_GUT_SKIPS_NEW=enforce) - gate FAILED"; rm -f "$xml" "$gout"; return 1
@@ -477,6 +536,7 @@ for repo in "${REPOS[@]}"; do
   ahead="$(git -C "$repo" rev-list --count origin/$mt..origin/$FEAT 2>/dev/null)"
   if [ "${ahead:-0}" -eq 0 ]; then
     rm -f "$STATE_DIR/branch_hygiene_review_${name}"   # clear any stale flag now that it's synced
+    hyg_gate_streak "$name" "$FEAT" 0                  # nothing ahead = nothing red to gate: a gate-failure streak is over (fixed out of band)
     # feature has nothing to land, but $mt (develop) may have advanced independently
     # (reconcile's main->develop back-merges, an out-of-band landing) — keep feature
     # CURRENT so it never falls BEHIND develop. ahead==0 means feature ⊆ $mt, so this
@@ -549,6 +609,7 @@ for repo in "${REPOS[@]}"; do
   # Auto-merge ONLY when tests actually ran and passed (g==0). A failed gate (1)
   # OR "no build/test to gate on" (2) is flagged, never merged — so a repo whose
   # tests we can't detect can never be silently auto-deployed.
+  hyg_gate_streak "$name" "$FEAT" "$g"   # consecutive-failure alert + reset on green (see hyg_gate_streak)
   if [ "$g" -ne 0 ]; then
     reason=$([ "$g" -eq 1 ] && echo "gate FAILED (build/tests red)" || echo "no build/test gate available")
     echo "$reason: $FEAT +$ahead $(date)" > "$flag"

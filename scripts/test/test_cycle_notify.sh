@@ -142,6 +142,21 @@ ok "'pushed' landed items are still recorded in the PASS= bucket" \
 ok "held(<repo>) + skipped(paused) are counted as IDLE (2 more), not no-op" \
    "echo \"\$LINE4\" | grep -qE 'IDLE=2\$'"
 
+# --- G: r11 F7 (reviewer minor): a credit-only push (progress file only, no code) must NOT count as a pass in the report/digest counters
+rm -rf "$STATE"
+REPORT5="$DIR/report5.md"
+cat > "$REPORT5" <<EOF6
+# Report
+| ongoing-billwatch | aider_fix | pushed(tests:pass) [credit-only] | overnight/feature | $DIR/logs/j.log | 5s |
+| ongoing-gitlark | aider_fix | pushed(tests:pass) | overnight/feature | $DIR/logs/k.log | 5s |
+| ongoing-xlite | aider_fix | pushed [credit-only] | overnight/feature | $DIR/logs/l.log | 5s |
+EOF6
+bash "$tmp/cycle_notify.sh" "$REPORT5" >/dev/null 2>&1
+LINE5="$(tail -1 "$STATE/digest_buffer.log" 2>/dev/null)"
+ok "G1 only the real code push counts as pass (np=1), the two credit-only pushes do not" "echo \"\$LINE5\" | grep -qE \$'\\t1\\t0\\t0\\t0\\t0\\t'"
+ok "G2 PASS= bucket lists only gitlark (credit-only repos are not passes)" "echo \"\$LINE5\" | grep -q 'PASS=gitlark\\s' && ! echo \"\$LINE5\" | grep -q 'billwatch'"
+ok "G3 credit-only pushes are counted with the idle bucket (IDLE=2), not dropped" "echo \"\$LINE5\" | grep -qE 'IDLE=2\$'"
+
 rm -rf "$tmp"
 echo "cycle_notify: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -245,9 +245,17 @@ for r in $REPOS; do
       # a fresh worktree has no (gitignored) .godot/ or *.import: copy the live clone's so --import is incremental (see wt_seed_godot)
       wt_seed_godot "$rd" "$wt" "$(dirname "${gp#$wt/}")"
       ( cd "$gd" && tw_run timeout 90 "$GODOT" --headless --path . --import >/dev/null 2>&1 )
-      out="$( cd "$gd" && tw_run timeout 60 "$GODOT" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests $GUT_SUBDIRS -gexit 2>&1 | tail -30 )"
+      # 2026-10-11 (gutparity X2): keep the FULL output (was `| tail -30`, which cut the failing test's "Run Summary" block away and left only "Failing 1" + exit-leak
+      # ERROR lines in the EMERGENCY item) so ovn_extract_failure.sh can name the failing test; `out` is still the last 30 lines for the verdict regexes below.
+      gfull="$( cd "$gd" && tw_run timeout 60 "$GODOT" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests $GUT_SUBDIRS -gexit 2>&1 )"
+      out="$(printf '%s\n' "$gfull" | tail -30)"
       if printf '%s' "$out" | grep -qE 'Failing|[1-9][0-9]* failing|Errors|SCRIPT ERROR'; then
-        fails="$(printf '%s' "$out" | grep -iE 'failing|error' | head -5 | paste -sd'; ' -)"
+        fails=""
+        if [ -x "$TW_DIR/scripts/ovn_extract_failure.sh" ]; then
+          gtmp="$(mktemp 2>/dev/null)" && { printf '%s\n' "$gfull" > "$gtmp"; fails="$(bash "$TW_DIR/scripts/ovn_extract_failure.sh" "$gtmp" 2>/dev/null)"; rm -f "$gtmp"; }
+          case "$fails" in "GUT failing:"*) ;; *) fails="";; esac   # the extractor's generic fallback over the FULL output would be exit-leak noise; keep the old tail-30 detail then
+        fi
+        [ -n "$fails" ] || fails="$(printf '%s' "$out" | grep -iE 'failing|error' | grep -vE 'RID allocations|resources still in use|leaked at exit' | head -5 | paste -sd'; ' -)"
         log "$r: GUT RED — $fails"
         emergency_enqueue "$r" "godot GUT" "${fails:-see log}"
       else

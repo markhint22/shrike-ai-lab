@@ -39,6 +39,28 @@ fi
 # dry/newly-dry/reminder/recovered marker pattern as queue_refill.sh's qr_dry_<repo>, scoped to
 # THIS specific terminal state (not general backlog-low, which queue_refill already covers).
 STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
+# 2026-10-11 (r11 acct, xlite X8): a lane with no [ready] roadmap feature logged the SAME "backlog low (0) but no [ready] roadmap feature" line on every pass (945x per lane in 24h;
+# ~69 s apart). say_rl <key> <message...> is queue_refill.sh's log_rl for this log: silent while the SAME message was already written for <key> less than PLN_LOG_REPEAT_S (default
+# 1800) seconds ago; a changed message (a different backlog count) or a window repeat prints at once. ovn_research_trigger_check.py takes `starving_since` from the FIRST starved line
+# after the last clear (so fewer repeats do not move it) and ovn_planning_stats.py reads the last line per repo within 3 h, so the window stays far below that. PLN_LOG_REPEAT_S=0 =
+# the old behaviour (log every pass). The once-per-day alert lives in ovn_research_trigger_check.py (the starving timer), not here.
+PLN_LOG_REPEAT_S="${PLN_LOG_REPEAT_S:-1800}"
+say_rl(){
+  local key="$1"; shift
+  local msg="$*" f="$STATE_DIR/pl_log_$key" sig last_ts last_sig
+  case "$PLN_LOG_REPEAT_S" in ''|*[!0-9]*) PLN_LOG_REPEAT_S=1800 ;; esac
+  if [ "$PLN_LOG_REPEAT_S" -gt 0 ]; then
+    sig="$(printf '%s' "$msg" | cksum | tr ' ' '-')"
+    if [ -f "$f" ]; then
+      last_ts="$(sed -n 1p "$f" 2>/dev/null)"; last_sig="$(sed -n 2p "$f" 2>/dev/null)"
+      case "$last_ts" in ''|*[!0-9]*) last_ts=0 ;; esac
+      if [ "$last_sig" = "$sig" ] && [ $(( $(date +%s) - last_ts )) -lt "$PLN_LOG_REPEAT_S" ]; then return 0; fi
+    fi
+    printf '%s\n%s\n' "$(date +%s)" "$sig" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+  fi
+  say "$msg"
+}
+say_rl_reset(){ rm -f "$STATE_DIR/pl_log_$1" 2>/dev/null; }   # a line printed with plain say() for <key> is a state change: forget the stored signature
 RESEARCH_REMIND_HOURS="${OVN_RESEARCH_REMIND_HOURS:-24}"
 # 2026-09-28: this used to push its own "Roadmap exhausted" ntfy on top of queue_refill.sh's
 # "out of queued items", ovn_research_trigger_check.sh's "needs research", AND
@@ -98,13 +120,42 @@ for r in $REPOS; do
   # next [ready] feature (skip needs-research/decomposed/done)
   feat_line="$(grep -nE '^- \[ \] \[P[1-4]\] \[ready\]' "$rm" 2>/dev/null | head -1)"
   if [ -z "$feat_line" ]; then
-    say "$r: backlog low ($bcount) but no [ready] roadmap feature (needs Claude research?)"
+    say_rl "$r" "$r: backlog low ($bcount) but no [ready] roadmap feature (needs Claude research?)"
     needs_research_alert "$r" "$bcount"
     continue
   fi
+  say_rl_reset "$r"   # a [ready] feature exists again: the next dry spell must print its first line
   fln="${feat_line%%:*}"
   feat="$(printf '%s' "${feat_line#*:}" | sed -E 's/^- \[ \] \[P[1-4]\] \[ready\] //')"
 
+  # 2026-10-11 (delplan X5): a feature that is a pure whole-file delete ("Delete orphan <path> ... VERIFY: `test ! -f <path>`", or a {cat: dead-code|infra; size: S} Delete title)
+  # needs no 27B: asking it for "6 to 10 items" split a one-line deletion into ceremonial items with conflicting VERIFYs (verify-only x4, an absence test ordered BEFORE the
+  # delete). `ovn_delete_executor.py plan` emits ONE `Delete the file` item per path, only when the delete executor's own safety checks (no importer, not protected, tracked, ...)
+  # pass for EVERY path; anything doubtful is a SKIP and the model decomposes the feature exactly as before. OVN_PLANNER_DELETE_BYPASS=off|shadow|on (default shadow: log what
+  # it would have done, still call the model).
+  _det_items=""
+  _delx="$HOME/overnight-queue/scripts/ovn_delete_executor.py"
+  _dp_mode="${OVN_PLANNER_DELETE_BYPASS:-shadow}"
+  if [ "$_dp_mode" != off ] && [ -f "$_delx" ]; then
+    _dp_out="$(timeout 90 python3 "$_delx" plan "repos/$r" "$feat" 2>>"$LOG")"
+    _dp_head="${_dp_out%%$'\n'*}"
+    case "$_dp_head" in
+      OK*)
+        say "$r: delete-plan (${_dp_mode}): $(printf '%s' "$_dp_out" | tail -n +2 | grep -c '^- \[ \]') deterministic delete item(s) for: ${feat:0:80}"
+        [ "$_dp_mode" = on ] && _det_items="$(printf '%s\n' "$_dp_out" | tail -n +2 | grep -E '^- \[ \] \[T[1-5]\] .+ VERIFY: ')" ;;
+      DONE*)
+        say "$r: delete-plan (${_dp_mode}): every named path is already gone (${_dp_head#DONE?}) for: ${feat:0:80}"
+        if [ "$_dp_mode" = on ]; then
+          sed -i "${fln}s/\[ready\]/[decomposed]/" "$rm"
+          say "$r: feature already satisfied - marked [decomposed], no items appended"
+          clear_research_alert "$r"; _did=$((_did+1)); continue
+        fi ;;
+      SKIP*) say "$r: delete-plan declined (${_dp_head#SKIP?})" ;;
+    esac
+  fi
+  if [ -n "$_det_items" ]; then
+    items="$_det_items"; n=$(printf '%s\n' "$items" | grep -c '^- \[ \]')
+  else
   # compact repo layout for context (key source files, capped)
   layout="$(cd "repos/$r" 2>/dev/null && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' \) \
               -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -120)"
@@ -220,6 +271,7 @@ PROMPT_END
     [ -s "$_sg_log" ] && say "$r: $(tr '\n' ' ' < "$_sg_log" | cut -c1-600)"
     rm -f "$_sg_log"
   fi
+  fi   # end of the model-decomposition region (skipped when the deterministic delete plan above produced the items)
   # 2026-09-20 feature tracking: tag every item this feature decomposes into with a durable
   # [feat:ID] marker so a % complete / completion notification can be computed later (see
   # scripts/ovn_feature_groups.py's header for the full investigation — until this, the link

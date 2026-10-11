@@ -240,12 +240,12 @@ def relocate_new_tests(line, repo_root):
 # scripts/ovn_spec_gate.py scan judges backlog lines into state/spec_gate.jsonl and NEVER writes the backlog. This is where a verdict can take effect, and only
 # for the rules named in OVN_SPEC_GATE_ENFORCE_RULES (default: the repair-only R01,R11 - see DEFAULT_ENFORCE_RULES; set it empty for nothing; OVN_SPEC_GATE=off disables even that).
 #   R01 R02 R03 R11 (+ A3)  repair the pulled line in place (static, no verdict needed)
-#   R06                 HOLD: the line stays in the backlog (a delete whose references are not removed yet); later items are pulled first
-#   R04 R05 R07 R10 R12 QUARANTINE: moved to backlog/quarantine/<repo>.md with '<!-- spec-gate:RNN <ts> -->' (never an AUTO-SKIP tag: the Claude-queue bridge harvests those)
+#   R06 R14             HOLD: the line stays in the backlog (a delete whose references are not removed yet / a `test ! -f P` item ahead of the delete of P); later items are pulled first
+#   R04 R05 R07 R10 R12 R13 QUARANTINE: moved to backlog/quarantine/<repo>.md with '<!-- spec-gate:RNN <ts> -->' (never an AUTO-SKIP tag: the Claude-queue bridge harvests those)
 #   PB                  QUARANTINE a line whose VERIFY already passes (verdict passes-before) as 'already-satisfied?' - never credited
 # A line with no fresh verdict is pulled (OVN_SPEC_GATE_UNJUDGED=pull, default) or held (=hold; only meaningful when a verdict-based rule is enforced).
-GATE_QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12")
-GATE_HOLD_RULES = ("R06",)
+GATE_QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13")
+GATE_HOLD_RULES = ("R06", "R14")
 GATE_STATIC_RULES = ("R01", "R02", "R03", "R11")
 # 2026-10-10 (harness R10, IPTV-2): the repair-only static rules that are ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET. R01 (bare `VERIFY: cmd (cat:` -> backticked) was shadow-only
 # while the credit gate read only the backticked form: 56 of 99 live iptv items had a VERIFY the credit gate could not see ("item has no VERIFY clause" refusals, text-match credits).

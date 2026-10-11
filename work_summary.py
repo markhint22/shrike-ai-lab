@@ -59,6 +59,10 @@ def main():
     _unc = cls.get("landed-uncredited", 0)
     if _unc:
         lines[0] += f" · {_unc} uncredited push{'' if _unc == 1 else 'es'}"
+    # 2026-10-11 (r11 F7): progress-file-only pushes (class credit-only) are bookkeeping, not landings
+    _co = cls.get("credit-only", 0)
+    if _co:
+        lines[0] += f" · {_co} credit-only"
     # by tier (the higher-tier-progress signal the whole exercise is about)
     if tier_landed:
         order = ["1", "2", "3", "4", "5", "?"]

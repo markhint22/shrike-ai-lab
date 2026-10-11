@@ -23,6 +23,9 @@ while IFS='|' read -r _ c_id c_type c_out c_branch c_log _; do
   out="$(echo "$c_out" | xargs)"
   logp="$(echo "$c_log" | xargs)"
   case "$out" in
+    # r11 F7 (reviewer): a push that changed only OVERNIGHT_PROGRESS.md/OVERNIGHT_DONE.md ("pushed(tests:pass) [credit-only]") carries NO code: it must not inflate the
+    # report/digest "passed" counters (the second case below already tags it credit-only in task_stats). Counted with the idle bucket (ni), never as a pass.
+    *"[credit-only]"*)     ni=$((ni+1));;
     *"tests:pass"*)        pass="$pass $id"; np=$((np+1));;
     *"tests:FAIL"*)
       fail="$fail $id"; nf=$((nf+1))
@@ -63,6 +66,7 @@ while IFS='|' read -r _ c_id c_type c_out c_branch c_log _; do
   # classification stats (2026-08-31): attribute each repo-cycle outcome to the
   # item's classification (lang/type/complexity/verifiability) for pass-rate slicing.
   case "$out" in
+    *"[credit-only]"*) _oc=credit-only;;       # r11 F7: a push that changed only OVERNIGHT_PROGRESS.md/OVERNIGHT_DONE.md = bookkeeping, benign in ovn_outcome_buckets (not pass, not bad)
     *tests:pass*) _oc=pass;; *tests:FAIL*) _oc=fail;;
     reverted*|*build-gate*) _oc=revert;; error*) _oc=error;;
     *ALREADY-DONE*) _oc=noop:done;;             # item already satisfied in code (mis-targeted / credit-gap)

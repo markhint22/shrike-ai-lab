@@ -9,10 +9,12 @@ the normal path exactly as before.
 
 usage: ovn_delete_executor.py check <repo_dir> "<item line>"
        ovn_delete_executor.py intent "<item text>"      exit 0 = the leading instruction is a whole-file delete, 1 = not (see delete_intent)
+       ovn_delete_executor.py plan <repo_dir> "<roadmap feature text>"   (2026-10-11, delplan X5) the planner's deterministic bypass: see plan_feature
 stdout: "OK\t<path> [<path>...]"   (paths to git rm; the item's file + its dedicated test ONLY if the item names that test)
         "ALREADY-GONE\t<path>"        (h13: the target is absent AND was tracked then deleted in git history, or the item's own
                                        `VERIFY: test ! -f <path>` already passes - nothing left to delete; caller credits the item)
         "SKIP\t<reason>"
+plan:  "SKIP\t<reason>"  |  "DONE\t<paths>" (every named path is already gone)  |  "OK\t<n>" followed by n item lines (one per path, ready for backlog/<repo>.md)
 """
 import os
 import re
@@ -30,7 +32,7 @@ PROTECTED_NAMES = {"__init__.py", "conftest.py", "main.py", "app.py", "index.ts"
 PROTECTED_PARTS = ("alembic/", "migrations/", "/versions/", ".github/", "node_modules/", "/.venv/", "android/app/src/main/AndroidManifest", "project.godot")
 GENERIC_STEMS = {"index", "main", "utils", "util", "types", "type", "constants", "config", "models", "model", "helpers", "helper", "common",
                  "base", "core", "app", "api", "store", "test", "tests", "data", "schema", "schemas", "service", "services", "router", "routes"}
-IGNORE_REF = re.compile(r"(\.md$|\.rst$|\.txt$|\.lock$|-lock\.json$|^OVERNIGHT_|^docs/|^htmlcov/|^coverage/|\.snap$)")
+IGNORE_REF = re.compile(r"(\.md$|\.rst$|\.txt$|\.lock$|-lock\.json$|^OVERNIGHT_|^docs/|^htmlcov/|^coverage/|\.snap$|\.uid$|(^|/)(README|AGENTS|CLAUDE)[^/]*$)")
 
 
 # --- delete INTENT (2026-10-09, harness-credit-integrity item 2) -------------------------------------------------------------------------------
@@ -160,7 +162,136 @@ def _name_elsewhere(repo, prim):
     return any(os.path.basename(f) == prim for f in out)
 
 
-def decide(repo, item):
+# --- importer scan (2026-10-11, delplan X6) ---------------------------------------------------------------------------------------------------------
+# The old scan was `git grep -lIw <stem>` over every tracked non-doc file: comment/prose hits ("# Miss roll: scatter the landing ...") and ANY same-named file in
+# another directory (`SaveManager="*res://scripts/save/save_manager.gd"` while deleting the orphan scripts/battle/save_manager.gd) counted as importers, so the typical
+# "orphan duplicate" case always SKIPped and went down the LLM udiff path that can never delete ("'/dev/null' is not in the subpath"). A hit now counts only when:
+#   (a) a path token in a non-comment line RESOLVES to the target (`res://scripts/x.gd`, a repo-relative path, a suffix path, or a ./ ../ bare name relative to the
+#       referencing file - a different directory with the same basename does NOT resolve);
+#   (b) .gd: the target declares `class_name X` and X appears as a word in a non-comment line of another file;
+#   .py and the other code files (.kt .ts .tsx .js .jsx .vue): the old stem-word match, minus comment-only lines and minus lines whose only stem mentions sit in an explicit
+#       path token that POSITIVELY resolves to a different tracked file (round-2 review: multi-line / backslash imports, `s.stem.f()` alias use, importlib strings and
+#       alias-prefixed imports `@/components/X.vue` are all real references that a statement-shaped regexp cannot see, so nothing but comments and proven other-file path
+#       tokens is excluded).
+# Comment-only lines ('#', '//', '/*', '*', ';', '--') and docs / OVERNIGHT_*.md / AGENTS.md / README are never references. Every doubt (unreadable file) stays a ref.
+COMMENT_ONLY = re.compile(r"^\s*(?:#|//|/\*|\*(?:\s|$)|;|--(?:\s|$))")
+_PY_IMPORT = re.compile(r"^\s*(?:from|import)\b")
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_CLASS_NAME = re.compile(r"^\s*class_name\s+([A-Za-z_][A-Za-z0-9_]*)", re.M)
+
+
+def _grep_lines(repo, word):
+    """[(path, text)] for every line of a tracked, non-binary file containing `word` as a whole word (git grep -nIw -F)."""
+    r = git(repo, "grep", "-nIw", "-F", "-e", word)
+    out = []
+    for l in r.stdout.splitlines():
+        parts = l.split(":", 2)
+        if len(parts) == 3:
+            out.append((parts[0], parts[2]))
+    return out
+
+
+def _token_re(base):
+    return re.compile(r"(?<![\w@./-])((?:res://)?(?:[\w@.\[\]-]+/)*)" + re.escape(base) + r"(?![\w]|\.uid\b|\.import\b)")
+
+
+def _token_resolves(prefix, ref_file, prim):
+    base = os.path.basename(prim)
+    if prefix.startswith("res://"):
+        rel = os.path.normpath(prefix[len("res://"):] + base)
+        return rel == prim or prim.endswith("/" + rel)
+    cands = []
+    if "/" in prefix:
+        rel = os.path.normpath(prefix + base)
+        cands.append(rel)
+        if prim.endswith("/" + rel):
+            return True
+    cands.append(os.path.normpath(os.path.join(os.path.dirname(ref_file), prefix + base)))
+    return prim in cands
+
+
+def _py_needles(prim):
+    parts = prim[:-3].split("/")
+    out = []
+    for i in range(len(parts)):
+        sub = parts[i:]
+        if len(sub) >= 2 and all(_IDENT.match(x) for x in sub):
+            out.append(".".join(sub))
+    return out
+
+
+def other_path_stripper(repo, prim, stem):
+    """-> f(text, ref_file) that blanks every explicit path token `dir/<stem>.<ext>` that POSITIVELY resolves to a different tracked file than `prim`.
+    Review fix (2026-10-11, delplan round 2): a token is only blanked when it resolves (repo-relative, relative to the referencing file, a res:// path or a suffix of a tracked
+    path) to at least one existing tracked file and `prim` is not among the candidates. An alias prefix (`@/components/X.vue`, `~/x`, a baseUrl path) resolves to nothing, so it
+    stays a reference - the old scan blocked those and a lazy `import('@/...')` must keep blocking."""
+    files = set(git(repo, "ls-files").stdout.splitlines())
+    pat = re.compile(r"(?<![\w@./-])((?:res://)?(?:[\w@.\[\]-]+/)+)" + re.escape(stem) + r"(\.[A-Za-z0-9]{1,8})\b")
+
+    def cands(prefix, ext, ref_file):
+        name = stem + ext
+        rel = prefix[len("res://"):] if prefix.startswith("res://") else prefix
+        p = os.path.normpath(rel + name)
+        out = set()
+        if p in files:
+            out.add(p)
+        if not prefix.startswith("res://"):
+            q = os.path.normpath(os.path.join(os.path.dirname(ref_file), rel + name))
+            if q in files:
+                out.add(q)
+        if not p.startswith(".."):
+            out.update(f for f in files if f.endswith("/" + p))
+        return out
+
+    def strip(text, ref_file):
+        def sub(m):
+            c = cands(m.group(1), m.group(2), ref_file)
+            return " " if c and prim not in c else m.group(0)
+        return pat.sub(sub, text)
+    return strip
+
+
+def _importers(repo, prim, targets):
+    """Set of tracked files (other than `targets`, docs excluded) that genuinely reference `prim` - see the block comment above."""
+    base = os.path.basename(prim)
+    stem, ext = os.path.splitext(base)
+    tok = _token_re(base)
+    refs = set()
+    skip = set(targets)
+
+    def _live(path, text):
+        return path not in skip and not IGNORE_REF.search(path) and not COMMENT_ONLY.match(text)
+
+    if ext == ".gd":
+        hits = _grep_lines(repo, stem)
+        for path, text in hits:
+            if not _live(path, text):
+                continue
+            for m in tok.finditer(text):
+                if _token_resolves(m.group(1), path, prim):
+                    refs.add(path)
+                    break
+        try:
+            src = open(os.path.join(repo, prim), encoding="utf-8", errors="replace").read()
+        except OSError:
+            src = ""
+        for cn in set(_CLASS_NAME.findall(src)):
+            for path, text in _grep_lines(repo, cn):
+                if _live(path, text):
+                    refs.add(path)
+    else:
+        # .py and every other code file: ANY live (non-comment) line naming the stem as a word is a reference - multi-line `from x import (\n  stem,\n)` blocks,
+        # backslash continuations, `s.stem.f()` alias use and importlib strings all land on lines that no import-statement regexp can classify. The only mentions that do not
+        # count are explicit path tokens that positively resolve to a DIFFERENT tracked file (other_path_stripper).
+        strip = other_path_stripper(repo, prim, stem)
+        word = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(stem) + r"(?![A-Za-z0-9_])")
+        for path, text in _grep_lines(repo, stem):
+            if _live(path, text) and word.search(strip(text, path)):
+                refs.add(path)
+    return refs
+
+
+def decide(repo, item, ignore_refs=(), refs_out=None):
     head, desc, full = parse(item)
     if not (DELFILE.match(desc) or DELFILE_PATH_FIRST.match(desc) or re.search(r"VERIFY:\s*`?\s*test\s+!\s+-f\s+", full)):
         return ("SKIP", "not a whole-file delete item")
@@ -206,25 +337,143 @@ def decide(repo, item):
         if stem in pb and re.search(r"(^|/)(tests?|__tests__)/|\.test\.|\.spec\.|_test\.|^test_", p) and \
                 git(repo, "ls-files", "--error-unmatch", "--", p).returncode == 0:
             targets.append(p)
-    # importer search: any OTHER tracked non-doc file that mentions the module name blocks the automatic delete
-    needles = {stem}
-    if prim.endswith(".py"):
-        needles.add(prim[:-3].replace("/", "."))
-    refs = set()
-    for n in needles:
-        r = git(repo, "grep", "-lIw" if n == stem else "-lIF", "--", n)
-        for f in r.stdout.splitlines():
-            if f in targets or IGNORE_REF.search(f):
-                continue
-            refs.add(f)
+    # importer search (2026-10-11, X6): any OTHER tracked non-doc file that REALLY references the module blocks the automatic delete - see _importers
+    raw = _importers(repo, prim, targets)
+    if refs_out is not None:
+        refs_out.update(raw)
+    refs = {f for f in raw if f not in ignore_refs}
     if refs:
         return ("SKIP", "referenced by: " + ", ".join(sorted(refs)[:3]))
     return ("OK", " ".join(targets))
 
 
+# --- planner bypass (2026-10-11, delplan X5) -----------------------------------------------------------------------------------------------------------
+# ovn_planner.sh always asked the 27B for 6-10 items, so a one-line roadmap deletion ("Delete orphan `scripts/battle/save_manager.gd` ... VERIFY: `test ! -f <path>`") became
+# ceremonial items with conflicting VERIFYs ('verify the file exists' x4, a 'test asserts absence' item ordered BEFORE the delete), none of which this executor could take.
+# plan_feature recognises the two shapes of a pure file-delete feature and emits ONE item per path, in the format this executor's `decide` accepts, without any model call:
+#   (1) the feature's VERIFY clause is exactly `test ! -f <path>[ && test ! -f <path2> ...]` (backticks optional) and the text carries a delete verb;
+#   (2) the feature carries `{cat: dead-code|infra; size: S ...}` and its title (the text before ' — ') is a whole-file delete instruction (delete_intent) naming the path(s).
+# Safety is `decide` itself, applied to every path: all-or-nothing - ANY path that is not a clean OK (referenced, protected, generic name, untracked, ...) makes the whole plan
+# a SKIP and the planner decomposes the feature with the model exactly as before. A path that is already gone (ALREADY-GONE) is dropped; if every path is gone the feature is DONE.
+# References from OTHER paths of the same batch do not block (a test and the module it tests go together); the items are ordered referrers-first, and a reference cycle inside
+# the batch is a SKIP (deleting either one first would leave the other importing a missing file).
+_PLAN_ABS_T = r"test\s+!\s+-[fe]\s+[\"']?([A-Za-z0-9_.@/\[\]-]+)[\"']?"
+_PLAN_ABS = re.compile(r"^" + _PLAN_ABS_T + r"(?:\s+(?:exits|returns|passes|succeeds)\b.*)?$")
+# commands that may trail the `test ! -f` conjunction without making the feature more than a delete: the repo's full verification (run_repo_verification) runs after the delete
+# anyway, and `echo PASS` asserts nothing. Anything else (a grep, a rewrite of other files, ...) means the feature is not a pure file delete.
+_PLAN_TAIL_OK = re.compile(r"^(?:echo\s+\S+|pytest\b.*|python3?\s+-m\s+pytest\b.*|npx\s+vitest\b.*|npm\s+(?:run\s+)?test\b.*|godot\b.*gut_cmdln.*|\./gradlew\b.*)$")
+_PLAN_TAG = re.compile(r"\{[^{}]*\}")
+_PLAN_LABEL = re.compile(r"^\s*[A-Za-z][\w \-/]{0,30}:\s+")
+_PLAN_TRAIL_TAGS = re.compile(r"\s*(?:\([^()]*\)|\{[^{}]*\}|\[[^\[\]]*\])\s*$")
+
+
+def _plan_title(feat):
+    t = feat.split(" \u2014 ", 1)[0]
+    t = _PLAN_TAG.sub("", t)
+    return _PLAN_LABEL.sub("", t, count=1).strip()
+
+
+def _plan_title_ok(title, strict):
+    """The title is a delete of FILES, not of something inside a file: leads with a delete verb, names no backticked symbol / call, no partial-removal noun (strict: delete_intent)."""
+    if not INTENT_VERB.match(title):
+        return False
+    for bt in re.findall(r"`([^`]*)`", title):
+        if not PATH.fullmatch(bt) or "(" in bt:
+            return False
+    if "(" in title.replace("`", " "):
+        return False
+    neutral = INTENT_PARTIAL_MODIFIER.sub(lambda mm: "X" * len(mm.group(0)), title.replace("`", ""))
+    if INTENT_PARTIAL.search(neutral):
+        return False
+    return delete_intent(title) if strict else True
+
+
+def _plan_paths(feat):
+    """(paths, shape) of a pure file-delete feature, or ([], reason)."""
+    title = _plan_title(feat)
+    vm = re.search(r"\bVERIFY:\s*(.*)$", feat)
+    if vm:
+        clause = vm.group(1)
+        for _ in range(3):
+            clause = _PLAN_TRAIL_TAGS.sub("", clause)
+        parts = [x.strip() for x in re.split(r"\s*(?:&&|;)\s*", clause.replace("`", "").strip().rstrip(".")) if x.strip()]
+        paths = []
+        i = 0
+        while i < len(parts):
+            m = _PLAN_ABS.match(parts[i].rstrip("."))
+            if not m:
+                break
+            if m.group(1) not in paths:
+                paths.append(m.group(1))
+            i += 1
+        if paths and all(_PLAN_TAIL_OK.match(x.rstrip(".")) or re.match(r"^(?:still\s+)?(?:passes|exits|returns)\b", x) for x in parts[i:]):
+            if not _plan_title_ok(title, False):
+                return [], "title is not a whole-file delete"
+            return paths, "verify"
+    if any(re.search(r"\bcat:\s*(?:dead-code|infra)\b", t) and re.search(r"\bsize:\s*S\b", t) for t in _PLAN_TAG.findall(feat)):
+        if not _plan_title_ok(title, True):
+            return [], "tagged feature is not a whole-file delete title"
+        paths = []
+        for pm in PATH.finditer(title.replace("`", "")):
+            if pm.group(0) not in paths:
+                paths.append(pm.group(0))
+        if paths:
+            return paths, "tag"
+        return [], "tagged delete title names no path"
+    return [], "not a pure file-delete feature"
+
+
+def _plan_item(path):
+    return "- [ ] [T1] %s \u2014 Delete the file. VERIFY: `test ! -f %s`. (cat:refactor; multifile:no)" % (path, path)
+
+
+def plan_feature(repo, feat):
+    """-> ("SKIP", reason) | ("DONE", [paths]) | ("OK", [item lines]); see the block comment above."""
+    paths, shape = _plan_paths(feat or "")
+    if not paths:
+        return ("SKIP", shape)
+    if len(paths) > 6:
+        return ("SKIP", "too many paths (%d) for a deterministic plan" % len(paths))
+    live, gone, refs_of = [], [], {}
+    batch = set(paths)
+    for p in paths:
+        refs = set()
+        act, info = decide(repo, _plan_item(p), ignore_refs=batch - {p}, refs_out=refs)
+        if act == "ALREADY-GONE":
+            # a path that never existed is a typo'd roadmap entry, not a finished deletion: only a path git history shows deleted counts as gone
+            if not git(repo, "--literal-pathspecs", "log", "--diff-filter=D", "--format=%h", "-1", "--", p).stdout.strip():
+                return ("SKIP", "%s: not tracked and never deleted in history (wrong path?)" % p)
+            gone.append(p)
+        elif act == "OK":
+            live.append(p)
+            refs_of[p] = refs
+        else:
+            return ("SKIP", "%s: %s" % (p, info))
+    if not live:
+        return ("DONE", gone)
+    # referrers first: p must wait for every other batch path that references it
+    referrers = {p: refs_of[p] & set(live) for p in live}
+    order, left = [], list(live)
+    while left:
+        ready = [p for p in left if not (referrers[p] & set(left))]
+        if not ready:
+            return ("SKIP", "reference cycle between %s" % ", ".join(left))
+        order.append(ready[0])
+        left.remove(ready[0])
+    return ("OK", [_plan_item(p) for p in order])
+
+
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "intent":
         sys.exit(0 if len(sys.argv) >= 3 and delete_intent(sys.argv[2]) else 1)
+    if len(sys.argv) >= 4 and sys.argv[1] == "plan":
+        act, info = plan_feature(sys.argv[2], sys.argv[3])
+        if act == "OK":
+            print("OK\t%d" % len(info))
+            print("\n".join(info))
+        else:
+            print("%s\t%s" % (act, " ".join(info) if isinstance(info, list) else info))
+        return
     if len(sys.argv) < 4 or sys.argv[1] != "check":
         print("SKIP\tusage")
         return

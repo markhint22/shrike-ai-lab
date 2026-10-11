@@ -1,0 +1,76 @@
+# 2026-09-30 notification policy: every script's ntfy post goes to the local relay (scripts/ovn_notify.py), which pushes only emergencies + one hourly update
+NTFY_SERVER=http://127.0.0.1:8099
+0 */3 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC SUPERVISOR_USE_LOCAL=1 ./supervisor.sh >> logs/supervisor.log 2>&1
+0 4 * * * cd /home/mhintermeister/overnight-queue && SUPERVISOR_USE_LOCAL=1 ./groom.sh >> logs/groom.log 2>&1
+# dev repos: hourly auto-merge (green-gated, no prod deploy)
+0 * * * * cd /home/mhintermeister/overnight-queue && HYGIENE_MERGE_TARGET=develop KEEP_DAYS=3 ./branch_hygiene.sh repos/gitlark repos/shrike-notify repos/shrike-monitor repos/iptv_apps repos/test-automation-agent repos/xlite >> /home/mhintermeister/overnight-queue/logs/branch_hygiene.log 2>&1
+# production repos: every 3h (each main-merge deploys to prod)
+10 */3 * * * cd /home/mhintermeister/overnight-queue && HYGIENE_MERGE_TARGET=develop KEEP_DAYS=3 HYGIENE_LOCK_WAIT=600 ./branch_hygiene.sh repos/billwatch repos/shrike-labs-website >> /home/mhintermeister/overnight-queue/logs/branch_hygiene.log 2>&1
+# replaced by the hourly update (ovn_notify.py update): 20 */3 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./digest_notify.sh >> /home/mhintermeister/overnight-queue/logs/digest.log 2>&1
+0 */6 * * * cd /home/mhintermeister/overnight-queue && bash scripts/test/run_all.sh >/tmp/qtests.log 2>&1 || curl -fsS -H "Title: Queue tests FAILED" -H "Tags: warning" -d "A queue regression test failed — a fix may have been removed. Check: bash ~/overnight-queue/scripts/test/run_all.sh" https://ntfy.sh/REDACTED_TOPIC >/dev/null 2>&1
+15 * * * * cd /home/mhintermeister/overnight-queue && MIN_DOABLE=8 ./queue_health.sh >> logs/queue_health.log 2>&1
+* * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./gpu_autoswap.sh >> logs/gpu_autoswap.log 2>&1
+30 */2 * * * cd /home/mhintermeister/overnight-queue && ./provision_test_envs.sh >> logs/provision.log 2>&1
+*/15 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./pause_guard.sh >> logs/pause_guard.log 2>&1
+0 9 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./daily_promote.sh >> logs/daily_promote.log 2>&1
+*/20 * * * * /home/mhintermeister/overnight-queue/fleet_autofix.sh >> /home/mhintermeister/overnight-queue/logs/fleet_autofix.log 2>&1
+30 * * * * cd /home/mhintermeister/overnight-queue && HYGIENE_FEATURE_BRANCH=claude/feature HYGIENE_MERGE_TARGET=develop KEEP_DAYS=3 ./branch_hygiene.sh repos/gitlark repos/shrike-notify repos/shrike-monitor repos/iptv_apps repos/test-automation-agent repos/xlite >> /home/mhintermeister/overnight-queue/logs/branch_hygiene_claude.log 2>&1
+45 */3 * * * cd /home/mhintermeister/overnight-queue && HYGIENE_FEATURE_BRANCH=claude/feature HYGIENE_MERGE_TARGET=develop KEEP_DAYS=3 HYGIENE_LOCK_WAIT=600 ./branch_hygiene.sh repos/billwatch repos/shrike-labs-website >> /home/mhintermeister/overnight-queue/logs/branch_hygiene_claude.log 2>&1
+*/15 * * * * cd /home/mhintermeister/overnight-queue && python3 fleet_stats.py >> logs/fleet_stats.log 2>&1 && python3 render_dashboard.py >> logs/fleet_stats.log 2>&1
+17 */6 * * * cd ~/overnight-queue && ./ovn_test_watch.sh >> logs/ovn_test_watch.log 2>&1
+10,30,50 * * * * cd /home/mhintermeister/overnight-queue && flock -n /home/mhintermeister/overnight-queue/state/reconcile.lock ./reconcile_branches.sh >> logs/reconcile.log 2>&1
+25 */2 * * * cd ~/overnight-queue && ./ovn_recover_parked.sh >> logs/ovn_recover_parked.log 2>&1
+5 * * * * cd ~/overnight-queue && ./ovn_t3_report.sh >> logs/t3_report.log 2>&1
+40 */3 * * * cd ~/overnight-queue && [ -s prework/queue.tsv ] && timeout 300 ./ovn_prework.sh >> logs/ovn_prework.log 2>&1
+20,50 * * * * cd ~/overnight-queue && ./ovn_toks_monitor.sh >> logs/ovn_toks_monitor.log 2>&1
+# DISABLED (replaced by inline higher-tier sub-flow in run_overnight): 5,25,45 * * * * cd ~/overnight-queue && flock -n state/sweep.lock env OVN_STAGE_SWEEP_MAX=2 ./ovn_stage_sweep.sh >> logs/ovn_stage_sweep.log 2>&1
+*/10 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./lock_guard.sh >> logs/lock_guard.log 2>&1
+40 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./ovn_planner.sh >> logs/ovn_planner.log 2>&1
+10 3 * * * cd /home/mhintermeister/overnight-queue && BILLWATCH_DB_URL="$(cat state/billwatch_db_url)" MAX_BILLS=15 MAX_SECONDS=600 ~/aider-venv/bin/python billwatch_summary_backfill.py >> logs/billwatch_summary_backfill.log 2>&1
+*/15 * * * * cd ~/overnight-queue && ./ovn_park_sweep.sh >> logs/ovn_park_sweep.log 2>&1
+5 * * * * cd ~/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./ovn_hygiene_stuck_check.sh >> logs/ovn_hygiene_stuck_check.log 2>&1
+0 */6 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./ovn_git_sync.sh >> logs/ovn_git_sync.log 2>&1
+10 */6 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./ovn_pipeline_audit.sh --quiet >> logs/pipeline_audit.log 2>&1
+0 */4 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./ovn_queue_health_sweep.sh >> logs/ovn_queue_health_sweep.log 2>&1
+40 */4 * * * cd /home/mhintermeister/overnight-queue && ./ovn_filesize_retag.sh >> logs/ovn_filesize_retag.log 2>&1
+10 * * * * cd ~/overnight-queue && ./ovn_godot_report.sh >> logs/godot_report.log 2>&1
+50 */4 * * * cd /home/mhintermeister/overnight-queue && ./ovn_swift_retag.sh >> logs/ovn_swift_retag.log 2>&1
+*/5 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./gitlark_control_consumer.sh repos/billwatch repos/gitlark repos/iptv_apps repos/shrike-labs-website repos/shrike-monitor repos/shrike-notify repos/test-automation-agent repos/xlite >> logs/gitlark_control.log 2>&1
+# replaced by the hourly update (ovn_notify.py update): 12 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./hourly_notify.sh >> logs/hourly_notify.log 2>&1
+3,18,33,48 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./ovn_feature_watch.sh >> logs/ovn_feature_watch.log 2>&1
+15 * * * * cd /home/mhintermeister/overnight-queue && SWEEP_MIN_AGE_MIN=90 ./scripts/ovn_worktree_sweep.sh >> logs/worktree_sweep.log 2>&1
+18 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_backlog_format_check.sh >> logs/ovn_backlog_format_check.log 2>&1
+48 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_verify_direction_check.sh >> logs/ovn_verify_direction_check.log 2>&1
+15 9 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_fleet_health.sh >> logs/ovn_fleet_health.log 2>&1
+33 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_citation_check.sh >> logs/ovn_citation_check.log 2>&1
+30 9 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_batch_scorecard.sh >> logs/ovn_batch_scorecard.log 2>&1
+12,42 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_research_trigger_check.sh >> logs/ovn_research_trigger_check.log 2>&1
+23 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_stale_top_item_check.sh >> logs/ovn_stale_top_item_check.log 2>&1
+52 */2 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_batch_park_stragglers.sh >> logs/ovn_batch_park_stragglers.log 2>&1
+7,22,37,52 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_backup_branch_sweep.sh >> logs/backup_branch_sweep.log 2>&1
+3,18,33,48 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_derive_legacy_logs.py state >> logs/derive_legacy_logs.log 2>&1
+25 * * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_failure_triage_cron.sh >> logs/ovn_failure_triage.cron.log 2>&1
+30 3 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=REDACTED_TOPIC ./scripts/ovn_coverage_cron.sh >> logs/ovn_coverage_cron.log 2>&1
+20 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_notify.py update >> logs/ovn_notify.log 2>&1
+*/10 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_notify.py check >> logs/ovn_notify.log 2>&1
+23 * * * * /home/mhintermeister/overnight-queue/qa/qa_ledger_cron.sh >> /home/mhintermeister/overnight-queue/logs/qa_ledger_cron.out 2>&1
+*/10 * * * * NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/manual_notes_cron.sh >> /home/mhintermeister/overnight-queue/logs/manual_notes.log 2>&1
+50 8 * * * /home/mhintermeister/overnight-queue/qa/qa_daily_shadow.sh >> /home/mhintermeister/overnight-queue/logs/qa_daily_shadow.out 2>&1
+7 * * * * cd /home/mhintermeister/overnight-queue && ./ovn_identity_guard.sh >> logs/ovn_identity_guard.log 2>&1
+*/15 * * * * cd /home/mhintermeister/overnight-queue && scripts/ovn_gpu_util_check.sh >> logs/gpu_util_check.log 2>&1
+17,47 * * * * cd /home/mhintermeister/overnight-queue && NTFY_SERVER=http://127.0.0.1:8099 python3 scripts/ovn_cycle_walltime.py state logs >> logs/cycle_walltime.cron.log 2>&1
+11 */3 * * * OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/baseline_refresh_cron.sh >> /home/mhintermeister/overnight-queue/logs/baseline_refresh.out 2>&1
+37 */6 * * * NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_test_collect_canary.sh >> /home/mhintermeister/overnight-queue/logs/test_collect_canary.out 2>&1
+*/20 * * * * OVN_CHURN_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_churn_guard.sh
+*/30 * * * * cd /home/mhintermeister/overnight-queue && OVN_LR_SKIP_KINDS=py_unlimited_routers,py_swallowed OVN_LR_COOLDOWN_H=2 OVN_LR_MAX_PER_DAY=6 NTFY_SERVER=http://127.0.0.1:8099 python3 scripts/ovn_local_research.py iptv_apps >> logs/local_research.log 2>&1; OVN_LR_SKIP_KINDS=py_unlimited_routers,py_swallowed OVN_LR_COOLDOWN_H=2 OVN_LR_MAX_PER_DAY=6 NTFY_SERVER=http://127.0.0.1:8099 python3 scripts/ovn_local_research.py xlite >> logs/local_research.log 2>&1
+# 2026-10-08 deterministic work supply (ovn_work_supply.py): finished mechanical items with red-before VERIFYs, only when the doable backlog is < 20
+7,37 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_work_supply.py iptv_apps --max 12 >> logs/work_supply.log 2>&1; OVN_SUPPLY_GD_DOCS=off OVN_DOC_EXECUTOR=shadow python3 scripts/ovn_work_supply.py xlite --max 12 >> logs/work_supply.log 2>&1
+# 2026-10-08 qa_block_watch: self-heal placeholder-only antigaming blocks, else loud stall alert (a 1-finding block held 235 commits for 17h on 10-07)
+15 * * * * cd /home/mhintermeister/overnight-queue && python3 qa/qa_block_watch.py >> logs/qa_block_watch.log 2>&1
+20 * * * * NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/qa/qa_daily_shadow.sh --staging-only >> /home/mhintermeister/overnight-queue/logs/qa_daily_shadow.out 2>&1
+25 * * * * cd ~/overnight-queue && bash qa/staging_e2e_run.sh >> logs/staging_e2e.log 2>&1
+*/30 * * * * cd ~/overnight-queue && python3 qa/staging_e2e_ingest.py >> logs/staging_e2e.log 2>&1
+35 * * * * cd ~/overnight-queue && python3 qa/evidence_freshness_check.py >> logs/evidence_freshness.log 2>&1
+*/10 * * * * cd ~/overnight-queue && flock -n state/spec_gate.lock sh -c 'for r in iptv_apps xlite; do OVN_SPEC_GATE=shadow python3 scripts/ovn_spec_gate.py scan $r; done' >> logs/spec_gate.log 2>&1
+30 2 * * * cd ~/overnight-queue && [ ! -e state/PAUSED ] && flock -n state/mutation_scan.lock nice -n 19 timeout 5400 env OVN_MUT_MAX=60 python3 scripts/ovn_mutation_supply.py scan repos/xlite >> logs/mutation_scan.log 2>&1
+17 5 * * * cd ~/overnight-queue && nice -n 19 scripts/ovn_log_cap.sh >> logs/log_cap.log 2>&1

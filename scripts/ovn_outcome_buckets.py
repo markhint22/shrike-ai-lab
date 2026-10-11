@@ -46,6 +46,10 @@ Two data sources feed this, with two matching entry points:
 #   error(model/API error)   an implement call that died on ContextWindowExceeded/BadRequest/API (BX-02: the name-match credit no longer ticks items from it) -> BENIGN by its
 #                            error class, except fail_reason context-exceeded, which bucket_from_outcome_row() scores BAD (the overflow cycle burned a full model call).
 # None of them is ever GOOD: only a push that landed counts as a win.
+# 2026-10-11 (r11 acct, iptv F7): a push whose commits changed ONLY OVERNIGHT_PROGRESS.md / OVERNIGHT_DONE.md is class "credit-only" (severity neutral, task_stats oc "credit-only"):
+#   BENIGN, in the same family as noop:done (the item was already satisfied and a verified credit was recorded) - not a landing (no code), not a failure (nothing was thrown away).
+#   It is therefore outside good, bad and the pass rate, reports show "N credit-only", and it stays distinct from the harness 'net-zero' class above (net-zero = code churn that cancelled
+#   out, real model work discarded = BAD). Both are consistent in one rule: only a push that changed code is ever GOOD, only discarded work is ever BAD.
 GOOD = frozenset({"pass"})
 
 # noop:gate and noop:flail are STRUCTURALLY IDENTICAL to revert: the model wrote
@@ -61,7 +65,7 @@ BAD = frozenset({"revert", "noop:gate", "noop:flail", "noop"})
 # that aren't a quality signal about the attempt itself (error) — same philosophy
 # as excluding lock-contention flakes from real failure counts elsewhere in this
 # pipeline.
-BENIGN = frozenset({"noop:done", "noop:blocked", "skip", "error"})
+BENIGN = frozenset({"noop:done", "noop:blocked", "skip", "error", "credit-only"})
 
 
 # 2026-10-09 (harness-credit-integrity item 4): record_outcome() writes class "landed-uncredited" (severity neutral) for a green push whose item the
@@ -83,6 +87,26 @@ def count_uncredited(rows):
 def uncredited_label(n):
     """'N uncredited pushes' (singular for 1), or '' when there are none - the one phrase every report uses."""
     return "" if not n else "%d uncredited push%s" % (n, "" if n == 1 else "es")
+
+
+# 2026-10-11 (r11 acct, iptv F7): record_outcome() writes class "credit-only" (severity neutral) for a push that changed only the progress/done bookkeeping files (a true credit of an
+# already-satisfied item; zero code). Its own bucket like UNCREDITED_CLASS: never a landing, never a failure; readers that count `class == "landed"` already exclude it.
+CREDIT_ONLY_CLASS = "credit-only"
+
+
+def is_credit_only(row):
+    """True for a state/outcomes.jsonl row recorded as a progress-file-only push."""
+    return isinstance(row, dict) and row.get("class") == CREDIT_ONLY_CLASS
+
+
+def count_credit_only(rows):
+    """Number of credit-only rows in an iterable of outcomes.jsonl rows."""
+    return sum(1 for r in rows if is_credit_only(r))
+
+
+def credit_only_label(n):
+    """'N credit-only' (a count of bookkeeping-only pushes), or '' when there are none."""
+    return "" if not n else "%d credit-only" % n
 
 
 def bucket(oc):
@@ -133,6 +157,8 @@ def bucket_from_outcome_row(row):
     # status/severity said (it was recorded as error(...) = benign, which hid the overflow cycles from the pass rate).
     if row.get("fail_reason") == "context-exceeded" and row.get("class") != "landed":
         return "bad"
+    if row.get("class") == CREDIT_ONLY_CLASS:   # r11 F7: bookkeeping-only push, its own bucket (benign whatever a stale severity says)
+        return "benign"
     if row.get("class") == UNCREDITED_CLASS:   # its own bucket (see is_uncredited): never a win, never a failure, whatever the severity field says
         return "benign"
     severity = row.get("severity")

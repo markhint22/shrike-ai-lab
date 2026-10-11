@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # Tests for the bash helpers: ovn_credit_already_satisfied.sh, ovn_item_guard.sh
 set -uo pipefail
-SCRIPTS="${OVN_SCRIPTS:-$HOME/overnight-queue/scripts}"
+# 2026-10-11 (r11 acct, platform P9b): the helper scripts come from the repo copy next to this test (the live box dir is the same tree, so nothing is lost there) and the credit script's shadow log goes
+# to a temp file. This test used to default to $HOME/overnight-queue/scripts and leave OVN_VERIFY_SHADOW_LOG unset, so every 3-hourly run_all.sh appended `repo=tmp.XXXX line=4 ...` rows to the LIVE
+# state/verify_gate_shadow.log (387 rows by 10-11, inflating the shadow counts); state_guard.sh + test_state_guard_r11.sh now fail any test that does that again.
+SCRIPTS="${OVN_SCRIPTS:-}"
+if [ -z "$SCRIPTS" ]; then SCRIPTS="$(cd "$(dirname "$0")/.." && pwd)"; [ -f "$SCRIPTS/ovn_credit_already_satisfied.sh" ] || SCRIPTS="$HOME/overnight-queue/scripts"; fi
+_SHADOW_DIR="$(mktemp -d)"; trap 'rm -rf "$_SHADOW_DIR"' EXIT
+export OVN_VERIFY_SHADOW_LOG="$_SHADOW_DIR/verify_gate_shadow.log"
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }

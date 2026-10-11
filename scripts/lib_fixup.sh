@@ -643,7 +643,7 @@ ovn_exhausted_clear() { rm -f "${2:-state}/exhausted_since_${1:-none}" 2>/dev/nu
 # <ovn_dir>/state/executor_mode (lines `kind=mode` or `kind:repo=mode`, written by ovn_executor_ctl.py enable|disable; most specific line wins), else shadow.
 ovn_executor_mode() {  # <doc|ruff> <ovn_dir> <repo_dir> -> off|shadow|on
   local kind="${1:-doc}" od="${2:-}" rd="${3:-.}" var m="" repo
-  case "$kind" in doc) var=OVN_DOC_EXECUTOR ;; ruff) var=OVN_RUFF_EXECUTOR ;; *) var="" ;; esac
+  case "$kind" in doc) var=OVN_DOC_EXECUTOR ;; ruff) var=OVN_RUFF_EXECUTOR ;; move) var=OVN_MOVE_EXECUTOR ;; *) var="" ;; esac
   [ -n "$var" ] && m="${!var:-}"
   if [ -z "$m" ] && [ -f "$od/state/executor_mode" ]; then
     repo="$(basename "$rd")"
@@ -793,6 +793,7 @@ ovn_executor_hook() {
   case "$kind" in
     doc)  script="$od/scripts/ovn_doc_executor.py";      modevar=OVN_DOC_EXECUTOR ;;
     ruff) script="$od/scripts/ovn_ruff_fix_executor.py"; modevar=OVN_RUFF_EXECUTOR ;;
+    move) script="$od/scripts/ovn_move_executor.py";     modevar=OVN_MOVE_EXECUTOR ;;   # 2026-10-11 (delplan F8): SHADOW by default (ovn_executor_ctl.py does not know this kind: no `enable` flips it)
     *) return 1 ;;
   esac
   mode="$(ovn_executor_mode "$kind" "$od" "$rd")"            # env OVN_*_EXECUTOR, else state/executor_mode, else shadow
@@ -811,6 +812,7 @@ ovn_executor_hook() {
        # also dilute the would-apply share and bloat the log; the cycle's no-candidate/would-apply rows still show what was offered)
        if [ -z "$out" ]; then ovn_executor_log "$od" "$rd" "$kind" "$mode" check-empty "$hash" "check printed nothing (timeout or crash)" "$tl"
        elif [ "$kind" = doc ] && case "$out" in *"not a gd-missing-doc supply item"*) true ;; *) false ;; esac; then :
+       elif [ "$kind" = move ] && case "$out" in *"not a move/rename item"*|*"disabled or usage"*) true ;; *) false ;; esac; then :   # the normal case on every non-move top item
        else ovn_executor_log "$od" "$rd" "$kind" "$mode" skip "$hash" "${out#SKIP	}" "$tl"; fi
        return 1 ;;
   esac
@@ -835,7 +837,11 @@ ovn_executor_hook() {
   esac
   [ -n "$files" ] || { _ex_fail "apply declared no files"; return 1; }
   # shellcheck disable=SC2086
-  git -C "$rd" add -- $files >>"$tl" 2>&1
+  # 2026-10-11 (delplan F8): a declared path may be one a MOVE removed (neither in the worktree nor in the index: `git mv` already staged its removal), and `git add -- <such path>` aborts
+  # the whole add ("pathspec did not match"): add only the declared paths that exist or are still tracked. Doc / ruff declare existing files, so for them this is the same single add.
+  for f in $files; do
+    if [ -e "$rd/$f" ] || git -C "$rd" ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then git -C "$rd" add -- "$f" >>"$tl" 2>&1; fi
+  done
   staged="$(git -C "$rd" diff --cached --name-only 2>/dev/null)"
   [ -n "$staged" ] || { _ex_fail "apply changed nothing"; return 1; }
   extra=""

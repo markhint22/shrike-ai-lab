@@ -27,6 +27,16 @@ Finding = {"rule": "R0x", "sev": "repair" | "reject" | "flag", "msg": str, "evid
   R07 flag    one (file, symbol) is added by one open item and deleted by another
   R08 flag    a modify-verb item names a backticked `sym(` / identifier that the (non-test) target file does not define and no item verb creates (e.g. 'scores' in
               recompute_representative, which has no score input); builtins and the repo's own module names are not flagged
+  R13 reject  a VERIFY runs a TEST file as a script (`godot --headless -s tests/test_x.gd`, `cd tests && godot -s test_x.gd`): a GUT test (extends GutTest / res://addons/gut/test.gd) is
+              not a SceneTree script, so the clause can never pass (xlite save_manager group: 4 cycles of ALREADY-DONE refused by its own failing VERIFY, 2026-10-11). Fine when the file
+              exists at the ref and `extends SceneTree|MainLoop`; a not-yet-existing path is flagged when the repo carries addons/gut. The GUT runner (addons/gut/gut_cmdln.gd) is never flagged.
+              Complements R12 (path missing) and R11 (gut_cli.gd); the existing-path resolution (res://, ./, cd-dirs, bare names) is R12's.
+  R14 flag    HOLD-class: an item whose VERIFY asserts a tracked file ABSENT (`test ! -f P`) while another item of the same [feat] batch that deletes P comes LATER in the list and this
+              item does not delete P itself (a 'test asserts absence' item ordered before the delete can never go green: xlite delete-root-level-stubs, 2026-10-11). Releases itself once P is gone
+  R15 flag    shadow evidence for the cheap reachability pre-check: a typing / doc item (type hints, return-type retype, docstring / `##` doc comment, supply:gd-missing-doc) whose target
+              function(s) are defined in the target file but have ZERO production callers (no non-comment reference outside tests; a call from inside the same file counts) is work on dead
+              code - convert it to a delete item (with its tests) or drop it (xlite aim_modifiers.calc_suppression_aim_penalty: 3 retype commits on a function nothing calls, 2026-10-11).
+              Only .gd / .py targets; engine callbacks (_ready, _process, ...), dunders and decorated python functions are never judged dead
   R10 reject  model-written "send N requests and assert 429" test items; the deterministic rate-limit collector (ovn_work_supply, supply:rate-limit; limiter.enabled
               + reset fixture) is the only sanctioned form and is never flagged
 
@@ -642,6 +652,167 @@ def _r08(p, ctx):
     return None
 
 
+# ---------------------------------------------------------------- R13 / R14 / R15 (delplan, 2026-10-11)
+_R13_GODOT = re.compile(r"(?:^|[;&|(]\s*)(?:\S*/)?godot[\w.-]*\b[^;&|`]*?\s(?:-s|--script)\s+[\"']?([^\s\"';&|`]+\.gd)\b")
+_R13_RUNNERS = ("gut_cmdln.gd", "gut_cli.gd")
+_SCENE_TREE_SCRIPT = re.compile(r"^\s*extends\s+(?:SceneTree|MainLoop)\b", re.M)
+
+
+def _r13(line, ctx):
+    v = extract_verify(line)
+    if not v or ctx is None:
+        return None
+    flagged = []
+    tree = None
+    for m in _R13_GODOT.finditer(v):
+        t = m.group(1)
+        if t.startswith("res://"):
+            t = t[len("res://"):]
+        if t.startswith("./"):
+            t = t[2:]
+        if t.startswith("addons/") or os.path.basename(t) in _R13_RUNNERS or not _is_test_path(t):
+            continue
+        tree = ctx.tree() if tree is None else tree
+        if not tree:
+            return None
+        found = None
+        if "/" in t and t in tree:
+            found = t
+        else:
+            for d in _r12_cd_dirs(v):
+                if os.path.normpath(d + "/" + t) in tree:
+                    found = os.path.normpath(d + "/" + t)
+                    break
+            if found is None and "/" not in t:
+                same = sorted(x for x in tree if os.path.basename(x) == t)
+                found = same[0] if same else None
+        if found is not None:
+            src = ctx.show(found)
+            if src is None or _SCENE_TREE_SCRIPT.search(src):
+                continue
+        elif not any(x.startswith("addons/gut/") for x in tree):
+            continue          # not a GUT project, and the file does not exist yet: nothing says it is not a SceneTree script
+        if t not in flagged:
+            flagged.append(t)
+    if flagged:
+        return finding("R13", "reject", "VERIFY runs a test file as a script (godot -s <test>.gd): a GUT test is not a SceneTree script, so it can never pass - use addons/gut/gut_cmdln.gd -gtest=<file>", flagged[:4])
+    return None
+
+
+_R14_ABSENT = (re.compile(r"(?<![\w!])test\s+!\s+-[fe]\s+[\"']?([^\s\"'&|;`)\]]+)"), re.compile(r"(?<![\w])!\s+test\s+-[fe]\s+[\"']?([^\s\"'&|;`)\]]+)"),
+               re.compile(r"\[\s+!\s+-[fe]\s+[\"']?([^\s\"'&|;`)\]]+)"))
+_DELETE_PATH_V = DELETE_V | {"retire", "prune"}
+
+
+def _absent_paths(v):
+    out = []
+    for rx in _R14_ABSENT:
+        for m in rx.finditer(v or ""):
+            if m.group(1) not in out:
+                out.append(m.group(1))
+    return out
+
+
+def _deletes_path(p, path):
+    """True when the item's lead verb deletes `path`: it is the item's target, or the delete text names it (full path or file name)."""
+    if _lead_verb(p["text"]) not in _DELETE_PATH_V:
+        return False
+    return p["target"] == path or path in p["text"] or os.path.basename(path) in p["text"]
+
+
+def _r14(idx, parsed, lines, ctx):
+    p = parsed[idx]
+    if p is None or ctx is None or not p.get("feat"):
+        return None
+    v = extract_verify(lines[idx])
+    paths = _absent_paths(v)
+    if not paths:
+        return None
+    tree = ctx.tree()
+    if not tree:
+        return None
+    for P in paths:
+        if P not in tree or _deletes_path(p, P):
+            continue
+        later = [j + 1 for j in range(idx + 1, len(parsed))
+                 if parsed[j] is not None and parsed[j]["feat"] == p["feat"] and _deletes_path(parsed[j], P)]
+        earlier = [j for j in range(idx) if parsed[j] is not None and parsed[j]["feat"] == p["feat"] and _deletes_path(parsed[j], P)]
+        if later and not earlier:
+            return finding("R14", "flag", "VERIFY needs %s absent but the item that deletes it comes later (item %s): move this item after the delete" % (P, ",".join(map(str, later))),
+                           {"path": P, "delete_items": later})
+    return None
+
+
+_R15_TYPING_DOC = re.compile(
+    r"type[- ]hints?|type annotations?|\bannotat(?:e|es|ed|ing|ion|ions)\b|\bretype\b|\btyping\b|return[- ]type|\bdocstrings?\b|doc[- ]comments?|"
+    r"\bfrom (?:float|int|str|string|bool)\s+to\s+(?:float|int|str|string|bool)\b|supply:gd-missing-doc", re.I)
+_GD_LIFECYCLE = {"_init", "_ready", "_process", "_physics_process", "_input", "_unhandled_input", "_unhandled_key_input", "_draw", "_enter_tree", "_exit_tree", "_notification",
+                 "_to_string", "_get", "_set", "_get_property_list", "_gui_input", "_integrate_forces", "_shortcut_input", "_get_configuration_warnings", "_validate_property", "_run", "_cleanup"}
+_COMMENT_LINE = re.compile(r"^\s*(?:#|//)")
+
+
+def _r15_symbols(text):
+    """Candidate function names an item text points at: the `a`, `b` list after 'functions:', `func X` / `X(` forms, and every backticked identifier (the caller keeps only the ones the
+    target file really defines as a function, so a backticked type name or keyword is harmless)."""
+    syms = []
+    m = re.search(r"\bfunctions?\b[^`]*?:\s*((?:`[A-Za-z_]\w*`(?:\s*,\s*|\s+and\s+)?)+)", text)
+    if m:
+        syms += re.findall(r"`([A-Za-z_]\w*)`", m.group(1))
+    syms += _symbols(text)
+    syms += re.findall(r"`([A-Za-z_]\w*)(?:\([^`]*\))?`", text)
+    out = []
+    for s_ in syms:
+        if s_ not in out and s_.lower() not in STOP_IDENT and s_ not in _GD_LIFECYCLE and not (s_.startswith("__") and s_.endswith("__")):
+            out.append(s_)
+    return out[:8]
+
+
+def _r15(p, ctx):
+    if ctx is None or _lead_verb(p["text"]) in _DELETE_PATH_V:
+        return None
+    t = p["target"]
+    if not t.endswith((".gd", ".py")) or _is_test_path(t) or t not in ctx.tree():
+        return None
+    if not _R15_TYPING_DOC.search(p["text"]):
+        return None          # a signature merely mentioning `-> bool` is not a typing item; an Add/Create item with no typing/doc phrase builds new code (zero callers is its normal state)
+    src = ctx.show(t)
+    if src is None:
+        return None
+    lines_ = src.split("\n")
+    syms = _r15_symbols(p["text"])
+    if not syms:
+        return None
+    dead, judged = [], 0
+    for sym in syms:
+        if judged >= 4:
+            break
+        if t.endswith(".gd"):
+            defrx = re.compile(r"^\s*(?:@[\w.()\", ]+\s+)*(?:static\s+)?func\s+%s\b" % re.escape(sym))
+        else:
+            defrx = re.compile(r"^\s*(?:async\s+)?def\s+%s\b" % re.escape(sym))
+        defs = [i for i, l in enumerate(lines_) if defrx.match(l)]
+        if len(defs) != 1:
+            continue                                  # not defined here (R08's business) or defined twice: say nothing
+        if t.endswith(".py") and any(lines_[k].lstrip().startswith("@") for k in (defs[0] - 1,) if k >= 0):
+            return None                               # decorated python function (route / fixture / property): reached by a framework, not by a caller
+        judged += 1
+        tests_only, live = [], False
+        for path, ln, text in ctx.refs(sym):
+            if _COMMENT_LINE.match(text) or (path == t and ln - 1 == defs[0]):
+                continue
+            if _is_test_path(path):
+                tests_only.append(path)
+                continue
+            live = True
+            break
+        if live:
+            return None                               # one reachable symbol keeps the whole item meaningful
+        dead.append({"symbol": sym, "tests_only": sorted(set(tests_only))[:4]})
+    if judged and len(dead) == judged:
+        return finding("R15", "flag", "typing/doc item on code with zero production callers (%s): convert it to a delete item (with its tests) or drop it" % ", ".join(d["symbol"] for d in dead), dead)
+    return None
+
+
 # ---------------------------------------------------------------- batch rules R06 / R07
 def _r06(idx, parsed, ctx):
     p = parsed[idx]
@@ -694,7 +865,8 @@ def lint_batch(lines, ctx=None):
         p = parsed[i]
         fs = list(fs)
         if p is not None:
-            for f in (_r04(p, ctx), _r05(line2, p), _r06(i, parsed, ctx), _r08(p, ctx), _r10(line2, p), _r12(line2, p, [l for l, _ in lined], ctx)):
+            for f in (_r04(p, ctx), _r05(line2, p), _r06(i, parsed, ctx), _r08(p, ctx), _r10(line2, p), _r12(line2, p, [l for l, _ in lined], ctx),
+                      _r13(line2, ctx), _r14(i, parsed, [l for l, _ in lined], ctx), _r15(p, ctx)):
                 if f:
                     fs.append(f)
             for key in dels:

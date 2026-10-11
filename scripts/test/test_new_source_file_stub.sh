@@ -13,7 +13,10 @@
 #
 # Mirrors the deployed extraction regex/logic exactly so this can't drift.
 set -uo pipefail
-RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
+# r11 round 2: default = the run_overnight.sh of THIS tree (scripts/test/../..), so the test no longer needs OVN_RUN_OVERNIGHT in a worktree; $HOME copy only as a last resort
+_ovn_here_ro="$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)/run_overnight.sh"
+[ -f "$_ovn_here_ro" ] || _ovn_here_ro="$HOME/overnight-queue/run_overnight.sh"
+RO="${OVN_RUN_OVERNIGHT:-$_ovn_here_ro}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
 grep -q "chore: stub new source file before implement" "$RO" \
@@ -25,9 +28,12 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-# mirrors the deployed extraction regex exactly
-extract_new_source_file() {  # $1=prompt $2=top_progress_item
-  printf '%s\n%s' "$1" "$2" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue|kt|swift)' | head -1
+# r11: the deployed extraction is the guarded picker (scripts/ovn_stub_guard.py pick; full guard coverage in test_stub_guard.sh). This calls the real
+# picker in the throwaway repo below ($tmp, cwd) - no hand-copied mirror of the regex any more.
+GUARD="${OVN_STUB_GUARD:-$(dirname "$RO")/scripts/ovn_stub_guard.py}"
+[ -f "$GUARD" ] || { echo "  FAIL: $GUARD not found"; exit 1; }
+extract_new_source_file() {  # $1=prompt $2=top_progress_item -> the path the deployed picker would stub ('' = none/refused/already exists)
+  printf '%s\n%s' "$1" "$2" | python3 "$GUARD" pick "$PWD" | sed -n 's/^PICK\t//p'
 }
 # Evaluates the DEPLOYED stub-content case statement itself (extracted from run_overnight.sh), not a
 # hand-copied mirror: the previous mirrored copy kept passing while the real code changed, so it could
@@ -65,10 +71,10 @@ ok "resolves a new .ts path directly from \$prompt for non-ongoing-lane items" \
 # ---- 3. safety: a path naming an EXISTING file must never be stubbed (the deployed
 #      [ ! -f ] guard is what actually enforces this) ----
 existing_hit="$(extract_new_source_file "" '- [ ] [T2] backend/app/models/existing.py — Add a field.')"
-ok "extraction still finds the path named in the item text" \
-   '[ "$existing_hit" = "backend/app/models/existing.py" ]'
-ok "that path already exists on disk, so the deployed [ ! -f ] guard would refuse to stub it" \
-   '[ -f "$existing_hit" ]'
+ok "an item naming an EXISTING file yields no stub target at all" \
+   '[ -z "$existing_hit" ]'
+ok "that path exists on disk (the deployed [ ! -f ] guard is a second line of defence)" \
+   '[ -f backend/app/models/existing.py ]'
 
 # ---- 4. no false positive when the item has nothing to do with a new source file ----
 unrelated_hit="$(extract_new_source_file "Fix a typo in the README" "- [ ] [T1] docs/README.md — Fix a typo.")"

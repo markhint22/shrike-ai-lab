@@ -11,7 +11,7 @@ State (all under $OVN_DIR/state, never anywhere else):
     qa_ledger.prev.json last outcome epoch per repo (lower bound of the commit-attribution window)
 
 How a landed record is built (see qa/qa_ledger.README.md for blind spots):
-    * source line: an outcomes.jsonl row with class=landed and a pushed*/stage(higher-tier) status.
+    * source line: an outcomes.jsonl row with class=landed (or landed-uncredited; NOT credit-only) and a pushed*/stage(higher-tier) status.
     * commits: outcomes carry NO sha, so commits are ATTRIBUTED by time: non-housekeeping, non-merge commits on
       origin/{overnight/feature,claude/feature,develop,main} committed in (max(prev outcome of the repo, ts-duration-600s), ts+60s].
     * risk class A/B/C from files (when commits were found) and item text (VERIFY line / item text from OVERNIGHT_PROGRESS.md).
@@ -312,6 +312,10 @@ def risk_class(files, text, tier, category, subjects):
 # 2026-10-09 (harness-credit-integrity round 3): "landed-uncredited" is a green push whose item the auto-credit refused to tick - NOT a landing for the pass rate (neutral),
 # but the commit is real code on claude/feature -> develop -> staging -> prod and needs QA / risk classification / escape accounting exactly like a credited landing.
 LANDED_CLASSES = ("landed", "landed-uncredited")
+# 2026-10-11 (r11 acct, iptv F7): class "credit-only" = a push that changed ONLY OVERNIGHT_PROGRESS.md / OVERNIGHT_DONE.md (a verified credit of an already-satisfied item). There is no code to QA,
+# risk-classify or count toward escapes, and before the class existed such rows entered the ledger as "landed" with the no-commit flag (commit attribution already drops progress-only commits).
+# It is deliberately NOT in LANDED_CLASSES; derive_records() counts the rows it ignores (stats["credit_only"]) so the pass summary shows them instead of dropping them silently.
+CREDIT_ONLY_CLASS = "credit-only"
 
 
 def is_landed(d):
@@ -367,6 +371,8 @@ def derive_records(rows, existing_keys, claimed, stats=None):
         stats["malformed"] += int(bad)
         if r is not None:
             cleaned.append(r)
+            if r["class"] == CREDIT_ONLY_CLASS:
+                stats["credit_only"] = stats.get("credit_only", 0) + 1
     rows = sorted(cleaned, key=lambda r: epoch(r["ts"]))
     landed = [r for r in rows if is_landed(r) and rkey(r["repo"], r["ts"], r.get("id", ""), r.get("item_hash", "")) not in existing_keys]
     by_repo = {}
@@ -628,6 +634,8 @@ def cmd_derive(argv):
     with_commits = sum(1 for r in new_recs if r["commits"])
     no_commit = sum(1 for r in new_recs if "no-commit" in r.get("flags", []))
     summ = "outcomes+%d rows -> +%d landed (%d with commits, %d with NO commit) +%d events" % (len(rows), len(new_recs), with_commits, no_commit, len(new_evs))
+    if stats.get("credit_only"):
+        summ += "; %d credit-only row(s) not ledgered (progress-file-only push, no code)" % stats["credit_only"]
     if nc_alerts:
         summ += "; ALERT: %d item(s) landed 3+ times with no commit" % len(nc_alerts)
     v = "PASS" if (new_recs or new_evs or not rows) else "NA"
@@ -642,7 +650,8 @@ def cmd_derive(argv):
     return qc.verdict(v, GATE, "*", "-", summ,
                       {"rows": len(rows), "new_landed": len(new_recs), "new_landed_with_commits": with_commits, "new_landed_no_commit": no_commit,
                        "new_events": len(new_evs), "ledger_records": len(recs), "skipped_rows": skipped, "bad_json": bad_json,
-                       "malformed_rows": stats.get("malformed", 0), "failed_rows": stats.get("failed", 0), "event_scan_error": scan_error},
+                       "malformed_rows": stats.get("malformed", 0), "failed_rows": stats.get("failed", 0), "credit_only_rows": stats.get("credit_only", 0),
+                       "event_scan_error": scan_error},
                       ms=int((time.time() - t0) * 1000))
 
 

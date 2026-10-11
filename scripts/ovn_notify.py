@@ -360,6 +360,9 @@ def stats_line(t, rows_hour):
 # 2026-10-10: the credit-integrity change (10-09) split green pushes into 'landed' (credited) and 'landed-uncredited' (pushed, neutral for the
 # pass rate). Both are real pushes: the stall emergency counts either as activity; the hourly line shows them separately. OVN_NOTIFY_LANDED_CLASSES
 # overrides the activity classes (comma list) if the class vocabulary changes again.
+# 2026-10-11 (r11 acct, iptv F7): 'credit-only' (a push that changed only the progress/done files, no code) is NOT activity for the stall emergency: a lane that only
+# does no-edit + bookkeeping credits pushes no code, which is exactly the stall "Fleet stalled" exists to flag, so counting it would mask it (reviewer, fixer round 2: safe default).
+# The hourly line counts it apart ('+N credit-only') and the pass rate ignores it. To treat it as activity anyway: OVN_NOTIFY_LANDED_CLASSES=landed,landed-uncredited,credit-only.
 LANDED = tuple(c.strip() for c in os.environ.get("OVN_NOTIFY_LANDED_CLASSES", "landed,landed-uncredited").split(",") if c.strip()) or ("landed", "landed-uncredited")
 
 
@@ -469,12 +472,14 @@ def compose_update(window=3600, at=None):
     """Return (title, body, needs_count). Pure function of state + the clock (`at` for tests)."""
     t = at or now()
     rows = _outcomes_since(t - window)
-    landed, reverted, uncredited = {}, {}, 0
+    landed, reverted, uncredited, credit_only = {}, {}, 0, 0
     for r in rows:
         if r.get("class") == "landed":
             landed[r.get("repo")] = landed.get(r.get("repo"), 0) + 1
         elif r.get("class") == "landed-uncredited":
             uncredited += 1
+        elif r.get("class") == "credit-only":
+            credit_only += 1
         elif r.get("class") in REVERTED:
             reverted[r.get("repo")] = reverted.get(r.get("repo"), 0) + 1
     last_digest = 0.0
@@ -496,9 +501,11 @@ def compose_update(window=3600, at=None):
     lines = [stats_line(t, rows)]
     tot = sum(landed.values())
     unc = " (+%d uncredited)" % uncredited if uncredited else ""
+    if credit_only:
+        unc += " (+%d credit-only)" % credit_only   # r11 F7: bookkeeping-only pushes are shown, never inside the landed count
     if tot:
         lines.append("Landed %d: %s%s" % (tot, " · ".join("%s %d" % (k, v) for k, v in sorted(landed.items(), key=lambda kv: -kv[1])), unc))
-    elif uncredited:
+    elif uncredited or credit_only:
         lines.append("Nothing credited this hour%s" % unc)
     else:
         lines.append("Nothing landed this hour")

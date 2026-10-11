@@ -27,6 +27,11 @@ CLEAR, and a streak is cleared only by (a) a decomposition event in the planner 
 OVN_TRIGGER_PULLABLE_MIN (default 10) on 2 consecutive checks. Any other line (healthy-looking or not) is ignored. (b) needs memory between runs:
 state/research_trigger_streaks.json {repo: {pull_hi, cleared_after}}.
 
+2026-10-11 ROADMAP-FEATURE FLOOR ALERT (r11 acct, xlite X8): a lane whose last starved planner line says "backlog low (0)" and whose unbroken starvation has lasted MORE than
+OVN_FLOOR_ALERT_H (default 6) hours gets ONE `warn` line in state/alerts.log per lane per local day ("roadmap-feature floor: ... needs a Claude research pass"). xlite sat 4.9h+ with
+0 backlog and no [ready] feature on 10-11 and nothing said so (the push alerters were consolidated into ovn_fleet_health.sh on 09-28 and none of them names this exact floor).
+Dedup: state/roadmap_floor_alerted.json {repo: "YYYY-MM-DD"}. OVN_FLOOR_ALERT=off disables; OVN_FLOOR_ALERT_MAX_BACKLOG (default 0) is the highest `backlog low (N)` that counts as the floor.
+
 Usage: ovn_research_trigger_check.py [starve_hours=2] [log_path]
 """
 import importlib.util
@@ -44,6 +49,10 @@ OVN_DIR = os.environ.get("OVN_DIR") or os.path.expanduser("~/overnight-queue")
 MONOTONIC = os.environ.get("OVN_TRIGGER_MONOTONIC", "on") != "off"
 PULLABLE_MIN = int(os.environ.get("OVN_TRIGGER_PULLABLE_MIN", "10"))
 PULLABLE_CHECKS = 2
+ALERTS_LOG = os.path.join(os.path.dirname(STATE), "alerts.log")
+FLOOR_STATE = os.path.join(os.path.dirname(STATE), "roadmap_floor_alerted.json")
+FLOOR_ALERT = os.environ.get("OVN_FLOOR_ALERT", "on") != "off"
+BACKLOG_LOW_RE = re.compile(r"backlog low \((\d+)\) but no \[ready\] roadmap feature")
 
 LINE_RE = re.compile(
     r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (\S+): (.*)$'
@@ -96,6 +105,52 @@ def pullable(repo):
         return sum(1 for l in (bt + "\n" + pt).split("\n") if re.match(r"^- \[ \] \[T[1-5]\]", l) and not held.search(l))
 
 
+def floor_alerts(starving, last_backlog, now):
+    """ONE alerts.log warn per lane per local day for a lane at the roadmap-feature floor (see the module docstring). `starving` rows carry the unrounded hours as `_h`.
+    Returns the alert lines written. Never raises: an unwritable alerts.log/marker = no alert (and no marker), the next run retries."""
+    if not FLOOR_ALERT:
+        return []
+    try:
+        floor_h = float(os.environ.get("OVN_FLOOR_ALERT_H", "6"))
+        max_b = int(os.environ.get("OVN_FLOOR_ALERT_MAX_BACKLOG", "0"))
+    except ValueError:
+        floor_h, max_b = 6.0, 0
+    today = time.strftime("%Y-%m-%d", time.localtime(now))
+    try:
+        with open(FLOOR_STATE) as f:
+            seen = json.load(f)
+        if not isinstance(seen, dict):
+            seen = {}
+    except (OSError, ValueError):
+        seen = {}
+    fired = []
+    for r in starving:
+        repo = r["repo"]
+        if r.get("_h", 0.0) <= floor_h or seen.get(repo) == today:
+            continue
+        n = last_backlog.get(repo)
+        if n is None or n > max_b:
+            continue
+        line = "[%s] warn | ongoing-%s | roadmap-feature floor: %s has had backlog %d and no [ready] roadmap feature for %.1fh (since %s) - promote a [needs-research] feature to [ready] in roadmap/%s.md (Claude research pass)" % (
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), repo, repo, n, r["_h"], time.strftime("%Y-%m-%d %H:%M", time.localtime(r["starving_since"])), repo)
+        try:
+            with open(ALERTS_LOG, "a") as f:
+                f.write(line + "\n")
+        except OSError:
+            continue
+        seen[repo] = today
+        fired.append(line)
+    if fired:
+        try:
+            tmp = FLOOR_STATE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(seen, f, indent=2, sort_keys=True)
+            os.replace(tmp, FLOOR_STATE)
+        except OSError:
+            pass
+    return fired
+
+
 def load_streaks():
     try:
         with open(STREAK_STATE) as f:
@@ -114,6 +169,7 @@ def main():
         return
 
     by_repo = {}
+    last_backlog = {}   # repo -> the N of its most recent "backlog low (N) but no [ready] roadmap feature" line (the floor alert needs it to be 0)
     for ln in lines:
         m = LINE_RE.match(ln.strip())
         if not m:
@@ -122,6 +178,9 @@ def main():
         t = parse_ts(ts_s)
         if t is None:
             continue
+        mb = BACKLOG_LOW_RE.search(rest)
+        if mb:
+            last_backlog[repo] = int(mb.group(1))
         is_starved_signal = bool(STARVED_RE.search(rest) or NON_BREAKING_RE.search(rest))
         kind = "starved" if is_starved_signal else ("decomp" if DECOMP_RE.search(rest) else "other")
         by_repo.setdefault(repo, []).append((t, is_starved_signal, kind))
@@ -142,7 +201,7 @@ def main():
                 streak_start = t
             hours = (now - streak_start) / 3600.0
             if hours >= STARVE_HOURS:
-                starving.append({"repo": repo, "starving_since": streak_start, "hours": round(hours, 1)})
+                starving.append({"repo": repo, "starving_since": streak_start, "hours": round(hours, 1), "_h": hours})
             continue
         st = streaks.setdefault(repo, {})
         last_decomp = max((t for t, _s, k in events if k == "decomp"), default=0)
@@ -161,13 +220,19 @@ def main():
         streak_start = min(starved_ts)  # monotonic: later starved lines never move it, healthy-looking lines never reset it
         hours = (now - streak_start) / 3600.0
         if hours >= STARVE_HOURS:
-            rec = {"repo": repo, "starving_since": streak_start, "hours": round(hours, 1)}
+            rec = {"repo": repo, "starving_since": streak_start, "hours": round(hours, 1), "_h": hours}
             if n is not None:
                 rec["pullable"] = n
             starving.append(rec)
 
     starving.sort(key=lambda r: -r["hours"])
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    try:
+        floor_alerts(starving, last_backlog, now)   # r11 X8: one alerts.log warn per lane per day at the roadmap-feature floor
+    except Exception:  # noqa: BLE001 - an alert helper must never break the starving state file the research poller reads
+        pass
+    for r in starving:
+        r.pop("_h", None)   # internal: the unrounded hours (kept out of the JSON the session-side poller reads)
     with open(STATE, "w") as f:
         json.dump({"checked_at": now, "starving": starving}, f, indent=2)
     if MONOTONIC:

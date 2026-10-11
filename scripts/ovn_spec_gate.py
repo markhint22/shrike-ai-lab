@@ -12,7 +12,7 @@ OVN_SPEC_GATE_ENFORCE_RULES. `restore` is the one operator exception (an explici
 Env
   OVN_SPEC_GATE=off|shadow|enforce   default shadow. off: scan/lint do nothing, queue_refill ignores the gate. shadow and enforce judge identically (the row records the mode);
                                      what is ENFORCED is decided only by OVN_SPEC_GATE_ENFORCE_RULES.
-  OVN_SPEC_GATE_ENFORCE_RULES        comma list; UNSET = R01,R11 (the static repair-only rules, 2026-10-10), set-but-empty or `none` = nothing enforced. R01 R02 R03 R11 (repairs), R04 R05 R07 R10 R12 (quarantine), R06 (hold), PB (quarantine a
+  OVN_SPEC_GATE_ENFORCE_RULES        comma list; UNSET = R01,R11 (the static repair-only rules, 2026-10-10), set-but-empty or `none` = nothing enforced. R01 R02 R03 R11 (repairs), R04 R05 R07 R10 R12 R13 (quarantine), R06 R14 (hold), PB (quarantine a
                                      VERIFY that already passes). Rollout order: R01,R02,R03 -> R04,R06 -> R05,R07,R10 (see docs/PIPELINE_REWORK_2026-10-08.md).
   OVN_SPEC_BASE                      the ref everything is judged at (default origin/overnight/feature); OVN_DIR the live dir (default: the parent of this scripts/ dir)
   OVN_SPEC_GATE_MAX_EXEC             VERIFY executions per scan (default 12); OVN_SPEC_GATE_TTL_S verdict lifetime (default 21600)
@@ -42,8 +42,8 @@ except Exception as _e:  # a broken sibling module must never cost the planner i
     E = R = declared_paths = verify_of = None
     _IMPORT_ERR = _e
 
-QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12")
-HOLD_RULES = ("R06",)
+QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13")
+HOLD_RULES = ("R06", "R14")
 STATIC_REPAIR_RULES = ("R01", "R02", "R03", "R11")
 # 2026-10-10 (harness R10, IPTV-2): rules ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET: the static repair-only R01 (bare VERIFY -> backticked) and R11 (gut_cli.gd -> gut_cmdln.gd). An explicitly
 # set value wins (empty / `none` = enforce nothing). Same constant and semantics as queue_refill.py's DEFAULT_ENFORCE_RULES.

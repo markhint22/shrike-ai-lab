@@ -9,6 +9,7 @@ consecutive attempts. ONE baseline-red or flaky test would then park EVERY item 
         baseline are dropped; nothing left -> nothing prints (the failure is the repo's, not this item's).
       * no active baseline (fallback): ids that ALSO failed on the previous item's last attempt are suspect; if EVERY id did, nothing prints
         (shared/flaky red), if at least one id is new relative to the previous item, all ids print. No record of a previous item = all new.
+  base_only <repo> <state_dir>             stdin = failing ids, prints "yes" when an ACTIVE baseline exists and EVERY id is red at it (the failure is not the item's), else "no"
   basis <repo> <state_dir>                 prints "baseline" or "previous-item" (which rule filter used) - for the park note
   record <repo> <state_dir> <item_hash>    stdin = this attempt's failing ids; remembers them per repo (cur slot + the last DIFFERENT item's ids)
 Never raises: on any error `filter` echoes its input unchanged (the pre-existing behaviour) and exits 0.
@@ -24,6 +25,8 @@ def _lines(text):
 
 
 def match(a, b):
+    # GUT ids: the junit report names the test "tests/foo.gd::test_x", the qa baseline store may keep the console form "res://tests/foo.gd::test_x": the ends-with-"/" rule
+    # below already makes those equal (the "res://" prefix ends in "/"), including a bare "res://foo.gd::t" vs "foo.gd::t" - no separate normalisation needed (2026-10-11, gutparity)
     return a == b or a.endswith("/" + b) or b.endswith("/" + a)
 
 
@@ -67,7 +70,7 @@ def prev_item_ids(repo, state, h):
 
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else ""
-    data = sys.stdin.read() if cmd in ("filter", "record") else ""
+    data = sys.stdin.read() if cmd in ("filter", "record", "base_only") else ""
     ids = _lines(data)
     try:
         repo, state = argv[2], argv[3]
@@ -80,6 +83,9 @@ def main(argv):
                 prev = prev_item_ids(repo, state, h)
                 keep = ids if (not prev or any(not _in(i, prev) for i in ids)) else []
             sys.stdout.write("".join(i + "\n" for i in keep))
+        elif cmd == "base_only":
+            bl = baseline_ids(repo, state)
+            print("yes" if (bl is not None and ids and all(_in(i, bl) for i in ids)) else "no")
         elif cmd == "basis":
             print("baseline" if baseline_ids(repo, state) is not None else "previous-item")
         elif cmd == "record":
@@ -95,6 +101,8 @@ def main(argv):
     except Exception:
         if cmd == "filter":
             sys.stdout.write(data)
+        elif cmd == "base_only":
+            print("no")
     return 0
 
 

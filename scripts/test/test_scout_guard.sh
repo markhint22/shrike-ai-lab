@@ -53,7 +53,7 @@ ok "planner lists only a banned file -> no-op(scout-unworkable), aider implement
 ok "drop is logged with the reason" "$(has "$(tlog sg_banned)" 'scout-guard: dropped planned file app/banned.py (hard-banned file app/banned.py)')"
 ok "item parked with the sweep's tag" "$(grep -q '^- \[ \] \[CLAUDE\] \[unworkable: hard-banned file app/banned.py\] \[T2\] tests/test_persist.py' "$(rd sg_banned)/OVERNIGHT_PROGRESS.md" && echo 1 || echo 0)"
 ok "the next item is untouched" "$(grep -q '^- \[ \] \[T1\] app/bar.py' "$(rd sg_banned)/OVERNIGHT_PROGRESS.md" && echo 1 || echo 0)"
-ok "park commit pushed to origin" "$(git -C "$T/sg_banned/origin.git" log ovn/t1 --format=%s -1 2>/dev/null | grep -q 'park unworkable item' && echo 1 || echo 0)"
+ok "park commit pushed to origin" "$(git -C "$T/sg_banned/origin.git" log ovn/t1 --format=%s -3 2>/dev/null | grep -q 'park unworkable item' && echo 1 || echo 0)"   # -3: the park push also carries the new-file stub, whose removal (r11 stub undo) is pushed right after
 run sg_oversize
 ok "oversize file (60000 lines, >120000 bytes) -> no-op(scout-unworkable), no implement call" "$([ "$(res sg_oversize)" = 'no-op(scout-unworkable)' ] && echo "$(noimpl sg_oversize)" || echo 0)"
 ok "oversize reason mentions the context" "$(has "$(tlog sg_oversize)" 'exceeds the model context')"

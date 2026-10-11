@@ -324,6 +324,33 @@ y_run rep6 "$PLAIN_PROG" 4 "$TMP/scn_sameids"
 eq "Y-e NEGATIVE (main loop): the identical failing id is RED AT THE BASELINE -> not a repeat, all 4 attempts run (old: stops at 2)" 4 "$(oc t-rep6 attempts)"
 eq "Y-e: no repeat-breaker stop recorded" "" "$(oc t-rep6 bestn_stop)"
 rm -f "$ST/qa_baselines/verify/r-rep6.json"
+# ---- gutparity (2026-10-11, X3): GUT failing ids feed the same breaker; a baseline-red failure is not retried
+mkscn "$TMP/scn_gutids" <<'EOF'
+IMPL_SEQ=none
+SCOUT_EXTRA='a multi-file change
+--- GUT-FAIL-ID: tests/test_foo.gd::test_bar'
+EOF
+y_run gut1 "$PLAIN_PROG" 4 "$TMP/scn_gutids"
+eq "GUT REPEAT BREAKER: the same GUT-FAIL-ID on 2 consecutive attempts stops best-of-4 at 2 (old: ids empty -> all 4 attempts, 19 xlite cycles x3)" 2 "$(oc t-gut1 attempts)"
+eq "GUT REPEAT BREAKER: stop reason recorded" repeat-breaker "$(oc t-gut1 bestn_stop)"
+y_run gut2 "$PLAIN_PROG" 4 "$TMP/scn_gutids" OVN_REPEAT_BREAKER=off
+eq "GUT: kill switch OVN_REPEAT_BREAKER=off -> all 4 attempts run" 4 "$(oc t-gut2 attempts)"
+mkscn "$TMP/scn_gutbase" <<'EOF'
+IMPL_SEQ=none
+SCOUT_EXTRA='a multi-file change
+--- GUT-FAIL-ID: tests/test_foo.gd::test_bar
+--- NO-NEW-RED BASELINE: status=baseline-unknown new=1 baseline=0 ---'
+EOF
+printf '{"version":1,"repo":"r-gut3","ts":%s,"failing":["res://tests/test_foo.gd::test_bar"],"count":1,"ttl_s":86400}\n' "$(date +%s)" > "$ST/qa_baselines/verify/r-gut3.json"
+y_run gut3 "$PLAIN_PROG" 4 "$TMP/scn_gutbase"
+eq "GUT BASELINE STOP: every failing id is red at the repo baseline and the subtraction could not decide -> NO second attempt" 1 "$(oc t-gut3 attempts)"
+eq "GUT BASELINE STOP: stop reason recorded" baseline-red "$(oc t-gut3 bestn_stop)"
+y_run gut4 "$PLAIN_PROG" 4 "$TMP/scn_gutbase" OVN_BESTN_BASELINE_STOP=off
+ok "GUT BASELINE STOP: kill switch OVN_BESTN_BASELINE_STOP=off -> retries run again (>1 attempt)" "$([ "$(oc t-gut4 attempts)" -gt 1 ] && echo 1 || echo 0)"
+printf '{"version":1,"repo":"r-gut5","ts":%s,"failing":[],"count":0,"ttl_s":86400}\n' "$(date +%s)" > "$ST/qa_baselines/verify/r-gut5.json"
+y_run gut5 "$PLAIN_PROG" 4 "$TMP/scn_gutbase"
+ok "GUT BASELINE STOP NEGATIVE: the id is NOT red at the baseline (store is empty) -> normal retries (>1 attempt)" "$([ "$(oc t-gut5 attempts)" -gt 1 ] && echo 1 || echo 0)"
+rm -f "$ST/qa_baselines/verify/r-gut3.json" "$ST/qa_baselines/verify/r-gut5.json"
 mkscn "$TMP/scn_mention" <<'EOF'
 IMPL_SEQ=none
 SCOUT_EXTRA='a multi-file change

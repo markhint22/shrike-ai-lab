@@ -220,7 +220,7 @@ ovn_schema_budget() {
 # red, 5 forked again. A failure that is DETERMINISTIC (the same drift test / the same forked chain / the same failing test ids) repeated
 # identically is not bad luck, so extra samples only burn GPU. Two pure helpers + one circuit breaker, all log-derived (no model, no network):
 #   ovn_attempt_signature <status> <log>     -> "migration-drift" for a migration-chain failure, else empty
-#   ovn_failing_ids <log>                    -> the sorted, de-duplicated pytest FAILED/ERROR test ids (one per line), empty when none
+#   ovn_failing_ids <log>                    -> the sorted, de-duplicated pytest FAILED/ERROR + GUT '--- GUT-FAIL-ID:' test ids (one per line), empty when none
 #   ovn_bestn_after_failure <bestn> <sig>    -> the best-of-N budget to use once the previous attempt failed with <sig>
 #   ovn_repeat_streak <prev_key> <cur_key> <streak> -> new consecutive-identical-failure streak
 # Kill switches: OVN_BESTOF_N_DRIFT_CAP=0 (disable the drift cap), OVN_REPEAT_BREAKER=off (disable the repeat breaker).
@@ -239,8 +239,12 @@ ovn_attempt_signature() {
 ovn_failing_ids() {
   local log="${1:-}"
   [ -f "$log" ] || return 0
-  # pytest short summary ("FAILED tests/x.py::t - msg", "ERROR tests/x.py::t - msg"); keep only the node id
-  grep -hoE '^(FAILED|ERROR) [^ ]+' "$log" 2>/dev/null | sed -E 's/^(FAILED|ERROR) //' | sort -u
+  # pytest short summary ("FAILED tests/x.py::t - msg", "ERROR tests/x.py::t - msg"); keep only the node id.
+  # GUT (2026-10-11, gutparity X3): run_overnight.sh's GUT block writes "--- GUT-FAIL-ID: tests/foo.gd::test_x" next to "--- GUT RED:" (from the junit XML). Before, a GUT red
+  # gave an EMPTY id set, so the repeat key was empty and the breaker never fired: xlite ran 19 cycles x best-of-3 on one identical failing test (67% of the lane's active time).
+  { grep -ahoE '^(FAILED|ERROR) [^ ]+' "$log" 2>/dev/null | sed -E 's/^(FAILED|ERROR) //'
+    grep -ahoE '^--- GUT-FAIL-ID: [^ ]+' "$log" 2>/dev/null | sed -E 's/^--- GUT-FAIL-ID: //'
+  } | sort -u
 }
 
 ovn_bestn_after_failure() {
@@ -278,6 +282,25 @@ ovn_repeat_key() {
   printf '%s|%s' "$h" "$(printf '%s' "$ids" | md5sum | cut -d' ' -f1)"
 }
 
+# usage: ovn_bestn_baseline_stop <log> <repo dir> <state dir> [<last attempt status>] -> rc 0 when the best-of-N loop must NOT run another attempt because every failing test id
+# of the attempt that just reverted was ALREADY red at the repo's active baseline (qa/baseline_verify store, ovn_repeat_ids.py base_only): nothing the model did, a fresh attempt
+# from the same base fails identically (2026-10-11, gutparity X3; xlite spent 19 cycles x 3 attempts on one red test). Conservative: the log's last NO-NEW-RED BASELINE marker must
+# say the subtraction could not decide (baseline-unknown | disabled | lib-missing; NOT incomplete: a killed/timed-out verify run may be a model-caused hang) - a veto status (other-suite-red: a parse error / second suite the model may
+# have caused), `subtracted` (a NEW id) or `baseline-green` all keep retrying - and a build-break / migration / ts-regression / dep-import revert is never stopped here.
+# Kill switch: OVN_BESTN_BASELINE_STOP=off.
+ovn_bestn_baseline_stop() {
+  local log="${1:-}" rdir="${2:-}" sdir="${3:-}" status="${4:-}" ids st helper r
+  [ "${OVN_BESTN_BASELINE_STOP:-on}" = off ] && return 1
+  [ -f "$log" ] && [ -n "$rdir" ] && [ -n "$sdir" ] || return 1
+  case "$status" in *build-break*|*migration*|*ts-regression*|*dep-import*) return 1;; esac
+  helper="$(dirname "${BASH_SOURCE[0]}")/ovn_repeat_ids.py"; [ -f "$helper" ] || return 1
+  ids="$(ovn_failing_ids "$log")"; [ -n "$ids" ] || return 1
+  st="$(grep -a '^--- NO-NEW-RED BASELINE: status=' "$log" 2>/dev/null | tail -1 | sed -E 's/^--- NO-NEW-RED BASELINE: status=([^ ]+).*/\1/')"
+  case "$st" in baseline-unknown|disabled|lib-missing) ;; *) return 1;; esac
+  r="$(printf '%s\n' "$ids" | python3 "$helper" base_only "$(basename "$rdir")" "$sdir" 2>/dev/null)"
+  [ "$r" = yes ]
+}
+
 # usage: ovn_repeat_basis <repo dir> <state dir> -> "baseline" | "previous-item" (which rule ovn_repeat_key used), for the park note
 ovn_repeat_basis() {
   local helper; helper="$(dirname "${BASH_SOURCE[0]}")/ovn_repeat_ids.py"
@@ -288,6 +311,37 @@ ovn_repeat_record() {
   local helper; helper="$(dirname "${BASH_SOURCE[0]}")/ovn_repeat_ids.py"
   [ -f "$helper" ] || return 0
   ovn_failing_ids "${4:-}" | python3 "$helper" record "$(basename "${1:-x}")" "${2:-}" "${3:-}" 2>/dev/null
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# Ungrounded-plan guard inputs (2026-10-11, gutparity X7a). The guard in run_overnight.sh ("scout PROCEED but named zero file-shaped tokens") only counted tokens with a dotted
+# extension, so a plan that names a DIRECTORY ("Delete the typo directory scripts/battle/enemy_fattle ... FILES: NONE") counted as naming nothing: 22 xlite cycles (~275k tokens,
+# ~13 min) were refused for a plan that did name a real path. Two helpers (cwd = the repo):
+#   <plan text> | ovn_plan_path_tokens   -> path-like tokens containing '/' that are plausibly real paths: they exist, OR start at an existing top-level dir, OR have >= 2 slashes
+#                                           AND a file-like last segment ("a/b/c.py"). ("and/or", "read/write", "1/2" and prose triples like "client/server/db" or "pass/fail/skip"
+#                                           never count.) One per line.
+#   ovn_item_head_path "<item text>"     -> the first path in the open item's own text that EXISTS in the repo (a file or a directory), else nothing.
+# Only a plan with no path at all (and a top item that names no real path) stays 'ungrounded-plan'. Kill switch: OVN_UNGROUNDED_PATHS=off (the guard keeps the old dotted-only tokens).
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+ovn_plan_path_tokens() {
+  local tok nsl first last
+  while IFS= read -r tok; do
+    tok="${tok%%[.,;:]}"; tok="${tok#[.,;:]}"; tok="${tok%[.,;:]}"
+    [ -n "$tok" ] || continue
+    case "$tok" in *[A-Za-z]*) ;; *) continue;; esac   # (no `printf | grep -q`: SIGPIPE-flaky under load + pipefail)
+    nsl="$(printf '%s' "$tok" | tr -cd '/' | wc -c | tr -d ' ')"
+    first="${tok%%/*}"; last="${tok##*/}"
+    # (2026-10-11 gutparity fix2: a bare '>= 2 slashes' let prose triples ground a fabricated plan; now the 2-slash rule also needs a dotted file-like last segment)
+    if [ -e "$tok" ] || { [ -n "$first" ] && [ -d "$first" ]; } || { [ "$nsl" -ge 2 ] && case "$last" in ?*.[A-Za-z0-9]*) true;; *) false;; esac; }; then printf '%s\n' "$tok"; fi
+  done < <(grep -oE '[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)+' 2>/dev/null)
+}
+ovn_item_head_path() {
+  local tok
+  while IFS= read -r tok; do
+    tok="${tok%%[.,;:]}"; tok="${tok#[.,;:]}"; tok="${tok%[.,;:]}"
+    [ -n "$tok" ] && [ -e "$tok" ] && { printf '%s\n' "$tok"; return 0; }
+  done < <(printf '%s\n' "${1:-}" | grep -oE '[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)+|[A-Za-z0-9_@-][A-Za-z0-9_.@-]*\.(py|ts|tsx|js|jsx|vue|gd|kt|java|go|rb|rs|c|cpp|h|hpp|json|ya?ml|toml|cfg|sh|xml|gradle|tscn|tres|swift|md)' 2>/dev/null)
   return 0
 }
 

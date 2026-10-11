@@ -80,6 +80,7 @@ ok "diverged touching a code file: backup branch + NOT auto-recovered alert" "$(
 ok "code-file divergence: backup branch holds the local commit" "$(git -C "$(rd sync_div_other)" log --all --format=%s | grep -q 'local code edit' && echo 1 || echo 0)"
 
 echo "== placeholder / new-file stubs =="
+export OVN_STUB_UNDO=off   # r11: an UNFILLED stub is now removed on the way out of a cycle (test_stub_guard_e2e.sh); disabled here to inspect the stub content itself
 run stub_progress
 ok "missing OVERNIGHT_PROGRESS.md named in prompt -> stub committed" "$(git -C "$(rd stub_progress)" log --format=%s | grep -q 'stub OVERNIGHT_PROGRESS.md' && echo 1 || echo 0)"
 ok "stub has no doable items -> skip(exhausted)" "$([ "$(res stub_progress)" = 'skip(exhausted)' ] && echo 1 || echo 0)"
@@ -100,6 +101,7 @@ run stub_vue;  ok ".vue stub has a minimal template" "$(has "$(cat "$(rd stub_vu
 run stub_existing
 ok "already-existing file named in prompt is never stubbed/clobbered" "$([ "$(headmsg stub_existing)" = base ] && echo 1 || echo 0)"
 
+unset OVN_STUB_UNDO
 echo "== self-heal of committed placeholder test stubs =="
 run selfheal
 r="$(rd selfheal)"

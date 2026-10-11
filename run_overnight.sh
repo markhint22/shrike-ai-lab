@@ -131,7 +131,7 @@ command -v ovn_open_bug_count >/dev/null 2>&1 || ovn_open_bug_count() { printf '
 source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
 # shellcheck source=scripts/lib_gut_xml.sh
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites (xlite main red since 09-29).
-source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
+source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; gut_xml_emit_fail_ids(){ :; }; }
 # 2026-10-09 (harness-credit-integrity, picker patterns): "BLOCKED" must only park an item when it is the UPPER-CASE tag - a lower-case "blocked" in an item's prose used to hide
 # the item from every picker (grep -i). scripts/lib_parked_pattern.sh (package spec-compiler-v2) owns OVN_PARKED_CI_ERE (case-insensitive tags) and OVN_PARKED_CS_ERE (case-sensitive
 # BLOCKED); the inline defaults below make this script correct whichever package deploys first. Every picker is: grep -viE "<CI_ERE>" | grep -vE "<CS_ERE>", written with the same default inline (${VAR:-default}) so a block evaluated without these top-of-file defaults (unit-test harnesses extract blocks) still filters instead of matching nothing.
@@ -342,6 +342,9 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   fi
   # 2026-10-09 (harness-credit-integrity item 4): a green push whose item the auto-credit REFUSED to tick is not a landing - class landed-uncredited (neutral,
   # excluded from landed counts and the pass rate; readers show "N uncredited pushes"). Kill switch OVN_LANDED_UNCREDITED=off. See lib_auto_credit.sh.
+  # 2026-10-11 (r11 acct, iptv F7): a push whose commits changed ONLY the progress/done files (the runner tags it '[credit-only]', see ovn_cycle_credit_only) is bookkeeping,
+  # not a landing: class credit-only, severity neutral (benign: outside the pass rate, like an ALREADY-DONE verdict). Wins over landed-uncredited (no code at all). OVN_CREDIT_ONLY=off = old.
+  if [ "$cls" = landed ] && [ "${OVN_CREDIT_ONLY:-on}" != off ]; then case "$3" in *"[credit-only]"*) cls="credit-only"; sev=neutral;; esac; fi
   if [ "$cls" = landed ] && declare -F ovn_landed_uncredited >/dev/null 2>&1 && ovn_landed_uncredited "$tl" "$3"; then cls="landed-uncredited"; sev=neutral; fi
   # 2026-10-09 (harness-credit-integrity item 11b): an idle lane reports an exhausted-skip every pass; write at most ONE such row per repo per hour (the first skip after
   # any non-skip row is written). A suppressed row returns before the token scan / jq. OVN_SKIP_ROW_DEDUPE=off writes every row.
@@ -460,6 +463,23 @@ ovn_cycle_net_zero() {
   git diff --quiet "$b" "$a" -- . ':(exclude)OVERNIGHT_PROGRESS.md' ':(exclude)OVERNIGHT_DONE.md' 2>/dev/null || return 1   # a real net change (rc 1) or a git error (rc 128): not net-zero
   git diff --quiet "$b" "$a" -- OVERNIGHT_PROGRESS.md OVERNIGHT_DONE.md 2>/dev/null || return 1                       # bookkeeping / credit commit: lands as before
   [ -n "$(git log --name-only --format= "$b..$a" -- . ':(exclude)OVERNIGHT_PROGRESS.md' ':(exclude)OVERNIGHT_DONE.md' 2>/dev/null)" ]   # some commit actually touched a code file (churn), not empty commits (captured, not piped into grep -q: SIGPIPE + pipefail)
+}
+
+# CREDIT-ONLY cycle (2026-10-11, r11 acct, iptv F7): 0 when the NET diff BEFORE..AFTER is non-empty and touches nothing but OVERNIGHT_PROGRESS.md / OVERNIGHT_DONE.md. iptv_apps 10-11 01:29Z: two
+# 'aider attempt verdict: no-edit-unfenced', then 'chore(queue): credit item(s) the implement pass found already satisfied in code' (progress file only) was pushed and recorded `landed
+# pushed(tests:pass)` - a TRUE credit but zero code, inflating the landing count. The caller tags the status '[credit-only]'; record_outcome files it as class credit-only (neutral). Net-diff
+# based (git diff --name-only), so a code churn that cancels out plus a credit is credit-only too. Empty net diff / same sha / git error => 1 (lands as before). OVN_CREDIT_ONLY=off => 1.
+ovn_cycle_credit_only() {
+  local b="${1:-}" a="${2:-}" files f
+  [ "${OVN_CREDIT_ONLY:-on}" = off ] && return 1
+  [ -n "$b" ] && [ -n "$a" ] && [ "$b" != "$a" ] || return 1
+  files="$(git diff --name-only "$b" "$a" 2>/dev/null)" || return 1
+  [ -n "$files" ] || return 1
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in OVERNIGHT_PROGRESS.md|OVERNIGHT_DONE.md) ;; *) return 1 ;; esac
+  done <<< "$files"
+  return 0
 }
 
 # SUPPLY RE-CHECK (2026-10-10, harness R10, IPTV-3): ovn_supply_recheck <prog> <line-number> -> 0 when line N is a deterministic work-supply item (`supply:<kind>` tag) whose own
@@ -584,7 +604,8 @@ log "Loaded ${TASK_COUNT} task(s) from ${TASKS_FILE}"
 # "pass" (something ran and all green), "fail" (something ran, at least one
 # failure), "none" (nothing provisioned to run).
 run_repo_verification() {
-  local any_ran=0 any_failed=0 dir py_ran=0
+  local any_ran=0 any_failed=0 dir py_ran=0 _ovn_vt0
+  _ovn_vt0="$(date +%s)"   # r11 P9: wall-clock marker so ovn_cycle_walltime can PROVE verify_s (see _ovn_verify_done_mark)
   # 2026-08-27: scope each suite to the subdirs THIS cycle's commit(s) touched,
   # so a backend-only change never triggers an unrelated (e.g. broken Android)
   # build and mislabels a green change as tests:FAIL.
@@ -593,6 +614,9 @@ run_repo_verification() {
   # per-suite RED record (2026-10-03, run integrity): ovn_ri_subtract only subtracts a baseline when exactly ONE suite failed and it is pytest/.ovn-verify
   # (the id-parsed kind); a red gradle/npm/GUT/second suite has no ids to compare and must never be hidden behind a pytest baseline.
   _ovn_red_mark() { echo "--- verify-suite-red: $1 in ${2:-.} rc=${3:-?} ---" >> "$task_log"; }
+  # 2026-10-11 (r11 acct, platform P9): the cycle log carried no per-phase timestamps, so cycle_walltime.jsonl verify_s was 0 for every row (only logged VERIFY *timeouts* counted). One marker per
+  # verification run, written to the task log (stdout is the verdict, captured by every caller): '--- verify done in Ns ---'. ovn_cycle_walltime.py sums them. Never fatal.
+  _ovn_verify_done_mark() { { echo "--- verify done in $(( $(date +%s) - ${_ovn_vt0:-$(date +%s)} ))s ---" >> "${task_log:-/dev/null}"; } 2>/dev/null || true; }
   _ovn_touched() {
     local d="${1#./}"
     [ -z "$_OVN_CHANGED" ] && return 0    # unknown -> run (safe default)
@@ -635,6 +659,7 @@ run_repo_verification() {
     _ovnv_out="$( ( cd "$(dirname "$_ovnv")" && OVN_CHANGED_FILES="$_OVN_CHANGED" timeout 600 bash "$(basename "$_ovnv")" ) 2>&1)"
     _ovnv_rc=$?
     printf '%s\n' "$_ovnv_out" >> "$task_log"
+    _ovn_verify_done_mark
     if printf '%s' "$_ovnv_out" | grep -q 'SKIPPED — venv lock contended'; then
       echo "skip"
     elif [ "$_ovnv_rc" -eq 0 ]; then
@@ -741,7 +766,8 @@ run_repo_verification() {
             -gdir=res://tests -gexit "-gjunit_xml_file=${XML_OUT}"
         ) > "$GODOT_OUT" 2>&1
         cat "$GODOT_OUT" >> "$task_log"
-        [ -f "$XML_OUT" ] && cat "$XML_OUT" >> "$task_log"
+        # the junit XML ends WITHOUT a newline: end the line so the markers written below start at a line start (2026-10-11 gutparity: "</testsuites>--- verify-suite-red" was glued)
+        [ -f "$XML_OUT" ] && { cat "$XML_OUT" >> "$task_log"; printf '\n' >> "$task_log"; }
         # failures="0" alone is NOT enough: confirmed live that a test calling a
         # nonexistent function throws a runtime script error, silently never
         # reaches its assertion, and GUT reports it as status="no asserts"
@@ -751,6 +777,9 @@ run_repo_verification() {
         if [ ! -s "$XML_OUT" ] || ! gut_xml_green "$XML_OUT"; then
           any_failed=1; _ovn_red_mark gut "$dir" 1
           echo "--- GUT RED: $(gut_xml_summary "$XML_OUT")" >> "$task_log"
+          # one parseable line per failing test (+ a COMPLETE marker when they cover every red): ovn_ri_failing_ids / ovn_failing_ids / ovn_extract_failure.sh read these
+          # so a pre-existing red GUT test is baseline-subtracted, the repeat-breaker keys on it, and the fix-up prompt names it (2026-10-11, gutparity X2/X3)
+          gut_xml_emit_fail_ids "$XML_OUT" >> "$task_log" 2>/dev/null
         fi
         # GUT only tests res://tests - a genuine compile error elsewhere in the
         # project (confirmed live: a new script with a bad type annotation broke
@@ -779,6 +808,7 @@ run_repo_verification() {
   # venvs) used to fall through to "none"/"pass" and land UNVERIFIED commits (shrike-notify landed two red staged steps that way). No python
   # verifier ran although tests exist -> report "skip": the VERIFY-SKIP guard then holds the commit unpushed instead of landing it.
   # OVN_VERIFY_FAIL_CLOSED=0 restores the old behavior.
+  _ovn_verify_done_mark
   if [ "$py_ran" -eq 0 ] && [ "$any_failed" -ne 1 ] && [ "${OVN_VERIFY_FAIL_CLOSED:-1}" = 1 ] \
      && find . -maxdepth 4 -path '*/tests/test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
     echo "--- verify: python tests exist but NO usable .venv/bin/pytest was found - verification could not run (fail-closed: skip, not pass) ---" >> "$task_log"
@@ -1007,6 +1037,19 @@ run_coverage_check() {
   [ "${newdefs:-0}" -ge 1 ] && echo "untested" || echo "ok"
 }
 
+# r11 (package stub): guards + undo for the pre-scout "stub new source file" step. Logic lives in scripts/ovn_stub_guard.py (deterministic, fail-safe:
+# any problem = no stub / no undo). OVN_STUB_GUARDS=off restores the legacy extraction; OVN_STUB_UNDO=off disables the exit-trap undo.
+ovn_stub_pick() {   # stdin = item text; $1 = repo root. Prints PICK<TAB>path | SKIP<TAB>reason<TAB>path | NONE (empty on any failure = stub nothing)
+  [ -f "$SCRIPT_DIR/scripts/ovn_stub_guard.py" ] || return 0
+  timeout 60 python3 "$SCRIPT_DIR/scripts/ovn_stub_guard.py" pick "$1" 2>/dev/null || true
+}
+ovn_stub_undo_exit() {   # runs from the cycle subshell's EXIT trap = every return/exit path; no-op unless THIS cycle committed a stub
+  [ -n "${_ovn_stub_path:-}" ] && [ -n "${_ovn_stub_commit:-}" ] || return 0
+  [ "${OVN_STUB_UNDO:-on}" = off ] && return 0
+  [ -f "$SCRIPT_DIR/scripts/ovn_stub_guard.py" ] || return 0
+  timeout 90 python3 "$SCRIPT_DIR/scripts/ovn_stub_guard.py" undo "${_ovn_stub_repo:-$PWD}" "${_ovn_stub_pre:-}" "$_ovn_stub_commit" "$_ovn_stub_path" "${branch:-}" "${task_log:-}" >/dev/null 2>&1 || true
+}
+
 run_aider_fix_task() {
   local id="$1" repo="$2" prompt="$3" branch="$4" persistent="$5" task_log="$6" map_tokens="$7" skip_agents_md="$8" max_files="${9:-2}" protected_files="${10:-}" aider_timeout="${11:-600}"
 
@@ -1062,7 +1105,8 @@ ${prompt}"
     # `git reset --hard`-ing away a commit that is made but not yet pushed. $BASHPID = this cycle subshell; removed on every exit path.
     _ovn_cyc_repo="$(basename "$repo")"
     ovn_ri_cycle_mark "$STATE_DIR" "$_ovn_cyc_repo"
-    trap 'ovn_ri_cycle_unmark "$STATE_DIR" "$_ovn_cyc_repo"' EXIT
+    _ovn_stub_pre=""; _ovn_stub_commit=""; _ovn_stub_path=""; _ovn_stub_repo=""   # r11: set by the stub step below; the EXIT trap undoes an unfilled stub on every exit path
+    trap 'ovn_stub_undo_exit; ovn_ri_cycle_unmark "$STATE_DIR" "$_ovn_cyc_repo"' EXIT
 
     DEFAULT_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
     DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
@@ -1255,7 +1299,21 @@ STUB
     # can never clobber real content - identical safety property to the two
     # stubs above. Runs after the Alembic-specific block so an Alembic path
     # already stubbed by it is simply skipped here (file now exists).
-    _ovn_new_source_file="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue|kt|swift)' | head -1)"
+    # r11 (package stub): the guarded picker replaces the bare grep (no right boundary: '.kts' -> '.kt' committed a junk build.gradle.kt on prod main; no history,
+    # scope or "does not exist" check: xlite scripts/battle/save_manager.gd was re-created 3x after it was deleted, red HEAD for 6h). It still returns only the
+    # FIRST source path of prompt + top item, and refuses (stubs nothing) when a guard fires. OVN_STUB_GUARDS=off (or the helper absent) = the legacy extraction below.
+    if [ "${OVN_STUB_GUARDS:-on}" = off ] || [ ! -f "$SCRIPT_DIR/scripts/ovn_stub_guard.py" ]; then   # helper absent (partial deploy / minimal test tree) = the legacy extraction, as every other guard here
+      _ovn_new_source_file="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue|kt|swift)' | head -1)"
+    else
+      _ovn_stub_pk="$(printf '%s\n%s' "$prompt" "${_ovn_top_progress_item:-}" | ovn_stub_pick "$PWD")"
+      _ovn_new_source_file=""
+      case "$_ovn_stub_pk" in
+        PICK$'\t'*) _ovn_new_source_file="${_ovn_stub_pk#PICK$'\t'}" ;;
+        SKIP$'\t'*)   # the scout truncates $task_log later in the cycle, so the refusal is ALSO kept in the sidecar logs/stub_guard.log
+          echo "--- stub-guard: NOT stubbing (${_ovn_stub_pk#SKIP$'\t'}) ---" | tr '\t' ' ' >> "$task_log"
+          echo "[$(date '+%F %T')] $(basename "$repo") ${id:-?}: stub-guard: NOT stubbing (${_ovn_stub_pk#SKIP$'\t'})" | tr '\t' ' ' >> "$SCRIPT_DIR/logs/stub_guard.log" 2>/dev/null || true ;;
+      esac
+    fi
     # h13 (2026-10-04): never stub the target of a DELETE item. The file is MISSING because an earlier commit already deleted it; re-creating a
     # placeholder made the item look doable again (stub -> delete executor `git rm` -> or a flail) instead of being recognised as already done
     # (xlite scripts/battle/elevation.gd: 6 cycles). A delete item = the item's own `VERIFY: test ! -f <file>`, or "<file> - Delete/Remove ...".
@@ -1294,8 +1352,11 @@ STUB
         *) _ovn_stub_comment='' ;;
       esac
       printf '%s\n' "$_ovn_stub_comment" > "$_ovn_new_source_file"
+      _ovn_stub_pre="$(git rev-parse HEAD 2>/dev/null)"
       git add "$_ovn_new_source_file"
       git commit -m "chore: stub new source file before implement (new-file udiff is unreliable)" --quiet
+      _ovn_stub_commit="$(git rev-parse HEAD 2>/dev/null)"; _ovn_stub_repo="$PWD"; _ovn_stub_path="$_ovn_new_source_file"   # r11: remembered for the EXIT-trap undo
+      [ "$_ovn_stub_commit" != "$_ovn_stub_pre" ] || _ovn_stub_path=""
     fi
 
     # >>> SELF-HEAL-BEGIN
@@ -1686,6 +1747,19 @@ STUB
         ;;
     esac
     # <<< RUFF-EXECUTOR-END
+
+    # >>> MOVE-EXECUTOR-BEGIN
+    # 2026-10-11 (delplan F8): `Move|Rename <file> to <new path>` items (git mv + package/import rewrite by rule: scripts/ovn_move_executor.py) through the same hook. SHADOW by default
+    # (OVN_MOVE_EXECUTOR=off|shadow|on): only `check` runs and 'would apply' rows land in state/executor_shadow.log (kind=move); nothing edits until an operator sets it to `on`.
+    case "$id" in
+      ongoing-*)
+        if [ "${OVN_MOVE_EXECUTOR:-shadow}" != "off" ] && [ -f "$SCRIPT_DIR/scripts/ovn_move_executor.py" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && declare -F ovn_executor_hook >/dev/null 2>&1; then
+          _mx_item="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE "${OVN_PARKED_CI_ERE:-AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}" | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}" | ovn_bug_first_order | head -1)"
+          if [ -n "$_mx_item" ] && _mx_status="$(ovn_executor_hook move "$SCRIPT_DIR" "$PWD" "$_mx_item" "$branch" "$task_log" "$BEFORE_SHA")"; then echo "$_mx_status"; return; fi
+        fi
+        ;;
+    esac
+    # <<< MOVE-EXECUTOR-END
 
     # >>> SUPPLY-RECHECK-BEGIN
     # 2026-10-10 (harness R10, IPTV-3): a deterministic work-supply item (`supply:<kind>`) is red-before at supply time by construction, but waits in the queue for hours while other cycles
@@ -2415,7 +2489,24 @@ PYEOF
     # 1-8 alnum chars matches "sympy.isprime" same as it matches a real
     # "foo/bar.py"), silently defeating this exact guard for the exact case it exists
     # to catch.
-    _ovn_candidate_tokens="$( { echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}"; echo "$OVN_SCOUT_FILES"; } \
+    # 2026-10-11 (gutparity X7a): a path-like token with '/' and no dot (a DIRECTORY: "scripts/battle/enemy_fattle") is grounding too (ovn_plan_path_tokens: it exists, has >= 2
+    # slashes, or starts at an existing top-level dir - "and/or" never counts). OVN_UNGROUNDED_PATHS=off restores the dotted-extension-only tokens. The open top item's own head
+    # path (ovn_item_head_path) is grounding ONLY for a whole-FILE DELETE plan (OVN_UNGROUNDED_HEAD_PATH=delete, the default; ovn_is_delete_intent on the plan): a delete plan
+    # legitimately names no file ("Delete the inert Elevation class file ... FILES: NONE" - 59 historical zero-token no-ops), while the item's own head path is the real target.
+    # For any other plan it stays off: nearly every queue item starts with its own path ("[T1] app/foo.py - ..."), so counting it would make EVERY plan grounded and retire the
+    # guard (sc_ungrounded: PLAN "make it better somehow" FILES NONE must stay a no-op). =on applies it to every plan (not recommended); =off disables it.
+    _ovn_cand_extra=""
+    if [ "${OVN_UNGROUNDED_PATHS:-on}" != off ] && declare -F ovn_plan_path_tokens >/dev/null 2>&1; then
+      _ovn_cand_top=""
+      case "${OVN_UNGROUNDED_HEAD_PATH:-delete}" in
+        on) _ovn_head_ok=1;;
+        delete) _ovn_head_ok=0; declare -F ovn_is_delete_intent >/dev/null 2>&1 && ovn_is_delete_intent "$OVN_PLAN" && _ovn_head_ok=1;;
+        *) _ovn_head_ok=0;;
+      esac
+      [ "$_ovn_head_ok" = 1 ] && command -v ovn_resolve_top_item >/dev/null 2>&1 && _ovn_cand_top="$(ovn_resolve_top_item "." "$task_log" 2>/dev/null)"
+      _ovn_cand_extra="$( { printf '%s\n' "$OVN_PLAN" | ovn_plan_path_tokens; [ -n "$_ovn_cand_top" ] && ovn_item_head_path "${_ovn_cand_top#*:}"; } 2>/dev/null)"
+    fi
+    _ovn_candidate_tokens="$( { echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}"; echo "$OVN_SCOUT_FILES"; echo "$_ovn_cand_extra"; } \
       | grep -E '/|\.(py|ts|tsx|js|jsx|vue|gd|kt|java|go|rb|rs|c|cpp|h|hpp|md|ya?ml|json|toml|cfg|ini|sh|txt|xml|gradle|properties|env)$' \
       | sort -u)"
     if [ -n "$OVN_PLAN" ] || [ -n "$OVN_SCOUT_FILES" ]; then
@@ -2990,9 +3081,11 @@ $(ovn_udiff_nudge_text)"
             _migfix_fileargs=()
             for _mf in $_migfix_touched; do [ -f "$_mf" ] && _migfix_fileargs+=(--file "$_mf"); done
             echo "--- MIGRATION-SAFETY fix-up: one bounded attempt at the migration-chain break before reverting: ${_migfix_summary:0:200}" >> "$task_log"
+            _ovn_fx0="$(date +%s)"   # r11 P9
             timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_migfix_fileargs[@]}" \
               --message "$(ovn_fixup_prompt "The change below was just committed and it broke the Alembic migration chain." "$BEFORE_SHA" "$AFTER_SHA" "$_migfix_summary" "Fix this SPECIFIC migration-chain error (correct down_revision / resolve the multiple-heads or duplicate-revision-id / fix the FK column type) so 'alembic upgrade head' resolves to a single linear chain again. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.")" \
               >> "$task_log" 2>&1
+            echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
             _migfix_after="$(git rev-parse HEAD)"
             if [ "$_migfix_after" != "$AFTER_SHA" ]; then
               AFTER_SHA="$_migfix_after"
@@ -3179,10 +3272,12 @@ $(ovn_udiff_nudge_text)"
           done
           echo "--- BUILD-GATE fix-up: evidence=$(printf '%s' "$_buildfix_evidence" | wc -c)B extra_files=${_buildfix_nextra} ---" >> "$task_log"
           echo "--- BUILD-GATE fix-up: one bounded attempt at the structural break before reverting: ${_buildfix_summary:0:200}" >> "$task_log"
+          _ovn_fx0="$(date +%s)"   # r11 P9: '--- fixup done in Ns ---' after the aider call (the re-verify logs its own '--- verify done ---')
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_buildfix_fileargs[@]}" \
             --message "$(ovn_fixup_prompt "The change below was just committed and it broke the build." "$BEFORE_SHA" "$AFTER_SHA" "REAL failing output from the verify run (verbatim; you already have every file it names in the chat):
 ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code loads again. Do not ask for more output - the error above is complete. If it is 'No module named X' / 'cannot import name X': either create X or remove the import that needs it. If the committed change deleted a file, also update or delete the tests/imports that still reference it. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.")" \
             >> "$task_log" 2>&1
+          echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
             AFTER_SHA="$_buildfix_after"
@@ -3281,9 +3376,11 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
 All files you need are already in the chat. You cannot run commands or call tools - reply with a udiff only. ${_fixup_dir}")"
           echo "--- Tier-2 fix-up: prompt=${#_fixup_msg}B files=$(( ${#_fixup_fileargs[@]} / 2 )) ---" >> "$task_log"
           echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting [${_fixup_kind}]: ${_fixup_summary:0:200}" >> "$task_log"
+          _ovn_fx0="$(date +%s)"   # r11 P9
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_fixup_fileargs[@]}" \
             --message "$_fixup_msg" \
             >> "$task_log" 2>&1
+          echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then
             AFTER_SHA="$_fixup_after"
@@ -3457,6 +3554,7 @@ All files you need are already in the chat. You cannot run commands or call tool
           pass) PUSH_STATUS="pushed(tests:pass)" ;;
           *) PUSH_STATUS="pushed" ;;
         esac
+        ovn_cycle_credit_only "$BEFORE_SHA" "$AFTER_SHA" && PUSH_STATUS="${PUSH_STATUS} [credit-only]"   # r11 F7: progress-file-only push = bookkeeping, not a landing (kept right after the base status: outcomes status is cut to 80 chars)
         [ "$REDGREEN" = "suspect" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:SUSPECT]"
         [ "$REDGREEN" = "restore-failed" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:RESTORE-FAILED]"
         [ -n "${_ovn_prod_touch:-}" ] && PUSH_STATUS="${PUSH_STATUS} ${_ovn_prod_touch}"
@@ -3518,6 +3616,7 @@ All files you need are already in the chat. You cannot run commands or call tool
             echo "error-transient(commit-lost-before-push)"
             return
           fi
+          ovn_cycle_credit_only "$BEFORE_SHA" "$AFTER_SHA" && { echo "pushed(after-rebase) [credit-only]"; return; }   # r11 F7 (the pre-rebase cycle diff is what decides it)
           echo "pushed(after-rebase)"
         else
           git rebase --abort >/dev/null 2>&1 || true
@@ -3903,6 +4002,14 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
           _bn_h=""
           if command -v ovn_item_hash >/dev/null 2>&1; then
             _bn_top="$(ovn_resolve_top_item "${REPO:-.}" "$TASK_LOG" 2>/dev/null)"; _bn_h="$(ovn_item_hash "${_bn_top#*:}")"
+          fi
+          # 2026-10-11 (gutparity X3): every failing test id of the attempt that just reverted was ALREADY red at the repo baseline (and the NO-NEW-RED subtraction could not decide):
+          # nothing the model did, a fresh attempt fails identically - stop instead of burning attempts 2..N. OVN_BESTN_BASELINE_STOP=off disables.
+          if command -v ovn_bestn_baseline_stop >/dev/null 2>&1 && ovn_bestn_baseline_stop "$TASK_LOG" "${REPO:-.}" "${STATE_DIR:-$SCRIPT_DIR/state}" "$STATUS"; then
+            _bn_stop="baseline-red"
+            log "best-of-N: item ${ID} stopped after attempt ${_btry}: every failing test was already red at the repo baseline (not caused by this item)"
+            echo "--- best-of-N stop: every failing test id was already red at the repo baseline ($(ovn_failing_ids "$TASK_LOG" | head -3 | tr '\n' ' ')) - not retrying ---" >> "$TASK_LOG"
+            break
           fi
           _bn_key="$(ovn_repeat_key "$_bn_h" "$TASK_LOG" "${REPO:-.}" "${STATE_DIR:-$SCRIPT_DIR/state}")"
           _bn_streak="$(ovn_repeat_streak "$_bn_prevkey" "$_bn_key" "$_bn_streak")"; _bn_prevkey="$_bn_key"

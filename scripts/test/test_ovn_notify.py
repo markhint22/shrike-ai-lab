@@ -161,6 +161,11 @@ open(os.path.join(ST, "outcomes.jsonl"), "w").write(json.dumps({"ts": iso(time.t
 ok("B6: a push that only went uncredited is activity, not a stall", not any("stalled" in e[0] for e in N.emergency_checks()))
 open(os.path.join(ST, "outcomes.jsonl"), "w").write(json.dumps({"ts": iso(time.time() - 60), "repo": "xlite", "class": "noop"}) + "\n" + json.dumps({"ts": iso(time.time() - 60), "repo": "xlite", "class": "revert"}) + "\n")
 ok("B6: noop/revert rows are still not activity (stall still fires)", any("Fleet stalled" in e[0] for e in N.emergency_checks()))
+open(os.path.join(ST, "outcomes.jsonl"), "w").write(json.dumps({"ts": iso(time.time() - 60), "repo": "iptv_apps", "class": "credit-only"}) + "\n")
+ok("r11 F7: a lane that only pushed progress-file credits (credit-only, no code) does NOT mask the stall", any("Fleet stalled" in e[0] for e in N.emergency_checks()))
+_L = N.LANDED; N.LANDED = _L + ("credit-only",)
+ok("r11 F7: OVN_NOTIFY_LANDED_CLASSES can opt credit-only back in as activity", not any("stalled" in e[0] for e in N.emergency_checks())); N.LANDED = _L
+ok("r11 F7: credit-only is not in the default activity classes, landed/landed-uncredited are", "credit-only" not in N.LANDED and "landed" in N.LANDED and "landed-uncredited" in N.LANDED)
 du = N.shutil.disk_usage; N.shutil.disk_usage = lambda p: type("D", (), {"used": 95, "total": 100})()
 ok("disk >= 92% -> emergency", any("Disk almost full" in e[0] for e in N.emergency_checks())); N.shutil.disk_usage = du
 N.shutil.disk_usage = lambda p: (_ for _ in ()).throw(OSError("x")); ok("a disk_usage error is ignored", isinstance(N.emergency_checks(), list)); N.shutil.disk_usage = du

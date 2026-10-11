@@ -29,6 +29,75 @@ gut_xml_summary() {
   echo "root: ${root:-<none>} | failing: $(grep -B1 -E '<failure|<error' "$x" 2>/dev/null | grep -oE '<testcase[^>]*name="[^"]*"' | grep -oE 'name="[^"]*"' | head -5 | tr '\n' ' ')"
 }
 
+# gut_xml_failing_ids FILE -> one id per RED testcase, "<classname>::<testcase name>" (res:// stripped), de-duplicated, in report order. 2026-10-11 (gutparity, X2): every
+# parity helper (baseline subtraction, repeat breaker, failure extractor) is keyed on test ids, and GUT only ever produced the free-text "GUT RED: ... failing: name=" line, so
+# a pre-existing red GUT test was billed to every later cycle (xlite: 21 reverts for ONE stub-vs-absence test). Red = status fail|error|no asserts, or a <failure>/<error>
+# child (an orphan one without a testcase is named "<testsuite>::(suite-level)"). Pure awk (BWK + mawk + gawk), never raises, prints nothing for a missing/empty report.
+gut_xml_failing_ids() {
+  local x="${1:-}"
+  [ -n "$x" ] && [ -s "$x" ] || return 0
+  awk '
+    BEGIN { RS = "<"; suite = ""; cur = ""; cls = ""; emitted = 0 }
+    function attr(s, k,    p, r, q) {
+      p = index(s, " " k "=\"")
+      if (!p) return ""
+      r = substr(s, p + length(k) + 3); q = index(r, "\"")
+      return (q ? substr(r, 1, q - 1) : "")
+    }
+    function emit(id) {
+      sub(/^res:\/\//, "", id)
+      if (!(id in seen)) { seen[id] = 1; print id }
+    }
+    {
+      if (!match($0, /^[A-Za-z!\/][^ \t\r\n>\/]*/)) next
+      tag = substr($0, 1, RLENGTH)
+      if (tag == "testsuite") { suite = attr($0, "name"); next }
+      if (tag == "testcase") {
+        cur = attr($0, "name"); cls = attr($0, "classname"); if (cls == "") cls = suite
+        emitted = 0
+        st = attr($0, "status")
+        if (st == "fail" || st == "error" || st == "no asserts") { emit(cls "::" cur); emitted = 1 }
+        if ($0 ~ /\/>[ \t\r\n]*$/) cur = ""
+        next
+      }
+      if (tag == "/testcase") { cur = ""; next }
+      if (tag == "failure" || tag == "error") {
+        if (cur != "") { if (!emitted) { emit(cls "::" cur); emitted = 1 } }
+        else emit(suite "::(suite-level)")
+      }
+    }
+  ' "$x" 2>/dev/null
+}
+
+# gut_xml_ids_complete FILE -> rc 0 when EVERY red thing in the report is covered by an id from gut_xml_failing_ids: the number of <failure>/<error> elements equals the root's
+# failures+errors counts (a missing attribute counts 0) and at least one id exists. A report whose root counts more reds than it names (odd/handwritten/truncated) is NOT complete,
+# and the baseline subtraction then keeps the old revert (a hidden red is worse than a false revert).
+gut_xml_ids_complete() {
+  local x="${1:-}" root f e n have
+  [ -n "$x" ] && [ -s "$x" ] || return 1
+  root="$(head -c 8000 "$x" 2>/dev/null | tr '\n\r' '  ' | grep -oE '<testsuites[^>]*>' | head -1)"
+  [ -n "$root" ] || return 1
+  f="$(printf '%s' "$root" | grep -oE ' failures="[0-9]+"' | grep -oE '[0-9]+' | head -1)"; f="${f:-0}"
+  e="$(printf '%s' "$root" | grep -oE ' errors="[0-9]+"' | grep -oE '[0-9]+' | head -1)"; e="${e:-0}"
+  n="$(grep -oE '<(failure|error)[ />]' "$x" 2>/dev/null | wc -l | tr -d ' ')"
+  have="$(gut_xml_failing_ids "$x" | grep -c . || true)"
+  [ "${have:-0}" -ge 1 ] 2>/dev/null || return 1
+  [ "$n" -eq $((f + e)) ] 2>/dev/null
+}
+
+# gut_xml_emit_fail_ids FILE -> stdout: "--- GUT-FAIL-ID: tests/foo.gd::test_x" per red test (at most OVN_GUT_FAIL_ID_MAX=100), then "--- GUT-FAIL-IDS-COMPLETE ---" when the
+# list covers every red in the report. run_overnight.sh appends this next to "--- GUT RED:"; lib_run_integrity.sh / lib_item_select.sh / ovn_extract_failure.sh read it.
+gut_xml_emit_fail_ids() {
+  local x="${1:-}" ids n max="${OVN_GUT_FAIL_ID_MAX:-100}"
+  case "$max" in ''|*[!0-9]*) max=100;; esac
+  ids="$(gut_xml_failing_ids "$x")"
+  [ -n "$ids" ] || return 0
+  n="$(printf '%s\n' "$ids" | wc -l | tr -d ' ')"
+  printf '%s\n' "$ids" | head -n "$max" | sed 's/^/--- GUT-FAIL-ID: /'
+  if [ "$n" -le "$max" ] && gut_xml_ids_complete "$x"; then echo "--- GUT-FAIL-IDS-COMPLETE ---"; fi
+  return 0
+}
+
 # gut_ignored_scripts LOGFILE: the script path of EVERY 'Ignoring script <path> because ...' line, de-duplicated, one per line, 'res://' stripped. 2026-10-10: the
 # alert used to print the first 3 raw lines cut at 200 chars, so the 4th ignored script of an alert ('4 script(s)') was never named.
 gut_ignored_scripts() {

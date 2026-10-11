@@ -318,6 +318,7 @@ def chk_xlite_shape(M):
     probe = load_supply()
     d0 = env_dir(files)
     os.environ["OVN_SUPPLY_GD_DOCS"] = "on"
+    os.environ["OVN_SUPPLY_GD_DOCS_MODEL"] = "on"      # docexec gate: model-path gd-doc items need the explicit override (this test is about the parked filter)
     try:
         gaps = [g for g in probe.collect_all(os.path.join(d0, "repos", "demo")) if g["kind"] == "gd-missing-doc"]
         for g in gaps:
@@ -326,6 +327,7 @@ def chk_xlite_shape(M):
         out = run_main(M, d, "--dry-run", "--force", spec=lambda repo, lines: {i: "red" for i in range(len(lines))})
     finally:
         os.environ.pop("OVN_SUPPLY_GD_DOCS", None)
+        os.environ.pop("OVN_SUPPLY_GD_DOCS_MODEL", None)
     n = len(gaps)
     return n == 3 and ("%d gaps found, %d filtered (seen=0 open=0 done-cooldown=0 held-by-file=0 parked=%d), 0 specs" % (n, n, n)) in out
 

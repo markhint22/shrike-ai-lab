@@ -18,8 +18,14 @@ Per row: duration_s (as recorded) split into
             field says which one you are looking at.
   verify_s  seconds the cycle log PROVES were spent in verification: every
             "VERIFY timed out (rc=N) after Ns" it contains (a timeout is an exact, logged
-            number). Verification that finished under its cap is not separately timed in the
-            logs and lands in other_s.
+            number) PLUS every "--- verify done in Ns ---" marker (2026-10-11, r11 P9: the runner
+            writes one per run_repo_verification run, so a verification that finished under its cap
+            is measured too; before the markers verify_s was 0 for every row). Rows written before
+            the markers existed still land the finished-verify time in other_s.
+  fixup_s   (informational, NOT subtracted: the fix-up is a model call, so its time is part of the
+            gen estimate) every "--- fixup done in Ns ---" marker: seconds the cycle's bounded
+            fix-up aider calls took. Its re-verify is a separate "verify done" marker.
+  verify_basis  "markers" | "timeouts" | "none": where verify_s came from.
   other_s   everything else (duration_s - gen_s - verify_s, floor 0).
 nongen_frac = (duration_s - gen_s) / duration_s.
 
@@ -47,6 +53,8 @@ ALERT_STREAK = 3          # consecutive bad cycles of one lane
 ALERT_DEDUP_S = 6 * 3600  # one alerts.log line per lane per 6h
 MIN_DURATION_S = 30       # shorter rows are scout/skip noise, not a cycle worth judging
 _TIMEOUT_RE = re.compile(r"VERIFY timed out \(rc=\d+\) after (\d+)s")
+# r11 P9: phase markers written by run_overnight.sh (run_repo_verification / the fix-up aider calls), one per run
+_MARK_RE = re.compile(r"^--- (verify|fixup) done in (\d+)s ---\s*$")
 
 
 def _f(name, default):
@@ -97,35 +105,53 @@ def stage_gen_seconds(state_dir, run):
     return total if found else None
 
 
-def log_verify_seconds(state_dir, logs_dir, rec, idx=None):
-    """Seconds of logged verify timeouts for this row's cycle log (0.0 if none/unfindable).
+def log_phase_seconds(state_dir, logs_dir, rec, idx=None):
+    """-> {"timeouts": s, "verify_marks": s, "fixup": s, "n_verify": n} read from this row's cycle log (all zeros if none/unfindable).
+    timeouts = logged "VERIFY timed out ... after Ns" lines; verify_marks / fixup = the runner's "--- verify|fixup done in Ns ---" markers.
     idx: a prebuilt _tri._build_run_dir_index(logs_dir); run() builds it ONCE (it costs ~0.15s
     on a 23k-entry logs/, so a per-row rebuild made the first live run take ~45 minutes)."""
+    zero = {"timeouts": 0.0, "verify_marks": 0.0, "fixup": 0.0, "n_verify": 0}
     if _tri is None or not logs_dir or not os.path.isdir(logs_dir):
-        return 0.0
+        return zero
     try:
         epoch = _tri._epoch_of_ts(rec.get("ts") or "")
         if not epoch:
-            return 0.0
+            return zero
         if idx is None:
             idx = _tri._build_run_dir_index(logs_dir)
         path = _tri.find_task_log(logs_dir, idx, rec.get("id") or "?", epoch)
         if not path:
-            return 0.0
+            return zero
         text = _tri._read_tail(path, max_bytes=800000)
     except Exception:
-        return 0.0
-    total = 0.0
+        return zero
+    out = dict(zero)
     for line in text.splitlines():
         m = _TIMEOUT_RE.search(line)
         if m:
-            total += float(m.group(1))
-    return total
+            out["timeouts"] += float(m.group(1))
+            continue
+        m = _MARK_RE.match(line)
+        if m:
+            if m.group(1) == "verify":
+                out["verify_marks"] += float(m.group(2))
+                out["n_verify"] += 1
+            else:
+                out["fixup"] += float(m.group(2))
+    return out
+
+
+def log_verify_seconds(state_dir, logs_dir, rec, idx=None):
+    """Seconds of verification the cycle log proves (logged verify timeouts + 'verify done' markers); 0.0 if none/unfindable."""
+    ph = log_phase_seconds(state_dir, logs_dir, rec, idx)
+    return ph["timeouts"] + ph["verify_marks"]
 
 
 def split_row(state_dir, logs_dir, rec, idx=None):
     dur = _num(rec.get("duration_s"))
-    verify = min(dur, log_verify_seconds(state_dir, logs_dir, rec, idx))
+    ph = log_phase_seconds(state_dir, logs_dir, rec, idx)
+    verify = min(dur, ph["timeouts"] + ph["verify_marks"])
+    vbasis = "markers" if ph["n_verify"] else ("timeouts" if ph["timeouts"] > 0 else "none")
     gen = stage_gen_seconds(state_dir, rec.get("stage_run"))
     basis = "stage_runs"
     if gen is None:
@@ -139,6 +165,7 @@ def split_row(state_dir, logs_dir, rec, idx=None):
         "ts": rec.get("ts"), "repo": rec.get("repo") or "?", "id": rec.get("id") or "?",
         "status": rec.get("status") or "", "duration_s": round(dur), "gen_s": round(gen),
         "verify_s": round(verify), "other_s": round(other), "nongen_frac": frac, "basis": basis,
+        "fixup_s": round(min(dur, ph["fixup"])), "verify_basis": vbasis,
     }
 
 
