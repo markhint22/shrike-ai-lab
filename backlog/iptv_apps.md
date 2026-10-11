@@ -398,3 +398,11 @@
 # --- deterministic work supply 2026-10-10 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- deterministic work supply 2026-10-10 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-11]: `notifications.py` and `content.py` rate-limiting is silently broken — both import `from a (review + tweak) [feat:iptv_apps-20261011-notifications-py-and-content-py-rate-lim] ---
+
+# --- 27B-decomposed from roadmap [2026-10-11]: Android FavoritesRepository.kt landed in wrong package — per-profile favorites never wired (review + tweak) [feat:iptv_apps-20261011-android-favoritesrepository-kt-landed-in] ---
+
+# --- 27B-decomposed from roadmap [2026-10-11]: Delete orphaned `content_rights.py` — a third `validate_content_rights()` not tracked in t (review + tweak) [feat:iptv_apps-20261011-delete-orphaned-content-rights-py-a-thir] ---
+
+# --- 27B-decomposed from roadmap [2026-10-11]: Replace hardcoded RevenueCat API key placeholder — `iptv-android/app/src/main/java/com/chi (review + tweak) [feat:iptv_apps-20261011-replace-hardcoded-revenuecat-api-key-pla] ---
