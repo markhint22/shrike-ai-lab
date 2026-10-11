@@ -93,6 +93,8 @@ REPOS = {
             (r"^/api/feedback$", "sends mail"),
             (r"^/api/account/me$", "deletes the throwaway user whose token the run uses"),
             (r"^/api/auth/email$", "changes the throwaway user's email (invalidates its token)"),
+            (r"^/api/auth/logout$", "bumps token_version since 29ff3744 (2026-10-09): revokes the throwaway user's own token, after which every authenticated request is a 401 "
+                                   "and the fuzz silently stops exercising authenticated routes (first run on develop: 2701 of 3187 responses were 401, 2 signatures instead of 33)"),
         ],
     },
 }
@@ -349,7 +351,7 @@ def parse_ndjson(path):
     class = the response status code for not_a_server_error, "<FailureType>@<status>" for other check failures (response_schema_conformance:
     JsonSchemaError@201); a request that raised becomes "METHOD /path [network_error] <ExceptionType>". Bodies/headers are never read into the result."""
     sigs, out = set(), {"complete": False, "stop_reason": None, "operations_total": None, "operations_selected": None, "version": None, "seed": None,
-                        "scenarios": 0, "client_errors": 0}
+                        "scenarios": 0, "client_errors": 0, "responses": 0, "unauthorized": 0}
     with open(path, "rb") as f:
         for raw in f:
             raw = raw.strip()
@@ -375,6 +377,12 @@ def parse_ndjson(path):
                 out["scenarios"] += 1
                 rec = body.get("recorder") or {}
                 label = str(rec.get("label") or "")
+                for _inter in (rec.get("interactions") or {}).values():       # status census (2026-10-10): is the fuzz still authenticated?
+                    _sc = ((_inter or {}).get("response") or {}).get("status_code")
+                    if isinstance(_sc, int):
+                        out["responses"] += 1
+                        if _sc == 401:
+                            out["unauthorized"] += 1
                 m = re.match(r"^([A-Z]+)\s+(\S+)", label)
                 if not m:
                     continue
@@ -404,6 +412,20 @@ def parse_ndjson(path):
 
 
 # ------------------------------------------------------------------------------------------------ baseline
+def auth_loss(parsed, max_share=None, min_responses=50):
+    """(lost, share): True when more than `max_share` (env OVN_FUZZ_AUTH_LOSS_MAX, default 0.5) of the recorded responses were 401 - the fuzz lost its session
+    (a fuzzed route revoked the throwaway user's token, e.g. logout once token revocation became real), so every authenticated route answered 401 before its
+    handler ran and the signature list says nothing about them. Too few responses to judge => (False, share). Healthy iptv_apps run: ~0.3% 401."""
+    n, u = parsed.get("responses") or 0, parsed.get("unauthorized") or 0
+    if max_share is None:
+        try:
+            max_share = float(os.environ.get("OVN_FUZZ_AUTH_LOSS_MAX", "0.5"))
+        except ValueError:
+            max_share = 0.5
+    share = (u / float(n)) if n else 0.0
+    return (n >= min_responses and share > max_share), round(share, 4)
+
+
 def baseline_path(repo):
     return os.path.join(qc.state_dir(), "qa_shadow", "contract_fuzz_baseline_%s.json" % repo)
 
@@ -684,6 +706,13 @@ def check(argv):
                 return V("UNVERIFIED", "schemathesis did not complete (rc=%s, stop_reason=%s): %s" %
                          (st_rc, parsed["stop_reason"], redact(tail_file(st_out), secrets)))
             details["operations_selected"] = parsed["operations_selected"]
+            details["scenarios"] = parsed["scenarios"]
+            details["responses"], details["responses_401"] = parsed["responses"], parsed["unauthorized"]
+            lost, share401 = auth_loss(parsed)
+            if lost:
+                return V("UNVERIFIED", "the fuzz lost its auth: %d of %d responses were 401 (%.0f%%), so authenticated routes were not exercised and the %d signature(s) are not "
+                         "trustworthy; a fuzzed route probably revokes the throwaway user's token (exclude it in REPOS[...]['exclude_paths'])" %
+                         (parsed["unauthorized"], parsed["responses"], share401 * 100, len(parsed["signatures"])), {"auth_401_share": share401, "signatures": parsed["signatures"][:SIG_CAP]})
             details["scenarios"] = parsed["scenarios"]
             details["client_side_errors"] = parsed["client_errors"]
             if parsed["operations_total"] is not None and parsed["operations_selected"] is not None:

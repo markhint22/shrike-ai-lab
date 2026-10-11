@@ -78,6 +78,12 @@ LOG="${1:-}"; PROG="${2:-OVERNIGHT_PROGRESS.md}"
 # rolling back.
 VERIFY_GATE_MODE="${OVN_VERIFY_GATE_MODE:-enforce}"
 
+# STRICT MODE (2026-10-10, harness R10, BX-02): a name-match credit with NO passing VERIFY (no clause / an unsafe one) rests on the model's say-so and a file-name match alone
+# (xlite get_max_directive_value T1/T2). OVN_IMPL_CREDIT_REQUIRE_VERIFY=shadow (default) only logs 'STRICT-SHADOW' lines; =enforce refuses them; =off is silent. (The unbackticked
+# `VERIFY: cmd (cat:` form is now READ by shadow_check, so the clause-less population is much smaller than the 10-09 shadow data showed.)
+STRICT_MODE="${OVN_IMPL_CREDIT_REQUIRE_VERIFY:-shadow}"
+case "$STRICT_MODE" in shadow|enforce|off) ;; *) STRICT_MODE=shadow ;; esac
+
 SHADOW_LOG="${OVN_VERIFY_SHADOW_LOG:-$HOME/overnight-queue/state/verify_gate_shadow.log}"
 mkdir -p "$(dirname "$SHADOW_LOG")" 2>/dev/null
 _REPO_LABEL="$(basename "$PWD")"
@@ -158,7 +164,12 @@ for f in $FILES; do
       echo "REFUSED credit at line ${ln} (matched ${b}) - VERIFY clause failed${_LAST_VERIFY_WHY:+ ($_LAST_VERIFY_WHY)}, left open for review"
     elif [ "$PATH_GATE_MODE" = "enforce" ] && { [ "$_LAST_PATH_RESULT" = "MISSING" ] || [ "$_LAST_PATH_RESULT" = "STILL_EXISTS" ]; }; then
       echo "REFUSED credit at line ${ln} (matched ${b}) - item's own target path check: ${_LAST_PATH_RESULT}, left open for review"
+    elif [ "$STRICT_MODE" = "enforce" ] && { [ "$_LAST_VERIFY_RESULT" = "NO_VERIFY_CLAUSE" ] || [ "$_LAST_VERIFY_RESULT" = "SKIPPED_DENYLIST" ]; }; then
+      echo "REFUSED credit at line ${ln} (matched ${b}) - strict mode: no runnable VERIFY clause passed (${_LAST_VERIFY_RESULT}), left open for review"
     else
+      if [ "$STRICT_MODE" = "shadow" ] && { [ "$_LAST_VERIFY_RESULT" = "NO_VERIFY_CLAUSE" ] || [ "$_LAST_VERIFY_RESULT" = "SKIPPED_DENYLIST" ]; }; then
+        echo "STRICT-SHADOW: line ${ln} (matched ${b}) is credited on a name match with no passing VERIFY (${_LAST_VERIFY_RESULT}); OVN_IMPL_CREDIT_REQUIRE_VERIFY=enforce would refuse it"
+      fi
       sed -i "${ln}s/^- \[ \] /- [x] (already-satisfied in code, implement-verified) /" "$PROG"
       credited=$((credited+1))
       echo "credited line ${ln} (matched ${b})"

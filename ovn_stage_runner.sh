@@ -465,6 +465,11 @@ NotImplementedError; if you cannot implement it for real, make the step smaller.
 the codebase as written (a concept that does not exist), adapt it to what is really there. Keep each step
 to 1-2 files.' ;;
   esac
+  # 2026-10-10 (BX-05): the decomposer invented prerequisite helpers in an UNRELATED module with no caller (xlite scripts/battle/damage.gd carried coerce_to_array and
+  # simulate_single_load, both unreferenced). OVN_STAGE_HELPER_HINT=off drops this paragraph (prompt byte-identical to before).
+  if [ "${OVN_STAGE_HELPER_HINT:-on}" != off ]; then
+    _rules="$_rules"$'\nHELPERS: put any new helper function in the SAME file that calls it (the file the TASK names), in the same step as its first caller. NEVER add a helper to a different or unrelated module (for example a battle, damage or util file) that nothing calls: a function with no caller is dead code and is rejected.'
+  fi
   # 2026-10-07: a previous staged run at THIS item that landed nothing recorded why (state/item_fails/stage-<repo>.<hash>.priorfail, written by the
   # zero-landing retry budget below); a blind re-decomposition just repeats the same failing plan.
   local _prior="" _pf; _pf="state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
@@ -727,14 +732,23 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
     local nsub; nsub="$(printf '%s' "$sub" | jq 'length' 2>/dev/null || echo 0)"
     if [ "${nsub:-0}" -ge 2 ]; then
       jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --argjson n "$nsub" '{run:$r,step:$i,event:"redecomposed",into:$n}')"
-      local k; for k in $(seq 0 $((nsub-1))); do
+      local k sub_ok=0; for k in $(seq 0 $((nsub-1))); do
         local sd sf sv
         sd="$(printf '%s' "$sub" | jq -r ".[$k].desc")"
         sf="$(printf '%s' "$sub" | jq -r ".[$k].files // [] | join(\" \")")"
         sv="$(printf '%s' "$sub" | jq -r ".[$k].verify // \"tests green\"")"
-        run_step "${idx}.${k}" "$sd" "$sf" "$sv" 0 || { say "  sub-step ${idx}.${k} BLOCKED"; }
+        if run_step "${idx}.${k}" "$sd" "$sf" "$sv" 0; then sub_ok=$((sub_ok+1)); else say "  sub-step ${idx}.${k} BLOCKED"; fi
       done
-      return 0   # partial progress from whatever sub-steps passed
+      # 2026-10-10 (harness R10, BX-09): this used to `return 0` ("partial progress") even when EVERY sub-step was BLOCKED, so a step that landed nothing counted as landed
+      # (xlite 01:36 and 01:52 CDT: step 0 + 0.0 + 0.1 all BLOCKED, then "DONE: 1/1 steps landed (100%)" and 'independent full-verify: PASSED' on the unchanged tree).
+      # A step lands only if at least one sub-step did; any BLOCKED sub-step also flags the step PARTIAL (STAGE_PARTIAL) so the item is never checked off as fully done.
+      # OVN_STAGE_SUBSTEP_HONEST=off restores the old unconditional success.
+      if [ "${OVN_STAGE_SUBSTEP_HONEST:-on}" = off ]; then return 0; fi
+      [ "$sub_ok" -lt "$nsub" ] && STAGE_PARTIAL=$((STAGE_PARTIAL+1))
+      [ "$sub_ok" -gt 0 ] && return 0
+      say "  step $idx BLOCKED (all $nsub re-decomposed sub-steps BLOCKED - nothing landed)"
+      jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" '{run:$r,step:$i,verdict:"blocked"}')"
+      return 1
     fi
   fi
   say "  step $idx BLOCKED (could not land after retries + re-decomp)"
@@ -744,6 +758,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
 
 # ---- run all steps ----
 passed=0
+STAGE_PARTIAL=0   # steps that landed only some of their re-decomposed sub-steps (see run_step)
 for i in $(seq 0 $((NSTEPS-1))); do
   d="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].desc")"
   f="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].files // [] | join(\" \")")"
@@ -1103,6 +1118,20 @@ if [ "$passed" -gt 0 ] && [ -x scripts/ovn_alembic_autogen.sh ]; then
   [ -n "$_ag_out" ] && { say "$_ag_out"; jlog "$(jq -nc --arg r "$RUNID" --arg o "$_ag_out" '{run:$r,event:"alembic_autogen",out:$o}')"; }
 fi
 
+# 2026-10-10 (harness R10, BX-09): "verified" must mean "a landed change was verified". When the worktree has NO commit ahead of origin/overnight/feature nothing was edited (every step
+# BLOCKED / no-edit): the full verify would only re-run the baseline tree and report "the combined result is real" (xlite 01:36 and 01:52 CDT, ~700-900s each, ending no-op(stage-unverified)).
+# Skip the verify, count 0 landed steps and say no-edit. OVN_STAGE_NOEDIT_GUARD=off disables.
+STAGE_NOEDIT=0
+if [ "$passed" -gt 0 ] && [ "${OVN_STAGE_NOEDIT_GUARD:-on}" != off ]; then
+  _ahead="$(git -C "$wt" rev-list --count origin/overnight/feature..HEAD 2>/dev/null || echo 0)"
+  if [ "${_ahead:-0}" = 0 ]; then
+    STAGE_NOEDIT=1
+    say "no-edit: no step produced a commit ahead of origin/overnight/feature (counted $passed landed) - skipping the independent full-verify, steps landed=0"
+    jlog "$(jq -nc --arg r "$RUNID" --argjson p "$passed" '{run:$r,event:"no_edit",claimed:$p}')"
+    passed=0
+  fi
+fi
+
 VERIFIED=0
 if [ "$passed" -gt 0 ]; then
   if full_verify; then VERIFIED=1; say "independent full-verify: PASSED — the combined result is real"
@@ -1157,6 +1186,7 @@ jlog "$(jq -nc --arg r "$RUNID" --argjson v "$VERIFIED" '{run:$r,event:"verify",
 
 # ---- push ONLY when independently verified ----
 ncommits=0
+_push_attempted=0   # 2026-10-10 (BX-09): "push failed" may only be claimed after a push was actually attempted
 if [ "$VERIFIED" = 1 ]; then
   # 2026-09-09 FIX: ncommits used to be set from the PRE-push rev-list count and never
   # cleared on push failure, so the jsonl summary's commits_pushed could read >0 even when
@@ -1167,6 +1197,7 @@ if [ "$VERIFIED" = 1 ]; then
   # report commits_pushed>0 when the push actually succeeded.
   local_ncommits="$(git -C "$wt" rev-list --count origin/overnight/feature..HEAD 2>/dev/null || echo 0)"
   if [ "${local_ncommits:-0}" -gt 0 ]; then
+    _push_attempted=1
     if git -C "$wt" push -q origin HEAD:overnight/feature 2>/dev/null || { git -C "$wt" pull -q --rebase origin overnight/feature && git -C "$wt" push -q origin HEAD:overnight/feature; }; then
       ncommits="$local_ncommits"
       say "pushed $ncommits verified commit(s) to overnight/feature"
@@ -1186,25 +1217,28 @@ if [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -gt 0 ] && [
   ./queue.sh hold "$repo" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   _is_bug=0; ovn_is_manual_bug_text "$item" && _is_bug=1
-  OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" OVN_BUG="$_is_bug" python3 - <<'PY'
+  OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" OVN_BUG="$_is_bug" OVN_PARTIAL="${STAGE_PARTIAL:-0}" python3 - <<'PY'
 import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; p=int(os.environ["OVN_P"]); n=int(os.environ["OVN_N"])
+# 2026-10-10 (BX-09): a step that landed only some of its re-decomposed sub-steps (BLOCKED ones are not landed) must not let the item be checked off as fully done
+partial=int(os.environ.get("OVN_PARTIAL") or 0)
 lines=open(f,encoding="utf-8").read().split("\n"); key=item[:55]
 for i,ln in enumerate(lines):
     if ln.startswith("- [ ] ") and key and key in ln:
-        if p>=n:  # fully done -> check it off
+        if p>=n and partial==0:  # fully done -> check it off
             lines[i]=ln.replace("- [ ] ","- [x] ",1)+f"  <!-- staged {p}/{n} DONE -->"
         elif os.environ.get("OVN_BUG") == "1":
             pass  # a manual bug is NEVER AUTO-SKIPped (2026-10-02): stage_bug_attempt below counts the attempt and escalates at the cap
         elif "AUTO-SKIP staged" not in ln:  # partial -> park the remainder, but only tag it ONCE -
             # blindly re-prepending on every retry stacked duplicate tags without bound (found live:
             # 4 on a test-automation-agent item, 15 on a shrike-monitor item, 2026-09-22).
-            lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) blocked; recover/review] ".format(p,n,n-p),1)
+            if p>=n: lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) landed only part of their re-decomposed sub-steps (BLOCKED sub-steps are not landed); recover/review] ".format(p,n,partial),1)
+            else: lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) blocked; recover/review] ".format(p,n,n-p),1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
   [ "${passed:-0}" -gt 0 ] && rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").zerocount" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
   if [ "$_is_bug" = 1 ]; then
-    if [ "$passed" -ge "$NSTEPS" ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
+    if [ "$passed" -ge "$NSTEPS" ] && [ "${STAGE_PARTIAL:-0}" = 0 ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
     else stage_bug_attempt "staged ${passed} of ${NSTEPS} landed"; fi
   fi
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {
@@ -1216,7 +1250,11 @@ elif [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -eq 0 ] &&
   # Verified and would have landed, but the push itself lost a fleet race - leave the item OPEN
   # (no OVERNIGHT_PROGRESS.md edit at all) so the next cycle gets a completely clean re-attempt
   # rather than silently losing this work forever.
-  say "leaving item OPEN for a clean re-attempt (verified but push failed - not marking done)"
+  if [ "$_push_attempted" = 1 ]; then
+    say "leaving item OPEN for a clean re-attempt (verified but push failed - not marking done)"
+  else
+    say "leaving item OPEN: verified, but there was nothing to push (no commit ahead of origin/overnight/feature) - not marking done"
+  fi
 elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   # ESCALATE: the staged pipeline (retries + re-decomp + target-fn context) landed NOTHING — this is
   # genuinely beyond the 27B (usually a wire-into-a-complex-existing-function). Stop looping the fleet
@@ -1297,6 +1335,7 @@ emit_unverified_outcome(){
   cf="$vlog"; [ -f "$cf" ] || cf="$SLOG"
   fr="$(bash ovn_classify_fail.sh "$cf" "$ust" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
   [ -n "$fr" ] && [ "$fr" != unknown ] || fr="stage-unverified"
+  [ "${STAGE_NOEDIT:-0}" = 1 ] && fr="no-edit"   # 2026-10-10 (BX-09): the run produced no commit at all (bounded tag, same vocabulary as ovn_classify_fail.sh)
   detail="$(grep -m1 -iE 'FAILED |QUALITY FAIL|SEMANTIC FAIL|Error|error:|assert' "$vlog" 2>/dev/null | tr -d '"\\' | tr '\n\r\t' '   ' | tr -s ' ' | cut -c1-400)"
   [ -z "$detail" ] && detail="no step verified (${passed:-0}/${NSTEPS:-0} steps landed; no verify log)"
   detail="$(printf '%s' "$detail" | ovn_scrub_text | cut -c1-160)"

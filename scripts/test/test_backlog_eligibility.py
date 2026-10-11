@@ -153,7 +153,9 @@ try:
     open(bf, "w").write("# backlog\n" + "\n".join(REAL12 + TAGGED + CLEAN) + "\n")
     want = E.pullable(open(bf).read(), "# progress\n", "")
     qr = os.path.join(ROOT, "queue_refill.py")
-    r = subprocess.run([sys.executable, qr, os.path.join(repo, "OVERNIGHT_PROGRESS.md"), bf, "50"], capture_output=True, text=True)
+    # 2026-10-10 (R10): queue_refill now repairs a bare VERIFY (R01) / gut_cli.gd (R11) by default; this parity check is about WHICH lines are pulled, byte for byte,
+    # so it runs with the repairs explicitly switched off (OVN_SPEC_GATE_ENFORCE_RULES set empty)
+    r = subprocess.run([sys.executable, qr, os.path.join(repo, "OVERNIGHT_PROGRESS.md"), bf, "50"], capture_output=True, text=True, env=dict(os.environ, OVN_SPEC_GATE_ENFORCE_RULES=""))
     pulled = [l for l in open(os.path.join(repo, "OVERNIGHT_PROGRESS.md")).read().split("\n") if l.startswith("- [ ] [T")]
     ok("queue_refill pulled all 14 eligible lines (12 formerly-parked + 2 clean)", "REFILL=14" in r.stdout, r.stdout + r.stderr)
     ok("pulled set == pullable() set", sorted(pulled) == sorted(want), (len(pulled), len(want)))

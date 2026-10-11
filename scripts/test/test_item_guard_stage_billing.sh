@@ -70,7 +70,8 @@ ok "stage LANDING clears B's counters and leaves A's counter alone" "[ ! -e '$st
 FN_SRC="$(sed -n '/^record_outcome(/,/^}/p' "$RUN")"; eval "$FN_SRC"
 SCRIPT_DIR="$Q"; STATE_DIR="$W/ostate"; mkdir -p "$STATE_DIR"
 row(){ # $1 status $2 log -> item_hash|tier
-  : > "$STATE_DIR/outcomes.jsonl"; record_outcome id1 repo "$1" "" aider_fix 1 "$2" 5 "$ROW_REPO" "" 2>/dev/null
+  # 2026-10-10 (R10): this suite pins the stage-marker billing vs the top-of-file fallback, so it runs the legacy attribution (strict: test_outcome_attribution_strict.sh)
+  : > "$STATE_DIR/outcomes.jsonl"; OVN_OUTCOME_ATTRIB="${ROW_ATTRIB:-legacy}" record_outcome id1 repo "$1" "" aider_fix 1 "$2" 5 "$ROW_REPO" "" 2>/dev/null
   jq -r '.item_hash + "|" + .tier' "$STATE_DIR/outcomes.jsonl" 2>/dev/null | head -1; }
 ROW_REPO="$(mkrepo ro)"
 ok "record_outcome: staged status + markers => item_hash is B's and the tier comes from B's text (T4)" "[ \"\$(row 'pushed(tests:pass) stage(higher-tier)' '$W/l1.log')\" = '$HB|4' ]"

@@ -1,0 +1,20 @@
+#!/bin/bash
+# scripts/cov/shim/env - `env` shim for the coverage run (qacov QA-3, 2026-10-10; only put first on PATH by run_coverage.sh when OVN_COV_QA=1).
+# The QA gates' entry-point tests run the tool under `env -i` (spec rule: a cron-like clean environment), which strips BASH_ENV / COVERAGE_PROCESS_START / PYTHONPATH, so the gate's
+# subprocess was never measured (qa/gate_scanners.py showed 21% although its tests pass). This shim re-adds exactly the coverage plumbing after `-i`:
+#   OVN_COV_DIR, BASH_ENV, COVERAGE_PROCESS_START and PYTHONPATH=<scripts/cov/pysite> (caller-supplied assignments come AFTER ours and win). Any other `env` call is untouched.
+# No effect unless the instrumentation variables are set. The real env is OVN_COV_REAL_ENV (set by run_coverage.sh) or /usr/bin/env.
+real="${OVN_COV_REAL_ENV:-/usr/bin/env}"
+[ "$real" -ef "${BASH_SOURCE[0]}" ] && real=/usr/bin/env   # never exec ourselves (a nested harness once pointed OVN_COV_REAL_ENV at an outer shim: infinite loop)
+if [ "${1:-}" = "-i" ] || [ "${1:-}" = "--ignore-environment" ]; then
+  if [ -n "${COVERAGE_PROCESS_START:-}" ] || [ -n "${OVN_COV_DIR:-}" ]; then
+    shift
+    here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    add=()
+    [ -n "${OVN_COV_DIR:-}" ] && add+=("OVN_COV_DIR=$OVN_COV_DIR")
+    [ -n "${BASH_ENV:-}" ] && add+=("BASH_ENV=$BASH_ENV")
+    [ -n "${COVERAGE_PROCESS_START:-}" ] && add+=("COVERAGE_PROCESS_START=$COVERAGE_PROCESS_START" "PYTHONPATH=$here/../pysite")
+    exec "$real" -i ${add[@]+"${add[@]}"} "$@"
+  fi
+fi
+exec "$real" "$@"

@@ -25,6 +25,31 @@ STATE_DIR="state"; mkdir -p "$STATE_DIR" 2>/dev/null
 DRY_REMIND_HOURS="${DRY_REMIND_HOURS:-24}"
 DRY_REMIND_SECS=$(( DRY_REMIND_HOURS * 3600 ))
 log(){ echo "$(date '+%F %T') $*"; }
+# 2026-10-10 (F7): this runs at the end of every fleet cycle (idle lanes: every ~90 s), and a dry lane logged the same 3-4 lines on each run - logs/queue_refill.log
+# reached 12 MB / 170k lines. log_rl <key> <message...> prints like log() but stays silent while the SAME message was already printed for <key> less than
+# QR_LOG_REPEAT_S (default 1800) seconds ago; any change of the message (a different doable count, a recovery, DRY <-> nothing-moved) prints at once, and every
+# repeat window prints once more. ovn_planning_stats.py reads the LAST line per repo within 3 h, so the window must stay well below that. QR_LOG_REPEAT_S=0 = old behaviour
+# (log everything). state/qr_last_pass keeps a liveness stamp for the lines that are no longer printed.
+QR_LOG_REPEAT_S="${QR_LOG_REPEAT_S:-1800}"
+log_rl(){
+  local key="$1"; shift
+  local msg="$*" f="$STATE_DIR/qr_log_$key" sig last_ts last_sig
+  case "$QR_LOG_REPEAT_S" in ''|*[!0-9]*) QR_LOG_REPEAT_S=1800 ;; esac
+  if [ "$QR_LOG_REPEAT_S" -gt 0 ]; then
+    sig="$(printf '%s' "$msg" | cksum | tr ' ' '-')"
+    if [ -f "$f" ]; then
+      last_ts="$(sed -n 1p "$f" 2>/dev/null)"; last_sig="$(sed -n 2p "$f" 2>/dev/null)"
+      case "$last_ts" in ''|*[!0-9]*) last_ts=0 ;; esac
+      if [ "$last_sig" = "$sig" ] && [ $(( $(date +%s) - last_ts )) -lt "$QR_LOG_REPEAT_S" ]; then return 0; fi
+    fi
+    # atomic (temp + rename): a concurrent pass never reads a half-written stamp
+    printf '%s\n%s\n' "$(date +%s)" "$sig" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+  fi
+  log "$msg"
+}
+# a line printed with plain log() for <key> (roadmap-ready, sync failure, refilled, push FAILED) is a state change too: forget the stored signature so an identical
+# log_rl line that follows it is printed instead of being mistaken for a repeat of the one before.
+log_rl_reset(){ rm -f "$STATE_DIR/qr_log_$1" 2>/dev/null; }
 
 repos="${*:-}"
 if [ -z "$repos" ]; then
@@ -51,7 +76,7 @@ now=$(date +%s)
 for r in $repos; do
   d=$(doable "$r"); bl="backlog/$r.md"; marker="$STATE_DIR/qr_dry_$r"
   if [ "$FORCE_PULL" -eq 0 ] && [ "$d" -ge "$MIN_DOABLE" ]; then
-    log "$r: $d doable (ok, no refill)"
+    log_rl "$r" "$r: $d doable (ok, no refill)"
     [ -f "$marker" ] && { rm -f "$marker"; recovered="$recovered $r"; }
     continue
   fi
@@ -76,11 +101,12 @@ for r in $repos; do
     # Only the true "nothing left anywhere" case (no roadmap fuel either) gets the escalating
     # dry treatment queue_refill.sh's marker/reminder machinery exists for.
     if [ -f "roadmap/$r.md" ] && grep -qE '^- \[ \] \[P[1-4]\] \[ready\]' "roadmap/$r.md" 2>/dev/null; then
+      log_rl_reset "$r"
       log "$r: $d doable — backlog empty but roadmap has a [ready] feature (planner will refill; not marking dry)"
       [ -f "$marker" ] && { rm -f "$marker"; recovered="$recovered $r"; }
       continue
     fi
-    log "$r: $d doable — backlog DRY (roadmap also has no [ready] feature)"
+    log_rl "$r" "$r: $d doable — backlog DRY (roadmap also has no [ready] feature)"
     if [ "$FORCE_PULL" -eq 0 ]; then
       dry="$dry $r"
       if [ ! -f "$marker" ]; then
@@ -96,7 +122,7 @@ for r in $repos; do
   [ "$need" -lt 1 ] && need=1; [ "$need" -gt "$avail" ] && need=$avail
   ./queue.sh hold "$r" >/dev/null 2>&1 || true
   if ! ( cd "repos/$r" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ); then
-    log "$r: git sync failed — skipping"; ./queue.sh release "$r" >/dev/null 2>&1 || true; continue
+    log_rl_reset "$r"; log "$r: git sync failed — skipping"; ./queue.sh release "$r" >/dev/null 2>&1 || true; continue
   fi
   out=$(python3 queue_refill.py "repos/$r/OVERNIGHT_PROGRESS.md" "$bl" "$need" 2>&1)
   moved=$(echo "$out" | grep -oE 'REFILL=[0-9]+' | cut -d= -f2); moved=${moved:-0}
@@ -108,6 +134,7 @@ for r in $repos; do
   # get silently reverted by the next cycle's `git reset --hard origin/...` above. Commit on
   # EITHER moved or credited, and stage both files.
   if [ "$moved" -gt 0 ] || [ "$credited" -gt 0 ]; then
+    log_rl_reset "$r"
     ( cd "repos/$r"
       # 2026-09-30: `git add A B` is all-or-nothing - a missing OVERNIGHT_DONE.md aborted the whole add, nothing was committed, yet "refilled +N" was logged
       git add OVERNIGHT_PROGRESS.md 2>/dev/null; [ -f OVERNIGHT_DONE.md ] && git add OVERNIGHT_DONE.md 2>/dev/null
@@ -115,7 +142,7 @@ for r in $repos; do
       git push -q origin overnight/feature || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }
     ) && log "$r: refilled +$moved, credited +$credited already-satisfied (was $d, backlog now $remain)" || log "$r: refill push FAILED"
   else
-    log "$r: nothing moved ($out)"
+    log_rl "$r" "$r: nothing moved ($out)"
   fi
   ./queue.sh release "$r" >/dev/null 2>&1 || true
 done
@@ -140,5 +167,6 @@ if [ -n "$recovered" ]; then
     "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
   log "backlog-recovered note sent for:${recovered}"
 fi
-[ -n "$dry" ] && [ -z "$newly_dry$reminder_dry" ] && log "still dry (no alert, within cooldown):${dry}"
-log "queue_refill pass complete"
+[ -n "$dry" ] && [ -z "$newly_dry$reminder_dry" ] && log_rl "_still_dry" "still dry (no alert, within cooldown):${dry}"
+date +%s > "$STATE_DIR/qr_last_pass" 2>/dev/null
+log_rl "_pass" "queue_refill pass complete"

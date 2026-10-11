@@ -12,6 +12,7 @@
 # anywhere" dead end — both got the SAME escalating qr_dry_<repo> marker/reminder treatment,
 # which correlated these repos with the ones ovn_fleet_health.sh flagged as starved.
 set -uo pipefail
+export QR_LOG_REPEAT_S=0   # these cases run the same dry lane back to back and assert on the per-pass log line (queue_refill.sh rate-limits repeats by default: see test_queue_refill_log_ratelimit.sh)
 Q="${OVN_QUEUE_REFILL:-$HOME/overnight-queue/queue_refill.sh}"
 [ -f "$Q" ] || { echo "  SKIP: $Q not found on this host"; exit 0; }
 

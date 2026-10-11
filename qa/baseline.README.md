@@ -200,3 +200,23 @@ All 17 baseline FAILs in the first 1.6 days were the runner's own `QUALITY FAIL`
 independent signal (and polluted `release_candidate`). A hard (non-baselineable) gate failure alone is now **NA** (`details.runner_enforced` lists it). FAIL is reserved for what
 this gate alone can know: NEW failing tests against a live baseline (also when a gate failure is present too). The refresh cron for `iptv_apps` + `xlite` ships (not installed) in
 `scripts/cron.txt`; until it runs the store stays empty and failing runs read UNVERIFIED "no baseline".
+
+## 2026-10-10 (analysis F6): GUT (Godot) refresh path - `refresh --repo xlite`
+
+Until now `refresh` only knew python/pytest repos, so xlite (the focus lane; 96 of 158 runs stage-unverified in 14 days) had **no baseline** at all: every red xlite verify read
+`UNVERIFIED no baseline`, and the 3-hourly refresh cron wrote one `NA no .venv/bin/pytest` row per pass. `qa/baseline_verify_gut.py` (imported lazily by `cmd_refresh`
+only when the repo has no `.venv/bin/pytest`; a missing module degrades to the old NA) adds the GUT path:
+
+* `git archive <ref>` into a PRIVATE scratch dir (no worktree, nothing written to the repo's `.git`), two headless `--import` passes (as `branch_hygiene.sh` does; the second pass's
+  output is parsed), then `addons/gut/gut_cmdln.gd -gdir=res://tests [-ginclude_subdirs] -gexit -gjunit_xml_file=...` (`OVN_GUT_SUBDIRS=off` drops the flag like every other caller).
+  Godot's user dirs (`XDG_*`) point into the scratch dir. Everything runs through `qa_common.run` = `nice -n 15` (+ ionice, `QA_CPUSET`) under a hard timeout; the scratch dir is always removed.
+* Parsed with the SAME `parse_gut` and the SAME unprefixed id shape as the runner's `-- GUT FULL --` section (`res://tests/x.gd::test_name`, `godot-parse:`/`godot-load:` ids), so a refreshed id
+  matches a verify-log id at compare time (proved in `scripts/test/test_qa_baseline_gut.py`).
+* Extra deterministic guard: the number of FAILING TESTCASES in the junit xml (`<testcase>` with a `<failure>`/`<error>` child or `status="fail"`) must equal the number of failing ids the log names. The root `failures` attribute is NOT used for that count: GUT sets it from `totals.failing`, the number of failing ASSERTS, so a red test with 2 failing asserts adds 2 there (it is only checked for consistency: zero with failing tests, red with none failing, or fewer than the failing tests => refused). A mismatch, a missing xml, a red xml no id explains, or a
+  `status="no asserts"` testcase => `UNVERIFIED`, baseline untouched).
+* Same store rules as iptv: deterministic only, 24 h TTL checked at compare time, never auto-widen (`growth_pending` + alert, `--accept-growth`), refuses a mostly-red suite.
+* `NA` (not a guess) when `project.godot` or the vendored GUT is absent at the ref, or the godot binary (`$OVN_GODOT_BIN`, default `~/godot/godot4`) is missing. `OVN_BASELINE_GUT=off` => NA.
+* Still SHADOW. Measured on the box (scratch clone, 2026-10-10): `refresh --repo xlite --ref origin/develop` = PASS `stored_fresh (0 red ids)` in 27 s (3004 tests, 4 stub scripts
+  "Ignoring script ... does not extend GutTest" are not failures). So the 43 UNVERIFIED xlite rows since 10-03 were "no baseline", and on a green develop the baseline is simply the empty set:
+  any red GUT test in a staged run is then a NEW failure (FAIL), which is the correct, conservative answer.
+* Deploy: copy `qa/baseline_verify_gut.py` next to `baseline_verify.py` (rsync of qa/ does it). The cron already lists `xlite` in `OVN_BASELINE_REFRESH_REPOS` (scripts/cron.txt).

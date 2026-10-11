@@ -192,7 +192,11 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   item_hash=""
   if [ -n "$repo_dir" ] && [ -f "$repo_dir/OVERNIGHT_PROGRESS.md" ]; then
     local _top _text _featkey
-    if command -v ovn_resolve_top_item >/dev/null 2>&1; then
+    # 2026-10-10 (harness R10, BX-08 / IPTV-5): bill the item the cycle WORKED (the line it ticked, else the scout-named item) and bill NOBODY when that cannot be resolved - the old
+    # fallback to the top open line put 41 xlite doc-comment landings on one roster item. OVN_OUTCOME_ATTRIB=legacy restores the top-line fallback.
+    if [ "${OVN_OUTCOME_ATTRIB:-strict}" != legacy ] && command -v ovn_resolve_worked_item >/dev/null 2>&1 && command -v ovn_resolve_top_item >/dev/null 2>&1; then
+      _top="$(ovn_resolve_worked_item "$repo_dir" "$tl")"
+    elif command -v ovn_resolve_top_item >/dev/null 2>&1; then
       _top="$(ovn_resolve_top_item "$repo_dir" "$tl")"
     else
       _top="$(grep -nE '^- \[ \]' "$repo_dir/OVERNIGHT_PROGRESS.md" 2>/dev/null | grep -viE "${OVN_PARKED_CI_ERE:-AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}" | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}" | head -1)"
@@ -262,7 +266,18 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   if [ -z "$tier" ]; then
     tier="$(printf '%s' "$src" | grep -oE '\[t[1-5]\]|·t[1-5]·' | head -1 | grep -oE '[1-5]' | head -1)"   # explicit tier TAG only (was: any loose t<digit> -> wrong tiers)
   fi
-  case "$src" in
+  # 2026-10-10 (IPTV-5): the category comes from the WORKED item's text (its own `(cat:..)` tag and file names), else from the files the scout named, and only then from the whole log
+  # (the old source: a pure-python cycle was recorded as 'vue' because the repo map in its log listed .vue files). OVN_OUTCOME_ATTRIB=legacy = the whole log only.
+  local _catsrc="$src" _scf
+  if [ "${OVN_OUTCOME_ATTRIB:-strict}" != legacy ]; then
+    if [ -n "${_text:-}" ]; then
+      _catsrc="$(printf '%s' "$_text" | tr 'A-Z' 'a-z')"
+    elif [ -n "$tl" ] && [ -f "$tl" ]; then
+      _scf="$( { grep -a -A4 -hiE "VERDICT:[[:space:]]*(PROCEED|NEEDS-DECISION)" "$tl" 2>/dev/null; grep -a -hiE "FILES:" "$tl" 2>/dev/null; } | grep -aoE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}" | grep -avE "\.md$" | sort -u | tr 'A-Z' 'a-z' | tr '\n' ' ')"
+      [ -n "$_scf" ] && _catsrc="$_scf"
+    fi
+  fi
+  case "$_catsrc" in
     *.gd*|*godot*|*gut*)                         cat=godot;;
     *.vue*)                                      cat=vue;;
     *.tsx*|*tsconfig*|*vue-tsc*|*.ts:*|*.ts\ *)  cat=typescript;;
@@ -417,6 +432,51 @@ emit_alert() {
   # land in the same place either way (systemd journal, no custom
   # StandardOutput/StandardError in the unit file).
   log "ALERT(${sev}) ${id}: ${msg}" >&2
+}
+
+# BUILD-GATE evidence (2026-10-10, harness R10, BX-07): the log lines that say the code STRUCTURALLY broke = _BUILD_BREAK_POS_RE lines minus _BUILD_BREAK_NEG_RE lines. Both regexes are
+# set by run_aider_fix_task right before the gate. The old check grepped the CUMULATIVE task log, which also holds earlier verify runs and the fix-up's own chat, so a stale/quoted
+# Godot error line from an earlier run sent a cycle with real failing tests to BUILD-GATE. Now the Godot-engine tokens (_BUILD_BREAK_GODOT_RE: SCRIPT ERROR / Parse Error /
+# ERROR: Failed to load) only count when they appear in the CURRENT verify run (bytes after $2 = the runner's _ovn_voff); every other token (python/ts/gradle) is judged over the whole
+# log exactly as before. $2 empty/0 (or OVN_BUILDBREAK_SCOPE=off) = the whole log = the old behaviour for every token.
+ovn_buildbreak_hits() {
+  local log="${1:-}" voff="${2:-0}" gre="${_BUILD_BREAK_GODOT_RE:-SCRIPT ERROR|Parse Error|ERROR: Failed to load}"
+  [ -f "$log" ] || return 0
+  case "$voff" in ''|*[!0-9]*) voff=0;; esac
+  [ "${OVN_BUILDBREAK_SCOPE:-on}" = off ] && voff=0
+  {
+    grep -aE "$_BUILD_BREAK_POS_RE" "$log" | grep -avE "$gre"
+    if [ "$voff" -gt 0 ]; then tail -c +"$((voff + 1))" "$log"; else cat "$log"; fi | grep -aE "$_BUILD_BREAK_POS_RE" | grep -aE "$gre"
+  } 2>/dev/null | grep -avE "$_BUILD_BREAK_NEG_RE"
+  return 0
+}
+
+# NET-ZERO cycle (2026-10-10, harness R10, IPTV-3): 0 when the cycle's commits touched code files but the NET code diff BEFORE..AFTER is empty and the progress files are unchanged too.
+# iptv_apps 04:13-04:39 CDT: four cycles removed `import os` (supply item unused-import), saw F821 undefined name, and re-added it - net diff zero, 8 noise commits, each cycle counted
+# `landed pushed(tests:pass)`. A pure bookkeeping/credit cycle (OVERNIGHT_PROGRESS.md / OVERNIGHT_DONE.md changed) and an all-empty-commit chain are NOT net-zero (they land as before).
+ovn_cycle_net_zero() {
+  local b="${1:-}" a="${2:-}"
+  [ -n "$b" ] && [ -n "$a" ] && [ "$b" != "$a" ] || return 1
+  git diff --quiet "$b" "$a" -- . ':(exclude)OVERNIGHT_PROGRESS.md' ':(exclude)OVERNIGHT_DONE.md' 2>/dev/null || return 1   # a real net change (rc 1) or a git error (rc 128): not net-zero
+  git diff --quiet "$b" "$a" -- OVERNIGHT_PROGRESS.md OVERNIGHT_DONE.md 2>/dev/null || return 1                       # bookkeeping / credit commit: lands as before
+  [ -n "$(git log --name-only --format= "$b..$a" -- . ':(exclude)OVERNIGHT_PROGRESS.md' ':(exclude)OVERNIGHT_DONE.md' 2>/dev/null)" ]   # some commit actually touched a code file (churn), not empty commits (captured, not piped into grep -q: SIGPIPE + pipefail)
+}
+
+# SUPPLY RE-CHECK (2026-10-10, harness R10, IPTV-3): ovn_supply_recheck <prog> <line-number> -> 0 when line N is a deterministic work-supply item (`supply:<kind>` tag) whose own
+# VERIFY (red at supply time by construction) PASSES against the CURRENT tree, i.e. a later commit already satisfied it while it waited in the queue (iptv: `unused-import|device_auth.py`
+# was red at 01:37, a staged step used `os` at 02:44, and the item was still worked 4 times from 04:13 on). The caller credits it as already-satisfied instead of spending a cycle.
+# The verdict is shadow_check's (lib_verify_clause.sh: same denylist / timeouts / tool resolution as every credit); anything but a clean PASS (FAIL, TIMEOUT, UNRUNNABLE, no clause) = 1.
+ovn_supply_recheck() {
+  local prog="${1:-}" ln="${2:-}" line
+  [ -f "$prog" ] && [ -n "$ln" ] || return 1
+  line="$(sed -n "${ln}p" "$prog" 2>/dev/null)"
+  case "$line" in *"supply:"*) ;; *) return 1;; esac
+  declare -F shadow_check >/dev/null 2>&1 || return 1
+  # shellcheck disable=SC2034  # PROG / SHADOW_LOG / _REPO_LABEL / VERIFY_TIMEOUT_* / _VC_MEMO* are read by shadow_check through bash dynamic scope
+  local PROG="$prog" SHADOW_LOG="${OVN_VERIFY_SHADOW_LOG:-$SCRIPT_DIR/state/verify_gate_shadow.log}" _REPO_LABEL VERIFY_TIMEOUT_SECS="${OVN_SUPPLY_RECHECK_TIMEOUT:-120}" VERIFY_TIMEOUT_HEAVY_SECS="${OVN_SUPPLY_RECHECK_TIMEOUT:-120}" _VC_MEMO="" _VC_MEMO_ON=0
+  _REPO_LABEL="$(basename "$PWD")"; mkdir -p "$(dirname "$SHADOW_LOG")" 2>/dev/null
+  shadow_check "$ln"
+  [ "${_LAST_VERIFY_RESULT:-}" = PASS ]
 }
 
 # Error classifier (2026-08-25). Distinguishes a TRANSIENT failure (a
@@ -893,7 +953,9 @@ run_lint_check() {
       else git show "${before}:${ff}" 2>/dev/null | "$tool" --stdin --stdin-filename "$ff" --format unix 2>/dev/null | _ovn_lint_keys "$flt"; fi
     done <<< "$files"
   }
-  _ovn_lint_cnt() { local n; n="$(comm "$1" <(printf '%s\n' "$b" | grep -v '^$') <(printf '%s\n' "$a" | grep -v '^$') | grep -c . || true)"; echo "${n:-0}"; }
+  # 2026-10-10: BEFORE (b) is the CONCATENATION of per-file sorted lists in git (bytewise) path order, AFTER (a) one locale-collated sort - not the same order under a UTF-8 locale
+  # (test_streams.py vs test_streams_health_check.py), so comm printed "file 2 is not in sorted order" on every pass and miscounted added/fixed. Re-sort both sides AND compare in the C locale.
+  _ovn_lint_cnt() { local n; n="$(LC_ALL=C comm "$1" <(printf '%s\n' "$b" | grep -v '^$' | LC_ALL=C sort) <(printf '%s\n' "$a" | grep -v '^$' | LC_ALL=C sort) | grep -c . || true)"; echo "${n:-0}"; }
   if [ -n "$pyfiles" ]; then
     ruff="$(find . -maxdepth 4 -path '*/.venv/bin/ruff' 2>/dev/null | head -1)"
     [ -z "$ruff" ] && command -v ruff >/dev/null 2>&1 && ruff="ruff"
@@ -1349,10 +1411,18 @@ STUB
         _DOABLE_NOW="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|\(retired-|\[CLAUDE\]' | wc -l | tr -d ' ')"
         echo "--- inline refill done: ${_DOABLE_NOW} doable ---" >> "$task_log"
       fi
+      _DX_RR=""; _DX_RR_DONE=""   # per-cycle cache of the exhausted check's re-route lookup (keyed by this cycle's task_log, so a stale value from an earlier cycle is never reused)
       if [ "${_DOABLE_NOW:-1}" -eq 0 ]; then
-        echo "--- skip: 0 doable items (exhausted; resumes when refilled) ---" >> "$task_log"
-        echo "skip(exhausted)"
-        return
+        # 2026-10-10 (docexec, BX-01): with the doc executor ON a lane whose only open items are gd-missing-doc gaps parked 'AUTO-SKIP after N credit refusals' is not exhausted:
+        # the DOC-EXECUTOR block below offers them to the deterministic executor (ovn_doc_reroute_item prints nothing in shadow/off, so those modes behave exactly as before).
+        # (round 3: the result is kept in _DX_RR so the DOC-EXECUTOR block below reuses it instead of running `check` over the parked lines a second time in the same cycle)
+        if declare -F ovn_doc_reroute_item >/dev/null 2>&1 && _DX_RR="$(ovn_doc_reroute_item "$SCRIPT_DIR" "$PWD" "$id" 2>/dev/null)" && _DX_RR_DONE="$task_log" && [ -n "$_DX_RR" ]; then
+          echo "--- 0 doable items, but parked gd-missing-doc gap(s) are re-routable to the doc executor (mode=on) - not skipping ---" >> "$task_log"
+        else
+          echo "--- skip: 0 doable items (exhausted; resumes when refilled) ---" >> "$task_log"
+          echo "skip(exhausted)"
+          return
+        fi
       fi
     fi
 
@@ -1589,7 +1659,17 @@ STUB
       ongoing-*)
         if [ "${OVN_DOC_EXECUTOR:-shadow}" != "off" ] && [ -f "$SCRIPT_DIR/scripts/ovn_doc_executor.py" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && declare -F ovn_executor_hook >/dev/null 2>&1; then
           _dx_item="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE "${OVN_PARKED_CI_ERE:-AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}" | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}" | ovn_bug_first_order | head -1)"
-          if [ -n "$_dx_item" ] && _dx_status="$(ovn_executor_hook doc "$SCRIPT_DIR" "$PWD" "$_dx_item" "$branch" "$task_log" "$BEFORE_SHA")"; then echo "$_dx_status"; return; fi
+          # 2026-10-10 (docexec): no doable item => the parked gd-missing-doc gaps (ON mode only); every hook verdict is also appended to state/executor_shadow.log
+          # (this task_log is truncated by the scout's `> "$task_log"` later in the cycle, which is why the shadow lines never survived)
+          _DX_REROUTE=0
+          # re-route is IDLE-ONLY (round 2): _DOABLE_NOW>0 means the normal path has work (the candidate filter above also drops HARD FILE BAN / any BLOCKED lines the exhausted count keeps), so never force skip(exhausted) then
+          if [ -z "$_dx_item" ] && [ "${_DOABLE_NOW:-1}" -eq 0 ] && declare -F ovn_doc_reroute_item >/dev/null 2>&1; then
+            if [ -n "${_DX_RR_DONE:-}" ] && [ "${_DX_RR_DONE:-}" = "$task_log" ]; then _dx_item="$_DX_RR"; else _dx_item="$(ovn_doc_reroute_item "$SCRIPT_DIR" "$PWD" "$id" 2>/dev/null)"; fi   # reuse the exhausted check's lookup (same cycle)
+            [ -n "$_dx_item" ] && _DX_REROUTE=1
+          fi
+          if [ -z "$_dx_item" ]; then _dx_mode="$(ovn_executor_mode doc "$SCRIPT_DIR" "$PWD")"; [ "$_dx_mode" = off ] || ovn_executor_log "$SCRIPT_DIR" "$PWD" doc "$_dx_mode" no-candidate - "no open item to offer the executor" "$task_log"
+          elif _dx_status="$(ovn_executor_hook doc "$SCRIPT_DIR" "$PWD" "$_dx_item" "$branch" "$task_log" "$BEFORE_SHA")"; then echo "$_dx_status"; return; fi
+          if [ "$_DX_REROUTE" = 1 ]; then echo "--- doc executor did not land the parked gap; nothing doable left ---" >> "$task_log"; echo "skip(exhausted)"; return; fi
         fi
         ;;
     esac
@@ -1606,6 +1686,40 @@ STUB
         ;;
     esac
     # <<< RUFF-EXECUTOR-END
+
+    # >>> SUPPLY-RECHECK-BEGIN
+    # 2026-10-10 (harness R10, IPTV-3): a deterministic work-supply item (`supply:<kind>`) is red-before at supply time by construction, but waits in the queue for hours while other cycles
+    # change the code (iptv: `unused-import|device_auth.py` went green when a staged step used `os`, and was then worked 4 times: remove import, F821, re-add - net zero).
+    # For the ongoing-* lanes, re-run the TOP doable item's own VERIFY against the current tree when it carries a supply tag: if it already PASSES the item is credited as already-satisfied
+    # and no cycle is spent (no-op(ALREADY-DONE)). Anything but a clean PASS (FAIL / timeout / unrunnable / no clause) changes nothing. OVN_SUPPLY_RECHECK=off|shadow|on (default shadow - the first days only log; flip to on once state/supply_recheck.log shows no false credits;
+    # shadow only logs 'would credit').
+    case "$id" in
+      ongoing-*)
+        if [ "${OVN_SUPPLY_RECHECK:-shadow}" != "off" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
+          _sr_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE "${OVN_PARKED_CI_ERE:-AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}" | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}" | ovn_bug_first_order | head -1)"
+          _sr_ln="${_sr_top%%:*}"
+          if [ -n "$_sr_top" ] && ovn_supply_recheck OVERNIGHT_PROGRESS.md "$_sr_ln"; then
+            # the task log is truncated again by the scout stage that follows, so the shadow verdict also goes to its own append-only log (state/supply_recheck.log)
+            echo "$(date -u +%FT%TZ) repo=$(basename "$PWD") line=${_sr_ln} mode=${OVN_SUPPLY_RECHECK:-shadow} verify=PASS item=$(printf '%s' "${_sr_top#*:}" | cut -c1-120)" >> "$STATE_DIR/supply_recheck.log" 2>/dev/null
+            if [ "${OVN_SUPPLY_RECHECK:-shadow}" = shadow ]; then
+              echo "--- SUPPLY-RECHECK (shadow): line ${_sr_ln} is a supply item whose own VERIFY already passes - would credit it as already-satisfied ---" >> "$task_log"
+            else
+              echo "--- SUPPLY-RECHECK: line ${_sr_ln} is a supply item whose own VERIFY already PASSES on the current tree - crediting it as already-satisfied (no cycle spent) ---" >> "$task_log"
+              if declare -F _ovn_sed_i >/dev/null 2>&1; then _ovn_sed_i "${_sr_ln}s/^- \[ \] /- [x] (already-satisfied: supply VERIFY green at pull) /" OVERNIGHT_PROGRESS.md; else sed -i "${_sr_ln}s/^- \[ \] /- [x] (already-satisfied: supply VERIFY green at pull) /" OVERNIGHT_PROGRESS.md; fi
+              git add OVERNIGHT_PROGRESS.md
+              if git commit -q -m "chore(queue): credit supply item already satisfied at pull (its own VERIFY passes)" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then
+                timeout 30 git push origin "$branch" --quiet 2>>"$task_log" || { timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; } \
+                  || { git rebase --abort >/dev/null 2>&1 || true; echo "--- SUPPLY-RECHECK: credit push failed; credit may be lost on the next reset ---" >> "$task_log"; }
+                echo "no-op(ALREADY-DONE)"
+                return
+              fi
+              git checkout -q -- OVERNIGHT_PROGRESS.md 2>/dev/null   # commit failed: drop only our edit, the normal path continues
+            fi
+          fi
+        fi
+        ;;
+    esac
+    # <<< SUPPLY-RECHECK-END
 
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
       # 2026-09-16 FIX: OVERNIGHT_PROGRESS.md is append-only and long-lived —
@@ -2567,7 +2681,15 @@ $(ovn_udiff_nudge_text)"
     # re-faced every cycle forever. The helper harvests the file named right
     # before each "already done" admission and checks off the matching item.
     # Only runs when NOTHING committed this cycle.
-    if [ "$AFTER_SHA" = "$BEFORE_SHA" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" ]; then
+    # 2026-10-10 (harness R10, BX-02): a "no edit" caused by an API/context error is NOT an already-satisfied finding. xlite 02:32 CDT: the implement call failed with
+    # ContextWindowExceededError (98,084 > 65,536 tokens), the model never saw the item, and this credit then matched file/symbol NAMES in the log's own plan/error text and
+    # ticked get_max_directive_value T1/T2 (the function does not exist; the dependent item was then unsatisfiable and was parked after 440k tokens). With an API/context
+    # error anywhere in the attempt log nothing is name-match credited: the cycle falls through to the existing error(model/API error) status. OVN_IMPL_CREDIT_API_GUARD=off disables.
+    _ac_apierr=0
+    if [ "${OVN_IMPL_CREDIT_API_GUARD:-on}" != off ] && [ "$AFTER_SHA" = "$BEFORE_SHA" ] && declare -F ovn_log_has_api_error >/dev/null 2>&1 && ovn_log_has_api_error "$task_log"; then _ac_apierr=1
+      echo "--- implement-pass already-satisfied credit SKIPPED: the attempt log shows an API/context error (ContextWindowExceeded/BadRequest/API), so 'no edit' means the model never worked the item - nothing name-match credited ---" >> "$task_log"
+    fi
+    if [ "$_ac_apierr" = 0 ] && [ "$AFTER_SHA" = "$BEFORE_SHA" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" ]; then
       _AC_OUT="$(bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
       echo "$_AC_OUT" >> "$task_log"
       if echo "$_AC_OUT" | grep -qE 'CREDITED=[1-9]'; then
@@ -2717,6 +2839,20 @@ $(ovn_udiff_nudge_text)"
     if [ "$AIDER_EXIT" -ne 0 ]; then
       error_status "$task_log" "error(exit=${AIDER_EXIT})"
     elif [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
+      # NET-ZERO GUARD (2026-10-10, harness R10, IPTV-3): commits that cancel out are not a landing. Reset to BEFORE_SHA, push nothing, report no-op(net-zero) (it counts toward the
+      # item's no-op cap like any no-op; class noop / severity bad: real model work thrown away). OVN_NETZERO_GUARD=shadow only logs 'would' and lets the cycle continue; =off disables.
+      if [ "${OVN_NETZERO_GUARD:-on}" != off ] && ovn_cycle_net_zero "$BEFORE_SHA" "$AFTER_SHA"; then
+        if [ "${OVN_NETZERO_GUARD:-on}" = shadow ]; then
+          echo "--- NET-ZERO GUARD (shadow): ${BEFORE_SHA:0:12}..${AFTER_SHA:0:12} touched code but the net code diff is empty - would reset and report no-op(net-zero) ---" >> "$task_log"
+        else
+          echo "--- NET-ZERO GUARD: ${BEFORE_SHA:0:12}..${AFTER_SHA:0:12} touched code files but the net code diff is EMPTY (the cycle undid itself) - resetting, nothing pushed ---" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          git clean -fd --quiet 2>/dev/null
+          emit_alert warn "$id" "net-zero cycle: the commits cancelled out (empty net code diff); reset, not pushed"
+          echo "no-op(net-zero)"
+          return
+        fi
+      fi
       # Auto-regenerate a frozen OpenAPI contract (2026-09-17), if this repo has adopted
       # that pattern (gitlark: backend/scripts/export_openapi.py writes to docs/openapi.json
       # at the repo ROOT, not under backend/ - confirmed via the script's own OUTPUT_PATH).
@@ -2924,7 +3060,11 @@ $(ovn_udiff_nudge_text)"
       # Godot-engine-specific runtime-call terminology that never appears in a genuine
       # syntax/import/parse/structural error, so widening <X> carries no risk of masking a
       # real build break.
-      _BUILD_BREAK_NEG_RE="has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type '[A-Za-z_][A-Za-z0-9_]*'|Attempted to free a RefCounted|Parameter .* is null"
+      # 2026-10-10 (harness R10, BX-07): three more Godot RUNTIME error shapes that are test-time logic errors, never "the code no longer loads": 'Invalid call. Nonexistent function X in
+      # base Y' (a stub/double lacks a method: 3 of 9 reverted(build-break) rows were this, with real failing GUT tests behind them), 'Invalid get/set index' and 'Invalid access to property'.
+      _BUILD_BREAK_NEG_RE="has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type '[A-Za-z_][A-Za-z0-9_]*'|Attempted to free a RefCounted|Parameter .* is null|Invalid call[.] Nonexistent function|Invalid (get|set) index|Invalid access to property"
+      # the GODOT-engine tokens of _BUILD_BREAK_POS_RE: these are only trusted from THIS cycle's verify run (see ovn_buildbreak_hits)
+      _BUILD_BREAK_GODOT_RE="SCRIPT ERROR|Parse Error|ERROR: Failed to load"
       # 2026-09-29 FIX: Gradle prints its generic "FAILURE: Build failed with an
       # exception." banner for EVERY failing `gradlew test` invocation, whether the
       # cause is a real compile break OR a plain test-assertion failure - the two
@@ -2972,7 +3112,8 @@ $(ovn_udiff_nudge_text)"
         { grep -a -E 'ModuleNotFoundError|No module named|SyntaxError|IndentationError|cannot import name|only one <|Parse Error|Cannot find module|error TS[0-9]|^e: |already defined|Could not (determine|resolve)|Multiple head' "$_f.ev.tmp" | awk '!s[$0]++' | head -6 | sed 's/^/KEY: /'; cat "$_f.ev.tmp"; } | head -c 3500
         rm -f "$_f.ev.tmp"
       }
-      if [ "$VERIFY_RESULT" = "fail" ] && [ "$_buildgate_tests_ran" != "1" ] && { grep -aE "$_BUILD_BREAK_POS_RE" "$task_log" | grep -avE "$_BUILD_BREAK_NEG_RE" | grep -aq .; }; then
+      _bb_hits="$(ovn_buildbreak_hits "$task_log" "${_ovn_voff:-0}")"   # captured (not piped into grep -q: an early-exiting reader + pipefail reads as "no match")
+      if [ "$VERIFY_RESULT" = "fail" ] && [ "$_buildgate_tests_ran" != "1" ] && [ -n "$_bb_hits" ]; then
         # BUILD-GATE grounded fix-up (2026-09-20): plain aider_fix items (T1/T2, and the
         # ongoing-* background lanes, which run this exact same path) used to get ZERO
         # repair attempts on a structural break — straight to revert, no matter how trivial
@@ -2990,7 +3131,7 @@ $(ovn_udiff_nudge_text)"
         # append-only), which would falsely re-trigger this branch; only $VERIFY_RESULT (a
         # fresh run_repo_verification call) decides, exactly as the Tier-2 fix-up already does
         # via the NO-NEW-RED GUARD below it.
-        _buildfix_summary="$(grep -aE "$_BUILD_BREAK_POS_RE" "$task_log" | grep -avE "$_BUILD_BREAK_NEG_RE" | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-500)"
+        _buildfix_summary="$(ovn_buildbreak_hits "$task_log" "${_ovn_voff:-0}" | tail -6 | tr '\n' ' ' | tr -s ' ' | cut -c1-500)"
         # Kotlin build-red grounding (2026-09-20): the outer Gradle banner grabbed above
         # ("compileDebugUnitTestKotlin FAILED" / "Build failed" / "Compilation error. See
         # log for more details") carries ZERO actionable detail - Python failures get the
@@ -3225,6 +3366,13 @@ All files you need are already in the chat. You cannot run commands or call tool
         if ovn_testonly_guard "$BEFORE_SHA" "$task_log" "$id"; then _ovn_prod_touch="${OVN_TOGUARD_TAG:-}"; else echo "$OVN_FXI_STATUS"; return; fi
       fi
 
+      # DOC POST-CHECK (2026-10-10, package docexec, BX-01; shadow by default, OVN_DOC_POSTCHECK=off|shadow|enforce): a model-written supply:gd-missing-doc commit must ADD a `##` line
+      # directly above each named func without leaving an orphan/duplicate `##` block or a re-added func line; flagged commits get '[doc-postcheck]' on the push status (enforce: reset).
+      _ovn_doc_tag=""
+      if [ "$VERIFY_RESULT" != "fail" ] && declare -F ovn_doc_postcheck_gate >/dev/null 2>&1; then
+        if ovn_doc_postcheck_gate "$BEFORE_SHA" "$task_log" "$id"; then _ovn_doc_tag="${OVN_DPC_TAG:-}"; else echo "$OVN_FXI_STATUS"; return; fi
+      fi
+
       # VERIFY-SKIP GUARD, second checkpoint (2026-09-29): a BUILD-GATE or Tier-2
       # fix-up above may have re-run verification and landed on "skip" (lock
       # contention) rather than "pass"/"fail" - the initial guard right after the
@@ -3312,6 +3460,7 @@ All files you need are already in the chat. You cannot run commands or call tool
         [ "$REDGREEN" = "suspect" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:SUSPECT]"
         [ "$REDGREEN" = "restore-failed" ] && PUSH_STATUS="${PUSH_STATUS} [redgreen:RESTORE-FAILED]"
         [ -n "${_ovn_prod_touch:-}" ] && PUSH_STATUS="${PUSH_STATUS} ${_ovn_prod_touch}"
+        [ -n "${_ovn_doc_tag:-}" ] && PUSH_STATUS="${PUSH_STATUS} ${_ovn_doc_tag}"
         _ovn_lint_detail="$(mktemp 2>/dev/null || echo "/tmp/ovn_lint_detail.$$")"
         LINT_ISSUES="$(run_lint_check "$BEFORE_SHA" "$AFTER_SHA" "$_ovn_lint_detail")"
         if [ "${LINT_ISSUES:-0}" -gt 0 ]; then

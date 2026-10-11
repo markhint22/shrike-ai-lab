@@ -113,7 +113,7 @@ record_outcome tid repo1 "no-op" "no tag here" aider_fix 1 "$TL" 5 "$R1"
 eq "tier '?' when no tag anywhere" "?" "$(jf tier)"
 # feat tag => hash + raw tag kept; newline/quote-safe
 printf '# P\n## Next Steps\n- [ ] [T2] [feat:repo1-20260922-some-feature] `app/w.py` — a feature step\n' > "$R1/OVERNIGHT_PROGRESS.md"
-: > "$TL"
+printf 'VERDICT: PROCEED\nFILES: app/w.py\n' > "$TL"   # 2026-10-10 (R10): the outcome is billed to the item the scout NAMED (no top-of-file fallback any more), so the log must name its file
 record_outcome tid repo1 "no-op" "p" aider_fix 1 "$TL" 5 "$R1"
 eq "feat_tag captured (raw, without brackets/prefix)" "repo1-20260922-some-feature" "$(jf feat_tag)"
 h_feat="$(jf item_hash)"

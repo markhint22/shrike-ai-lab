@@ -167,8 +167,8 @@ fi
 echo "== lint (stdin -> stdout)"
 FIXME_IN="$(printf -- '- [ ] [T2] a.py — x. VERIFY: pytest tests/test_a.py -q. (cat:python)\n- [ ] [T2] f.txt — y. VERIFY: `grep -q old f.txt && echo "FAIL" || echo "PASS"`. (cat:python)\nnot an item line\n')"
 lint(){ printf '%s\n' "$FIXME_IN" | ( cd "$tmp" && OVN_DIR="$D" python3 "$D/scripts/ovn_spec_gate.py" lint repos/demo ) 2>"$tmp/lint.err"; }
-out_default="$(lint)"
-ok "default (nothing enforced): stdin echoed unchanged, the would-repair counts go to stderr" "[ \"\$out_default\" = \"\$FIXME_IN\" ] && grep -c 'shadow, nothing rewritten' '$tmp/lint.err' | grep -qx 1 && grep -c 'R01=1' '$tmp/lint.err' | grep -qx 1"
+out_default="$(OVN_SPEC_GATE_ENFORCE_RULES= lint)"   # 2026-10-10 (R10): UNSET = R01,R11 now; an explicitly empty value is "nothing enforced"
+ok "empty rule list (nothing enforced): stdin echoed unchanged, the would-repair counts go to stderr" "[ \"\$out_default\" = \"\$FIXME_IN\" ] && grep -c 'shadow, nothing rewritten' '$tmp/lint.err' | grep -qx 1 && grep -c 'R01=1' '$tmp/lint.err' | grep -qx 1"
 out_r1="$(OVN_SPEC_GATE_ENFORCE_RULES=R01 lint)"
 ok "R01 enforced: the bare VERIFY is backticked, the vacuous line and the prose line untouched" "printf '%s' '$out_r1' | grep -c 'VERIFY: .pytest tests/test_a.py -q. (cat' | grep -qx 1 && printf '%s' '$out_r1' | grep -c 'echo \"FAIL\" || echo \"PASS\"' | grep -qx 1 && printf '%s' '$out_r1' | grep -c '^not an item line' | grep -qx 1"
 out_r12="$(OVN_SPEC_GATE_ENFORCE_RULES=R01,R02 lint)"
@@ -215,7 +215,7 @@ ok "OVN_SPEC_GATE_MAX_ROWS=3: rotation keeps the 3 newest non-restored rows, the
 D7="$(mk norot)"; printf '%s\n' "$BL" > "$D7/backlog/demo.md"; scan "$D7" >/dev/null 2>&1
 ok "no rotation when nothing is old (7 fresh rows kept)" "[ \"\$(rows_n '$D7')\" = 7 ]"
 D8="$(mk warn)"; printf '%s\n' "$BL" > "$D8/backlog/demo.md"
-( cd "$D8" && OVN_SPEC_GATE=enforce OVN_DIR="$D8" python3 scripts/ovn_spec_gate.py scan demo ) > "$tmp/warn.out" 2>&1
+( cd "$D8" && OVN_SPEC_GATE=enforce OVN_SPEC_GATE_ENFORCE_RULES= OVN_DIR="$D8" python3 scripts/ovn_spec_gate.py scan demo ) > "$tmp/warn.out" 2>&1
 ok "OVN_SPEC_GATE=enforce with an empty rule list warns on stderr that nothing is enforced" "grep -c 'enforces NOTHING' '$tmp/warn.out' | grep -qx 1"
 ( cd "$D8" && OVN_SPEC_GATE=enforce OVN_SPEC_GATE_ENFORCE_RULES=R04 OVN_DIR="$D8" python3 scripts/ovn_spec_gate.py report ) > "$tmp/warn2.out" 2>&1
 ok "NEGATIVE: no warning once a rule is armed" "[ \"\$(grep -c 'enforces NOTHING' '$tmp/warn2.out')\" = 0 ]"

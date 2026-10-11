@@ -38,7 +38,9 @@ rec(){
   local rd="$tmp/repo.$RANDOM"; mkdir -p "$rd"
   printf '# progress\n%s\n' "$1" > "$rd/OVERNIGHT_PROGRESS.md"
   : > "$STATE_DIR/outcomes.jsonl"
-  record_outcome "t-$RANDOM" repo "no-op" "" aider_fix 1 /dev/null 0 "$rd"
+  # 2026-10-10 (R10): this suite pins HASH AGREEMENT for the top-of-file fallback resolution, so it runs the legacy attribution; the strict attribution
+  # (the worked item, else nobody) is pinned by test_outcome_attribution_strict.sh
+  OVN_OUTCOME_ATTRIB=legacy record_outcome "t-$RANDOM" repo "no-op" "" aider_fix 1 /dev/null 0 "$rd"
   python3 -c "import json;r=json.loads(open('$STATE_DIR/outcomes.jsonl').readline());print(r['item_hash'],r['feat_tag'])"
 }
 

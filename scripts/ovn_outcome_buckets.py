@@ -40,6 +40,12 @@ Two data sources feed this, with two matching entry points:
     bucket_from_severity().
 """
 
+# 2026-10-10 (harness R10): statuses written by the new integrity guards and where they land in the pass-rate math.
+#   no-op(net-zero)          the cycle's commits cancelled out (IPTV-3): real model work thrown away -> BAD (class noop / severity bad; cycle_notify oc noop:flail).
+#   no-op(stage-unverified)  now also written when the staged run produced NO commit at all (BX-09, fail_reason no-edit) -> BAD, as before.
+#   error(model/API error)   an implement call that died on ContextWindowExceeded/BadRequest/API (BX-02: the name-match credit no longer ticks items from it) -> BENIGN by its
+#                            error class, except fail_reason context-exceeded, which bucket_from_outcome_row() scores BAD (the overflow cycle burned a full model call).
+# None of them is ever GOOD: only a push that landed counts as a win.
 GOOD = frozenset({"pass"})
 
 # noop:gate and noop:flail are STRUCTURALLY IDENTICAL to revert: the model wrote

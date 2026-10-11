@@ -7,6 +7,10 @@
 #       -> boot headless emulator (KVM, cpuset) -> install -> appium -> run every spec, retry-once-then-report with video+logcat
 #       on failure -> verdict via lane_report.py (PASS | FLAG | UNVERIFIED, never FAIL) -> cleanup of emulator/appium/adb ALWAYS.
 # Exit code is always 0 (advisory); the verdict is the last stdout line (one JSON object) and in state/qa_shadow/devicelane.jsonl.
+# 2026-10-10 (analysis F8): the lane logs in with the two CANONICAL staging accounts and its janitor/seed rewrite them, exactly the shared state
+# qa/staging_e2e_run.sh and qa/qa_daily_shadow.sh serialise on, so it takes the same mkdir lock state/staging_e2e.lock (same protocol, 30 min stale takeover) for the whole
+# run (a heartbeat keeps its mtime fresh so a 100 min run is not taken over as stale; the post-run janitor is covered too). Busy for DL_E2E_LOCK_WAIT_S (900) =>
+# UNVERIFIED "lock busy", nothing built or booted. Kill switch DL_E2E_LOCK=off. The lock is only released if its pid file is still ours.
 # Secrets: credentials come from $DL_CREDS (default ~/.config/qa-devicelane/staging.env, mode 600). They are exported to the specs
 # only; never echoed, and spec output is redacted before it is saved.
 set -u
@@ -39,6 +43,36 @@ report_infra() {  # $1 = reason. Prints the UNVERIFIED verdict JSON line and ret
   "$PY" "$HERE/lane_report.py" infra --reason "$1" --sha "$SHA" --run-dir "$RUN_DIR" $NOREC
 }
 
+# --- staging e2e lock (F8): the shared-staging mkdir lock, taken before the FIRST staging contact and held to the end of cleanup -----------------
+E2E_LOCK="${QA_STATE_DIR:-$OVN/state}/staging_e2e.lock"; E2E_LOCK_HELD=""; E2E_BEAT=""
+e2e_lock_take() {   # $1 = max wait seconds. 0 = got it (or disabled), 1 = busy. Same protocol as qa_daily_shadow.sh lock_take / staging_e2e_run.sh.
+  [ "${DL_E2E_LOCK:-on}" = off ] && return 0
+  local waited=0 swept=0
+  mkdir -p "$(dirname "$E2E_LOCK")" 2>/dev/null
+  while :; do
+    if mkdir "$E2E_LOCK" 2>/dev/null; then
+      echo "$$" >"$E2E_LOCK/pid" 2>/dev/null; E2E_LOCK_HELD=1
+      # heartbeat: a lock older than QA_E2E_LOCK_STALE_MIN (30) is taken over by the e2e runner/smoke, and this run lasts up to ~100 min. Own session so its
+      # sleep dies with it; it only touches the lock while the pid file is still ours AND this run is still alive (a SIGKILLed run must let the lock go stale, not be kept
+      # fresh forever); fd 9 closed so it never holds the lane flock.
+      "${DL_SETSID[@]}" bash -c 'while kill -0 "$3" 2>/dev/null; do sleep "$1"; kill -0 "$3" 2>/dev/null || break; [ "$(cat "$2/pid" 2>/dev/null)" = "$3" ] && touch "$2" 2>/dev/null; done' dl-lockbeat "${DL_E2E_LOCK_BEAT_S:-300}" "$E2E_LOCK" "$$" >/dev/null 2>&1 9>&- &
+      E2E_BEAT=$!
+      return 0
+    fi
+    if [ "$swept" = 0 ] && [ -n "$(find "$E2E_LOCK" -maxdepth 0 -mmin +"${QA_E2E_LOCK_STALE_MIN:-30}" 2>/dev/null)" ]; then swept=1; rm -rf "$E2E_LOCK"; continue; fi
+    [ "$waited" -ge "$1" ] && return 1
+    sleep 2; waited=$((waited+2))
+  done
+}
+e2e_lock_release() {   # idempotent; never removes a lock somebody else took over (pid file differs)
+  [ -n "$E2E_BEAT" ] && { kill_tree "$E2E_BEAT" TERM; E2E_BEAT=""; }
+  if [ -n "$E2E_LOCK_HELD" ]; then
+    [ "$(cat "$E2E_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$E2E_LOCK"
+    E2E_LOCK_HELD=""
+  fi
+  return 0
+}
+
 # --- lock: never overlap (a 2nd cron firing while a slow run is active must be a no-op, not a failure) --------------------------
 LOCKDIR=""
 if command -v flock >/dev/null 2>&1; then
@@ -68,6 +102,7 @@ cleanup() {
   # verified post-run process check: anything still carrying our avd / appium port is killed and reported (teardown.json + log line)
   DL_CHECK_ADB="$([ "$STARTED_EMU" = 1 ] && echo 1)" verify_teardown "$RUN_DIR/teardown.json" "$PIDS"
   run_janitor post
+  e2e_lock_release                                  # F8: after the post-run janitor (it rewrites the shared staging accounts too)
   # keep the last 14 runs; videos/logcats only exist for failures so this stays small
   [ -n "$LOCKDIR" ] && rm -rf "$LOCKDIR"
   ls -1dt "$STATE"/runs/*/ 2>/dev/null | tail -n +15 | while IFS= read -r d; do rm -rf "$d"; done
@@ -113,6 +148,8 @@ export CHICK_API_BASE="${CHICK_API_BASE:-$API_BASE}"
 
 [ -n "${CHICK_PREMIUM_EMAIL:-}" ] && [ -n "${CHICK_PREMIUM_PASSWORD:-}" ] || { report_infra "CHICK_PREMIUM_EMAIL/CHICK_PREMIUM_PASSWORD not set in creds file (premium specs need the staging premium account)"; exit 0; }
 
+# F8: shared staging state (canonical accounts, rate-limit window): serialise with staging_e2e_run.sh / qa_daily_shadow.sh BEFORE the first request to staging
+if ! e2e_lock_take "${DL_E2E_LOCK_WAIT_S:-900}"; then report_infra "staging e2e lock busy: another staging e2e/smoke run held $E2E_LOCK for more than ${DL_E2E_LOCK_WAIT_S:-900}s (shared canonical accounts; skipped, not an app result)"; exit 0; fi
 code="$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$API_BASE/health" 2>/dev/null)"
 [ "$code" = 200 ] || { report_infra "staging backend /health returned ${code:-000} (backend down - not an app result)"; exit 0; }
 for who in free premium; do

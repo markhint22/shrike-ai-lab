@@ -23,6 +23,7 @@ TOOL = os.path.join(ROOT, "scripts", "ovn_doc_executor.py")
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import os as _os
 _os.environ["OVN_SUPPLY_GD_DOCS"] = "on"   # supply-v2 ships the gd-doc family OFF by default; this module exercises the collector explicitly
+_os.environ["OVN_SUPPLY_GD_DOCS_MODEL"] = "on"   # docexec: ... and the family is gated on the executor / post-check unless this override is set
 import ovn_work_supply as W  # noqa: E402
 
 P = F = 0

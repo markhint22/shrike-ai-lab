@@ -357,15 +357,125 @@ def stats_line(t, rows_hour):
     return out
 
 
+# 2026-10-10: the credit-integrity change (10-09) split green pushes into 'landed' (credited) and 'landed-uncredited' (pushed, neutral for the
+# pass rate). Both are real pushes: the stall emergency counts either as activity; the hourly line shows them separately. OVN_NOTIFY_LANDED_CLASSES
+# overrides the activity classes (comma list) if the class vocabulary changes again.
+LANDED = tuple(c.strip() for c in os.environ.get("OVN_NOTIFY_LANDED_CLASSES", "landed,landed-uncredited").split(",") if c.strip()) or ("landed", "landed-uncredited")
+
+
+# 2026-10-11: the outcomes vocabulary says "reverted" (423 rows on the box on 10-10, zero "revert"), so the hourly 'Undone (broke tests)' line never fired. Accept both.
+REVERTED = ("revert", "reverted")
+
+
+# ---------------------------------------------------------------- box reboot / silent-queue detector (2026-10-10, package ops)
+# 2026-10-10: the box hard-froze 04:58:40-07:20:55 CDT (2h22m) and the hourly update never mentioned it (it only said "nothing landed"). The Mac-side
+# scripts/box_deadman.py pages while the box is DOWN; this is the box's own after-the-fact line in the hourly update: "Box rebooted 52m ago after a 2h22m
+# outage" + whether the queue unit and LiteLLM came back by themselves. Update text only (no push channel of its own); OVN_BOOT_NOTE=0 turns it off; needs a real
+# queue root (ROOT/reports) so a test or scratch STATE dir never inherits the host's uptime.
+BOOT_WINDOW_S = 2 * 3600            # a boot younger than this is reported (once per boot)
+SILENT_S = int(os.environ.get("OVN_SILENT_S", "1800"))   # unit active + not paused + no heartbeat this long = "Queue silent"
+BOOT_GRACE_S = 600                  # no "silent" verdict in the first 10 min of uptime (the loop is still starting)
+
+
+def _uptime_s():
+    try:
+        with open(os.environ.get("OVN_UPTIME_FILE") or "/proc/uptime") as f:
+            return float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _unit_state():
+    """systemctl is-active of the queue unit; None when systemd is not available (or OVN_UNIT_STATE unset on a test host)."""
+    if "OVN_UNIT_STATE" in os.environ:
+        return os.environ["OVN_UNIT_STATE"] or None
+    try:
+        return subprocess.run(["systemctl", "is-active", "overnight-queue.service"], capture_output=True, text=True, timeout=10).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _last_heartbeat(cut):
+    """Epoch of the newest sign of life at or before `cut`: an outcomes row or a reports/<run>.md (one per run_overnight pass, ~70 s even when every lane is idle -
+    an exhausted-idle fleet writes NO outcomes rows). None when neither exists."""
+    best = None
+    for r in _outcomes_since(cut - 6 * 3600):
+        try:
+            ts = calendar.timegm(time.strptime(r["ts"][:19], "%Y-%m-%dT%H:%M:%S"))
+        except Exception:
+            continue
+        if ts <= cut and (best is None or ts > best):
+            best = ts
+    rd = os.path.join(ROOT, "reports")
+    try:
+        names = sorted((n for n in os.listdir(rd) if n.endswith(".md")), reverse=True)
+    except OSError:
+        names = []
+    for n in names[:2000]:
+        try:
+            m = os.stat(os.path.join(rd, n)).st_mtime
+        except OSError:
+            continue
+        if m <= cut:
+            if best is None or m > best:
+                best = m
+            break
+    return best
+
+
+def _dur(secs):
+    secs = int(secs)
+    return "%dh%02dm" % (secs // 3600, secs % 3600 // 60) if secs >= 3600 else "%dm" % (secs // 60)
+
+
+def boot_notes(at=None):
+    """[{'title','text','prio','boot': boot_epoch|None}] for the hourly update: a recent boot (once per boot, with the outage length when the queue went quiet before it) and/or a
+    silent queue. Pure function of /proc/uptime, the unit state, outcomes/reports and the clock; never raises."""
+    try:
+        if os.environ.get("OVN_BOOT_NOTE") == "0" or not os.path.isdir(os.path.join(ROOT, "reports")):
+            return []
+        t = at or now()
+        up = _uptime_s()
+        unit = _unit_state()
+        paused = os.path.exists(_p("PAUSED"))
+        out = []
+        if up is not None and up < BOOT_WINDOW_S:
+            boot = t - up
+            try:
+                reported = float(open(_p("notify_boot_reported")).read().strip())
+            except (OSError, ValueError):
+                reported = None
+            if reported is None or abs(reported - boot) > 300:
+                prev = _last_heartbeat(boot - 30)
+                gap = (boot - prev) if prev else None
+                unclean = gap is not None and gap > SILENT_S and not paused
+                llm_ok = http_ok(os.environ.get("OVN_LLM_HEALTH_URL", "http://127.0.0.1:4000/health/readiness"))
+                running = unit in ("active", "activating") if unit is not None else None
+                state = "queue unit %s, LiteLLM %s" % (unit if unit is not None else "unknown", "answering" if llm_ok else "NOT answering")
+                title = "Box rebooted %s ago" % _dur(up) + (" after a %s outage" % _dur(gap) if unclean else "")
+                text = ("no queue activity for %s before the boot (no clean shutdown trail: check power/UPS/BMC, journalctl --list-boots); " % _dur(gap) if unclean else "clean restart; ") + state
+                bad = unclean or running is False or not llm_ok
+                out.append({"title": title, "text": text, "prio": "high" if bad else "default", "boot": boot})
+        if unit in ("active", "activating") and not paused and (up is None or up >= BOOT_GRACE_S):
+            hb = _last_heartbeat(t)
+            if hb is not None and t - hb > SILENT_S:
+                out.append({"title": "Queue silent %s" % _dur(t - hb), "text": "overnight-queue.service is %s but no outcomes row or run report for %s" % (unit, _dur(t - hb)), "prio": "high", "boot": None})
+        return out
+    except Exception:  # noqa: BLE001 - an informational line must never break the hourly update
+        return []
+
+
 def compose_update(window=3600, at=None):
     """Return (title, body, needs_count). Pure function of state + the clock (`at` for tests)."""
     t = at or now()
     rows = _outcomes_since(t - window)
-    landed, reverted = {}, {}
+    landed, reverted, uncredited = {}, {}, 0
     for r in rows:
         if r.get("class") == "landed":
             landed[r.get("repo")] = landed.get(r.get("repo"), 0) + 1
-        elif r.get("class") == "revert":
+        elif r.get("class") == "landed-uncredited":
+            uncredited += 1
+        elif r.get("class") in REVERTED:
             reverted[r.get("repo")] = reverted.get(r.get("repo"), 0) + 1
     last_digest = 0.0
     try:
@@ -385,8 +495,11 @@ def compose_update(window=3600, at=None):
     needs = [n for n in needs if not re.search(r"recover|start|complete|fixed|\bok\b", n["title"], re.I)]
     lines = [stats_line(t, rows)]
     tot = sum(landed.values())
+    unc = " (+%d uncredited)" % uncredited if uncredited else ""
     if tot:
-        lines.append("Landed %d: %s" % (tot, " · ".join("%s %d" % (k, v) for k, v in sorted(landed.items(), key=lambda kv: -kv[1]))))
+        lines.append("Landed %d: %s%s" % (tot, " · ".join("%s %d" % (k, v) for k, v in sorted(landed.items(), key=lambda kv: -kv[1])), unc))
+    elif uncredited:
+        lines.append("Nothing credited this hour%s" % unc)
     else:
         lines.append("Nothing landed this hour")
     if reverted:
@@ -405,6 +518,8 @@ def compose_update(window=3600, at=None):
     empty = sorted(k for v, k in low if v == 0)
     if empty:
         needs.insert(0, {"title": "Queue empty: %s" % ", ".join(empty), "text": "that lane has nothing to do until the refuel adds work (work supply runs every 30 min)", "prio": "high", "ts": t})
+    for bn in reversed(boot_notes(t if at else None)):   # 2026-10-10: a reboot / silent queue is at least as important as an empty queue
+        needs.insert(0, {"title": bn["title"], "text": bn["text"], "prio": bn["prio"], "ts": t})
     shown = needs[:3]
     title = ("⚠️ Shrike hourly — %d to look at" % len(needs)) if needs else "✅ Shrike hourly — all good"
     body = "\n".join((["• %s — %s" % (n["title"], n["text"]) if n["text"] and n["text"].lower() not in n["title"].lower() else "• " + n["title"] for n in shown]) +
@@ -426,6 +541,9 @@ def do_update(dry=False, force=False):
     if res in ("sent", "capped"):
         os.makedirs(STATE, exist_ok=True)
         open(_p("notify_last_update"), "w").write(str(now()))
+        for bn in boot_notes():     # the boot line is reported ONCE per boot (the next update would otherwise repeat it for up to 2 h)
+            if bn.get("boot"):
+                open(_p("notify_boot_reported"), "w").write(str(bn["boot"]))
     return "%s (%s)" % (title, res)
 
 
@@ -487,7 +605,7 @@ def emergency_checks(dry=False):
     paused = os.path.exists(_p("PAUSED"))
     rows = _outcomes_since(now() - 3 * 3600)
     depths = queue_depths()
-    if _bad_since("stalled", (not paused) and sum(depths.values()) > 10 and not any(r.get("class") == "landed" for r in rows), 0):
+    if _bad_since("stalled", (not paused) and sum(depths.values()) > 10 and not any(r.get("class") in LANDED for r in rows), 0):
         out.append(("🚨 Fleet stalled 3h", "Nothing has landed in 3 hours although work is queued and the fleet is not paused."))
     out.extend(starved_check(depths, paused, dry))
     try:

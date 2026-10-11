@@ -15,6 +15,16 @@ Each run, for every record in state/qa_blocked/*.json:
   3. otherwise, if the block is old (>= QA_BLOCK_STALL_H hours, default 3) or big (>= QA_BLOCK_STALL_COMMITS held, default 20), write a
      `qa-block-stall` warn line (at most one per QA_BLOCK_REALERT_H hours per block, default 6) naming the finding, so the hourly digest/triage sees it.
 
+  4. (2026-10-10) ESCALATE: a stall older than QA_BLOCK_EMERGENCY_H (default 6) or holding >= QA_BLOCK_EMERGENCY_COMMITS (default 100) is also written as a high-priority note into state/notify_notes.jsonl
+     on EVERY run, so the ONE hourly update (scripts/ovn_notify.py) lists it - alerts.log alone is a warn line nobody reads (xlite: 19.7 h blocked by a
+     false positive, two stall alerts, no human saw them).
+  5. (2026-10-10) DEMOTE (default OFF: QA_BLOCK_DEMOTE=on): after QA_BLOCK_DEMOTE_H hours (default 4) a block whose FAIL findings are ALL in test files
+     AND in the allow-list QA_BLOCK_DEMOTE_RULES (test-only rules: E_ZERO_ASSERTS, A_VACUOUS, ...) is demoted FAIL -> FLAG for exactly those (rule, file)
+     pairs: a record in state/qa_demoted.json (read by gate_antigaming.check, bound to the offending commit being in the head's history, expires after
+     QA_DEMOTE_TTL_H = 168 h, global kill switch OVN_QA_DEMOTE=off), one line in state/qa_gate_modes.history.jsonl (who=qa_block_watch) and ONE alert.
+     A block with any product-code finding, any other rule, a protected branch or another gate is never demoted. The next hygiene pass re-evaluates the
+     range, sees FLAG, and lets the held commits through.
+
 usage: qa_block_watch.py [--dry-run]       env: OVN_DIR, QA_GATES_DIR, QA_BLOCK_*  ; exit 0 always (it must never break the cron/hygiene chain)
 """
 import ast
@@ -52,6 +62,95 @@ def alert(msg):
     try:
         with open(os.path.join(qc.state_dir(), "alerts.log"), "a") as f:
             f.write("[%s] warn | %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg))
+    except OSError:
+        pass
+
+
+DEMOTE_RULES_DEFAULT = "E_ZERO_ASSERTS,A_VACUOUS,A_VACUOUS_ASSERT,A_ASSERT_NOOP,A_TESTFILE_EMPTIED,E_TEST_NOT_COLLECTED,E_GD_TEST_NOT_GUT"
+DEMOTED_FILE = "qa_demoted.json"
+NOTES_FILE = "notify_notes.jsonl"
+
+
+def is_test_file(path):
+    """Same classification as the gate (gate_antigaming.is_test_path); a plain regex when the gate module cannot be imported."""
+    try:
+        import gate_antigaming as ga
+        return bool(ga.is_test_path(path))
+    except Exception:  # noqa: BLE001
+        return re.search(r"(^|/)(tests?|__tests__|e2e)/|(^|/)test_[^/]*$|_test\.[A-Za-z]+$|\.(test|spec)\.[cm]?[jt]sx?$", path or "") is not None
+
+
+def demotable(gate, branch, fails):
+    """-> sorted [(rule, file)] when EVERY FAIL finding is a test-file finding of an allow-listed rule on a protected feature branch of the antigaming
+    gate, else None. QA_BLOCK_DEMOTE_RULES overrides the allow-list (comma separated)."""
+    if gate != "antigaming" or PROTECTED_OK.match(branch or "") is None or not fails:
+        return None
+    allow = {r.strip() for r in os.environ.get("QA_BLOCK_DEMOTE_RULES", DEMOTE_RULES_DEFAULT).split(",") if r.strip()}
+    pairs = set()
+    for f in fails:
+        rule, path = f.get("rule", ""), f.get("file", "")
+        if rule not in allow or not path or not is_test_file(path):
+            return None
+        pairs.add((rule, path))
+    return sorted(pairs)
+
+
+def _atomic_json(path, obj):
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".qa_demoted.", dir=d)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(obj, f, indent=1, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def demote(repo_name, branch, rec, pairs, age_h, dry):
+    """Record the demotion (idempotent per (repo, branch, offender commit)). -> 'demoted' | 'already' | 'dry-run' | 'failed'."""
+    key = "%s__%s" % (repo_name, re.sub(r"[^A-Za-z0-9._-]", "_", branch))
+    path = os.path.join(qc.state_dir(), DEMOTED_FILE)
+    try:
+        cur = json.load(open(path))
+        if not isinstance(cur, dict):
+            cur = {}
+    except (OSError, ValueError):
+        cur = {}
+    commit = str(rec.get("commit", ""))
+    if cur.get(key, {}).get("commit") == commit and commit:
+        return "already"
+    if dry:
+        return "dry-run"
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    cur[key] = {"repo": repo_name, "branch": branch, "gate": rec.get("gate", "antigaming"), "commit": commit, "rules": sorted({r for r, _ in pairs}),
+                "files": sorted({p for _, p in pairs}), "ts": now, "who": "qa_block_watch", "age_h": round(age_h, 1)}
+    try:
+        _atomic_json(path, cur)
+        with open(os.path.join(qc.state_dir(), qc.GATE_MODES_HISTORY), "a") as f:
+            f.write(json.dumps({"ts": now, "gate": "%s:%s/%s" % (rec.get("gate", "antigaming"), repo_name, branch), "from": "FAIL", "to": "FLAG", "who": "qa_block_watch",
+                                "commit": commit[:12], "rules": cur[key]["rules"], "files": cur[key]["files"]}, sort_keys=True) + "\n")
+    except OSError:
+        return "failed"
+    return "demoted"
+
+
+def escalate_note(repo_name, branch, gate, held, age_h, top, dry):
+    """High-priority note for the hourly update (scripts/ovn_notify.py reads state/notify_notes.jsonl: title/text/prio/ts). Written on EVERY run while the
+    stall lasts: the hourly update only lists notes newer than the previous update."""
+    title = "QA block stalled %dh: %s (%s)" % (int(age_h), repo_name, branch or "?")
+    text = "gate=%s holds %s commit(s): %s %s:%s - fix forward or demote it" % (gate, held, top.get("rule", "?"), top.get("file", "?"), top.get("line", "?"))
+    if dry:
+        print("would escalate to the hourly update: %s | %s" % (title, text))
+        return
+    try:
+        with open(os.path.join(qc.state_dir(), NOTES_FILE), "a") as f:
+            f.write(json.dumps({"ts": time.time(), "title": title, "text": text[:160], "prio": "high", "source": "qa_block_watch"}, ensure_ascii=False) + "\n")
     except OSError:
         pass
 
@@ -168,6 +267,23 @@ def handle(rec, ovn_dir, dry, alerted):
     except ValueError:
         age_h = 0.0
     held = int(rec.get("held_commits", 0) or 0)
+    if os.environ.get("QA_BLOCK_DEMOTE", "off") == "on" and age_h >= _num("QA_BLOCK_DEMOTE_H", 4):
+        pairs = demotable(gate, branch, fails)
+        if pairs:
+            r = demote(repo_name, branch, rec, pairs, age_h, dry)
+            if r == "dry-run":
+                return "would demote FAIL->FLAG (%s)" % ", ".join("%s %s" % p for p in pairs)
+            if r == "demoted":
+                alert("qa-block-watch:%s | DEMOTED gate=%s FAIL->FLAG on %s after %.1fh (test-file-only, allow-listed rule(s): %s): %s - the next hygiene pass lets the %s held commit(s) "
+                      "through; the test itself still needs a human/Claude look (state/qa_demoted.json, revert = delete the record)" % (
+                          repo_name, gate, branch, age_h, ", ".join(sorted({p[0] for p in pairs})), ", ".join(sorted({p[1] for p in pairs}))[:160], rec.get("held_commits", "?")))
+                return "demoted"
+            if r == "already":
+                return "demoted (already; waiting for the next hygiene pass)"
+    escalated = ""
+    if age_h >= _num("QA_BLOCK_EMERGENCY_H", 6) or held >= _num("QA_BLOCK_EMERGENCY_COMMITS", 100):
+        escalate_note(repo_name, branch, gate, held, age_h, fails[0], dry)
+        escalated = " +hourly-update"
     if age_h >= _num("QA_BLOCK_STALL_H", 3) or held >= _num("QA_BLOCK_STALL_COMMITS", 20):
         last = alerted.get(key, 0)
         if time.time() - last >= _num("QA_BLOCK_REALERT_H", 6) * 3600:
@@ -177,9 +293,9 @@ def handle(rec, ovn_dir, dry, alerted):
                 str(top.get("msg", ""))[:120], gate))
             if not dry:
                 alerted[key] = time.time()
-            return "stall-alerted"
-        return "stalled (already alerted)"
-    return "blocked (young)"
+            return "stall-alerted" + escalated
+        return "stalled (already alerted)" + escalated
+    return "blocked (young)" + escalated
 
 
 def main(argv):

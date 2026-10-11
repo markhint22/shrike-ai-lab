@@ -151,8 +151,8 @@ def mut(a, b, out):
     open(sys.argv[2] + "/" + out, "w").write(s.replace(a, b))
 mut('  [ "$okc" = PASS ] || { _ex_fail', '  true || { _ex_fail', "m_verify.sh")
 mut('  [ -z "$extra" ] || { _ex_fail', '  true || { _ex_fail', "m_extra.sh")
-mut('  mode="${!modevar:-shadow}"', '  mode="${!modevar:-on}"', "m_default.sh")
-mut('  if [ "$mode" = shadow ]; then\n    echo "--- ${kind^^}-EXECUTOR (shadow): would apply: ${files} ---" >> "$tl"\n    return 1\n  fi', '  :', "m_shadow.sh")
+mut("  case \"$m\" in off|shadow|on) printf '%s' \"$m\" ;; *) printf 'shadow' ;; esac", "  case \"$m\" in off|shadow|on) printf '%s' \"$m\" ;; *) printf 'on' ;; esac", "m_default.sh")   # 2026-10-10: the default now lives in ovn_executor_mode
+mut('  if [ "$mode" = shadow ]; then\n    echo "--- ${kind^^}-EXECUTOR (shadow): would apply: ${files} ---" >> "$tl"\n', '  if false; then\n    echo "--- ${kind^^}-EXECUTOR (shadow): would apply: ${files} ---" >> "$tl"\n', "m_shadow.sh")
 PY
 mut_check(){ # $1=repo name $2=lib $3=stub behaviour $4=expect HEAD moved (1) or not (0) [$5.. env VAR=val]
   local n="$1" lib="$2" beh="$3" want="$4" moved=0; shift 4

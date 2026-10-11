@@ -406,3 +406,7 @@
 # --- 27B-decomposed from roadmap [2026-10-11]: Delete orphaned `content_rights.py` — a third `validate_content_rights()` not tracked in t (review + tweak) [feat:iptv_apps-20261011-delete-orphaned-content-rights-py-a-thir] ---
 
 # --- 27B-decomposed from roadmap [2026-10-11]: Replace hardcoded RevenueCat API key placeholder — `iptv-android/app/src/main/java/com/chi (review + tweak) [feat:iptv_apps-20261011-replace-hardcoded-revenuecat-api-key-pla] ---
+
+# --- 27B-decomposed from roadmap [2026-10-11]: Test `unlock_profile` endpoint — Add a test for `unlock_profile` in `iptv-backend/app/rout (review + tweak) [feat:iptv_apps-20261011-test-unlock-profile-endpoint-add-a-test-] ---
+
+# --- deterministic work supply 2026-10-11 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---

@@ -621,6 +621,11 @@ def main(argv):
         if not os.path.exists(godot_bin()):
             print("mutation scan: godot binary %s not found - skip" % godot_bin())
             return 0
+        # 2026-10-10 (qacov B8): the cron wraps the scan in `timeout`; python's default SIGTERM action skips `finally`, which left the scratch archive (mutscan-*, ~30 MB
+        # for xlite) behind on every timeout. SIGTERM/SIGHUP now raise SystemExit so scan()'s finally removes it.
+        import signal
+        for _sig in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(_sig, lambda n, f: sys.exit(128 + n))
         return scan(argv[2], mx, "--json" in argv)
     if cmd == "verify":
         if len(argv) < 8:

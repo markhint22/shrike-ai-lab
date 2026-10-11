@@ -347,5 +347,46 @@ echo; echo "===== queue refill gate ====="; bash test_queue_refill_gate.sh || rc
 echo; echo "===== research trigger monotonic ====="; bash test_research_trigger_monotonic.sh || rc=1
 echo; echo "===== retire vague uid ====="; bash test_retire_vague_uid.sh || rc=1
 echo; echo "===== stage godot seed ====="; bash test_stage_godot_seed.sh || rc=1
+echo; echo "===== r10: bare verify fallback ====="; bash test_bare_verify_fallback.sh || rc=1
+echo; echo "===== r10: boot notes ====="; bash test_boot_notes.sh || rc=1
+echo; echo "===== r10: box deadman ====="; bash test_box_deadman.sh || rc=1
+echo; echo "===== r10: buildgate godot runtime scope ====="; bash test_buildgate_godot_runtime_scope.sh || rc=1
+echo; echo "===== r10: contract fuzz auth ====="; python3 test_contract_fuzz_auth.py || rc=1
+echo; echo "===== r10: cov copy measure ====="; bash test_cov_copy_measure.sh || rc=1
+echo; echo "===== r10: cron r10 ====="; bash test_cron_r10.sh || rc=1
+echo; echo "===== r10: cron r10 edit safe ====="; bash test_cron_r10_edit_safe.sh || rc=1
+echo; echo "===== r10: docexec supply gate ====="; bash test_docexec_supply_gate.sh || rc=1
+echo; echo "===== r10: docexec wiring ====="; bash test_docexec_wiring.sh || rc=1
+echo; echo "===== r10: executor ctl ====="; bash test_executor_ctl.sh || rc=1
+echo; echo "===== r10: executor shadow log ====="; bash test_executor_shadow_log.sh || rc=1
+echo; echo "===== r10: fixup gutskip r10 ====="; bash test_fixup_gutskip_r10.sh || rc=1
+echo; echo "===== r10: gitignore live dir ====="; bash test_gitignore_live_dir.sh || rc=1
+echo; echo "===== r10: gut ignored scripts r10 ====="; bash test_gut_ignored_scripts_r10.sh || rc=1
+echo; echo "===== r10: hygiene gate cap ====="; bash test_hygiene_gate_cap.sh || rc=1
+echo; echo "===== r10: implement credit api error ====="; bash test_implement_credit_api_error.sh || rc=1
+echo; echo "===== r10: iptv daily verify patch ====="; bash test_iptv_daily_verify_patch.sh || rc=1
+echo; echo "===== r10: lint comm sort ====="; bash test_lint_comm_sort.sh || rc=1
+echo; echo "===== r10: netzero and supply recheck ====="; bash test_netzero_and_supply_recheck.sh || rc=1
+echo; echo "===== r10: outcome attribution strict ====="; bash test_outcome_attribution_strict.sh || rc=1
+echo; echo "===== r10: ovn doc postcheck ====="; bash test_ovn_doc_postcheck.sh || rc=1
+echo; echo "===== r10: ovn failure ack candidates ====="; bash test_ovn_failure_ack_candidates.sh || rc=1
+echo; echo "===== r10: ovn log cap ====="; bash test_ovn_log_cap.sh || rc=1
+echo; echo "===== r10: ovn mutation scan term ====="; bash test_ovn_mutation_scan_term.sh || rc=1
+echo; echo "===== r10: ovn supply r10 ====="; bash test_ovn_supply_r10.sh || rc=1
+echo; echo "===== r10: ovn work supply filter ====="; bash test_ovn_work_supply_filter.sh || rc=1
+echo; echo "===== r10: prod alembic snapshot ====="; bash test_prod_alembic_snapshot.sh || rc=1
+echo; echo "===== r10: qa antigaming r10 ====="; bash test_qa_antigaming_r10.sh || rc=1
+echo; echo "===== r10: qa baseline gut ====="; python3 test_qa_baseline_gut.py || rc=1
+echo; echo "===== r10: qa block watch r10 ====="; bash test_qa_block_watch_r10.sh || rc=1
+echo; echo "===== r10: qa enforce subkeys r10 ====="; bash test_qa_enforce_subkeys_r10.sh || rc=1
+echo; echo "===== r10: qa gate gdparse ====="; python3 test_qa_gate_gdparse.py || rc=1
+echo; echo "===== r10: qa label ====="; python3 test_qa_label.py || rc=1
+echo; echo "===== r10: queue refill log ratelimit ====="; bash test_queue_refill_log_ratelimit.sh || rc=1
+echo; echo "===== r10: skip visibility ====="; bash test_skip_visibility.sh || rc=1
+echo; echo "===== r10: spec r10 defaults ====="; bash test_spec_r10_defaults.sh || rc=1
+echo; echo "===== r10: ssh guard ====="; bash test_ssh_guard.sh || rc=1
+echo; echo "===== r10: stage helper hint r10 ====="; bash test_stage_helper_hint_r10.sh || rc=1
+echo; echo "===== r10: stage runner no edit ====="; bash test_stage_runner_no_edit.sh || rc=1
+echo; echo "===== r10: wait litellm dropin ====="; bash test_wait_litellm_dropin.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

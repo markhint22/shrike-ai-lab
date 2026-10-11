@@ -32,6 +32,8 @@ usage: ovn_work_supply.py <repo> [--dry-run] [--max N] [--no-spec-check] [--forc
 env:   OVN_DIR (default ~/overnight-queue); OVN_SUPPLY_MIN_BACKLOG (default 24: only supply when the repo's pullable items are below this)
        OVN_SUPPLY_RESUPPLY_COOLDOWN_S (7200)  OVN_SUPPLY_RUFF_RULES (F601,F811)  OVN_SUPPLY_GD_DOCS (off)  OVN_SUPPLY_MUTATION (unset: external collector off)
        OVN_WORK_SUPPLY=off kills the whole thing.
+       OVN_SUPPLY_INFRA_ESCALATE_AFTER (12) / OVN_SUPPLY_INFRA_REALERT_EVERY (48): an unusable-verdict streak escalates to an 'error' alerts.log line (with the offending specs)
+       and repeats it every N passes; OVN_INGEST_BAN_FILTER=off also drops the ban patterns from the pullable count (same switch as queue_refill).
 exit:  0 always; prints a "N gaps found, M filtered (...), K specs" line and an ADDED/DRY-RUN line.
 """
 import ast
@@ -39,6 +41,7 @@ import datetime
 import fcntl
 import hashlib
 import importlib.util
+import inspect
 import json
 import os
 import re
@@ -59,6 +62,9 @@ TTL_BY_VERDICT = {"passes-before": 7 * 86400, "red": 36 * 3600, "supplied": 36 *
 # verdicts that say nothing about the SPEC (no-verdict / no-verify / bad-spec: the checker itself failed; unchecked: --no-spec-check) are never remembered and the spec
 # is retried next pass; after INFRA_ALERT_AFTER consecutive passes with such a verdict one alerts.log warn names the problem
 INFRA_ALERT_AFTER = 3
+INFRA_ESCALATE_AFTER = int(os.environ.get("OVN_SUPPLY_INFRA_ESCALATE_AFTER", "12"))     # a streak that long is not a flaky checker: 'error' level, with the offending specs
+INFRA_REALERT_EVERY = int(os.environ.get("OVN_SUPPLY_INFRA_REALERT_EVERY", "48"))       # ... and again every this many passes while it persists (30-min cron: 24 h)
+SPEC_NOTE_MAX = 260
 
 
 def walk(root, exts):
@@ -420,10 +426,41 @@ def c_docstrings(root):
                    "verify": verify_docstrings(r, names), "symbols": names}
 
 
+def doc_executor_mode(root):
+    """off|shadow|on for the doc executor on this repo. Same resolution as lib_fixup.sh ovn_executor_mode: env OVN_DOC_EXECUTOR when set, else
+    <OVN_DIR>/state/executor_mode (`doc:<repo>=mode` beats `doc=mode`), else shadow."""
+    m = (os.environ.get("OVN_DOC_EXECUTOR") or "").strip()
+    if not m:
+        repo = os.path.basename(os.path.abspath(root))
+        spec = gen = ""
+        try:
+            for ln in open(os.path.join(OVN_DIR, "state", "executor_mode"), encoding="utf-8", errors="replace"):
+                ln = re.sub(r"\s", "", ln)
+                if not ln or ln.startswith("#") or "=" not in ln:
+                    continue
+                k, _, v = ln.partition("=")
+                if k == "doc:" + repo:
+                    spec = v
+                elif k == "doc":
+                    gen = v
+        except OSError:
+            pass
+        m = spec or gen
+    return m if m in ("off", "shadow", "on") else "shadow"
+
+
 def c_gd_docs(root):
     """Public GDScript functions with no `##` doc comment directly above. DEFAULT OFF (OVN_SUPPLY_GD_DOCS=on enables it): model-written doc items took 59 cycles /
     2.6M tokens for 17 items; they come back when the deterministic doc executor (package xlite-godot-lane, OVN_DOC_EXECUTOR=on) is live."""
     if os.environ.get("OVN_SUPPLY_GD_DOCS", "off").lower() not in ("on", "1", "true", "yes"):
+        return
+    # 2026-10-10 (docexec, analysis[5] B3): the family is supplied only when something other than the 27B's positional udiff guards the result - the deterministic executor
+    # ON for this repo, or the net-diff post-check ENFORCED (OVN_DOC_POSTCHECK=enforce). Model-written docs credited 12 of 57 and left orphan/duplicate `##` blocks behind.
+    # OVN_SUPPLY_GD_DOCS_MODEL=on is the explicit "I know, feed the model anyway" override.
+    if doc_executor_mode(root) != "on" and os.environ.get("OVN_DOC_POSTCHECK", "shadow") != "enforce" \
+            and os.environ.get("OVN_SUPPLY_GD_DOCS_MODEL", "off").lower() not in ("on", "1", "true", "yes"):
+        sys.stderr.write("gd-missing-doc: OVN_SUPPLY_GD_DOCS=on but the doc executor is %s and OVN_DOC_POSTCHECK is not enforce - not supplying model-path doc items "
+                         "(scripts/ovn_executor_ctl.py enable doc --repo %s, or OVN_SUPPLY_GD_DOCS_MODEL=on)\n" % (doc_executor_mode(root), os.path.basename(os.path.abspath(root))))
         return
     for p in walk(root, (".gd",)):
         r = rel(root, p)
@@ -807,35 +844,116 @@ def _local_pullable_count(backlog_text, progress_text, done_text=""):
     return n
 
 
-def _external_pullable():
-    """scripts/ovn_backlog_eligibility.py `pullable(backlog_text, progress_text, done_text)` (package spec-compiler-v2) - the one definition of 'what the lane can pull'
-    shared with queue_refill. Looked up next to this file, then in $OVN_DIR/scripts; None when it is not deployed yet."""
+_ELIG_CACHE = {}      # path -> ((mtime_ns, size), module or None): the eligibility module is loaded once per process (its tree-audit cache lives in the module object)
+_WARNED = set()
+
+
+def _warn_once(msg):
+    """One stderr line per distinct message and process (the first version warned on every pullable_count call: 67 identical lines in work_supply.log)."""
+    if msg not in _WARNED:
+        _WARNED.add(msg)
+        sys.stderr.write(msg + "\n")
+
+
+def _eligibility_module():
+    """scripts/ovn_backlog_eligibility.py (package spec-compiler-v2): looked up next to this file, then in $OVN_DIR/scripts; None when it is not deployed yet or broken."""
     for d in (os.path.dirname(os.path.abspath(__file__)), os.path.join(OVN_DIR, "scripts")):
         p = os.path.join(d, "ovn_backlog_eligibility.py")
-        if os.path.exists(p):
-            try:
-                spec = importlib.util.spec_from_file_location("ovn_backlog_eligibility", p)
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                fn = getattr(mod, "pullable", None)
-                if callable(fn):
-                    return fn
-            except Exception as e:
-                sys.stderr.write("ovn_backlog_eligibility unusable (%s: %s) - local pullable_count used\n" % (type(e).__name__, e))
+        if not os.path.exists(p):
+            continue
+        try:
+            st = os.stat(p)
+            sig = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            continue
+        hit = _ELIG_CACHE.get(p)
+        if hit and hit[0] == sig:
+            if hit[1] is not None:
+                return hit[1]
+            continue
+        mod = None
+        try:
+            spec = importlib.util.spec_from_file_location("ovn_backlog_eligibility", p)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception as e:
+            mod = None
+            _warn_once("ovn_backlog_eligibility unusable (%s: %s) - local pullable_count used" % (type(e).__name__, e))
+        _ELIG_CACHE[p] = (sig, mod)
+        if mod is not None:
+            return mod
     return None
 
 
-def pullable_count(backlog_text, progress_text, done_text=""):
+def _external_pullable():
+    """`pullable(backlog_text, progress_text, done_text[, banned])` of the eligibility module - the one definition of 'what the lane can pull' shared with queue_refill."""
+    mod = _eligibility_module()
+    fn = getattr(mod, "pullable", None) if mod is not None else None
+    return fn if callable(fn) else None
+
+
+def _load_banned(root):
+    """The repo's hard-banned / vendored target patterns, exactly as queue_refill applies them at ingest (OVN_INGEST_BAN_FILTER=off: none -> None = no filter)."""
+    if os.environ.get("OVN_INGEST_BAN_FILTER", "on") == "off":
+        return None
+    mod = _eligibility_module()
+    fn = getattr(mod, "load_banned", None) if mod is not None else None
+    if not callable(fn):
+        return None
+    try:
+        return fn(root)
+    except Exception as e:
+        _warn_once("ovn_backlog_eligibility.load_banned failed (%s: %s) - no ban filter in the pullable count" % (type(e).__name__, e))
+        return None
+
+
+def _is_parked_line(line):
+    """The eligibility module's is_parked() (AUTO-SKIP / HUMAN-ONLY / HUMAN/ / BLOCKED / [CLAUDE] / retired / hard-ban); the local _HELD regex when it is not deployed."""
+    mod = _eligibility_module()
+    fn = getattr(mod, "is_parked", None) if mod is not None else None
+    if callable(fn):
+        try:
+            return bool(fn(line))
+        except Exception:
+            pass
+    return bool(_HELD.search(line))
+
+
+def pullable_count(backlog_text, progress_text, done_text="", banned=None):
+    """What the lane can really take: doable items already queued in the progress file + the backlog lines queue_refill would pull.
+
+    2026-10-10 (F1/B5/BX-10): ovn_backlog_eligibility.pullable() returns the LIST of pullable backlog lines, this function insisted on an int, raised
+    TypeError on every call and silently used _local_pullable_count (a looser definition: it ignores banned targets) - so the 'one definition' was never in use.
+    A list/tuple is now accepted: count = open_count(progress) + len(list). `banned` (patterns from load_banned) is passed through the way queue_refill does it."""
     fn = _external_pullable()
     if fn is not None:
         try:
-            n = fn(backlog_text, progress_text, done_text)
+            if banned is not None and _accepts_banned(fn):
+                n = fn(backlog_text, progress_text, done_text, banned)
+            else:
+                n = fn(backlog_text, progress_text, done_text)
             if isinstance(n, int) and not isinstance(n, bool):
                 return n
-            raise TypeError("pullable() returned %r, not an int" % (n,))
+            if isinstance(n, (list, tuple)):
+                return open_count(progress_text) + _distinct_lines(n)
+            raise TypeError("pullable() returned %r, not an int or a list" % (n,))
         except Exception as e:
-            sys.stderr.write("ovn_backlog_eligibility.pullable failed (%s: %s) - local pullable_count used\n" % (type(e).__name__, e))
+            _warn_once("ovn_backlog_eligibility.pullable failed (%s: %s) - local pullable_count used" % (type(e).__name__, e))
     return _local_pullable_count(backlog_text, progress_text, done_text)
+
+
+def _distinct_lines(lines):
+    """Number of DISTINCT items in the list pullable() returned. pullable() does not collapse identical backlog twins, but the lane takes one item per distinct
+    content (the second twin is a dup of the first as soon as it is queued), and the old local count deduped them: counting twice only made supply run less often."""
+    return len({_norm_line(l) if isinstance(l, str) else repr(l) for l in lines})
+
+
+def _accepts_banned(fn):
+    try:
+        ps = list(inspect.signature(fn).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    return any(p.kind == p.VAR_POSITIONAL for p in ps) or len([p for p in ps if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]) >= 4
 
 
 # ---------------------------------------------------------------- state: seen (key -> (ts, verdict)), resupplied counts, infra-failure counter
@@ -897,6 +1015,15 @@ def _last_supplied(seen, spec):
 _OPEN_RE = re.compile(r"^\s*- \[ \]")
 
 
+def _covers(line, spec):
+    """True when `line` names every symbol of this gap (the parked item is about THIS gap, not about an older gap of the same kind and file whose symbols are gone)."""
+    syms = [str(x) for x in (spec.get("symbols") or [])]
+    if not syms:
+        t = spec.get("text", "")
+        return bool(t) and t in line
+    return all(re.search(r"(?<![\w])%s(?![\w])" % re.escape(x), line) for x in syms)
+
+
 def _filter(spec, lines, seen, resupplied, now=None, gap_present=True):
     """Why this gap must NOT be supplied right now, or None / 'resupply' when it may be.
 
@@ -904,6 +1031,10 @@ def _filter(spec, lines, seen, resupplied, now=None, gap_present=True):
     unrelated lines, which hid 89 real red-before gaps. v2 looks at single LINES (backlog + progress + done):
       held-by-file   another OPEN supply item (any kind) already targets this file - two queued edits to one file collide
       open           an open line of this kind names this file
+      parked         (2026-10-10, F3) the only open line of this kind for this gap is PARKED (AUTO-SKIP / [CLAUDE] / HUMAN-ONLY ...): the queue will never run it, so it
+                     is not 'open' and it must not hold the file against OTHER gaps. It is not re-supplied either: queue_refill strips the AUTO-SKIP tag when it
+                     compares lines, so a re-supplied twin would be pruned as a duplicate of the parked line (that is the churn-loop guard) - the gap needs a
+                     different executor (deterministic doc/ruff executors) or a human un-park, not another model attempt
       done-cooldown  only [x] lines match: the gap is still there, but it was supplied < RESUPPLY_COOLDOWN_S ago, or its gap was re-supplied RESUPPLY_CAP times
                      already (a credit the fleet keeps giving without making the change must not loop), or the gap is gone (gap_present False)
       resupply       only [x] lines match, the SAME gap persists past the cooldown and the cap is not reached -> supply it again
@@ -915,10 +1046,13 @@ def _filter(spec, lines, seen, resupplied, now=None, gap_present=True):
     pat = re.compile(r"(?<![\w./-])%s(?![\w./-])" % re.escape(spec["file"]))
     on_file = [l for l in lines if "supply:" in l and pat.search(l)]
     mine = [l for l in on_file if tag in l]
-    if any(_OPEN_RE.match(l) for l in mine):
+    live_open = [l for l in on_file if _OPEN_RE.match(l) and not _is_parked_line(l)]     # parked lines are open boxes the fleet never takes
+    if any(tag in l for l in live_open):
         return "open"
-    if any(_OPEN_RE.match(l) for l in on_file):
+    if live_open:
         return "held-by-file"
+    if any(_OPEN_RE.match(l) and _is_parked_line(l) and _covers(l, spec) for l in mine):
+        return "parked"
     key = spec_key(spec)
     if mine:
         if not gap_present:
@@ -937,8 +1071,13 @@ def _filter(spec, lines, seen, resupplied, now=None, gap_present=True):
     return None
 
 
+LAST_SPEC_DETAIL = {}   # {index: "sub: detail (rc=N)"} of the last spec_check() call: WHY a spec got a non-red verdict (ovn_spec_check.sh columns 3-5)
+
+
 def spec_check(repo, lines):
-    """Run ovn_spec_check.sh on candidate lines; returns {index: verdict}. verdict 'red' = VERIFY fails on the current checkout (good)."""
+    """Run ovn_spec_check.sh on candidate lines; returns {index: verdict}. verdict 'red' = VERIFY fails on the current checkout (good).
+    The reason columns (detail / sub / rc) go to LAST_SPEC_DETAIL so a bad-spec can be diagnosed from the log instead of being retried blindly for days."""
+    LAST_SPEC_DETAIL.clear()
     sh = os.path.join(OVN_DIR, "scripts", "ovn_spec_check.sh")
     if not os.path.exists(sh):
         return None
@@ -960,6 +1099,10 @@ def spec_check(repo, lines):
         m = re.match(r"^(\d+)\t(\w[\w-]*)", l)
         if m:
             out[int(m.group(1)) - 1] = m.group(2)
+            cols = l.split("\t")
+            why = " ".join(x for x in ((cols[3] if len(cols) > 3 else ""), (cols[2] if len(cols) > 2 else "")) if x.strip()).strip()
+            rc = cols[4].strip() if len(cols) > 4 else ""
+            LAST_SPEC_DETAIL[int(m.group(1)) - 1] = ("%s%s" % (why or "no reason given", (" (rc=%s)" % rc) if rc else ""))
     return out
 
 
@@ -975,8 +1118,9 @@ def _alert(level, repo, msg):
         pass
 
 
-def _bump_infra(repo, bad):
-    """Consecutive passes whose spec check gave no usable verdict: one alerts.log warn when the counter reaches INFRA_ALERT_AFTER (exactly once per streak); a clean pass resets it."""
+def _bump_infra(repo, bad, notes=None):
+    """Consecutive passes whose spec check gave no usable verdict: one alerts.log warn when the counter reaches INFRA_ALERT_AFTER (exactly once per streak), an 'error'
+    at INFRA_ESCALATE_AFTER and every INFRA_REALERT_EVERY passes after that; a clean pass resets it. `notes` (the offending specs and why, see main) go into the text."""
     path = _state("work_supply_infra_fail_%s" % repo)
     try:
         n = int(read(path).strip() or "0")
@@ -986,8 +1130,11 @@ def _bump_infra(repo, bad):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write("%d\n" % n)
+    detail = (" | offending: " + " || ".join(notes[:3])) if notes else ""
     if bad and n == INFRA_ALERT_AFTER:
-        _alert("warn", repo, "spec check gave no usable verdict for %d consecutive passes (no-verdict/no-verify/bad-spec): specs are retried, not remembered - check ovn_spec_check.sh and the repo's origin/overnight/feature" % n)
+        _alert("warn", repo, "spec check gave no usable verdict for %d consecutive passes (no-verdict/no-verify/bad-spec): specs are retried, not remembered - check ovn_spec_check.sh and the repo's origin/overnight/feature%s" % (n, detail))
+    elif bad and INFRA_ESCALATE_AFTER > INFRA_ALERT_AFTER and (n == INFRA_ESCALATE_AFTER or (n > INFRA_ESCALATE_AFTER and INFRA_REALERT_EVERY > 0 and (n - INFRA_ESCALATE_AFTER) % INFRA_REALERT_EVERY == 0)):
+        _alert("error", repo, "STILL no usable spec verdict after %d consecutive passes - these specs are bad (fix or retire them in the backlog/progress file), not a flaky checker%s" % (n, detail))
     return n
 
 
@@ -1039,7 +1186,7 @@ def main(argv):
         print("%s: on-exhausted pass skipped - last pass %ds ago (< %ds)" % (repo, time.time() - os.path.getmtime(last_path), ON_EXHAUSTED_MIN_INTERVAL_S))
         return 0
     backlog_t, progress_t, done_t = read(bl), read(prog), read(os.path.join(root, "OVERNIGHT_DONE.md"))
-    have = pullable_count(backlog_t, progress_t, done_t)
+    have = pullable_count(backlog_t, progress_t, done_t, _load_banned(root))
     if on_exh:
         if have != 0:
             print("%s: %d pullable items - lane not exhausted, nothing to kick" % (repo, have))
@@ -1053,7 +1200,7 @@ def main(argv):
     seen, resupplied = load_seen(seen_path, now), load_resupplied(resup_path)
     lines_all = (backlog_t + "\n" + progress_t + "\n" + done_t).split("\n")
     found = collect_all(root)
-    stat = {"seen": 0, "open": 0, "done-cooldown": 0, "held-by-file": 0}
+    stat = {"seen": 0, "open": 0, "done-cooldown": 0, "held-by-file": 0, "parked": 0}
     specs, files_taken, resup_keys = [], set(), set()
     for s in found:
         why = _filter(s, lines_all, seen, resupplied, now)
@@ -1074,8 +1221,9 @@ def main(argv):
         if not dry:
             _touch(last_path)
         return 0
-    print("%s: %d gaps found, %d filtered (seen=%d open=%d done-cooldown=%d held-by-file=%d), %d specs" % (
-        repo, len(found), sum(stat.values()), stat["seen"], stat["open"], stat["done-cooldown"], stat["held-by-file"], len(specs)))
+    print("%s: %d gaps found, %d filtered (seen=%d open=%d done-cooldown=%d held-by-file=%d%s), %d specs" % (
+        repo, len(found), sum(stat.values()), stat["seen"], stat["open"], stat["done-cooldown"], stat["held-by-file"],
+        (" parked=%d" % stat["parked"]) if stat["parked"] else "", len(specs)))
     if not specs:
         if not dry:
             _touch(last_path)
@@ -1083,7 +1231,7 @@ def main(argv):
     lines = [render(s, repo) for s in specs]
     explicit_skip = "--no-spec-check" in flags
     verdicts = None if explicit_skip else spec_check(repo, lines)
-    keep, dropped, infra = [], {}, 0
+    keep, dropped, infra, notes = [], {}, 0, []
     for i, (s, l) in enumerate(zip(specs, lines)):
         v = "unchecked" if explicit_skip else (verdicts.get(i, "no-verdict") if verdicts is not None else "no-verdict")
         if v == "unchecked":
@@ -1097,6 +1245,11 @@ def main(argv):
             # no-verdict / no-verify / bad-spec: the CHECKER is not conclusive about this spec - never remember it, retry next pass
             dropped[v] = dropped.get(v, 0) + 1
             infra += 1
+            # IPTV-7 / B9a: say WHICH spec and WHY (two iptv specs were dropped as bad-spec on 32 consecutive passes with nothing in any log naming them)
+            why = LAST_SPEC_DETAIL.get(i) if verdicts is not None else "spec check unavailable"
+            note = "%s [%s]: %s" % (l[:SPEC_NOTE_MAX], v, why or "no reason given")
+            notes.append(note)
+            print("%s: spec dropped as %s - %s" % (repo, v, note))
     keep = keep[:mx]
     if dry:
         print("%s: DRY-RUN %d specs, %d red-before, dropped %s" % (repo, len(specs), len(keep), dropped or "none"))
@@ -1104,7 +1257,7 @@ def main(argv):
             print("  " + l[:200])
         return 0
     if not explicit_skip:
-        _bump_infra(repo, infra > 0 or verdicts is None)
+        _bump_infra(repo, infra > 0 or verdicts is None, notes)
     if keep:
         with open(bl, "a") as f:
             f.write("\n# --- deterministic work supply %s (ovn_work_supply.py; VERIFY is red-before, mechanical) ---\n" % datetime.date.today().isoformat())

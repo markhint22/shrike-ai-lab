@@ -97,6 +97,46 @@ declare -A AUTO_MERGE_OVERRIDE=(
 )
 
 log()  { echo "[branch-hygiene $(date '+%F %H:%M:%S')] $*"; }
+# 2026-10-10 (F7): the gates streamed their FULL pytest/gradle output into the cron log (logs/branch_hygiene.log reached 136 MB / 1.5M lines, nothing
+# rotates it, post-incident greps took minutes). hyg_gate_cap sits at the end of those two pipes: the raw output goes to ONE per-run file
+# (logs/hygiene_gate/<ts>.<repo>.<kind>.XXXXXX, pruned after OVN_HYGIENE_GATE_KEEP_DAYS=3), the main log keeps the first OVN_HYGIENE_GATE_HEAD=30 and the last
+# OVN_HYGIENE_GATE_TAIL=150 lines (the failure summary is at the end) plus one pointer line, and an output that small is passed through untouched. The gate's
+# exit code is unaffected. OVN_HYGIENE_GATE_LOG=full restores the old unbounded stream; if the per-run file cannot be created the output is streamed as before (never
+# lose diagnostics to save space).
+# The PYTEST gate does NOT pipe into hyg_gate_cap (hyg_gate_run below): a pipe is only closed when EVERY holder of its write end has exited, so a test that leaked a
+# detached daemon (start_new_session survives `timeout`'s kill) kept the gate - and the fd-223 per-repo verify lock held around it - blocked until that daemon exited
+# (reproduced 2026-10-10: rc=124 after 1 s but the call returned after the daemon's 8 s sleep; a real leaked server would hang the hygiene run for good). The gate's output
+# goes to a file instead, the function waits only for the gate's own process, and the cap then reads the finished file. (Cost: output appears when the gate ends, not live.)
+hyg_gate_cap() {   # $1 = kind label (pytest|gradle); stdin = the gate's raw output; $repo comes from the calling run_gate
+  if [ "${OVN_HYGIENE_GATE_LOG:-capped}" = "full" ]; then cat; return 0; fi
+  local kind="${1:-gate}" dir="${OVN_HYGIENE_GATE_DIR:-$SCRIPT_DIR/logs/hygiene_gate}" f="" n hn tn
+  hn="${OVN_HYGIENE_GATE_HEAD:-30}"; tn="${OVN_HYGIENE_GATE_TAIL:-150}"
+  case "$hn$tn" in ''|*[!0-9]*) hn=30; tn=150;; esac
+  if mkdir -p "$dir" 2>/dev/null; then
+    f="$(mktemp "$dir/$(date +%Y%m%d-%H%M%S).$(basename "${repo:-repo}").$kind.XXXXXX" 2>/dev/null)" || f=""
+    find "$dir" -maxdepth 1 -type f -mtime +"${OVN_HYGIENE_GATE_KEEP_DAYS:-3}" -exec rm -f {} + 2>/dev/null
+  fi
+  if [ -z "$f" ]; then cat; return 0; fi
+  cat > "$f"
+  n="$(wc -l < "$f" | tr -d ' ')"
+  if [ "$n" -le $((hn + tn)) ]; then cat "$f"; rm -f "$f"; return 0; fi
+  head -n "$hn" "$f"
+  log "  gate $kind: $((n - hn - tn)) of $n output lines omitted here; full output kept in $f"
+  tail -n "$tn" "$f"
+}
+# hyg_gate_run <kind> <dir> <cmd...>: run <cmd> in <dir> (stdout+stderr -> a temp FILE, never a pipe), wait for that process only, feed the finished file to hyg_gate_cap and
+# return the command's own exit status (124 = timeout(1) fired). Leaked detached children of the command can no longer delay the return. OVN_HYGIENE_GATE_LOG=full (or no
+# temp file) keeps the old direct stream to the log.
+hyg_gate_run() {
+  local kind="$1" dir="$2" tmp rc; shift 2
+  tmp=""
+  if [ "${OVN_HYGIENE_GATE_LOG:-capped}" != "full" ]; then tmp="$(mktemp 2>/dev/null)" || tmp=""; fi
+  if [ -z "$tmp" ]; then ( cd "$dir" && "$@" 2>&1 ); return $?; fi
+  ( cd "$dir" && "$@" ) > "$tmp" 2>&1; rc=$?
+  hyg_gate_cap "$kind" < "$tmp"
+  rm -f "$tmp"
+  return $rc
+}
 report(){ [ -n "$REPORT_FILE" ] && echo "$*" >> "$REPORT_FILE" || true; }
 
 # --- resolve repo list -------------------------------------------------------
@@ -231,7 +271,7 @@ run_gate() {
       # ovn_pytest_par_args is empty (=> serial, exactly as before) unless the repo is allowlisted
       # AND xdist imports in this venv.
       _xd="$(ovn_pytest_par_args "$_repo_name" "$(dirname "$venv_pytest")")"
-      ( cd "$wt_pkg" && timeout "$TEST_TIMEOUT" "$venv_pytest" -q $_xd -o addopts="" -p no:cacheprovider 2>&1 ) ; rc=$?
+      hyg_gate_run pytest "$wt_pkg" timeout "$TEST_TIMEOUT" "$venv_pytest" -q $_xd -o addopts="" -p no:cacheprovider; rc=$?
       flock -u 223
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       [ "$rc" -ne 0 ] && return 1
@@ -267,7 +307,7 @@ run_gate() {
       ( cd "$gdir" &&
         export ANDROID_HOME="$HOME/android-sdk" &&
         [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
-        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) 2>&1 | tee "$gradle_out"; rc=${PIPESTATUS[0]}
+        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) 2>&1 | tee "$gradle_out" | hyg_gate_cap gradle; rc=${PIPESTATUS[0]}
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       grep -qE "daemon (has disappeared|unexpectedly exit)|Gradle build daemon disappeared unexpectedly" "$gradle_out" && _GATE_TIMEOUT_HIT=1
       rm -f "$gradle_out"
@@ -293,7 +333,10 @@ run_gate() {
       # (NOT bare "SCRIPT ERROR": vendored gut_loader.gd emits a benign one each run.)
       if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
       if [ ! -s "$xml" ] || ! gut_xml_green "$xml"; then log "  GUT RED: $(gut_xml_summary "$xml")"; rm -f "$xml" "$gout"; return 1; fi
-      declare -F gut_log_skips_note >/dev/null 2>&1 && gut_log_skips_note "$gout" "${name:-$(basename "$dir")}" "$STATE_DIR"   # shadow: warn about silently skipped GUT scripts, never blocks
+      # shadow: warn about silently skipped GUT scripts (names ALL of them, and the ones NEW vs the merge target). Blocks only with OVN_GUT_SKIPS_NEW=enforce (default shadow) and a NEW one.
+      if declare -F gut_log_skips_note >/dev/null 2>&1 && ! gut_log_skips_note "$gout" "${name:-$(basename "$dir")}" "$STATE_DIR" "$dir" "origin/${mt:-develop}"; then
+        log "  GUT: NEW ignored script(s) vs origin/${mt:-develop} (OVN_GUT_SKIPS_NEW=enforce) - gate FAILED"; rm -f "$xml" "$gout"; return 1
+      fi
       rm -f "$xml"
     fi
     rm -f "$gout"; ran=1

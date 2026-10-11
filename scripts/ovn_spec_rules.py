@@ -3,7 +3,7 @@
 
   lint_item(line, ctx)    -> (line2, [Finding])
   lint_batch(lines, ctx)  -> [(line2, [Finding]), ...]   same order as `lines`; batch rules (R06 reorder, R07) see the other lines
-  lint_static(line, only) -> (line2, [Finding])           R01-R03 only, no ctx (the `ovn_spec_gate.py lint` filter and queue_refill's repairs)
+  lint_static(line, only) -> (line2, [Finding])           static repairs R01-R03 + R11, no ctx (the `ovn_spec_gate.py lint` filter and queue_refill's repairs)
 
 Finding = {"rule": "R0x", "sev": "repair" | "reject" | "flag", "msg": str, "evidence": str|list|dict}
   repair  the line was rewritten (line2 differs)        reject  the item can never land: quarantine        flag  report (or hold, R06)
@@ -14,6 +14,10 @@ Finding = {"rule": "R0x", "sev": "repair" | "reject" | "flag", "msg": str, "evid
   R03 repair  backticked grep/test/ls/cat/stat cmd whose WHOLE following sentence is exactly a whitelisted post-change verdict ([which|it] [must] fails [with "No such file or
               directory"] | returns non-zero [exit code] | no matches | No such file [or directory], optionally 'after the change/fix') -> `! cmd`; any other wording
               (old/current/today/initially/when/because/before/if/passes ...) leaves the line untouched and emits an R03 'flag' finding for human review
+  R11 repair  a GUT VERIFY that calls addons/gut/cli/gut_cli.gd -> addons/gut/gut_cmdln.gd (gut_cli.gd `extends Node`: it is not a SceneTree script and can never be a `godot -s`
+              entry point, so the clause can never pass; xlite techs_data: 20 lines, ALREADY-DONE x6 + fixup-undid-item x3, 2026-10-09)
+  R12 flag    a VERIFY names a TEST path (.gd/.py) that does not exist at the ref and that neither this item nor a sibling item of the same [feat] batch creates (xlite
+              roster-coerce: `godot -s tests/test_roster_coercion.gd`, a file nothing ever created); batch rule, shadow-only until armed in OVN_SPEC_GATE_ENFORCE_RULES
   R04 reject  TARGET path (text before the first ' - ') is vendored (addons/) or matches .queue-hard-banned-files at the ref
   R05 flag    non-actionable: leading Verify/Ensure/Check/Confirm/Run/Review with no change verb, an 'If ... delete' conditional, 'manual inspection',
               or a prose VERIFY that cannot be run
@@ -38,12 +42,20 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ovn_backlog_eligibility import (  # noqa: E402
     extract_verify, item_target, is_open_item, normalize_vacuous_echo)
-from ovn_spec_classify import clean_bare_verify  # noqa: E402
+from ovn_spec_classify import clean_bare_verify, declared_paths  # noqa: E402
 
 ITEM_RE = re.compile(r"^- \[ \] \[(T[1-5])\]\s+(?P<target>.+?)\s+—\s+(?P<body>.*)$")
 FEAT_RE = re.compile(r"\[feat:([^\]]+)\]")
 R01_CMDS = re.compile(r"^(grep|test|ls|python3?|pytest|cd|godot|npm|npx|\./gradlew)\b")
-PROSE_WORDS = {"passes", "pass", "succeeds", "should", "must", "returns", "exits", "fails", "works", "verifies", "ensure", "ensures", "is", "are", "with", "then"}
+PROSE_WORDS = {"passes", "pass", "succeeds", "should", "must", "returns", "exits", "fails", "works", "verifies", "ensure", "ensures", "is", "are", "with", "then",
+               # 2026-10-10 (reviewer): narration glued after a real command ("grep -n X f shows a match near line 41") ran through bash -c, grep took the words as files and exited 2
+               "shows", "show", "shown", "near", "contains", "contain", "appears", "appear", "matches", "matched", "exists", "exist", "has", "have", "does", "outputs", "prints", "reports"}
+# commands whose exit status says nothing about the thing being checked: the LAST command of a pipeline (`grep -c x f | wc -l` is 0 whatever grep found) or of a `;` / `||` chain
+ALWAYS_ZERO_CMDS = {"echo", "printf", "wc", "cat", "head", "tail", "sort", "uniq", "cut", "tr", "true", ":", "awk", "gawk", "mawk"}
+_PLAIN_WORD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9']*$")
+_QUOTED = re.compile(r"'[^']*'" + r'|"(?:[^"\\]|\\.)*"')
+_CONJ_PROSE = re.compile(r"(?<!\S)(?:and|or)(?!\S)")
+_OPS = {"&&", "||", ";", "|", "&", "(", ")", "|&", ";;"}
 CHANGE_WORDS = re.compile(r"\b(add|create|remove|delete|modify|update|replace|rename|fix|implement|write|change|extract|move|wire|define|introduce|refactor|convert|drop|set|make|use|call|return|raise|handle|guard|split|merge|inline|reorder|wrap)\b", re.I)
 LEAD_VERIFY_VERBS = {"verify", "ensure", "check", "confirm", "run", "review"}
 DELETE_V = {"delete", "remove", "drop"}
@@ -145,22 +157,103 @@ def _balanced(cmd):
         return False
 
 
-def _r01(line):
-    """bare `VERIFY: cmd (cat:` -> `VERIFY: \\`cmd\\` (cat:`"""
+def bare_verify(line):
+    """The bare (unbackticked) `VERIFY: cmd [.] (cat:` clause of an item line as (match, cleaned_cmd), or None. The ONE safety test for 'this bare clause is a runnable
+    command and not prose' (R01 repairs with it, ovn_credit_items.py `bare-verify` / lib_verify_clause.sh shadow_check run it): starts with a known tool word, quotes balance,
+    no backtick, no prose word (passes/should/...); a trailing sentence period glued to the last token is dropped."""
     if re.search(r"VERIFY:\s*`", line):
-        return line, None
+        return None
     m = re.search(r"VERIFY:\s*(.+?)(\s*\(cat:)", line)
     if not m:
-        return line, None
+        return None
     cmd = clean_bare_verify(m.group(1))
     if not R01_CMDS.match(cmd) or "`" in cmd or not _balanced(cmd):
-        return line, None
+        return None
     try:
         toks = shlex.split(cmd)
     except ValueError:
-        return line, None
+        return None
     if any(t.lower() in PROSE_WORDS for t in toks[1:]):
+        return None
+    if _prose_tail_or_vacuous(cmd):
+        return None
+    return m, cmd
+
+
+def _structure(cmd):
+    """(pipelines, comparison_redirect) of a shell clause: pipelines = [(op_before, [[word, ...] per piped command])], quote-aware (shlex punctuation mode); None when it cannot be parsed.
+    comparison_redirect = an unquoted `>` followed by a word starting with `=` (`wc -l >= 2`: bash would create a file named `=`)."""
+    try:
+        lx = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lx.whitespace_split = True
+        toks = list(lx)
+    except ValueError:
+        return None
+    pipelines, cur_pipe, cur_cmd, op, cmp_redir, skip = [], [], [], None, False, False
+    for i, t in enumerate(toks):
+        if skip:
+            skip = False
+            continue
+        if t in _OPS:
+            if cur_cmd:
+                cur_pipe.append(cur_cmd)
+            cur_cmd = []
+            if t in ("|", "|&"):
+                continue
+            if cur_pipe:
+                pipelines.append((op, cur_pipe))
+            cur_pipe, op = [], t
+            continue
+        if t and set(t) <= set("<>&") and t != "&":          # a redirect operator: its target word is not an argument
+            if t.startswith(">") and i + 1 < len(toks) and toks[i + 1].startswith("="):
+                cmp_redir = True
+            skip = True
+            continue
+        cur_cmd.append(t)
+    if cur_cmd:
+        cur_pipe.append(cur_cmd)
+    if cur_pipe:
+        pipelines.append((op, cur_pipe))
+    return pipelines, cmp_redir
+
+
+def _prose_tail_or_vacuous(cmd):
+    """True when a bare clause that passed the tool-word / quote / prose-word tests is still not a trustworthy check: (0) it joins two commands with a bare English `and` / `or` (quoted ones are fine), (1) it ends in a run of >= 3 plain words (trailing narration:
+    `grep -n X f shows a match near line 41`), (2) it compares with an unquoted `>=` (a redirect, not a comparison), or (3) its exit status is that of an always-0 command
+    (`grep -c x f | wc -l`, `... | awk '{print}'`, `a || echo MISSING`). (`cmd && echo X`, whose status is cmd's, is fine; the `&& echo PASS || echo FAIL` idiom never gets here: PASS/FAIL are prose words.)"""
+    if _CONJ_PROSE.search(_QUOTED.sub("''", cmd)):      # an UNQUOTED English `and` / `or` between two "commands" (bash would hand it to grep as a file name and exit 2)
+        return True
+    st = _structure(cmd)
+    if st is None:
+        return True
+    pipelines, cmp_redir = st
+    if cmp_redir or not pipelines:
+        return cmp_redir or not pipelines
+    op, last_pipe = pipelines[-1]
+    words = last_pipe[-1]
+    run = 0
+    for w in reversed(words[1:]):
+        if _PLAIN_WORD.match(w):
+            run += 1
+        else:
+            break
+    if run >= 3:
+        return True
+    prog = os.path.basename(words[0]) if words else ""
+    if prog in ALWAYS_ZERO_CMDS and not (prog in ("awk", "gawk", "mawk") and any("exit" in w for w in words[1:])):
+        if len(last_pipe) > 1:
+            return True
+        if op in (None, ";", "||"):
+            return True
+    return False
+
+
+def _r01(line):
+    """bare `VERIFY: cmd (cat:` -> `VERIFY: \\`cmd\\` (cat:`"""
+    b = bare_verify(line)
+    if b is None:
         return line, None
+    m, cmd = b
     new = line[:m.start()] + "VERIFY: `%s`" % cmd + m.group(2) + line[m.end():]
     return new, finding("R01", "repair", "bare VERIFY clause backticked", cmd)
 
@@ -268,7 +361,20 @@ def _r03(line):
     return new, finding("R03", "repair", "VERIFY narrates that the command fails after the change: negated so the exit code matches", cmd)
 
 
-STATIC_RULES = (("R01", _r01), ("R02", _r02), ("R03", _r03))
+_GUT_CLI = re.compile(r"addons/gut/cli/gut_cli\.gd")
+
+
+def _r11(line):
+    """GUT VERIFY calling addons/gut/cli/gut_cli.gd (a Node, never a `-s` entry point) -> addons/gut/gut_cmdln.gd. Only the text from `VERIFY:` on is touched."""
+    i = line.find("VERIFY:")
+    if i < 0 or not _GUT_CLI.search(line[i:]):
+        return line, None
+    new = line[:i] + _GUT_CLI.sub("addons/gut/gut_cmdln.gd", line[i:])
+    return new, finding("R11", "repair", "GUT VERIFY called addons/gut/cli/gut_cli.gd (extends Node, cannot be a -s entry point): rewritten to addons/gut/gut_cmdln.gd", extract_verify(line) or "")
+
+
+STATIC_RULES = (("R01", _r01), ("R02", _r02), ("R03", _r03), ("R11", _r11))
+STATIC_RULE_IDS = tuple(r for r, _ in STATIC_RULES)
 
 
 def lint_static(line, only=None):
@@ -397,6 +503,74 @@ def _r10(line, p):
     return None
 
 
+_R12_CD = re.compile(r"(?:^|[;&|(]\s*)cd\s+(?:--\s+)?(?:\"([^\"]+)\"|'([^']+)'|([^\s;&|()]+))")
+
+
+def _r12_cd_dirs(v):
+    """Every repo-relative directory a VERIFY could be running its test path from after a `cd` (`cd iptv-backend && python3 -m pytest tests/x.py`): each cd'd dir taken on its own
+    (a subshell / `;` restarts from the root) AND composed with the previous ones (`cd a && cd b` = a/b). Absolute, `~`, `$VAR` and `..`-escaping dirs are dropped."""
+    out, cur = [], ""
+    for m in _R12_CD.finditer(v):
+        d = (m.group(1) or m.group(2) or m.group(3) or "").strip()
+        if not d or d.startswith(("/", "~", "$", "-")):
+            continue
+        for cand in (os.path.normpath(d), os.path.normpath(os.path.join(cur, d)) if cur else ""):
+            if cand and cand != "." and not cand.startswith("..") and cand not in out:
+                out.append(cand)
+        cur = os.path.normpath(os.path.join(cur, d)) if cur else os.path.normpath(d)
+        if cur.startswith(".."):
+            cur = ""
+    return out
+
+
+_R12_PATH = re.compile(r"(?<![\w./-])((?:res://)?[A-Za-z0-9_./-]+\.(?:gd|py))\b")
+
+
+def _r12(line, p, sibling_lines, ctx):
+    """R12: the item's VERIFY names a TEST file that does not exist at the ref and that nothing in this batch creates. The 27B-decomposed items bypass the red-before check
+    work-supply items get, so a VERIFY like `godot -s tests/test_roster_coercion.gd` (no such file, no item creates it) enters the queue and can never go green. A path is
+    'created' when the item itself or any sibling of the same [feat] batch declares it (its target, or a path after a Create/Add/Write verb: ovn_spec_classify.declared_paths).
+    A bare file name (a GUT `-gtest=test_x.gd`) matches any tracked file with that basename; a path in a `cd <pkg> && pytest tests/x.py` clause is also tried under <pkg>/. Needs the ref's tree: with none (git failure) the rule says nothing."""
+    if ctx is None:
+        return None
+    v = extract_verify(line)
+    if not v:
+        return None
+    tree = ctx.tree()
+    if not tree:
+        return None
+    names = {os.path.basename(t) for t in tree}
+    declared = set(declared_paths(line))
+    if p.get("feat"):
+        for sl in sibling_lines:
+            if FEAT_RE.search(sl) and FEAT_RE.search(sl).group(1) == p["feat"]:
+                declared |= set(declared_paths(sl))
+    dnames = {os.path.basename(d) for d in declared}
+    cds = _r12_cd_dirs(v)
+    missing = []
+    for m in _R12_PATH.finditer(v):
+        t = m.group(1)
+        if t.startswith("res://"):
+            t = t[len("res://"):]
+        if t.startswith("./"):
+            t = t[2:]
+        if t.startswith("addons/") or not _is_test_path(t) or os.path.basename(t) in ("gut_cmdln.gd", "gut_cli.gd"):
+            continue
+        base = os.path.basename(t)
+        exists = (t in tree) if "/" in t else (base in names)
+        if not exists and "/" in t:
+            # `cd <pkg> && pytest tests/x.py`: the path is relative to the cd'd directory, so <pkg>/<path> is the tracked file (a cd-prefixed pytest clause on an EXISTING test
+            # file was rejected: 2026-10-10 reviewer replay, 31 xlite / 21 iptv / 25 billwatch / 14 gitlark / 13 TAA false R12 hits).
+            exists = any(os.path.normpath(d + "/" + t) in tree for d in cds)
+        if exists or t in declared or base in dnames:
+            continue
+        if t not in missing:
+            missing.append(t)
+    if missing:
+        return finding("R12", "reject", "VERIFY names test path(s) that do not exist and that neither this item nor a sibling item creates: it can never go green", missing[:4])
+    return None
+
+
 def _py_names(src):
     try:
         tree = ast.parse(src)
@@ -520,7 +694,7 @@ def lint_batch(lines, ctx=None):
         p = parsed[i]
         fs = list(fs)
         if p is not None:
-            for f in (_r04(p, ctx), _r05(line2, p), _r06(i, parsed, ctx), _r08(p, ctx), _r10(line2, p)):
+            for f in (_r04(p, ctx), _r05(line2, p), _r06(i, parsed, ctx), _r08(p, ctx), _r10(line2, p), _r12(line2, p, [l for l, _ in lined], ctx)):
                 if f:
                     fs.append(f)
             for key in dels:

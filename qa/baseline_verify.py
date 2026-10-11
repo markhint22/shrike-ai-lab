@@ -17,7 +17,7 @@ CLI (one JSON line on stdout, exit 0 always; mode via qa_common.mode("baseline")
   baseline_verify.py snapshot --repo R --failing-file F [--format auto|pytest|vitest|gradle|gut|verify-log|ids]
                               [--commit SHA] [--source TAG] [--accept-growth]
   baseline_verify.py compare  --repo R --failing-file F [--format ...] [--base-sha S] [--runner-failed]
-  baseline_verify.py refresh  --repo R [--ref origin/overnight/feature]   (python/pytest repos: run suite in a worktree + snapshot)
+  baseline_verify.py refresh  --repo R [--ref origin/overnight/feature]   (python/pytest repos: run suite in a worktree + snapshot; Godot/GUT repos: qa/baseline_verify_gut.py, git-archive scratch copy)
   baseline_verify.py shadow-log --repo R --result-file F --runner-decision verified|not_verified --run ID   (staged-runner hook: one paired row)
   baseline_verify.py show     --repo R
   baseline_verify.py parse    --failing-file F [--format ...]              (debug: print parsed ids)
@@ -83,16 +83,54 @@ def _result(fmt, ids=None, hard=None, complete=True, reasons=None, expected=None
 
 
 def _cut_msg(s):
-    """Strip ' - message' from a pytest short-summary id, bracket-aware (param ids may contain ' - ')."""
+    """Reduce a pytest short-summary tail to the bare node id. A node id has NO whitespace outside its [param] brackets, so cut at the first
+    whitespace that is outside brackets (this also covers ' - message'), and stop right after a [param] group that closes the id: pytest ids
+    end at ']'. 2026-10-10 (QA-7): a log line from another process landed between the id and its newline, which turned
+    'ERROR tests/t.py::test_x' into '...::test_xSentry not available or SENTRY_DSN not configured - error tracking disabled'; the old ' - '-only
+    cut kept 'test_xSentry not available or SENTRY_DSN not configured' as the id, a phantom NEW failure."""
     depth = 0
+    last_sep = s.rfind("::")
     for i, ch in enumerate(s):
         if ch == "[":
             depth += 1
         elif ch == "]":
             depth = max(0, depth - 1)
-        elif depth == 0 and s.startswith(" - ", i):
+            if depth == 0 and i > last_sep and i + 1 < len(s) and not s[i + 1].isspace():
+                return s[:i + 1].strip()
+        elif depth == 0 and ch.isspace():
             return s[:i].strip()
     return s.strip()
+
+
+_PYTEST_HEADER = re.compile(r"^_{2,} (?:ERROR at (?:setup|teardown) of )?(\S.*?) _{2,}$")
+
+
+def _known_test_names(lines):
+    """Bare test function names from pytest's '____ name ____' / '____ ERROR at setup of name ____' section headers (class prefix and [param] dropped)."""
+    out = set()
+    for l in lines:
+        m = _PYTEST_HEADER.match(l.strip())
+        if m:
+            n = m.group(1).split("[", 1)[0].split(".")[-1].strip()
+            if n and re.match(r"^\w+$", n):
+                out.add(n)
+    return out
+
+
+def _repair_glued(nid, known):
+    """If the test name at the end of `nid` is not a known failing test but a known failing test name is a strict prefix of it followed by an upper-case letter,
+    foreign text was glued on without any separator ('..._failsSentry'): cut back to the known name. Exact matches and logs without section headers are left alone."""
+    if not known or "::" not in nid:
+        return nid
+    head, last = nid.rsplit("::", 1)
+    base, br, rest = last.partition("[")
+    if base in known:
+        return nid
+    # only a continuation that starts with an UPPER-case letter is treated as glued log text ('..._failsSentry'): a plain test-name continuation ('_bar', '2', 'bar') is a different test
+    cands = [k for k in known if base.startswith(k) and len(base) > len(k) and base[len(k)].isupper()]
+    if not cands:
+        return nid
+    return head + "::" + max(cands, key=len) + (br + rest if br and nid.endswith("]") else "")
 
 
 _PYTEST_SUMMARY = re.compile(r"(?:^|\s)(\d+) (failed|passed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun|subtests passed)\b")
@@ -105,11 +143,12 @@ def parse_pytest(text, prefix=""):
     truncated (timeout mid-progress-bar) or the parsed id count is below the summary's failed+error count."""
     lines = strip_ansi(text).splitlines()
     ids = set()
+    known = _known_test_names(lines)
     for l in lines:
         m = _PYTEST_ID.match(l)
         if not m:
             continue
-        nid = _cut_msg(m.group(2))
+        nid = _repair_glued(_cut_msg(m.group(2)), known)
         if "::" in nid or re.match(r"^[\w./\-]+\.py", nid) or "/" in nid:
             ids.add(prefix + nid)
     final = None
@@ -736,7 +775,12 @@ def cmd_refresh(a):
         return _v("UNVERIFIED", a.repo, a.ref, "repo clone not found")
     vp = _find_pytest(rd)
     if not vp:
-        return _v("NA", a.repo, a.ref, "no .venv/bin/pytest in the clone (refresh supports python/pytest repos only)")
+        # 2026-10-10 (F6): Godot/GUT repos (xlite) have a refresh path of their own; lazily imported so a pytest refresh never loads it.
+        try:
+            import baseline_verify_gut as _gut
+        except ImportError:   # a partial deploy (module not copied next to this file) must read as before, not crash
+            return _v("NA", a.repo, a.ref, "no .venv/bin/pytest in the clone (refresh supports python/pytest repos only)")
+        return _gut.refresh(sys.modules[__name__], a)
     pkg = os.path.relpath(os.path.dirname(os.path.dirname(os.path.dirname(vp))), rd)
     rc0, sha, _ = qc.git(rd, "rev-parse", a.ref)
     with qc.worktree(rd, a.ref) as wt:

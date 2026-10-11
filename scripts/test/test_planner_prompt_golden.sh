@@ -135,8 +135,8 @@ install_gate(){  # copy the real gate + modules into the sandbox scripts/
   for f in ovn_spec_gate.py ovn_spec_rules.py ovn_spec_classify.py ovn_backlog_eligibility.py; do cp "$SRC/$f" "$WD/scripts/"; done
 }
 items(){ grep '^- \[ \] \[T' "$WD/backlog/demo.md"; }
-fresh "$PL"; install_gate; run "$WD/ovn_planner_under_test.sh"
-ok "default (nothing enforced): 3 items appended exactly as the model wrote them (+ feat tag)" "[ \"\$(items | wc -l | tr -d ' ')\" = 3 ] && items | grep -c 'VERIFY: grep -q \"def a\" scripts/existing.py. (cat:python; multifile:no) \\[feat:' | grep -qx 1 && items | grep -c 'echo \"FAIL\" || echo \"PASS\"' | grep -qx 1"
+fresh "$PL"; install_gate; run "$WD/ovn_planner_under_test.sh" OVN_SPEC_GATE_ENFORCE_RULES=   # 2026-10-10 (R10): UNSET = R01,R11 now; empty = nothing enforced
+ok "empty rule list (nothing enforced): 3 items appended exactly as the model wrote them (+ feat tag)" "[ \"\$(items | wc -l | tr -d ' ')\" = 3 ] && items | grep -c 'VERIFY: grep -q \"def a\" scripts/existing.py. (cat:python; multifile:no) \\[feat:' | grep -qx 1 && items | grep -c 'echo \"FAIL\" || echo \"PASS\"' | grep -qx 1"
 ok "... and the planner log notes what the lint would repair (shadow)" "grep -c 'shadow, nothing rewritten' '$WD/logs/ovn_planner.log' | grep -qx 1"
 fresh "$PL"; install_gate; run "$WD/ovn_planner_under_test.sh" OVN_SPEC_GATE_ENFORCE_RULES=R01,R02
 ok "R01+R02 enforced: the bare VERIFY is backticked and the vacuous idiom repaired before the feat tag is appended" "items | grep -c 'VERIFY: .grep -q \"def a\" scripts/existing.py. (cat:python; multifile:no) \\[feat:' | grep -qx 1 && items | grep -c '! ( grep -q old_name scripts/existing.py )' | grep -qx 1 && [ \"\$(items | grep -c 'echo \"FAIL\"')\" = 0 ]"

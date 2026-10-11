@@ -82,12 +82,16 @@ printf '#!/bin/sh\necho "openjdk 17"\n' >"$FAKE/java"
 chmod +x "$FAKE"/*
 # fake staging backend: /health 200; /api/auth/login 200 only for the right password
 cat >"$FAKE/backend.py" <<EOF
-import http.server,socketserver,sys,json
+import http.server,socketserver,sys,json,os
 SECRET="$SECRET"
+def _lk():
+    open("$T/backend_lock.log","a").write("1" if os.path.isdir("$T/ovn/state/staging_e2e.lock") else "0")
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(s):
+        _lk()
         s.send_response(200); s.send_header('Content-Type','application/json'); s.end_headers(); s.wfile.write(b'{"status":"ok"}')
     def do_POST(s):
+        _lk()
         n=int(s.headers.get('Content-Length','0')); body=s.rfile.read(n).decode()
         good=('"password":"%s"'%SECRET) in body
         s.send_response(200 if good else 401); s.end_headers(); s.wfile.write(b'{}')
@@ -703,6 +707,115 @@ if [ "${DL_REAL_EMULATOR_TEST:-0}" = 1 ]; then
 else
   echo "  skip: real-emulator test (set DL_REAL_EMULATOR_TEST=1 to run ONE bounded boot; OFF by default)"
 fi
+
+echo "== 28. staging e2e lock (F8): the lane serialises with staging_e2e_run.sh / qa_daily_shadow.sh on state/staging_e2e.lock"
+E2L="$T/ovn/state/staging_e2e.lock"
+rm -rf "$E2L"
+lock_spec() {  # a spec that records whether the lock dir exists while the specs run, and its mtime
+  set_spec alpha "if [ -d $E2L ]; then echo held >$T/spec_lock; else echo free >$T/spec_lock; fi; cat $E2L/pid >$T/spec_lock_pid 2>/dev/null; exit 0"
+}
+reset_specs; rm -f "$T/backend_lock.log" "$T/spec_lock" "$T/spec_lock_pid"; lock_spec
+out="$(lane "$RN" -- )"
+ok "benign: run PASSes with the lock machinery in place" "$([ "$(echo "$out" | field verdict)" = PASS ] && echo 1 || echo 0)"
+ok "every request the lane made to staging (health + 2 logins) happened WHILE the lock was held" "$([ -s "$T/backend_lock.log" ] && ! grep -q 0 "$T/backend_lock.log" && [ "$(wc -c <"$T/backend_lock.log" | tr -d ' ')" -ge 3 ] && echo 1 || echo 0)"
+ok "the lock is still held while the specs run (whole-run hold), pid file is the lane's own" "$([ "$(cat "$T/spec_lock" 2>/dev/null)" = held ] && [ -n "$(cat "$T/spec_lock_pid" 2>/dev/null)" ] && echo 1 || echo 0)"
+ok "lock released after the run" "$([ ! -e "$E2L" ] && echo 1 || echo 0)"
+ok "no heartbeat process left behind" "$(pgrep -f "dl-lockbeat .*$T/ovn/state" >/dev/null && echo 0 || echo 1)"
+
+echo "== 28b. a busy lock (fresh, foreign) => UNVERIFIED before any staging contact, foreign lock untouched"
+reset_specs; rm -f "$T/backend_lock.log"; mkdir -p "$E2L"; echo 4242424 >"$E2L/pid"
+t0=$(date +%s); out="$(lane "$RN" DL_E2E_LOCK_WAIT_S=3 -- )"; el=$(( $(date +%s) - t0 ))
+ok "verdict UNVERIFIED naming the lock (not an app result)" "$([ "$(echo "$out" | field verdict)" = UNVERIFIED ] && echo "$out" | field summary | grep -q 'staging e2e lock busy' && echo 1 || echo 0)"
+ok "waited about the configured time, not forever" "$([ "$el" -ge 2 ] && [ "$el" -lt 30 ] && echo 1 || echo 0)"
+ok "no request reached staging, nothing built or booted" "$([ ! -s "$T/backend_lock.log" ] && [ ! -f "$T/emu.pid" ] && echo 1 || echo 0)"
+ok "the foreign holder's lock is untouched (same pid file)" "$([ "$(cat "$E2L/pid" 2>/dev/null)" = 4242424 ] && echo 1 || echo 0)"
+rm -rf "$E2L"
+
+echo "== 28c. a STALE lock (older than 30 min) is taken over, as the other users of the lock do"
+reset_specs; rm -f "$T/backend_lock.log" "$T/spec_lock"; lock_spec; mkdir -p "$E2L"; echo 4242424 >"$E2L/pid"
+$PY -c 'import os,sys,time; t=time.time()-45*60; os.utime(sys.argv[1],(t,t))' "$E2L"
+out="$(lane "$RN" DL_E2E_LOCK_WAIT_S=3 -- )"
+ok "stale lock taken over: PASS, requests ran under OUR lock, specs saw it held" "$([ "$(echo "$out" | field verdict)" = PASS ] && [ -s "$T/backend_lock.log" ] && ! grep -q 0 "$T/backend_lock.log" && [ "$(cat "$T/spec_lock")" = held ] && echo 1 || echo 0)"
+ok "and it is released afterwards" "$([ ! -e "$E2L" ] && echo 1 || echo 0)"
+reset_specs; mkdir -p "$E2L"; echo 4242424 >"$E2L/pid"; $PY -c 'import os,sys,time; t=time.time()-5*60; os.utime(sys.argv[1],(t,t))' "$E2L"
+out="$(lane "$RN" DL_E2E_LOCK_WAIT_S=2 -- )"
+ok "negative control: a 5-minute-old foreign lock is NOT stale => busy, untouched" "$([ "$(echo "$out" | field verdict)" = UNVERIFIED ] && [ "$(cat "$E2L/pid" 2>/dev/null)" = 4242424 ] && echo 1 || echo 0)"
+rm -rf "$E2L"
+
+echo "== 28d. released on every exit path after it was taken; never taken before the staging contact"
+reset_specs; rm -f "$T/backend_lock.log"
+out="$(lane "$RN" DL_API_BASE=http://127.0.0.1:9 -- )"
+ok "staging backend down (after the lock): UNVERIFIED and the lock is released" "$([ "$(echo "$out" | field verdict)" = UNVERIFIED ] && [ ! -e "$E2L" ] && echo 1 || echo 0)"
+out="$(lane "$RN" DL_CREDS="$T/creds_bad.env" -- )"
+ok "login refused: UNVERIFIED and the lock is released" "$([ "$(echo "$out" | field verdict)" = UNVERIFIED ] && [ ! -e "$E2L" ] && echo 1 || echo 0)"
+reset_specs; touch "$T/install_fail"
+out="$(lane "$RN" -- )"
+ok "adb install failure mid-run: UNVERIFIED and the lock is released" "$([ "$(echo "$out" | field verdict)" = UNVERIFIED ] && [ ! -e "$E2L" ] && echo 1 || echo 0)"
+reset_specs; mkdir -p "$E2L"; echo 4242424 >"$E2L/pid"
+out="$(lane "$RN" DL_CREDS="$T/does-not-exist.env" DL_E2E_LOCK_WAIT_S=1 -- )"
+ok "failing BEFORE the staging contact (creds file missing) never touches somebody else's lock" "$([ "$(echo "$out" | field verdict)" = UNVERIFIED ] && [ "$(cat "$E2L/pid" 2>/dev/null)" = 4242424 ] && echo 1 || echo 0)"
+rm -rf "$E2L"
+reset_specs; mkdir -p "$E2L"; echo 4242424 >"$E2L/pid"
+out="$(lane "$RN" DL_FAKE_KVM=0 DL_E2E_LOCK_WAIT_S=1 -- )"
+ok "failing on the kvm preflight (before the lock) leaves a foreign lock alone too" "$([ "$(cat "$E2L/pid" 2>/dev/null)" = 4242424 ] && echo 1 || echo 0)"
+rm -rf "$E2L"
+
+echo "== 28e. takeover mid-run: a lock someone else now owns is not removed by us"
+reset_specs; set_spec alpha "echo 777777 >$E2L/pid; exit 0"
+out="$(lane "$RN" -- )"
+ok "pid file replaced by another owner during the run => our release leaves the lock alone" "$([ -d "$E2L" ] && [ "$(cat "$E2L/pid")" = 777777 ] && echo 1 || echo 0)"
+rm -rf "$E2L"
+
+echo "== 28f. heartbeat: a long run keeps the lock fresh (stale takeover is mtime-based)"
+reset_specs; rm -f "$T/beat.txt"
+set_spec alpha "$PY - <<'PYEOF'
+import os, time
+lock = '$E2L'
+m0 = os.stat(lock).st_mtime
+t_end = time.time() + 20
+beat = 'no'
+while time.time() < t_end:
+    time.sleep(0.2)
+    if os.stat(lock).st_mtime > m0:
+        beat = 'yes'
+        break
+open('$T/beat.txt', 'w').write(beat)
+PYEOF
+exit 0"
+out="$(lane "$RN" DL_E2E_LOCK_BEAT_S=1 DL_SPEC_TIMEOUT=60 -- )"
+ok "lock mtime advanced during the run (heartbeat touched it), run PASSes" "$([ "$(cat "$T/beat.txt" 2>/dev/null)" = yes ] && [ "$(echo "$out" | field verdict)" = PASS ] && echo 1 || echo 0)"
+ok "heartbeat stopped with the run (no sleeper left), lock gone" "$([ ! -e "$E2L" ] && ! pgrep -f "dl-lockbeat 1 $E2L" >/dev/null && echo 1 || echo 0)"
+
+echo "== 28g. kill switch and SIGTERM"
+reset_specs; rm -f "$T/backend_lock.log" "$T/spec_lock"; lock_spec
+out="$(lane "$RN" DL_E2E_LOCK=off -- )"
+ok "DL_E2E_LOCK=off: PASS, lock never taken (specs saw none, staging requests saw none)" "$([ "$(echo "$out" | field verdict)" = PASS ] && [ "$(cat "$T/spec_lock")" = free ] && ! grep -q 1 "$T/backend_lock.log" && echo 1 || echo 0)"
+reset_specs; set_spec alpha "touch $T/spec_started; sleep 40"
+rm -f "$T/spec_started"
+( lane "$RN" DL_SPEC_TIMEOUT=60 -- >/dev/null 2>&1 ) & BG=$!
+for _ in $(seq 1 60); do [ -f "$T/spec_started" ] && break; sleep 0.5; done
+ok "setup: the spec is running with the lock held" "$([ -f "$T/spec_started" ] && [ -d "$E2L" ] && echo 1 || echo 0)"
+RP="$(pgrep -f 'device_lane/run_nightly.sh' | head -1)"; kill -TERM "$RP" 2>/dev/null; wait $BG 2>/dev/null
+for _ in $(seq 1 30); do [ ! -e "$E2L" ] && break; sleep 0.5; done
+ok "SIGTERM mid-run: the lock is released by the cleanup trap, heartbeat gone" "$([ ! -e "$E2L" ] && ! pgrep -f "dl-lockbeat .*$E2L" >/dev/null && echo 1 || echo 0)"
+pkill -f 'sleep 40' 2>/dev/null
+reset_specs
+
+echo "== 28h. a SIGKILLed run must not keep its lock fresh forever (the heartbeat dies with the run; the lock goes stale and is taken over)"
+reset_specs; set_spec alpha "touch $T/spec_started; sleep 40"
+rm -f "$T/spec_started"
+( lane "$RN" DL_E2E_LOCK_BEAT_S=1 DL_SPEC_TIMEOUT=60 -- >/dev/null 2>&1 ) & BG=$!
+for _ in $(seq 1 60); do [ -f "$T/spec_started" ] && break; sleep 0.5; done
+ok "setup: the run is in its spec phase, lock held, heartbeat alive" "$([ -f "$T/spec_started" ] && [ -d "$E2L" ] && pgrep -f "dl-lockbeat 1 $E2L" >/dev/null && echo 1 || echo 0)"
+RP="$(pgrep -f 'device_lane/run_nightly.sh' | head -1)"; kill -KILL "$RP" 2>/dev/null; wait $BG 2>/dev/null
+for _ in $(seq 1 40); do pgrep -f "dl-lockbeat 1 $E2L" >/dev/null || break; sleep 0.5; done
+ok "the heartbeat noticed its run is gone and exited (within seconds)" "$(pgrep -f "dl-lockbeat 1 $E2L" >/dev/null && echo 0 || echo 1)"
+ok "the dead run's lock is left behind (not ours to clean: stale takeover handles it) and its mtime no longer advances" "$(m1="$($PY -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime)' "$E2L" 2>/dev/null)"; sleep 2.5; m2="$($PY -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime)' "$E2L" 2>/dev/null)"; [ -d "$E2L" ] && [ -n "$m1" ] && [ "$m1" = "$m2" ] && echo 1 || echo 0)"
+# tidy what the SIGKILLed run left running (it could not run its own cleanup)
+for f in emu.pid appium.pid; do [ -f "$T/$f" ] && kill "$(cat "$T/$f")" 2>/dev/null; done; pkill -f 'sleep 40' 2>/dev/null; pkill -f "$T/fake/" 2>/dev/null
+pkill -f "dl-watchdog [0-9]* $RP\$" 2>/dev/null     # the SIGKILLed run could not stop its overall-timeout watchdog (own session, sleeps DL_OVERALL_TIMEOUT): do not leak it into the next suite run
+ok "no watchdog of the killed run is left sleeping (the section-24 check greps 'dl-watchdog 600', a prefix of the default 6000)" "$(sleep 0.5; pgrep -f "dl-watchdog [0-9]* $RP\$" >/dev/null && echo 0 || echo 1)"
+rm -rf "$E2L"; reset_specs
 
 echo; echo "devicelane: $pass passed, $fail failed"
 [ "$fail" = 0 ]

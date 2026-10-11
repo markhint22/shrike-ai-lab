@@ -178,6 +178,20 @@ def gold_main(argv):
     return 1 if ("--strict" in argv and bad) else 0
 
 
+def replay_commit(gate_script, repo, sha, extra=None, timeout=None, env=None):
+    """Run `gate_script check --repo R --base sha^ --head sha --no-record` for ONE commit (what main() does per commit; reused by qa_label.py harvest).
+    -> result dict (the gate's JSON line, plus "commit"); a crash / timeout / unparsable output is an UNVERIFIED dict, never an exception."""
+    timeout = int(os.environ.get("QA_REPLAY_TIMEOUT", "300")) if timeout is None else timeout
+    cmd = [sys.executable, gate_script, "check", "--repo", repo, "--base", sha + "^", "--head", sha, "--no-record"] + list(extra or [])
+    rc, so, _ = qc.run(cmd, timeout=timeout, polite=True, env=env)
+    try:
+        res = json.loads(so.strip().splitlines()[-1])
+    except Exception:  # noqa: BLE001
+        res = {"verdict": "UNVERIFIED", "summary": "no parsable output (rc=%s)" % rc, "details": {}}
+    res["commit"] = sha
+    return res
+
+
 def main(argv):
     if "--gold" in argv:
         return gold_main(argv)
@@ -205,13 +219,7 @@ def main(argv):
         base = sha + "^"
         if qc.git(rd, "rev-parse", "--verify", "-q", base)[0] != 0:
             continue
-        cmd = [sys.executable, gate_script, "check", "--repo", repo, "--base", base, "--head", sha, "--no-record"] + (o["extra"].split() if o["extra"] else [])
-        rc2, so, _ = qc.run(cmd, timeout=int(os.environ.get("QA_REPLAY_TIMEOUT", "300")), polite=True)
-        try:
-            res = json.loads(so.strip().splitlines()[-1])
-        except Exception:  # noqa: BLE001
-            res = {"verdict": "UNVERIFIED", "summary": "no parsable output (rc=%s)" % rc2, "details": {}}
-        res["commit"] = sha
+        res = replay_commit(gate_script, repo, sha, o["extra"].split() if o["extra"] else None)
         counts[res.get("verdict", "UNVERIFIED")] += 1
         rows.append(res)
         if res.get("verdict") in ("FAIL", "FLAG"):

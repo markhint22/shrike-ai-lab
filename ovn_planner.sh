@@ -210,7 +210,7 @@ PROMPT_END
     n=$(printf '%s\n' "$items" | grep -c '^- \[ \]')
   fi
   # 2026-10-09 spec gate lint (spec-compiler-v2): static repairs R01-R03 (bare VERIFY -> backticked, vacuous echo idiom, narrated "fails") on the decomposition,
-  # only for the rules named in OVN_SPEC_GATE_ENFORCE_RULES (default empty: it just reports what it would repair); OVN_SPEC_GATE=off skips it. Same fail-safe
+  # only for the rules named in OVN_SPEC_GATE_ENFORCE_RULES (default R01,R11, the repair-only rules; set it empty to repair nothing, R02/R03 are opt-in); the rest is only reported. OVN_SPEC_GATE=off skips it. Same fail-safe
   # contract as the guards above: a missing/crashing lint can never lose or alter a decomposition (it echoes its input on any error, and an empty answer is ignored).
   _spec_gate="$HOME/overnight-queue/scripts/ovn_spec_gate.py"
   if [ -f "$_spec_gate" ]; then

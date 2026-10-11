@@ -96,7 +96,7 @@ ovn_open_bug_count() {
 }
 
 ovn_resolve_top_item() {
-  local repo_dir="$1" task_log="${2:-}"
+  local repo_dir="$1" task_log="${2:-}" nofallback="${3:-}"   # 2026-10-10: $3=nofallback -> print nothing instead of the top-of-file line when the scout names no matching item
   local prog="$repo_dir/OVERNIGHT_PROGRESS.md"
   [ -f "$prog" ] || return 0
   local scouted f top
@@ -117,8 +117,29 @@ ovn_resolve_top_item() {
   fi
   # Fallback: no task_log, no scout signal, or the scouted file isn't literally in the
   # progress file — the original top-of-file behavior, unchanged.
+  [ "$nofallback" = nofallback ] && return 0
   top="$(grep -nE '^- \[ \]' "$prog" 2>/dev/null | grep -viE "$OVN_PARKED_CI_ERE" | grep -vE "$OVN_PARKED_CS_ERE" | ovn_bug_first_order | head -1)"
   printf '%s' "$top"
+}
+
+# ovn_resolve_worked_item <repo_dir> <task_log>  (2026-10-10, harness R10, BX-08 / IPTV-5)
+# The item a FINISHED cycle actually worked, for OUTCOME ATTRIBUTION: "N:<line text>" or EMPTY. Never the top-of-file fallback: record_outcome used to bill every cycle to
+# ovn_resolve_top_item's fallback (the top open line) whenever the scout named no matching file, so 41 xlite `landed` rows (doc-comment commits on unrelated files) were all billed to one
+# roster item and iptv rows carried another item's feat_tag/category - per-item streaks, the item guard and scorecards keyed on item_hash were wrong. Evidence, in this order:
+#   1. the line the cycle itself ticked: `credited line N (matched X)` (implement-pass credit), `credited already-done item at line N` (scout credit), `checked off line N` (auto-credit),
+#      accepted only while line N is a ticked `- [x]` item (the LAST such marker wins);
+#   2. the open item whose text contains a file the scout named (ovn_resolve_top_item ... nofallback).
+# Nothing resolvable -> empty (the outcome row then records no item_hash / feat_tag rather than somebody else's).
+ovn_resolve_worked_item() {
+  local repo_dir="${1:-}" tl="${2:-}" prog n txt
+  prog="$repo_dir/OVERNIGHT_PROGRESS.md"
+  [ -f "$prog" ] && [ -n "$tl" ] && [ -f "$tl" ] || return 0
+  n="$(grep -aoE '(credited line|credited already-done item at line|checked off line) [0-9]+' "$tl" 2>/dev/null | tail -1 | grep -oE '[0-9]+$')"
+  if [ -n "$n" ]; then
+    txt="$(sed -n "${n}p" "$prog" 2>/dev/null)"
+    case "$txt" in "- [x] "*|"- [X] "*) printf '%s:%s' "$n" "$txt"; return 0;; esac
+  fi
+  ovn_resolve_top_item "$repo_dir" "$tl" nofallback
 }
 
 # ovn_item_hash — shared "identity" hash for an item's line text (2026-09-29).

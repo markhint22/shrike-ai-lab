@@ -29,18 +29,53 @@ gut_xml_summary() {
   echo "root: ${root:-<none>} | failing: $(grep -B1 -E '<failure|<error' "$x" 2>/dev/null | grep -oE '<testcase[^>]*name="[^"]*"' | grep -oE 'name="[^"]*"' | head -5 | tr '\n' ' ')"
 }
 
-# gut_log_skips_note LOGFILE REPO [STATE_DIR] - SHADOW check (2026-10-03): GUT silently skips a test script it cannot parse ("Ignoring script",
+# gut_ignored_scripts LOGFILE: the script path of EVERY 'Ignoring script <path> because ...' line, de-duplicated, one per line, 'res://' stripped. 2026-10-10: the
+# alert used to print the first 3 raw lines cut at 200 chars, so the 4th ignored script of an alert ('4 script(s)') was never named.
+gut_ignored_scripts() {
+  [ -n "${1:-}" ] && [ -r "$1" ] || return 0
+  grep -E 'Ignoring script' "$1" 2>/dev/null | sed -E 's/^.*Ignoring script[[:space:]]+//; s/[[:space:]]+because.*$//; s@^res://@@' | sort -u
+}
+
+# gut_new_ignored GITDIR BASEREF <ignored paths on stdin-less $3, newline separated>: the subset of those scripts that were NOT already non-GUT at BASEREF (absent there,
+# or extending GutTest there) = scripts that became ignored with this change. Static approximation of 'Ignoring script count vs the base ref' (no second GUT run).
+gut_new_ignored() {
+  local gd="${1:-}" ref="${2:-}" list="${3:-}" p txt
+  [ -n "$gd" ] && [ -n "$ref" ] && [ -n "$list" ] || return 0
+  git -C "$gd" rev-parse --verify -q "$ref^{commit}" >/dev/null 2>&1 || return 0
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if txt="$(git -C "$gd" show "$ref:$p" 2>/dev/null)" && ! grep -qE '^extends[[:space:]]+(GutTest|["'"'"']res://addons/gut/test\.gd["'"'"'])' <<< "$txt"; then
+      continue    # already a non-GUT script at the base: pre-existing, not new
+    fi
+    printf '%s\n' "$p"
+  done <<< "$list"
+}
+
+# gut_log_skips_note LOGFILE REPO [STATE_DIR] [GITDIR BASEREF] - SHADOW check (2026-10-03): GUT silently skips a test script it cannot parse ("Ignoring script",
 # "Parse Error") and still exits 0 with a green junit xml, so tests that were never run count as passing (xlite had 3 such scripts: an
-# 'extends GUTTest' typo, assert_le, an empty file). Never blocks: appends ONE alerts.log warn line per (repo, distinct skip set), deduped via
-# state/gut_skip_seen.txt, and always returns 0. Missing/unreadable log or state dir -> silently nothing.
+# 'extends GUTTest' typo, assert_le, an empty file). Appends ONE alerts.log warn line per (repo, distinct skip set), deduped via
+# state/gut_skip_seen.txt. Missing/unreadable log or state dir -> silently nothing.
+# 2026-10-10: the line names EVERY ignored script; with GITDIR+BASEREF (hygiene passes the worktree and origin/<merge target>) it also names the ones that are NEW vs the
+# base ref. OVN_GUT_SKIPS_NEW=shadow (default: only the alert text) | enforce (return 1 when a NEW script is ignored - the caller fails the gate; NOT deduped) | off.
+# Returns 0 always except in enforce mode with a NEW ignored script.
 gut_log_skips_note() {
-  local log="${1:-}" repo="${2:-?}" sd="${3:-${STATE_DIR:-state}}" n sig
+  local log="${1:-}" repo="${2:-?}" sd="${3:-${STATE_DIR:-state}}" gd="${4:-}" ref="${5:-}" n sig ign nign newl="" perr rc=0 txt
   [ -n "$log" ] && [ -s "$log" ] && [ -d "$sd" ] || return 0
   n="$(grep -cE 'Ignoring script|Parse Error' "$log" 2>/dev/null)"; n="${n:-0}"
   [ "$n" -gt 0 ] 2>/dev/null || return 0
+  ign="$(gut_ignored_scripts "$log")"
+  if [ -n "$ign" ] && [ -n "$gd" ] && [ -n "$ref" ] && [ "${OVN_GUT_SKIPS_NEW:-shadow}" != off ]; then
+    newl="$(gut_new_ignored "$gd" "$ref" "$ign")"
+    [ "${OVN_GUT_SKIPS_NEW:-shadow}" = enforce ] && [ -n "$newl" ] && rc=1
+  fi
   sig="$repo:$(grep -E 'Ignoring script|Parse Error' "$log" | sort -u | md5sum | cut -c1-12)"
-  grep -qxF "$sig" "$sd/gut_skip_seen.txt" 2>/dev/null && return 0
+  grep -qxF "$sig" "$sd/gut_skip_seen.txt" 2>/dev/null && return $rc
   echo "$sig" >> "$sd/gut_skip_seen.txt" 2>/dev/null
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] warn | gut-skips:$repo | GUT ignored/failed to parse $n script(s) yet exited green - those tests are NOT running: $(grep -E 'Ignoring script|Parse Error' "$log" | sort -u | head -3 | tr '\n' ';' | cut -c1-200)" >> "$sd/alerts.log" 2>/dev/null
-  return 0
+  txt=""
+  [ -n "$ign" ] && txt="ignored (does not extend GutTest): $(printf '%s' "$ign" | tr '\n' ',' | sed 's/,/, /g; s/, $//')"
+  [ -n "$newl" ] && txt="$txt; NEW vs $ref: $(printf '%s' "$newl" | tr '\n' ',' | sed 's/,/, /g; s/, $//')"
+  perr="$(grep -E 'Parse Error' "$log" | sort -u | head -3 | tr '\n' ';' | cut -c1-200)"
+  [ -n "$perr" ] && txt="${txt:+$txt; }$perr"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] warn | gut-skips:$repo | GUT ignored/failed to parse $n script(s) yet exited green - those tests are NOT running: $txt" >> "$sd/alerts.log" 2>/dev/null
+  return $rc
 }

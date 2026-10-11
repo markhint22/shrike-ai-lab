@@ -80,6 +80,15 @@ The suite was written against PROD accounts and an older UI. `prep_e2e.py` rewri
 Each patch is a plain substring replacement that does nothing once the repo fixes its own spec. These are repo-side bugs worth fixing in
 `iptv_apps` (the lane found them).
 
+## Shared staging lock (side effects to know before scheduling)
+
+`run_nightly.sh` takes `state/staging_e2e.lock` (the same mkdir lock `qa/staging_e2e_run.sh` and `qa/qa_daily_shadow.sh` use) before its first staging request and holds it for the whole
+run, post-run janitor included (a heartbeat keeps it fresh; `DL_E2E_LOCK=off` disables; busy for `DL_E2E_LOCK_WAIT_S` (900 s) => `UNVERIFIED lock busy`). Consequences:
+
+* A long lane run (up to `DL_OVERALL_TIMEOUT`, 6000 s) **defers the staging smoke and the hourly staging e2e cells**: `qa_daily_shadow.sh` waits only `QA_E2E_LOCK_WAIT_S` (120 s) and then
+  SKIPS that day's staging smoke for the repo (logged), and `staging_e2e_run.sh` skips and retries at its next tick. Schedule the lane well clear of the 08:50 smoke (proposed 01:20).
+* `test_qa_devicelane.sh` still uses the pre-existing broad `pkill -f "sleep 40"` and `pgrep -f device_lane/run_nightly.sh | head -1` patterns: do not run that suite on a box with a live lane.
+
 ## Staging data
 
 `seed_data.py` adds to the staging PREMIUM account: a vod stream "Big Buck Bunny", a live stream "Mux Live Test" (distinct URLs: the backend

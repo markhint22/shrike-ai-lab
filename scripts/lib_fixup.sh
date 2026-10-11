@@ -17,6 +17,7 @@
 OVN_FIXUP_PLACEHOLDER_TEXT="Placeholder - the implement step fills this in"
 # portable in-place sed (GNU on the box, BSD on the Mac where the tests run): GNU sed accepts `-i` alone, BSD sed needs `-i ''`
 _ovn_sed_i() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
+_OVN_LF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"   # this library's directory (scripts/): locates ovn_doc_postcheck.py and the ovn dir above it
 
 
 # _ovn_fx_split_id <id> -> sets _FX_FILE (path as written in the id) and _FX_NAME (test function/name, may be empty for a file-level id)
@@ -303,6 +304,57 @@ ovn_fixup_lost_tests() {
   return 0
 }
 
+# _ovn_fx_gut_reason <path> <file text>: prints the reason GUT would not run this GDScript test file (empty = fine / not judged). Pure text judgement, shared by the HEAD
+# and the BEFORE side of ovn_fixup_gut_unrunnable so the two cannot drift.
+_ovn_fx_gut_reason() {
+  local f="$1" txt="$2" base ext
+  base="${f##*/}"
+  case "$base" in
+    test_*.gd|*_test.gd) ;;
+    *) grep -qE '^[[:space:]]*func[[:space:]]+test_' <<< "$txt" || return 0 ;;   # a helper under tests/ that has no test function is not a test file
+  esac
+  ext="$(grep -m1 -E '^extends[[:space:]]' <<< "$txt")"
+  ext="${ext%%#*}"; ext="${ext%$'\r'}"; ext="${ext#extends}"; ext="$(printf '%s' "$ext" | tr -d '[:space:]')"
+  if ! grep -qE '^[[:space:]]*func[[:space:]]+test_' <<< "$txt"; then
+    case "$ext" in
+      GutTest|\"res://addons/gut/test.gd\"|"'res://addons/gut/test.gd'") printf 'extends GutTest but no test function left: nothing runs' ;;
+      *) printf 'no test function left: GUT ignores it' ;;
+    esac
+    return 0
+  fi
+  case "$ext" in
+    "") printf 'no extends GutTest: GUT ignores it' ;;
+    GutTest|\"res://addons/gut/test.gd\"|"'res://addons/gut/test.gd'") ;;
+    Node|Node2D|Node3D|Control|RefCounted|Object|Resource|Reference|CanvasLayer|CanvasItem|GUTTest|GutTests|GutTestCase) printf 'extends %s, not GutTest: GUT ignores it' "$ext" ;;
+  esac
+  return 0
+}
+
+# ovn_fixup_gut_unrunnable <before_sha>: "path (reason)" for every GDScript TEST file the cycle ADDED or MODIFIED (before..HEAD, still present at HEAD) that GUT would silently
+# IGNORE ('Ignoring script ... does not extend GutTest', exit 0, the tests never run): no `func test_*` left (emptied / comment-only / placeholder), no `extends`, or an
+# `extends` of a plain engine class / the 'GUTTest' typo. A custom base class (extends SomeBase / "res://...") is NOT judged (cannot be resolved in shell). Empty = fine.
+# Only files that were GUT-valid BEFORE the cycle (or are new) are reported: a file the cycle merely touched that was already unrunnable at <before_sha> (an
+# earlier cycle emptied it, or it is a helper with no tests) is not this cycle's doing and must not be reset under OVN_FIXUP_GUTSKIP=enforce (reviewer r2 minor 2).
+# 2026-10-10 (xlite df1de23 emptied test_mission_hub_debug_gate.gd, 091a8df / c024575 blanked test_scatter / test_unit_faction): a static twin of lib_gut_xml's gut-skips alert,
+# scoped to the files THIS cycle touched. Fail-safe: git trouble = empty output.
+ovn_fixup_gut_unrunnable() {
+  local before="${1:-}" f txt btxt why bwhy
+  [ -n "$before" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in addons/*|*/addons/*) continue ;; esac
+    txt="$(git show "HEAD:${f}" 2>/dev/null)" || continue
+    why="$(_ovn_fx_gut_reason "$f" "$txt")"
+    [ -n "$why" ] || continue
+    if btxt="$(git show "${before}:${f}" 2>/dev/null)"; then
+      bwhy="$(_ovn_fx_gut_reason "$f" "$btxt")"
+      [ -n "$bwhy" ] && continue   # already unrunnable before this cycle
+    fi
+    printf '%s (%s)\n' "$f" "$why"
+  done < <(git diff --name-only --diff-filter=AM "$before" HEAD -- '*.gd' 2>/dev/null)
+  return 0
+}
+
 # ovn_testonly_is_test_item <item text> <target>: 0 when the item is a test item (target is a test path, or cat:test in the text)
 ovn_testonly_is_test_item() {
   _ovn_fx_is_testpath "${2:-}" && return 0
@@ -381,10 +433,29 @@ ovn_fixup_integrity_gate() {
     OVN_FXI_TEXT="the ${phase} fix-up removed test(s) the item added: ${lost}"
     _ovn_fxi_log "$tl" "[fixup-tests-lost] (${phase}, mode=${mode}) ${OVN_FXI_TEXT}"
     _ovn_fxi_alert info "$id" "[fixup-tests-lost] ${OVN_FXI_TEXT} (mode=${mode})"
+    # 2026-10-10: shadow mode says what ENFORCE would have done, so the shadow data shows the reset count before anyone flips OVN_FIXUP_REVERIFY=enforce
+    [ "$mode" = enforce ] || _ovn_fxi_log "$tl" "[fixup-tests-lost] shadow: WOULD RESET to ${before:0:12} and report no-op(fixup-undid-item) under OVN_FIXUP_REVERIFY=enforce (kept: mode=${mode})"
     if [ "$mode" = enforce ]; then
       _ovn_fxi_log "$tl" "fixup-integrity: ${OVN_FXI_TEXT}; edit them in the same step instead of deleting them"
       OVN_FXI_TEXT="${OVN_FXI_TEXT}; edit them in the same step instead of deleting them"
       _ovn_fxi_reset "$before"; OVN_FXI_STATUS="no-op(fixup-undid-item)"; return 1
+    fi
+  fi
+  # (c2) 2026-10-10: a GDScript test file this cycle added/modified that GUT would silently ignore (emptied, no extends GutTest). SHADOW by default
+  # (OVN_FIXUP_GUTSKIP=shadow|enforce|off): logs/alerts and says what enforce would reset; enforce resets like (c).
+  local gmode="${OVN_FIXUP_GUTSKIP:-shadow}" gskip
+  if [ "$gmode" != off ]; then
+    gskip="$(ovn_fixup_gut_unrunnable "$before" | head -5 | tr '\n' ';' | sed 's/;$//')"
+    if [ -n "$gskip" ]; then
+      OVN_FXI_TEXT="the cycle left GDScript test file(s) that GUT silently ignores (they would never run): ${gskip}"
+      _ovn_fxi_log "$tl" "[fixup-gut-skip] (${phase}, mode=${gmode}) ${OVN_FXI_TEXT}"
+      _ovn_fxi_alert info "$id" "[fixup-gut-skip] ${OVN_FXI_TEXT} (mode=${gmode})"
+      if [ "$gmode" = enforce ]; then
+        OVN_FXI_TEXT="${OVN_FXI_TEXT}; keep a real test function and 'extends GutTest' in every test file you touch (or git rm the file)"
+        _ovn_fxi_log "$tl" "fixup-integrity: ${OVN_FXI_TEXT}"
+        _ovn_fxi_reset "$before"; OVN_FXI_STATUS="no-op(fixup-undid-item)"; return 1
+      fi
+      _ovn_fxi_log "$tl" "[fixup-gut-skip] shadow: WOULD RESET to ${before:0:12} and report no-op(fixup-undid-item) under OVN_FIXUP_GUTSKIP=enforce (kept: mode=${gmode})"
     fi
   fi
   return 0
@@ -561,6 +632,147 @@ ovn_exhausted_supply_kick() {
 }
 ovn_exhausted_clear() { rm -f "${2:-state}/exhausted_since_${1:-none}" 2>/dev/null; return 0; }
 
+# --- 2026-10-10 (package docexec; analysis[6] BX-01 / analysis[0] F4) ---------------------------------------------------------------------------------
+# WHY the shadow evidence never existed (reproduced in a scratch clone): the hook DID log '--- DOC-EXECUTOR (shadow): would apply ---' into the cycle's task log, but
+# (1) run_overnight.sh launches the scout with `> "$task_log"` (truncate) AFTER the executor block, erasing every line this hook (and the delete executor) wrote earlier in
+# the cycle; (2) a lane with no doable item (every open doc gap parked 'AUTO-SKIP after 2 credit refusals') returns skip(exhausted) BEFORE the block, and the block only ever
+# looked at doable lines, so parked gaps were never offered to the executor; (3) only the top item is offered. Fix: every hook verdict is ALSO appended, never truncated, to
+#   $OVN_EXECUTOR_LOG (default <ovn_dir>/state/executor_shadow.log), one TSV row:  ts_utc  repo  kind  mode  verdict  item_hash  detail  cycle_dir
+# (verdicts: would-apply | skip | applied | fail | no-candidate, kind doc|ruff, plus kind doc-postcheck rows ok|flag from ovn_doc_postcheck_gate). Read it with
+# scripts/ovn_executor_ctl.py summary|readiness. The mode (off|shadow|on, default shadow) comes from OVN_DOC_EXECUTOR / OVN_RUFF_EXECUTOR when set, else from
+# <ovn_dir>/state/executor_mode (lines `kind=mode` or `kind:repo=mode`, written by ovn_executor_ctl.py enable|disable; most specific line wins), else shadow.
+ovn_executor_mode() {  # <doc|ruff> <ovn_dir> <repo_dir> -> off|shadow|on
+  local kind="${1:-doc}" od="${2:-}" rd="${3:-.}" var m="" repo
+  case "$kind" in doc) var=OVN_DOC_EXECUTOR ;; ruff) var=OVN_RUFF_EXECUTOR ;; *) var="" ;; esac
+  [ -n "$var" ] && m="${!var:-}"
+  if [ -z "$m" ] && [ -f "$od/state/executor_mode" ]; then
+    repo="$(basename "$rd")"
+    m="$(awk -F= -v k="$kind" -v r="$repo" '
+      { gsub(/[ \t\r]/, "") }
+      $0 ~ /^#/ || NF < 2 { next }
+      $1 == k ":" r { spec = $2 }
+      $1 == k       { gen = $2 }
+      END { if (spec != "") print spec; else if (gen != "") print gen }' "$od/state/executor_mode" 2>/dev/null)"
+  fi
+  case "$m" in off|shadow|on) printf '%s' "$m" ;; *) printf 'shadow' ;; esac
+}
+
+ovn_executor_log() {  # <ovn_dir> <repo_dir> <kind> <mode> <verdict> <item_hash> <detail> [task_log]
+  local od="${1:-}" rd="${2:-.}" log tl="${8:-}" cyc="-" d
+  [ "${OVN_EXECUTOR_LOG_OFF:-0}" = 1 ] && return 0
+  log="${OVN_EXECUTOR_LOG:-$od/state/executor_shadow.log}"
+  case "$tl" in */*) cyc="$(basename "$(dirname "$tl")")" ;; esac
+  d="$(printf '%s' "${7:-}" | tr '\t\r\n' '   ' | cut -c1-300)"
+  mkdir -p "$(dirname "$log")" 2>/dev/null
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(basename "$rd")" "${3:-?}" "${4:-?}" "${5:-?}" "${6:--}" "$d" "$cyc" >> "$log" 2>/dev/null
+  # bounded: keep the newest 20000 rows once the file passes 4 MB (one writer at a time - the fleet lane runs under run.lock)
+  if [ "$(wc -c < "$log" 2>/dev/null | tr -d ' ')" -gt 4194304 ] 2>/dev/null; then tail -n 20000 "$log" > "$log.tmp.$$" 2>/dev/null && mv -f "$log.tmp.$$" "$log" 2>/dev/null; fi
+  return 0
+}
+
+# _ovn_doc_shadow_check_parked <od> <rd> <script> <prog> <ere>: SHADOW evidence for parked gaps (2026-10-10, docexec round 2). A lane whose only open doc items are parked never
+# reaches ovn_executor_hook, so without this the would-apply rate (and the readiness gates) would depend entirely on operator-run `rehearse`. Runs the executor's read-only `check`
+# over up to OVN_DOC_SHADOW_PARKED_MAX (default 5) parked lines per call that have no shadow would-apply/skip row yet (so successive idle cycles walk the whole list and the log does
+# not fill with repeats) and logs would-apply|skip rows with mode=shadow. `check` never edits anything. OVN_DOC_SHADOW_PARKED_MAX=0 disables.
+_ovn_doc_shadow_check_parked() {
+  local od="$1" rd="$2" script="$3" prog="$4" ere="$5" max="${OVN_DOC_SHADOW_PARKED_MAX:-5}" log line h out done_n=0 tab
+  tab="$(printf '\t')"
+  case "$max" in ''|*[!0-9]*) max=5 ;; esac
+  [ "$max" -gt 0 ] || return 0
+  log="${OVN_EXECUTOR_LOG:-$od/state/executor_shadow.log}"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ "$done_n" -lt "$max" ] || break
+    h="$(ovn_item_hash "$line" 2>/dev/null)"; [ -n "$h" ] || continue
+    [ -e "$od/state/exec_failed/$h" ] && continue
+    if [ -f "$log" ] && grep -aqE "^[^${tab}]*${tab}$(basename "$rd")${tab}doc${tab}shadow${tab}(would-apply|skip)${tab}${h}${tab}" "$log" 2>/dev/null; then continue; fi
+    # a check that keeps printing nothing (60s timeout every idle cycle) is retried at most 3 times, so a persistently crashing item cannot eat 60s of every idle cycle
+    if [ -f "$log" ] && [ "$(grep -acE "^[^${tab}]*${tab}$(basename "$rd")${tab}doc${tab}shadow${tab}check-empty${tab}${h}${tab}" "$log" 2>/dev/null)" -ge 3 ] 2>/dev/null; then continue; fi
+    out="$(cd "$rd" && timeout 60 python3 "$script" check "$rd" "$line" 2>/dev/null)"
+    done_n=$((done_n + 1))
+    case "$out" in
+      OK*) ovn_executor_log "$od" "$rd" doc shadow would-apply "$h" "$(printf '%s' "$out" | cut -f2) (parked gap)" "" ;;
+      # empty output (60s timeout / crash) is inconclusive: a distinct verdict the would-apply|skip dedupe above ignores, so the item is re-checked on a later idle cycle
+      # instead of a transient failure standing as its permanent shadow 'skip'
+      '') ovn_executor_log "$od" "$rd" doc shadow check-empty "$h" "check printed nothing (timeout or crash) (parked gap)" "" ;;
+      *) ovn_executor_log "$od" "$rd" doc shadow skip "$h" "${out#SKIP${tab}} (parked gap)" "" ;;
+    esac
+  done <<< "$(grep -E '^- \[ \] ' "$prog" 2>/dev/null | grep -F 'supply:gd-missing-doc' | grep -E "$ere" | grep -vE 'HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]|\(retired-' | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}")"
+  return 0
+}
+
+# ovn_doc_reroute_item <ovn_dir> <repo_dir> <task id>: prints the first open `supply:gd-missing-doc` line parked '[AUTO-SKIP after N credit refusals: ...]' (the model could
+# not land it; ERE override OVN_DOC_REROUTE_ERE) that the doc executor's `check` accepts and that has no exec_failed marker. Prints nothing unless the doc executor mode for
+# this repo is ON (shadow/off: behaviour is unchanged; shadow only logs `check` evidence rows), the lane is an ongoing-* lane and OVN_DOC_REROUTE != off.
+# The runner calls it ONLY when the lane has no doable item (re-route is idle-only: while doable items exist the normal path serves them). The runner uses it (a) to not skip(exhausted) a lane whose
+# only open items are such parked doc gaps and (b) as the DOC-EXECUTOR block's candidate when no doable item exists.
+ovn_doc_reroute_item() {
+  local od="${1:-}" rd="${2:-.}" id="${3:-}" script prog line h out ere m n
+  [ "${OVN_DOC_REROUTE:-on}" = off ] && return 0
+  case "$id" in ongoing-*) ;; *) return 0 ;; esac
+  script="$od/scripts/ovn_doc_executor.py"; prog="$rd/OVERNIGHT_PROGRESS.md"
+  [ -f "$script" ] && [ -f "$prog" ] || return 0
+  ere="${OVN_DOC_REROUTE_ERE:-\[AUTO-SKIP after [0-9]+ credit refusals}"
+  m="$(ovn_executor_mode doc "$od" "$rd")"
+  if [ "$m" != on ]; then   # shadow: breadcrumbs + `check`-only evidence (never edits); off: silent. Behaviour is unchanged either way.
+    if [ "$m" = shadow ]; then
+      n="$(grep -E '^- \[ \] ' "$prog" 2>/dev/null | grep -F 'supply:gd-missing-doc' | grep -E "$ere" | grep -vE 'HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]|\(retired-' | grep -vcE "${OVN_PARKED_CS_ERE:-BLOCKED}")"
+      if [ "${n:-0}" -gt 0 ] 2>/dev/null; then
+        ovn_executor_log "$od" "$rd" doc shadow parked-idle - "${n} parked gd-missing-doc gap(s) idle; they re-route to the executor only when mode=on" ""
+        _ovn_doc_shadow_check_parked "$od" "$rd" "$script" "$prog" "$ere"
+      fi
+    fi
+    return 0
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    h="$(ovn_item_hash "$line" 2>/dev/null)"; [ -n "$h" ] || continue
+    [ -e "$od/state/exec_failed/$h" ] && continue
+    out="$(cd "$rd" && timeout 60 python3 "$script" check "$rd" "$line" 2>/dev/null)"
+    case "$out" in OK*) printf '%s' "$line"; return 0 ;; esac
+  done <<< "$(grep -E '^- \[ \] ' "$prog" 2>/dev/null | grep -F 'supply:gd-missing-doc' | grep -E "$ere" | grep -vE 'HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]|\(retired-' | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}")"
+  return 0
+}
+
+# ovn_doc_postcheck_gate <before_sha> <task_log> [id]: BX-01 net-diff post-check (scripts/ovn_doc_postcheck.py) for a model-written `supply:gd-missing-doc` cycle.
+# OVN_DOC_POSTCHECK=off|shadow|enforce (default SHADOW). shadow: log '[doc-postcheck]' + a doc-postcheck row in executor_shadow.log and set OVN_DPC_TAG='[doc-postcheck]' (the runner
+# appends it to the push status so flagged landings are countable); enforce: reset the tree to BEFORE and OVN_FXI_STATUS='no-op(doc-postcheck)' (rc 1). rc 0 = keep.
+# shellcheck disable=SC2034  # OVN_DPC_TAG / OVN_FXI_STATUS / OVN_FXI_TEXT are the gate's result channel to run_overnight.sh
+OVN_DPC_TAG=""
+ovn_doc_postcheck_gate() {
+  local before="${1:-}" tl="${2:-}" id="${3:-doc-postcheck}" mode="${OVN_DOC_POSTCHECK:-shadow}" bin item text out code detail h od
+  OVN_DPC_TAG=""; OVN_FXI_STATUS=""; OVN_FXI_TEXT=""
+  case "$mode" in off) return 0 ;; shadow|enforce) ;; *) mode=shadow ;; esac
+  od="${SCRIPT_DIR:-$(cd "$_OVN_LF_DIR/.." 2>/dev/null && pwd)}"
+  bin="${OVN_DOC_POSTCHECK_BIN:-$_OVN_LF_DIR/ovn_doc_postcheck.py}"
+  [ -f "$bin" ] && [ -n "$before" ] || return 0
+  # cheap early exit (this gate runs every cycle of every repo): gd-missing-doc items exist only in repos that track GDScript, so a repo with no tracked *.gd cannot have one.
+  # (Deliberately NOT "the diff touches no .gd": a wrong-file commit credited for a gd-missing-doc item is exactly the no-net-doc case the gate must still catch.)
+  [ -n "$(git ls-files -- '*.gd' 2>/dev/null | head -n 1)" ] || return 0
+  item="$(ovn_fixup_item_line "$before" "$tl")"
+  [ -n "$item" ] || return 0
+  text="${item#*:}"
+  case "$text" in *supply:gd-missing-doc*) ;; *) return 0 ;; esac
+  out="$(timeout 60 python3 "$bin" check "$PWD" "$before" HEAD "$text" 2>>"${tl:-/dev/null}")"
+  h="$(ovn_item_hash "$text" 2>/dev/null)"
+  case "$out" in
+    OK*) ovn_executor_log "$od" "$PWD" doc-postcheck "$mode" ok "$h" "$(printf '%s' "$out" | cut -f2,3 | tr '\t' ' ')" "$tl"; return 0 ;;
+    FLAG*) ;;
+    *) return 0 ;;
+  esac
+  code="$(printf '%s' "$out" | cut -f2)"; detail="$(printf '%s' "$out" | cut -f3)"
+  OVN_FXI_TEXT="doc item net diff: ${code} (${detail:0:200})"
+  _ovn_fxi_log "$tl" "[doc-postcheck] (mode=${mode}) ${OVN_FXI_TEXT}"
+  _ovn_fxi_alert info "$id" "[doc-postcheck] ${OVN_FXI_TEXT} (mode=${mode})"
+  ovn_executor_log "$od" "$PWD" doc-postcheck "$mode" flag "$h" "${code}: ${detail}" "$tl"
+  if [ "$mode" = enforce ]; then
+    _ovn_fxi_log "$tl" "doc-postcheck: ${OVN_FXI_TEXT}; resetting to ${before:0:12}"
+    _ovn_fxi_reset "$before"; OVN_FXI_STATUS="no-op(doc-postcheck)"; return 1
+  fi
+  OVN_DPC_TAG="[doc-postcheck]"
+  return 0
+}
+
 # =====================================================================================================================================================
 # DETERMINISTIC EXECUTOR HOOKS (2026-10-09, harness-credit-integrity item 12) - contract only; the executors themselves are built elsewhere
 # (scripts/ovn_doc_executor.py by package supply-v2, scripts/ovn_ruff_fix_executor.py by xlite-godot-lane). Beside the DELETE-EXECUTOR block run_overnight.sh calls
@@ -583,26 +795,34 @@ ovn_executor_hook() {
     ruff) script="$od/scripts/ovn_ruff_fix_executor.py"; modevar=OVN_RUFF_EXECUTOR ;;
     *) return 1 ;;
   esac
-  mode="${!modevar:-shadow}"
-  case "$mode" in off|shadow|on) ;; *) mode=shadow ;; esac
+  mode="$(ovn_executor_mode "$kind" "$od" "$rd")"            # env OVN_*_EXECUTOR, else state/executor_mode, else shadow
   [ "$mode" = off ] && return 1
   [ -f "$script" ] || return 1                               # absent executor: silent
   [ -n "$item" ] && [ -n "$before" ] || return 1
   hash="$(ovn_item_hash "$item" 2>/dev/null)"; [ -n "$hash" ] || return 1
   failed="$od/state/exec_failed/$hash"
-  [ -e "$failed" ] && return 1                               # tried (and failed) once already
+  if [ -e "$failed" ]; then ovn_executor_log "$od" "$rd" "$kind" "$mode" skip "$hash" "previously failed (state/exec_failed marker)" "$tl"; return 1; fi   # tried (and failed) once already
   out="$(cd "$rd" && timeout 60 python3 "$script" check "$rd" "$item" 2>>"$tl")"
   case "$out" in
     OK*) files="$(printf '%s' "$out" | cut -f2)" ;;
-    *) [ -n "$out" ] && echo "--- ${kind}-executor: ${out#SKIP	} ---" >> "$tl"; return 1 ;;
+    *) [ -n "$out" ] && echo "--- ${kind}-executor: ${out#SKIP	} ---" >> "$tl"
+       # 2026-10-11 (docexec round 3): (a) empty output (timeout/crash) is INCONCLUSIVE - logged as 'check-empty', never as a 'skip' that would stand as the item's permanent verdict;
+       # (b) the executor declining a NON-doc top item ('not a gd-missing-doc supply item') is the normal case on every mixed lane, not evidence about a doc gap: no row (it would
+       # also dilute the would-apply share and bloat the log; the cycle's no-candidate/would-apply rows still show what was offered)
+       if [ -z "$out" ]; then ovn_executor_log "$od" "$rd" "$kind" "$mode" check-empty "$hash" "check printed nothing (timeout or crash)" "$tl"
+       elif [ "$kind" = doc ] && case "$out" in *"not a gd-missing-doc supply item"*) true ;; *) false ;; esac; then :
+       else ovn_executor_log "$od" "$rd" "$kind" "$mode" skip "$hash" "${out#SKIP	}" "$tl"; fi
+       return 1 ;;
   esac
   if [ "$mode" = shadow ]; then
     echo "--- ${kind^^}-EXECUTOR (shadow): would apply: ${files} ---" >> "$tl"
+    ovn_executor_log "$od" "$rd" "$kind" "$mode" would-apply "$hash" "$files" "$tl"   # persistent: the scout's `> task_log` erases the line above later in the cycle
     return 1
   fi
   declare -F run_repo_verification >/dev/null 2>&1 && declare -F shadow_check >/dev/null 2>&1 || return 1
   _ex_fail() {  # reset to BEFORE_SHA, remember (unless the verification itself could not run), log why
     echo "--- ${kind^^}-EXECUTOR: $1 - reset, normal path continues ---" >> "$tl"
+    ovn_executor_log "$od" "$rd" "$kind" "$mode" fail "$hash" "$1" "$tl"
     git -C "$rd" reset -q --hard "$before" >>"$tl" 2>&1; git -C "$rd" clean -fdq >>"$tl" 2>&1
     if [ "${2:-remember}" = remember ]; then mkdir -p "$od/state/exec_failed" 2>/dev/null; : > "$failed"; fi
     return 1
@@ -610,7 +830,8 @@ ovn_executor_hook() {
   act="$(cd "$rd" && timeout 300 python3 "$script" apply "$rd" "$item" 2>>"$tl")"
   case "$act" in
     APPLIED*) files="$(printf '%s' "$act" | cut -f2)"; summary="$(printf '%s' "$act" | cut -f3)" ;;
-    *) _ex_fail "apply failed (${act#FAIL	})"; return 1 ;;
+    # a model/endpoint outage is transient: the item is not at fault, so do not poison it with an exec_failed marker (it is retried next cycle)
+    *) case "$act" in *"model call failed"*) _ex_fail "apply failed (${act#FAIL	})" noremember ;; *) _ex_fail "apply failed (${act#FAIL	})" ;; esac; return 1 ;;
   esac
   [ -n "$files" ] || { _ex_fail "apply declared no files"; return 1; }
   # shellcheck disable=SC2086
@@ -647,6 +868,7 @@ ovn_executor_hook() {
   fi
   if timeout 30 git -C "$rd" push origin "$branch" --quiet 2>>"$tl" || { timeout 30 git -C "$rd" pull --rebase origin "$branch" >>"$tl" 2>&1 && timeout 30 git -C "$rd" push origin "$branch" --quiet 2>>"$tl"; }; then
     echo "--- ${kind^^}-EXECUTOR: verified green and pushed ---" >> "$tl"
+    ovn_executor_log "$od" "$rd" "$kind" "$mode" applied "$hash" "${files}: ${summary}" "$tl"
     echo "pushed(tests:pass) ${kind}-executor"
     return 0
   fi

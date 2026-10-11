@@ -437,11 +437,13 @@ def chk_gd_off(M):
         f.write("extends Node\nfunc do_it(x):\n\tvar a = 1\n\tvar b = 2\n\tvar c = 3\n\tvar e = 4\n\treturn a\n")
     keep = os.environ.pop("OVN_SUPPLY_GD_DOCS", None)
     try:
+        os.environ["OVN_SUPPLY_GD_DOCS_MODEL"] = "on"   # docexec: the family is gated on the executor / post-check unless overridden (set for BOTH evaluations: this check isolates the OFF-by-default switch)
         off = list(M.c_gd_docs(d))
         os.environ["OVN_SUPPLY_GD_DOCS"] = "on"
         on = list(M.c_gd_docs(d))
     finally:
         os.environ.pop("OVN_SUPPLY_GD_DOCS", None)
+        os.environ.pop("OVN_SUPPLY_GD_DOCS_MODEL", None)
         if keep is not None:
             os.environ["OVN_SUPPLY_GD_DOCS"] = keep
     return off == [] and len(on) == 1 and on[0]["kind"] == "gd-missing-doc"
@@ -509,8 +511,8 @@ mut_check("(4d) TTL: passes-before is 7 d, not 36 h", chk_ttl, '"passes-before":
 mut_check("(4e) TTL: red is 36 h", chk_ttl, '"red": 36 * 3600, "supplied"', '"red": 90 * 86400, "supplied"')
 print("== (5) log wording")
 mut_check("(5) 'N gaps found, M filtered (...), K specs'; 'no new mechanical gaps' only when N == 0", chk_log,
-          '"%s: %d gaps found, %d filtered (seen=%d open=%d done-cooldown=%d held-by-file=%d), %d specs"',
-          '"%s: no new mechanical gaps found (%d %d %d %d %d %d %d)"')
+          '"%s: %d gaps found, %d filtered (seen=%d open=%d done-cooldown=%d held-by-file=%d%s), %d specs"',
+          '"%s: no new mechanical gaps found (%d %d %d %d %d %d%s %d)"')
 print("== (6) --on-exhausted")
 mut_check("(6a) a held fcntl lock makes a concurrent call exit immediately", chk_lock, '    except OSError:\n        fd.close()\n        return None', '    except OSError:\n        pass')
 ok("(6a2) the same through the real CLI (subprocess, held lock)", cli_lock_exit(REAL))

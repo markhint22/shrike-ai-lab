@@ -42,7 +42,30 @@ PATH_RE = re.compile(r"(?<![\w./:-])((?:[\w.-]+/)*[\w.-]+\.(?:py|gd|ts|tsx|js|js
 _FATAL_VERIFY = re.compile(r"\b(NameError|SyntaxError|IndentationError)\b")
 _NO_TESTS = re.compile(r"no tests ran|collected 0 items|no-tests-ran")
 # any exception other than AssertionError (ZeroDivisionError, AttributeError, TypeError, ...) or a Traceback means the VERIFY crashed instead of asserting
-_OTHER_EXC = re.compile(r"Traceback \(most recent call last\)|\b(?!Assertion)[A-Za-z]+(?:Error|Exception)\b")
+# 2026-10-10 (F2): the old pattern matched ANY identifier ending in Error/Exception - including the import names ruff prints in its F401 messages
+# (`app.core.ssrf.SSRFError` imported but unused) - so every unused-import-of-an-exception gap was a permanent bad-spec. A real crash prints a Traceback, or an
+# exception name followed by ':' ("ZeroDivisionError: division by zero", "builtins.KeyError: 'x'"), or (pytest) `E   SomeError` on its own line. The tail
+# reaches us with newlines turned into spaces, so a name merely quoted in a message (preceded by a backtick/quote, followed by a backtick/space) never counts.
+# Also a crash (round-2 review): node's `TypeError [ERR_X]: msg` (code in brackets before the colon) and a bare final exception name after a Python `File "x", line N` frame.
+_OTHER_EXC = re.compile(
+    r"Traceback \(most recent call last\)"
+    r"|(?<![\w.`'\"/-])(?:[A-Za-z_]\w*\.)*(?!Assertion)[A-Za-z]\w*(?:Error|Exception)\s*(?::|\[[A-Z][A-Z0-9_]*\])"
+    r"|(?:^|\s)E {2,}(?:[A-Za-z_]\w*\.)*(?!Assertion)[A-Za-z]\w*(?:Error|Exception)\b(?![\w`'\"])")
+# Round-3 review: the File-frame form used to be ONE regex (`File "x", line N` + lazy `.*?` + a final bare name + \Z): super-linear (a 50 KB tail with 1000 frames did not finish in
+# 100 s). Now two linear steps: the first frame, then a bare exception name at the very END of the text (searched only in the last 300 chars: no real exception name is longer).
+_FRAME = re.compile(r"File \"[^\"\n]+\", line \d+\b")
+_FINAL_BARE_EXC = re.compile(r"(?<![\w.`'\"/-])(?:[A-Za-z_]\w*\.)*(?!Assertion)[A-Za-z]\w*(?:Error|Exception)\s*\Z")
+
+
+def _frame_then_bare_exc(text):
+    """A Python `File "x", line N` frame followed by a line-final bare exception name (not AssertionError)."""
+    fm = _FRAME.search(text)
+    if not fm:
+        return False
+    cut = max(fm.end(), len(text) - 300)
+    return bool(_FINAL_BARE_EXC.search(text, cut))
+
+
 _MISSING_FILE = re.compile(r"FileNotFoundError|No such file|can't open file|file or directory not found|ERROR: not found|not found: ")
 _MISSING_MOD = re.compile(r"ModuleNotFoundError|ImportError|cannot import name|No module named")
 
@@ -165,7 +188,7 @@ def classify(item_line, rc, out_tail):
         return "bad-spec", "no-tests-collected"
     if "AssertionError" in text:
         return "red", "assert"
-    if rc == 1 and not _OTHER_EXC.search(text):
+    if rc == 1 and not (_OTHER_EXC.search(text) or _frame_then_bare_exc(text)):
         return "red", "assert"
     return "bad-spec", "crash-unexplained"
 

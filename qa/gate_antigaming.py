@@ -13,6 +13,7 @@ Flags changes that weaken the oracle or remove safety:
   F  coverage-threshold lowered / --ignore / --deselect added in test config                          (F_*)
   2026-10-04 (qa/ag_h13.py, see its docstring): D_DEAD_SYMBOL, E_TEST_NOT_COLLECTED, F_REVERT_OF_RECENT, D_FROZEN_EDIT (vendored paths, FAIL),
   D_FROZEN_NEWFILE, C_FILE_DELETED_LIVE, C_TEST_ORPHANED, A_MOCK_ONLY, A_MIRROR_EXPECTED
+  2026-10-10 (qa/ag_r10.py, see its docstring): E_GD_TEST_NOT_GUT, A_TESTFILE_EMPTIED, D_UNREFERENCED_FUNC; GUT fail_test()/pass_test() understood
 FAIL only for high-confidence gaming (frozen-test edit, all assertions gone from a surviving test, an assertion
 replaced by a tautology). Everything uncertain is FLAG. Could not analyse (bad refs, git error, deadline with no
 findings) => UNVERIFIED, exit 0. See qa/gate_antigaming.README.md and docs/QA_GATES_SPEC.md.
@@ -552,7 +553,11 @@ GD_RANK = {"assert_eq": 4, "assert_eq_deep": 4, "assert_same": 4, "assert_null":
            "assert_signal_emitted_with_parameters": 4, "assert_ne": 3, "assert_gt": 3, "assert_lt": 3, "assert_gte": 3,
            "assert_lte": 3, "assert_has": 3, "assert_does_not_have": 3, "assert_string_contains": 3, "assert_between": 3,
            "assert_called": 3, "assert_call_count": 4, "assert_true": 1, "assert_false": 1, "assert_not_null": 1,
-           "assert_is": 1, "assert_signal_emitted": 1, "assert_not_same": 3, "assert_typeof": 1}
+           "assert_is": 1, "assert_signal_emitted": 1, "assert_not_same": 3, "assert_typeof": 1,
+           # GUT 9 result calls (2026-10-10, xlite test_uid_hygiene.gd false positive that held claude/feature ~20h): fail_test(msg) is a conditional
+           # hard failure = an effective assertion (rank 1, like assert_true(cond)); pass_test(msg) can never fail = a tautology (rank 0): it is
+           # never protection, and it alone never makes a test look asserted.
+           "fail_test": 1, "pass_test": 0}
 SW_RANK = {"XCTAssertEqual": 4, "XCTAssertNil": 4, "XCTAssertIdentical": 4, "XCTAssertEqualWithAccuracy": 4,
            "XCTAssertNotEqual": 3, "XCTAssertGreaterThan": 3, "XCTAssertLessThan": 3, "XCTAssertGreaterThanOrEqual": 3,
            "XCTAssertLessThanOrEqual": 3, "XCTAssertTrue": 1, "XCTAssertFalse": 1, "XCTAssertNotNil": 1, "XCTAssertThrowsError": 2,
@@ -562,7 +567,7 @@ _JS_UNIT_RE = re.compile(r"(?<![\w$])(?:expect\s*\(|expect\.assertions\s*\(|expe
                          r"t\.(?:is|deepEqual|true|false|truthy|falsy|throws|not)\s*\()|\.should\b|cy\.[\w.]*should\s*\(")
 _KT_UNIT_RE = re.compile(r"(?<![\w.$])(assert\w*|verify|verifyOrder|verifySequence)\s*(?:<[^>]*>)?\s*[({]|\.(shouldBe\w*|shouldNotBe\w*|"
                          r"isEqualTo|isNotNull|isNull|isTrue|isFalse)\b")
-_GD_UNIT_RE = re.compile(r"(?<![\w.])(assert_\w+|assert)\s*\(")
+_GD_UNIT_RE = re.compile(r"(?<![\w.])(assert_\w+|assert|fail_test|pass_test)\s*\(")
 _SW_UNIT_RE = re.compile(r"(?<![\w.])(XCTAssert\w*|XCTFail)\s*\(|#expect\s*\(|#require\s*\(")
 
 
@@ -624,8 +629,10 @@ def _rank_js(stmt_orig, stmt_masked):
 
 def _rank_named(table, name, stmt_orig):
     r = table.get(name, 3)
-    if re.search(r"\b(assertTrue|assert_true|XCTAssertTrue)\s*\(\s*true\s*\)", stmt_orig, re.I) or \
-            re.search(r"\b(assertFalse|assert_false|XCTAssertFalse)\s*\(\s*false\s*\)", stmt_orig, re.I):
+    # 2026-10-10: `assert_true(true, "msg")` (literal condition WITH a message argument) is the same tautology as `assert_true(true)`; it was ranked 1,
+    # so replacing it by GUT's pass_test("msg") looked like an effective assertion turned into a no-op (A_ASSERT_NOOP on xlite test_uid_hygiene.gd).
+    if re.search(r"\b(assertTrue|assert_true|XCTAssertTrue)\s*\(\s*true\s*[,)]", stmt_orig, re.I) or \
+            re.search(r"\b(assertFalse|assert_false|XCTAssertFalse)\s*\(\s*false\s*[,)]", stmt_orig, re.I):
         return 0
     if name in ("assertEquals", "assertSame", "assert_eq", "XCTAssertEqual") and re.search(r"\(\s*(true|false|True|False)\s*,|,\s*(true|false|True|False)\s*[,)]", stmt_orig):
         return 1  # assertEquals(false, x) == assertFalse(x)
@@ -1166,6 +1173,24 @@ def _only_trivial_body(lang, src):
     return i >= 0 and not re.search(r"\b\w+\s*\(", inner[i + 1:])
 
 
+def _is_pass_test_unit(u):
+    """GUT `pass_test(...)` unit (rank 0, 2026-10-10) or the `assert_true(true, "msg")` else-branch twin: a result call that can never fail, not an
+    assertion. Next to a real assertion in the same test (`if bad: fail_test() else: pass_test()`) it is not reported as a vacuous assertion."""
+    return u[2].startswith("pass_test") or re.match(r"assert_true\(\s*true\s*,", u[2]) is not None
+
+
+def _gd_smoke_body(src):
+    """True when a GDScript test body (src = the whole `func test_x():` text) makes at least one call other than pass_test/the def line: a 'does not crash'
+    smoke test whose only result call is pass_test(). It can still fail (by crashing), so it is not reported as a vacuous assertion."""
+    masked = mask_text(src or "", "gd")
+    body = masked.split("\n", 1)[1] if "\n" in masked else ""
+    return any(m not in ("pass_test", "if", "elif", "while", "for", "match", "and", "or", "not", "return") for m in re.findall(r"([A-Za-z_]\w*)\s*\(", body))
+
+
+def _is_pass_test_only(units):
+    return all(u[2].startswith("pass_test") for u in units)
+
+
 def vacuous_new_test(lang, t):
     """Reason string when a NEWLY ADDED test `t` (FuncInfo/TInfo: .units .eff .src) cannot fail, else ''.
       * it has assertions and EVERY one is a tautology (`assert True`, `assert 1 == 1`, `assert x or True`, `assert_true(true)`, `assert(true)`), or
@@ -1173,6 +1198,8 @@ def vacuous_new_test(lang, t):
     A test that only asserts through helpers it calls (no recognised assertion, real body) is NOT judged: that is an under-detection, not a proof."""
     if t.units:
         if all(u[1] == 0 for u in t.units):
+            if lang == "gd" and _is_pass_test_only(t.units):
+                return ""   # only pass_test(): never protection, but not a hard FAIL on its own (A_VACUOUS_ASSERT flags it)
             return "all %d assertion(s) are tautologies (%s)" % (len(t.units), snip(t.units[0][2], 50))
         return ""
     src = t.src or ""
@@ -1261,6 +1288,10 @@ def analyze_tests(repo, diffs, status, out, deadline, notes):
                     continue
             old_zero = {u[2] for u in o.units if u[1] == 0} if o else set()
             zeros = [u for u in n.units if u[1] == 0 and u[2] not in old_zero]
+            if lang_of(p) == "gd" and n.eff > 0:
+                zeros = [u for u in zeros if not _is_pass_test_unit(u)]   # `if bad: fail_test(..) else: pass_test(..)` / `assert_false(true, m) else assert_true(true, m)`
+            elif lang_of(p) == "gd" and zeros and _is_pass_test_only(zeros) and len(zeros) == len(n.units) and _gd_smoke_body(n.src):
+                zeros = []   # a smoke test that calls code and ends in pass_test("did not crash")
             if o and len(zeros) <= sum(1 for u in o.units if u[1] == 0):
                 zeros = []  # the test already carried this many vacuous assertions (pre-existing, merely edited)
             if not zeros:
@@ -1597,6 +1628,40 @@ def name_status(rd, base, head):
     return st
 
 
+def apply_demotions(rd, name, head, findings, notes):
+    """2026-10-10: findings that qa/qa_block_watch.py DEMOTED (state/qa_demoted.json: FAIL -> FLAG for exact (rule, file) pairs of a test-only block that
+    stalled for hours) become FLAG when the offending commit is in `head`'s history. No record / unreadable file / unknown commit / expired record /
+    OVN_QA_DEMOTE=off => nothing changes. Never raises."""
+    if os.environ.get("OVN_QA_DEMOTE", "on") == "off" or not any(f["sev"] == "FAIL" for f in findings):
+        return
+    try:
+        with open(os.path.join(qc.state_dir(), "qa_demoted.json")) as fh:
+            recs = json.load(fh)
+        if not isinstance(recs, dict):
+            return
+        ttl = float(os.environ.get("QA_DEMOTE_TTL_H", "168")) * 3600
+        for rec in recs.values():
+            if not isinstance(rec, dict) or rec.get("repo") != name or not rec.get("commit") or rec.get("gate", GATE) != GATE:
+                continue
+            try:
+                import calendar
+                if time.time() - calendar.timegm(time.strptime(rec.get("ts", ""), "%Y-%m-%dT%H:%M:%SZ")) > ttl:
+                    continue
+            except ValueError:
+                continue
+            rc, _, _ = qc.git(rd, "merge-base", "--is-ancestor", str(rec["commit"]), head, timeout=30)
+            if rc != 0:
+                continue
+            rules_, files_ = set(rec.get("rules") or []), set(rec.get("files") or [])
+            for f in findings:
+                if f["sev"] == "FAIL" and f["rule"] in rules_ and f["file"] in files_:
+                    f["sev"] = "FLAG"
+                    f["msg"] += " [demoted FAIL->FLAG by qa_block_watch]"
+                    notes.append("demoted %s %s (qa_block_watch, commit %s)" % (f["rule"], f["file"], str(rec["commit"])[:12]))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return
+
+
 def check(argv):
     args = {"repo": None, "base": None, "head": None}
     i = 0
@@ -1701,6 +1766,16 @@ def check(argv):
                 frozen = fz
         except Exception as ex:  # noqa: BLE001
             notes.append("ag_h13 failed to run: %s: %s" % (type(ex).__name__, str(ex)[:80]))
+    # 2026-10-10 rules (qa/ag_r10.py): E_GD_TEST_NOT_GUT, A_TESTFILE_EMPTIED (FAIL only when `antigaming_testfiles` is enforce), D_UNREFERENCED_FUNC.
+    # OVN_QA_AG_R10=off disables them. Isolated: an error becomes a note.
+    if os.environ.get("OVN_QA_AG_R10", "on") != "off":
+        try:
+            import ag_r10
+            ag_r10.run_all(repo, name, status, st_raw, diffs, findings, notes, max(deadline, time.time()) + float(os.environ.get("QA_AG_R10_BUDGET", "30")),
+                           "--no-record" in argv)
+        except Exception as ex:  # noqa: BLE001
+            notes.append("ag_r10 failed to run: %s: %s" % (type(ex).__name__, str(ex)[:80]))
+    apply_demotions(rd, name, head, findings, notes)
     # assemble
     order = {"FAIL": 0, "FLAG": 1}
     findings.sort(key=lambda f: (order[f["sev"]], f["file"], f["line"]))

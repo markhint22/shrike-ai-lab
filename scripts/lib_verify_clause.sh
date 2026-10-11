@@ -18,6 +18,8 @@
 # heavy cap; and because GUT exits 0 even when tests FAIL, a GUT clause only PASSes when its output has no "Failing Tests N>0" / "[Failed]" and (when the
 # clause writes a junit xml) the xml is green (scripts/lib_gut_xml.sh). Within ONE auto-credit call identical VERIFY commands run once (_VC_MEMO_ON=1).
 # After a call: _LAST_VERIFY_RC, _LAST_VERIFY_TIMEOUT (the cap that applied), _LAST_VERIFY_WHY (one-line reason for TIMEOUT/UNRUNNABLE).
+# 2026-10-10 (harness R10): a bare `VERIFY: <cmd>[.] (cat:` clause (no backticks) is READ too when ovn_spec_rules.bare_verify accepts it (OVN_VERIFY_BARE_FALLBACK=off disables;
+# _LAST_VERIFY_BARE=1 marks such a verdict), and a GUT clause that calls addons/gut/cli/gut_cli.gd is rewritten to gut_cmdln.gd before it runs (OVN_VERIFY_GUT_CLI_REWRITE=off).
 # spec-compiler-v2 (2026-10-09), both with kill switches:
 #   B1 GUT with a missing -gtest target prints "[ERROR]: Could not find script", then runs the WHOLE suite (391 scripts, 2987 tests) and exits 0 - shadow_check
 #      returned PASS and every xlite "create test file X" item looked already satisfied. Now FAIL, _LAST_VERIFY_WHY="GUT target missing".
@@ -245,7 +247,7 @@ _verify_gut_xml_path(){
 
 _VC_MEMO=""; _VC_MEMO_ON=0   # per-call memo of identical VERIFY commands (newline separated, fields split by \037: key RESULT RC TMO WHY)
 _LAST_VERIFY_RESULT=""
-_LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""
+_LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""; _LAST_VERIFY_BARE=""
 shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_VERIFY_RESULT.
   local ln="$1" line vcmd rc out tail_out ts tmo
   ts="$(date -u +%FT%TZ)"
@@ -253,11 +255,27 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   line="$(sed -n "${ln}p" "$PROG" 2>/dev/null)"
   # VERIFY clause convention across this fleet: VERIFY: `<cmd>`. (backtick-delimited)
   vcmd="$(printf '%s' "$line" | grep -oE 'VERIFY:[[:space:]]*`[^`]+`' | head -1 | sed -E 's/^VERIFY:[[:space:]]*`//; s/`$//')"
+  # 2026-10-10 (harness R10, IPTV-2): the planner/decomposer also emit the UNBACKTICKED form `VERIFY: <cmd>[.] (cat:...)`. This reader only knew the backticked one, so such
+  # items answered NO_VERIFY_CLAUSE and were credited on a path match alone (iptv: 56 of 99 items; xlite: get_max_directive_value T1/T2 ticked with no function written). Fall back
+  # to the bare clause, but only when ovn_spec_rules.bare_verify (the R01 repair's safety test: known tool word, balanced quotes, no prose) accepts it. Kill switch
+  # OVN_VERIFY_BARE_FALLBACK=off. _LAST_VERIFY_BARE=1 marks a verdict reached through the fallback.
+  _LAST_VERIFY_BARE=""
+  if [ -z "$vcmd" ] && [ "${OVN_VERIFY_BARE_FALLBACK:-on}" != off ] && [ -f "$_VC_DIR/ovn_credit_items.py" ]; then
+    vcmd="$(timeout 10 python3 "$_VC_DIR/ovn_credit_items.py" bare-verify "$PROG" "$ln" 2>/dev/null | head -1)"
+    [ -n "$vcmd" ] && _LAST_VERIFY_BARE=1
+  fi
   if [ -z "$vcmd" ]; then
     echo "$ts repo=$_REPO_LABEL line=$ln result=NO_VERIFY_CLAUSE" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="NO_VERIFY_CLAUSE"
     return
   fi
+  # 2026-10-10 (harness R10, BX-06): addons/gut/cli/gut_cli.gd `extends Node` - it is not a SceneTree script, so `godot -s` on it can never run a test and the clause can never PASS
+  # (xlite techs_data: 20 progress lines, ALREADY-DONE x6 + fixup-undid-item x3 + build-break). The entry point is addons/gut/gut_cmdln.gd: rewrite it at run time (the same repair
+  # spec rule R11 applies at ingest, for items already in the queue). OVN_VERIFY_GUT_CLI_REWRITE=off disables.
+  case "$vcmd" in
+    *addons/gut/cli/gut_cli.gd*)
+      if [ "${OVN_VERIFY_GUT_CLI_REWRITE:-on}" != off ]; then vcmd="$(printf '%s' "$vcmd" | sed 's#addons/gut/cli/gut_cli[.]gd#addons/gut/gut_cmdln.gd#g')"; fi ;;
+  esac
   # Defense in depth: this is trusted-origin text (the fleet's own research/decomposition
   # output, same trust level as the diffs it already commits unattended) but shadow mode
   # is read-only observation, not a mutation - skip anything destructive/networked rather

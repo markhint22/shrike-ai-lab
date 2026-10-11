@@ -161,44 +161,105 @@ def collected_test_dir(repo_root):
     return None
 
 
+_CD_RE = re.compile(r"""(?<![\w./-])(?P<open>\(\s*)?cd\s+(?:"(?P<dq>[^"\n]*)"|'(?P<sq>[^'\n]*)'|(?P<bare>[\w./-]+))\s*(?=&&|;|\)|`|\||$)""")
+
+
+def _cwd_at(vtext, pos):
+    """The directory (relative to the repo root, '' = root) a VERIFY command is running in at offset `pos` of `vtext`, following every `cd <dir>` that precedes it
+    (`python3 -c "...iptv-backend/tests/x.py..." && cd iptv-backend && python3 -m pytest tests/x.py` -> '' at the ast half, 'iptv-backend' at the pytest half; chained cds add up;
+    a `( cd d && ... )` subshell cd ends at its ')'). None = unknown (an absolute or `..` target), so the caller must not guess."""
+    cwd, scopes = "", []
+    for m in _CD_RE.finditer(vtext):
+        if m.start() >= pos:
+            break
+        while scopes and scopes[-1][1] < m.start():
+            cwd = scopes.pop()[0]
+        d = (m.group("dq") if m.group("dq") is not None else m.group("sq") if m.group("sq") is not None else m.group("bare")).strip()
+        before = cwd
+        if cwd is None:
+            pass
+        elif d.startswith(("/", "~", "$")) or not d:
+            cwd = None
+        else:
+            cwd = os.path.normpath(os.path.join(cwd, d))
+            if cwd == ".":
+                cwd = ""
+            elif cwd == ".." or cwd.startswith("../"):
+                cwd = None
+        if m.group("open"):
+            close = vtext.find(")", m.end())
+            scopes.append((before, close if close >= 0 else len(vtext) + 1))
+    while scopes and scopes[-1][1] < pos:
+        cwd = scopes.pop()[0]
+    return cwd
+
+
 def relocate_new_tests(line, repo_root):
     """2026-10-08: planner items named NEW test files in app/jobs/, app/services/ ... - directories pytest never collects - and the fleet shipped
     8 uncollected test files plus a placeholder `assert True` file that held 235 commits at the antigaming gate for 17h. A NEW test file path
     outside the collected dir is rewritten (everywhere in the line, VERIFY included) to the collected dir. Existing files are never touched.
-    Returns (line, [(old, new)])."""
+    Returns (line, [(old, new)]).
+
+    2026-10-10 (IPTV-1): the rewrite used `line.replace(old, new)` - a plain substring replace - so with the work-supply shape
+        iptv-backend/tests/test_x_pure.py — ... VERIFY: `cd iptv-backend && python3 -m pytest tests/test_x_pure.py`
+    the cd-relative `tests/test_x_pure.py` was 'relocated' to iptv-backend/tests/test_x_pure.py (it is already inside the collected dir once the `cd` is
+    taken into account) and the replace then also hit the correct path inside the target: iptv-backend/iptv-backend/tests/... (3 stray files, a test never run,
+    the same item re-supplied 3-4 times). Now: (1) every match is replaced BY POSITION (a path is only ever rewritten where it was matched, never inside another
+    path); (2) a path inside the VERIFY clause is read relative to the `cd <dir>` in force AT THAT POSITION (the real supply shape has the cd mid-command, after an ast check) and judged as that full path; (3) the replacement is written relative
+    to the same `cd`, so an already-correct path is never touched and a moved one keeps working from the directory the VERIFY runs in."""
     base = collected_test_dir(repo_root)
     if not base:
         return line, []
-    moves = []
+    vpos = line.find("VERIFY:")
+    vtext = line[vpos + len("VERIFY:"):] if vpos >= 0 else ""
+    vstart = vpos + len("VERIFY:")
+    edits, moves = [], []
     for m in _PATH_IN_LINE.finditer(line):
         path = m.group(1)
+        cd = ""
+        if vpos >= 0 and m.start() > vpos:
+            # resolved PER PATH POSITION (round-3 review): the supply VERIFY carries its `cd` mid-command, after an ast check that names the root-relative path
+            cd = _cwd_at(vtext, m.start() - vstart)
+            if cd is None:
+                continue                                                 # unknown working directory: never guess
+        full = (cd + "/" + path) if cd else path                         # repo-root-relative path of the file this token names
         bm = _TEST_BASENAME.search(path)
-        if not bm or path.startswith(base) or os.path.exists(os.path.join(repo_root, path)):
+        if not bm or full.startswith(base) or os.path.exists(os.path.join(repo_root, full)):
             continue
-        new = base + bm.group(1)
+        new_full = base + bm.group(1)
+        new = os.path.relpath(new_full, cd) if cd else new_full
+        edits.append((m.start(1), m.end(1), new))
         if (path, new) not in moves:
             moves.append((path, new))
-    for old, new in moves:
-        line = line.replace(old, new)
+    for st, en, new in sorted(edits, reverse=True):
+        line = line[:st] + new + line[en:]
     return line, moves
 
 
 # ---------------------------------------------------------------- spec gate consumer (C4): queue_refill is the SINGLE writer of the backlog
 # scripts/ovn_spec_gate.py scan judges backlog lines into state/spec_gate.jsonl and NEVER writes the backlog. This is where a verdict can take effect, and only
-# for the rules named in OVN_SPEC_GATE_ENFORCE_RULES (default empty = nothing enforced; OVN_SPEC_GATE=off disables even that).
-#   R01 R02 R03 (+ A3)  repair the pulled line in place (static, no verdict needed)
+# for the rules named in OVN_SPEC_GATE_ENFORCE_RULES (default: the repair-only R01,R11 - see DEFAULT_ENFORCE_RULES; set it empty for nothing; OVN_SPEC_GATE=off disables even that).
+#   R01 R02 R03 R11 (+ A3)  repair the pulled line in place (static, no verdict needed)
 #   R06                 HOLD: the line stays in the backlog (a delete whose references are not removed yet); later items are pulled first
-#   R04 R05 R07 R10     QUARANTINE: moved to backlog/quarantine/<repo>.md with '<!-- spec-gate:RNN <ts> -->' (never an AUTO-SKIP tag: the Claude-queue bridge harvests those)
+#   R04 R05 R07 R10 R12 QUARANTINE: moved to backlog/quarantine/<repo>.md with '<!-- spec-gate:RNN <ts> -->' (never an AUTO-SKIP tag: the Claude-queue bridge harvests those)
 #   PB                  QUARANTINE a line whose VERIFY already passes (verdict passes-before) as 'already-satisfied?' - never credited
 # A line with no fresh verdict is pulled (OVN_SPEC_GATE_UNJUDGED=pull, default) or held (=hold; only meaningful when a verdict-based rule is enforced).
-GATE_QUARANTINE_RULES = ("R04", "R05", "R07", "R10")
+GATE_QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12")
 GATE_HOLD_RULES = ("R06",)
-GATE_STATIC_RULES = ("R01", "R02", "R03")
+GATE_STATIC_RULES = ("R01", "R02", "R03", "R11")
+# 2026-10-10 (harness R10, IPTV-2): the repair-only static rules that are ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET. R01 (bare `VERIFY: cmd (cat:` -> backticked) was shadow-only
+# while the credit gate read only the backticked form: 56 of 99 live iptv items had a VERIFY the credit gate could not see ("item has no VERIFY clause" refusals, text-match credits).
+# R11 (gut_cli.gd -> gut_cmdln.gd) rewrites a GUT VERIFY that can never pass. Both are static, need no verdict, only rewrite the VERIFY text and have golden tests. R02/R03 (they
+# change what a VERIFY asserts) and every quarantine/hold rule stay opt-in. An explicitly SET value wins, including the empty string (= enforce nothing, the kill switch); `none` also.
+DEFAULT_ENFORCE_RULES = "R01,R11"
 GATE_TTL_S = 6 * 3600
 
 
 def enforce_rules():
-    return {r.strip().upper() for r in os.environ.get("OVN_SPEC_GATE_ENFORCE_RULES", "").split(",") if r.strip()}
+    raw = os.environ.get("OVN_SPEC_GATE_ENFORCE_RULES")
+    if raw is None:
+        raw = DEFAULT_ENFORCE_RULES
+    return {r.strip().upper() for r in raw.split(",") if r.strip() and r.strip().lower() != "none"}
 
 
 def _utcnow():
@@ -365,6 +426,13 @@ def main():
         line = re.sub(r"^(\s*- \[[ xX]\] )(\[(?:AUTO-SKIP|HUMAN-ONLY)[^\]]*\]\s*)+", r"\1", line)
         m = re.search(r"\]\s*(.*)$", line)  # content after the last tag bracket
         content = _strip_feat_date((m.group(1) if m else line).strip())
+        # 2026-10-11 (harness R10 review): R01/R11 now rewrite the pulled line's VERIFY by default (bare `VERIFY: cmd (cat:` -> backticked; GUT gut_cli.gd -> gut_cmdln.gd), so the copy
+        # stored in OVERNIGHT_PROGRESS/DONE differs in TEXT from the bare/old copy the backlog may still (or again) carry. Compare the canonical form of both - backticks dropped and the
+        # R11 path rewrite applied from `VERIFY:` on - or the finished item is re-pulled (the 2026-10-07 churn-loop shape).
+        content = content.replace("`", "")
+        _vi = content.find("VERIFY:")
+        if _vi >= 0:
+            content = content[:_vi] + content[_vi:].replace("addons/gut/cli/gut_cli.gd", "addons/gut/gut_cmdln.gd")
         return re.sub(r"\s+", " ", content.lower())
     done_path = os.path.join(repo_root, "OVERNIGHT_DONE.md")
     existing = set()

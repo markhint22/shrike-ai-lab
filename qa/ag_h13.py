@@ -248,6 +248,16 @@ def _pytest_testpaths(repo, path):
         d = os.path.dirname(d)
 
 
+def _nc_sev(st):
+    """2026-10-10 (QA-2): a NEW test file (status A) that the verify command never collects is FAIL when the gate mode `antigaming_testfiles` is enforce
+    (second key on top of the shared `antigaming` flip, see qa/ag_r10.py); default shadow, renames and every other case stay FLAG."""
+    try:
+        import ag_r10
+        return ag_r10.testfiles_sev(st)
+    except Exception:  # noqa: BLE001  partial qa/ sync (ag_r10.py missing) or a bug there: lose only the new sub-key, keep every other ag_h13 rule
+        return "FLAG"
+
+
 def rule_test_not_collected(repo, repo_name, status, diffs, out):
     cfg = _load_json("test_collection.json").get(repo_name, {})
     recursive = os.environ.get("OVN_GUT_SUBDIRS", "on") != "off"
@@ -266,7 +276,7 @@ def rule_test_not_collected(repo, repo_name, status, diffs, out):
             if roots is None:
                 continue  # no testpaths => pytest from the repo/package root collects it
             if not any(path.startswith(r) for r in roots):
-                out.append(_F("E_TEST_NOT_COLLECTED", "FLAG", path, 1, "new test file is outside the dir(s) the verify command collects (%s)" % ", ".join(roots), base))
+                out.append(_F("E_TEST_NOT_COLLECTED", _nc_sev(st), path, 1, "new test file is outside the dir(s) the verify command collects (%s)" % ", ".join(roots), base))
         elif lang == "gd" and cfg.get("gd"):
             g = cfg["gd"]
             txt = repo.blob(repo.head, path) or ""
@@ -285,7 +295,7 @@ def rule_test_not_collected(repo, repo_name, status, diffs, out):
             elif not re.search(r"^\s*extends\s+(?:GutTest\b|[\"']res://addons/gut/test\.gd[\"'])", txt, re.M):
                 reason = "does not extend GutTest"
             if reason:
-                out.append(_F("E_TEST_NOT_COLLECTED", "FLAG", path, 1, "new GUT test is never collected: %s" % reason, base))
+                out.append(_F("E_TEST_NOT_COLLECTED", _nc_sev(st), path, 1, "new GUT test is never collected: %s" % reason, base))
 
 
 # ---------------------------------------------------------------------------------------------------------------- frozen vendored paths

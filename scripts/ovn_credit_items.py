@@ -5,6 +5,11 @@
       one line per OPEN, non-blocked item that names a leading path:  <line-number>\\t<path-token>
   ovn_credit_items.py tick <progress_file> <line-number>
       flips ONLY that line from "- [ ] " to "- [x] " (prints TICKED, or REFUSED when the line is not an open checkbox)
+  ovn_credit_items.py bare-verify <progress_file> <line-number>
+      the runnable command of an item's UNBACKTICKED `VERIFY: <cmd>[.] (cat:` clause (2026-10-10, IPTV-2): lib_verify_clause.sh shadow_check only read the backticked
+      form, so 56 of 99 live iptv items (and the xlite get_max_directive_value T1/T2 pair) read as NO_VERIFY_CLAUSE and were credited on a path match alone. Prints the
+      command only when ovn_spec_rules.bare_verify (the R01 safety test: known tool word, balanced quotes, no prose word) accepts it; prints NOTHING for a backticked
+      clause, prose, or any error (the caller then keeps its old NO_VERIFY_CLAUSE answer).
 
 The leading path is parsed by ovn_path_gate.leading_target (the same parse the path gate uses), so "the item's named file" means one
 thing everywhere. Items marked HUMAN-ONLY / AUTO-SKIP / HARD FILE BAN / BLOCKED / [CLAUDE] are never listed.
@@ -46,14 +51,32 @@ def tick(prog, ln):
     return True
 
 
+def bare_verify_of(prog, ln):
+    try:
+        with open(prog, errors="surrogateescape") as f:
+            lines = f.read().split("\n")
+        if ln < 1 or ln > len(lines):
+            return ""
+        import ovn_spec_rules
+        b = ovn_spec_rules.bare_verify(lines[ln - 1])
+        return b[1] if b else ""
+    except Exception:  # noqa: BLE001 - any failure = no fallback (NO_VERIFY_CLAUSE, the old answer)
+        return ""
+
+
 def main():
-    if len(sys.argv) >= 3 and sys.argv[1] == "list":
+    if len(sys.argv) >= 4 and sys.argv[1] == "bare-verify":
+        try:
+            print(bare_verify_of(sys.argv[2], int(sys.argv[3])))
+        except ValueError:
+            print("")
+    elif len(sys.argv) >= 3 and sys.argv[1] == "list":
         for n, t in list_items(sys.argv[2]):
             print("%d\t%s" % (n, t))
     elif len(sys.argv) >= 4 and sys.argv[1] == "tick":
         print("TICKED" if tick(sys.argv[2], int(sys.argv[3])) else "REFUSED")
     else:
-        print("usage: ovn_credit_items.py list <prog> | tick <prog> <line>", file=sys.stderr)
+        print("usage: ovn_credit_items.py list <prog> | tick <prog> <line> | bare-verify <prog> <line>", file=sys.stderr)
         sys.exit(2)
 
 

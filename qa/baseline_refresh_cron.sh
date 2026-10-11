@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# baseline_refresh_cron.sh - BOX: refresh each python/pytest repo's CLEAN-BASE red-test set for baseline-relative verify (gate S4, SHADOW).
+# baseline_refresh_cron.sh - BOX: refresh each python/pytest (and, since 2026-10-10, Godot/GUT: xlite) repo's CLEAN-BASE red-test set for baseline-relative verify (gate S4, SHADOW).
 # 2026-10-02. For every repo it runs `baseline_verify.py refresh --ref origin/develop`: the repo's own .venv pytest over a DETACHED worktree of
 # origin/develop (qa_common.worktree, removed afterwards), then the lib's snapshot rules decide whether the set is stored:
 #   * deterministic only (a COMPLETE pytest parse, no hard failures; timeouts/truncation => nothing written, old baseline untouched),

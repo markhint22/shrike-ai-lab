@@ -3,6 +3,7 @@
 # path (bare origin), push-retry via rebase, push failure, git-sync failure, nothing-moved,
 # FORCE_PULL, recovery/reminder/cooldown handling. queue_refill.py and queue.sh are stubbed.
 set -uo pipefail
+export QR_LOG_REPEAT_S=0   # these cases run the same dry lane back to back and assert on the per-pass log line (queue_refill.sh rate-limits repeats by default: see test_queue_refill_log_ratelimit.sh)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q=""
 for c in "$HERE/../../queue_refill.sh" "$HERE/../queue_refill.sh" "$HOME/overnight-queue/queue_refill.sh"; do [ -f "$c" ] && { Q="$c"; break; }; done

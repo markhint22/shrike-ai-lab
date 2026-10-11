@@ -178,9 +178,11 @@ open(os.path.join(clone4, "scripts/battle/gdoc.gd"), "w").write(
     "func tiny():\n\treturn 1\n")
 sp4 = {}
 os.environ["OVN_SUPPLY_GD_DOCS"] = "on"   # the gd-doc family is OFF by default (v2); this block exercises it explicitly
+os.environ["OVN_SUPPLY_GD_DOCS_MODEL"] = "on"   # ... and (docexec) it is only supplied behind the executor/post-check guard unless this override is set
 for s_ in W.collect_all(clone4):
     sp4.setdefault((s_["kind"], os.path.basename(s_["file"])), s_)
 os.environ.pop("OVN_SUPPLY_GD_DOCS", None)
+os.environ.pop("OVN_SUPPLY_GD_DOCS_MODEL", None)
 rt = sp4.get(("missing-return-type", "polish.py"))
 ok("return-type: lists only value-returning unannotated public funcs (untyped_ret) - not typed_ret, not _private",
    rt and "`untyped_ret`" in rt["text"] and "`typed_ret`" not in rt["text"] and "_private" not in rt["text"], rt and rt["text"])

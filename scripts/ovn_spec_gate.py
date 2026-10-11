@@ -2,7 +2,7 @@
 """scripts/ovn_spec_gate.py - the spec gate between backlog and queue (spec-compiler-v2 part C3, 2026-10-09). Shadow-first.
 
   scan <repo>             judge the open T-lines of backlog/<repo>.md into state/spec_gate.jsonl (cron */10; skipped while state/PAUSED exists). NEVER writes the backlog.
-  lint [<repo_dir>]       stdin item lines -> stdout, static repairs R01-R03 (ovn_planner.sh, before feat tagging). Any error echoes stdin unchanged.
+  lint [<repo_dir>]       stdin item lines -> stdout, static repairs R01-R03 + R11 (ovn_planner.sh, before feat tagging). Any error echoes stdin unchanged.
   report                  summary of state/spec_gate.jsonl: verdict mix, findings per rule, and how each repair rule performed
   restore <repo> <key>    undo a quarantine: the line goes back to backlog/<repo>.md and is never quarantined again (a sticky `restored` row in state/spec_gate_restored.jsonl, an append-only file the scan never rewrites)
 
@@ -12,7 +12,7 @@ OVN_SPEC_GATE_ENFORCE_RULES. `restore` is the one operator exception (an explici
 Env
   OVN_SPEC_GATE=off|shadow|enforce   default shadow. off: scan/lint do nothing, queue_refill ignores the gate. shadow and enforce judge identically (the row records the mode);
                                      what is ENFORCED is decided only by OVN_SPEC_GATE_ENFORCE_RULES.
-  OVN_SPEC_GATE_ENFORCE_RULES        comma list, default empty = nothing enforced. R01 R02 R03 (repairs), R04 R05 R07 R10 (quarantine), R06 (hold), PB (quarantine a
+  OVN_SPEC_GATE_ENFORCE_RULES        comma list; UNSET = R01,R11 (the static repair-only rules, 2026-10-10), set-but-empty or `none` = nothing enforced. R01 R02 R03 R11 (repairs), R04 R05 R07 R10 R12 (quarantine), R06 (hold), PB (quarantine a
                                      VERIFY that already passes). Rollout order: R01,R02,R03 -> R04,R06 -> R05,R07,R10 (see docs/PIPELINE_REWORK_2026-10-08.md).
   OVN_SPEC_BASE                      the ref everything is judged at (default origin/overnight/feature); OVN_DIR the live dir (default: the parent of this scripts/ dir)
   OVN_SPEC_GATE_MAX_EXEC             VERIFY executions per scan (default 12); OVN_SPEC_GATE_TTL_S verdict lifetime (default 21600)
@@ -42,8 +42,19 @@ except Exception as _e:  # a broken sibling module must never cost the planner i
     E = R = declared_paths = verify_of = None
     _IMPORT_ERR = _e
 
-QUARANTINE_RULES = ("R04", "R05", "R07", "R10")
+QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12")
 HOLD_RULES = ("R06",)
+STATIC_REPAIR_RULES = ("R01", "R02", "R03", "R11")
+# 2026-10-10 (harness R10, IPTV-2): rules ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET: the static repair-only R01 (bare VERIFY -> backticked) and R11 (gut_cli.gd -> gut_cmdln.gd). An explicitly
+# set value wins (empty / `none` = enforce nothing). Same constant and semantics as queue_refill.py's DEFAULT_ENFORCE_RULES.
+DEFAULT_ENFORCE_RULES = "R01,R11"
+
+
+def enforce_rules():
+    raw = os.environ.get("OVN_SPEC_GATE_ENFORCE_RULES")
+    if raw is None:
+        raw = DEFAULT_ENFORCE_RULES
+    return {r.strip().upper() for r in raw.split(",") if r.strip() and r.strip().lower() != "none"}
 
 
 def ovn_dir():
@@ -68,8 +79,8 @@ def mode():
 
 def warn_enforce_noop():
     """OVN_SPEC_GATE=enforce arms nothing by itself (only OVN_SPEC_GATE_ENFORCE_RULES does): say so on stderr instead of letting an operator believe it enforces."""
-    if os.environ.get("OVN_SPEC_GATE", "shadow") == "enforce" and not [r for r in os.environ.get("OVN_SPEC_GATE_ENFORCE_RULES", "").split(",") if r.strip()]:
-        sys.stderr.write("spec_gate WARNING: OVN_SPEC_GATE=enforce enforces NOTHING while OVN_SPEC_GATE_ENFORCE_RULES is empty - arm rules there (e.g. R01,R02,R03)\n")
+    if os.environ.get("OVN_SPEC_GATE", "shadow") == "enforce" and not enforce_rules():
+        sys.stderr.write("spec_gate WARNING: OVN_SPEC_GATE=enforce enforces NOTHING while OVN_SPEC_GATE_ENFORCE_RULES is empty - arm rules there (e.g. R01,R11)\n")
 
 
 def restored_path(ovn):
@@ -349,7 +360,7 @@ def lint_stream():
         if mode() == "off":
             sys.stdout.write(data)
             return 0
-        rules = {r.strip().upper() for r in os.environ.get("OVN_SPEC_GATE_ENFORCE_RULES", "").split(",") if r.strip()}
+        rules = enforce_rules()
         lines = data.split("\n")
         out, would = [], {}
         for l in lines:
@@ -357,12 +368,12 @@ def lint_stream():
             for f in fs:
                 would[f["rule"]] = would.get(f["rule"], 0) + 1
             if fs and rules:
-                l2, _ = R.lint_static(l, only=rules & {"R01", "R02", "R03"})
+                l2, _ = R.lint_static(l, only=rules & set(STATIC_REPAIR_RULES))
             else:
                 l2 = l
             out.append(l2)
         if would:
-            sys.stderr.write("spec-gate lint (%s): %s\n" % ("enforced: " + ",".join(sorted(rules & {"R01", "R02", "R03"})) if rules & {"R01", "R02", "R03"} else "shadow, nothing rewritten",
+            sys.stderr.write("spec-gate lint (%s): %s\n" % ("enforced: " + ",".join(sorted(rules & set(STATIC_REPAIR_RULES))) if rules & set(STATIC_REPAIR_RULES) else "shadow, nothing rewritten",
                                                               " ".join("%s=%d" % (k, v) for k, v in sorted(would.items()))))
         sys.stdout.write("\n".join(out))
     except Exception as e:  # fail-safe: never lose a decomposition to the gate

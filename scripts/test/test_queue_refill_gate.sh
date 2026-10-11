@@ -52,9 +52,10 @@ L_PLAIN='- [ ] [T2] p.txt — a plain item. VERIFY: `grep -q zzz p.txt`. (cat:py
 
 echo "== repairs apply only for the rules in OVN_SPEC_GATE_ENFORCE_RULES"
 D="$(fresh repair)"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
-out="$(refill "$D" 10)"
+# 2026-10-10 (R10): UNSET now means R01,R11 (the static repair-only defaults); the kill switch / "nothing enforced" is an explicitly EMPTY value
+out="$(refill "$D" 10 OVN_SPEC_GATE_ENFORCE_RULES=)"
 prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"
-ok "nothing enforced (default): all four lines pulled byte-for-byte unchanged" "[ \"\$(grep -c '^- \\[ \\] \\[T' '$prog')\" = 4 ] && grep -qF -- '$L_BARE' '$prog' && grep -qF -- '$L_VAC' '$prog' && grep -qF -- '$L_NARR' '$prog'"
+ok "nothing enforced (OVN_SPEC_GATE_ENFORCE_RULES set empty): all four lines pulled byte-for-byte unchanged" "[ \"\$(grep -c '^- \\[ \\] \\[T' '$prog')\" = 4 ] && grep -qF -- '$L_BARE' '$prog' && grep -qF -- '$L_VAC' '$prog' && grep -qF -- '$L_NARR' '$prog'"
 ok "... and the vacuous-echo line is only COUNTED (VACUOUS_ECHO=1, no REPAIRED)" "printf '%s' '$out' | grep -c 'VACUOUS_ECHO=1' | grep -qx 1 && [ \"\$(printf '%s' '$out' | grep -c 'REPAIRED')\" = 0 ]"
 rm -rf "$D"; D="$(fresh repair1)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
 out="$(refill "$D" 10 OVN_SPEC_GATE_ENFORCE_RULES=R01)"

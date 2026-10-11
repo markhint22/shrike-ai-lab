@@ -58,5 +58,31 @@ OUT="$(python3 "$RF" "$prog3" "$bl3" 5)"
 echo "$OUT" | grep -q "REFILL=1" && ok "a sibling sub-item sharing one live feat-tag is still pulled (not mistaken for a duplicate of its sibling)" \
   || fail "expected REFILL=1 (sibling sub-items must not collapse into one dedup key): $OUT"
 
+# --- D (2026-10-11, harness R10 review): R01 rewrites a pulled bare VERIFY to the backticked form before it is stored, so a bare backlog copy that re-enters the backlog must still dedup
+#     against the ticked backticked copy (else finished work is re-queued - the 2026-10-07 churn-loop shape) ---
+prog4="$tmp/progD.md"; bl4="$tmp/blD.md"
+printf '# progress\n- [x] [T1] app.py — add the helper. VERIFY: `grep -q "def helper" app.py` (cat:python; multifile:no) [feat:demo-20261011-bare-verify]\n' > "$prog4"
+printf '# backlog\n- [ ] [T1] app.py — add the helper. VERIFY: grep -q "def helper" app.py (cat:python; multifile:no) [feat:demo-20261011-bare-verify]\n' > "$bl4"
+OUT="$(OVN_SPEC_GATE_ENFORCE_RULES= python3 "$RF" "$prog4" "$bl4" 5)"
+echo "$OUT" | grep -q "REFILL=0" && echo "$OUT" | grep -q "PRUNED=1" && ok "D a bare-VERIFY backlog copy of a finished item whose stored copy is backticked is a duplicate (REFILL=0 PRUNED=1)" \
+  || fail "D expected REFILL=0 PRUNED=1 (backtick asymmetry re-queued finished work): $OUT"
+OUT="$(python3 "$RF" "$prog4" "$bl4" 5)"
+echo "$OUT" | grep -q "REFILL=0" && ok "D2 ... also with the default repair rules (R01) active" || fail "D2 expected REFILL=0 with default rules: $OUT"
+
+# --- E: same class for R11 (gut_cli.gd -> gut_cmdln.gd rewritten at ingest) ---
+prog5="$tmp/progE.md"; bl5="$tmp/blE.md"
+printf '# progress\n- [x] [T2] test_x.gd — add a GUT test. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gtest=res://test/test_x.gd` (cat:gdscript; multifile:no) [feat:demo-20261011-gut]\n' > "$prog5"
+printf '# backlog\n- [ ] [T2] test_x.gd — add a GUT test. VERIFY: `godot --headless -s addons/gut/cli/gut_cli.gd -gtest=res://test/test_x.gd` (cat:gdscript; multifile:no) [feat:demo-20261011-gut]\n' > "$bl5"
+OUT="$(OVN_SPEC_GATE_ENFORCE_RULES= python3 "$RF" "$prog5" "$bl5" 5)"
+echo "$OUT" | grep -q "REFILL=0" && echo "$OUT" | grep -q "PRUNED=1" && ok "E an old gut_cli.gd backlog copy of a finished (gut_cmdln.gd-rewritten) item is a duplicate" \
+  || fail "E expected REFILL=0 PRUNED=1: $OUT"
+
+# --- F: CONTROL - a genuinely different VERIFY command must still NOT collapse ---
+prog6="$tmp/progF.md"; bl6="$tmp/blF.md"
+printf '# progress\n- [x] [T1] app.py — add the helper. VERIFY: `grep -q "def helper" app.py` (cat:python; multifile:no) [feat:demo-20261011-ctl]\n' > "$prog6"
+printf '# backlog\n- [ ] [T1] app.py — add the helper. VERIFY: `grep -q "def other_helper" app.py` (cat:python; multifile:no) [feat:demo-20261011-ctl]\n' > "$bl6"
+OUT="$(python3 "$RF" "$prog6" "$bl6" 5)"
+echo "$OUT" | grep -q "REFILL=1" && ok "F CONTROL: an item with a different VERIFY command is still pulled" || fail "F expected REFILL=1: $OUT"
+
 [ $rc -eq 0 ] && echo "test_queue_refill_feattag_norm: PASS" || echo "test_queue_refill_feattag_norm: FAIL"
 exit $rc
