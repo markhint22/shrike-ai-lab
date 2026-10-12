@@ -416,3 +416,7 @@
 # --- 27B-decomposed from roadmap [2026-10-12]: Fix `POST /api/discover/cache/clear` silently clearing dead `_cache` dict instead of live  (review + tweak) [feat:iptv_apps-20261012-fix-post-api-discover-cache-clear-silent] ---
 
 # --- 27B-decomposed from roadmap [2026-10-12]: Profile-PIN `_unlock_lockout_tracker` loses all lockout state on every process restart — ` (review + tweak) [feat:iptv_apps-20261012-profile-pin-unlock-lockout-tracker-loses] ---
+
+# --- 27B-decomposed from roadmap [2026-10-12]: Test `retry_after_seconds` and `rate_limit_exceeded_handler` — Add unit tests for `retry_a (review + tweak) [feat:iptv_apps-20261012-test-retry-after-seconds-and-rate-limit-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-12]: Test `submit_feedback` endpoint — Add tests for `submit_feedback` in `iptv-backend/app/rou (review + tweak) [feat:iptv_apps-20261012-test-submit-feedback-endpoint-add-tests-] ---

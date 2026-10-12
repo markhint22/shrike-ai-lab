@@ -280,4 +280,4 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `retry_after_seconds` and `rate_limit_exceeded_handler` — Add unit tests for `retry_after_seconds` in `iptv-backend/app/core/limiter.py:61` and `rate_limit_exceeded_handler` in `iptv-backend/app/core/limiter.py:74` to verify correct header generation and response structure {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-12 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `submit_feedback` endpoint — Add tests for `submit_feedback` in `iptv-backend/app/routers/feedback.py:26` to verify feedback submission logic and error handling {cat: backend; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `submit_feedback` endpoint — Add tests for `submit_feedback` in `iptv-backend/app/routers/feedback.py:26` to verify feedback submission logic and error handling {cat: backend; size: S; multifile: no; research: none}
