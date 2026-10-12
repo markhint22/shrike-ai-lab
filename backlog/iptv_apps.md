@@ -410,3 +410,9 @@
 # --- 27B-decomposed from roadmap [2026-10-11]: Test `unlock_profile` endpoint — Add a test for `unlock_profile` in `iptv-backend/app/rout (review + tweak) [feat:iptv_apps-20261011-test-unlock-profile-endpoint-add-a-test-] ---
 
 # --- deterministic work supply 2026-10-11 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-12]: Fix wrong `@limiter.limit` decorator order — rate limiting on content.py and reminders.py  (review + tweak) [feat:iptv_apps-20261012-fix-wrong-limiter-limit-decorator-order-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-12]: Fix `POST /api/discover/cache/clear` silently clearing dead `_cache` dict instead of live  (review + tweak) [feat:iptv_apps-20261012-fix-post-api-discover-cache-clear-silent] ---
+
+# --- 27B-decomposed from roadmap [2026-10-12]: Profile-PIN `_unlock_lockout_tracker` loses all lockout state on every process restart — ` (review + tweak) [feat:iptv_apps-20261012-profile-pin-unlock-lockout-tracker-loses] ---
