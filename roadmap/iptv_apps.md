@@ -281,3 +281,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-12 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `submit_feedback` endpoint — Add tests for `submit_feedback` in `iptv-backend/app/routers/feedback.py:26` to verify feedback submission logic and error handling {cat: backend; size: S; multifile: no; research: none}
+
+## Local research 2026-10-13 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `list_profiles` endpoint — Add a test for `list_profiles` in `iptv-backend/app/routers/profiles.py:84` to verify it returns the authenticated user's profiles correctly {cat: test; size: S; multifile: no; research: none}
