@@ -124,9 +124,15 @@ def floor_alerts(starving, last_backlog, now):
     except (OSError, ValueError):
         seen = {}
     fired = []
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ovn_chronic_alert as _ca
+        chronic = _ca.enabled()
+    except ImportError:
+        _ca, chronic = None, False
     for r in starving:
         repo = r["repo"]
-        if r.get("_h", 0.0) <= floor_h or seen.get(repo) == today:
+        if r.get("_h", 0.0) <= floor_h or (seen.get(repo) == today and not chronic):
             continue
         n = last_backlog.get(repo)
         if n is None or n > max_b:
@@ -134,6 +140,14 @@ def floor_alerts(starving, last_backlog, now):
         line = "[%s] warn | ongoing-%s | roadmap-feature floor: %s has had backlog %d and no [ready] roadmap feature for %.1fh (since %s) - promote a [needs-research] feature to [ready] in roadmap/%s.md (Claude research pass)" % (
             time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), repo, repo, n, r["_h"], time.strftime("%Y-%m-%d %H:%M", time.localtime(r["starving_since"])), repo)
         try:
+            if chronic:
+                # 2026-10-13 (G5): the lane's FIRST floor alert is written as before (onset); a lane that stays at the floor is folded into ONE daily
+                # `info | chronic-daily` line shared with the gpu-util alert (scripts/ovn_chronic_alert.py). OVN_CHRONIC_DAILY=off = legacy one-line-per-lane-per-day.
+                w = _ca.note(os.path.dirname(ALERTS_LOG), "roadmap-floor:" + repo, line, now)
+                seen[repo] = today
+                if w:
+                    fired.append(w)
+                continue
             with open(ALERTS_LOG, "a") as f:
                 f.write(line + "\n")
         except OSError:

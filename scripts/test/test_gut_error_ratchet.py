@@ -175,7 +175,7 @@ def battery(tool, tag):
 
     def env(**kw):
         e = dict(os.environ, OVN_DIR=d, OVN_GODOT_BIN=shim, SHIM_OUT=out_f, SHIM_LOG=log, HOME=d)
-        for k in ("OVN_GUT_RATCHET", "SHIM_SLEEP", "OVN_GUT_TIMEOUT"):
+        for k in ("OVN_GUT_RATCHET", "SHIM_SLEEP", "OVN_GUT_TIMEOUT", "OVN_GUT_SUBDIRS"):
             e.pop(k, None)
         e.update({k: str(v) for k, v in kw.items()})
         return e
@@ -250,6 +250,16 @@ def battery(tool, tag):
     put(NEW_LOG.replace("_on_new_thing", "_on_third_thing"))
     r = run("run", clone, SHIM_SLEEP=5, OVN_GUT_TIMEOUT=1)
     chk("GUT timeout: reported, exit 0, baseline untouched", r.returncode == 0 and "timed out" in r.stdout and rb(base_p) == b_bytes, r.stdout)
+    # 2026-10-13 (review of package gate): the ratchet honours the shared OVN_GUT_SUBDIRS kill switch (lib_gut_xml.sh gut_subdirs_flag), like every other GUT site
+    put(NEW_LOG)
+    open(log, "w").close()
+    run("run", clone)
+    gl = [l for l in rt(log).splitlines() if "gut_cmdln.gd" in l]
+    chk("default: the GUT run carries -gdir=res://tests -ginclude_subdirs -gexit", len(gl) == 1 and "-gdir=res://tests -ginclude_subdirs -gexit" in gl[0], gl)
+    open(log, "w").close()
+    run("run", clone, OVN_GUT_SUBDIRS="off")
+    gl = [l for l in rt(log).splitlines() if "gut_cmdln.gd" in l]
+    chk("OVN_GUT_SUBDIRS=off: the recursion flag is dropped (-gdir=res://tests -gexit)", len(gl) == 1 and "include_subdirs" not in gl[0] and "-gdir=res://tests -gexit" in gl[0], gl)
     r = sh(sys.executable, tool, "parse", out_f, env=env())
     chk("parse subcommand prints signatures of a log file", SIG_AP in r.stdout and r.returncode == 0, r.stdout)
     shutil.rmtree(d, ignore_errors=True)
@@ -275,6 +285,7 @@ MUTANTS = [
     ("internal errors exit non-zero", 'return 1 if os.environ.get("OVN_GUT_RATCHET", "shadow") == "enforce" else 0', "return 1"),
     ("empty run compared against the baseline", 'if not re.search(r"^\\s*Tests\\s+\\d+", ANSI.sub("", out), re.M):', "if False:"),
     ("enforce never fails", 'return 1 if (mode == "enforce" and new) else 0', "return 0"),
+    ("OVN_GUT_SUBDIRS kill switch ignored", 'return [] if os.environ.get("OVN_GUT_SUBDIRS", "on") == "off" else ["-ginclude_subdirs"]', 'return ["-ginclude_subdirs"]'),
     ("live clone used instead of an archive", 'p1 = subprocess.Popen(["git", "-C", repo_dir, "archive", ref], stdout=subprocess.PIPE)\n    subprocess.run(["tar", "-x", "-C", dest], stdin=p1.stdout, check=True)',
      'p1 = subprocess.Popen(["git", "-C", repo_dir, "worktree", "add", "-f", "--detach", dest + "/wt", ref], stdout=subprocess.PIPE)\n    subprocess.run(["true"], stdin=p1.stdout, check=True)'),
 ]

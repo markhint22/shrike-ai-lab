@@ -35,8 +35,7 @@
 #
 set -uo pipefail
 # 2026-10-04: GUT also descends into tests/*/ (release/battle/steam were never run). Verified green on xlite claude/feature (389 scripts, 2862 tests, 0 failing).
-# Kill switch: OVN_GUT_SUBDIRS=off.
-GUT_SUBDIRS="-ginclude_subdirs"; [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] && GUT_SUBDIRS=""
+# Kill switch: OVN_GUT_SUBDIRS=off. 2026-10-13: the flag now comes from lib_gut_xml.sh gut_subdirs_flag (sourced below) so the per-cycle verify in run_overnight.sh shares ONE definition.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEEP_DAYS="${KEEP_DAYS:-3}"                       # keep dated overnight/* this many days
@@ -56,6 +55,11 @@ source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_abs_symlinks()
 # shellcheck source=./scripts/lib_gut_xml.sh
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors) - the old grep 'failures="0"' matched any per-file line and passed red suites.
 source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; gut_xml_emit_fail_ids(){ :; }; }
+# partial-deploy guard (2026-10-13, review of package gate): a lib_gut_xml.sh that sources fine but PREDATES gut_subdirs_flag/gut_load_failure_line (rsync order, stale live copy) must not leave
+# them undefined - an undefined gut_load_failure_line made the hygiene gate MERGE a parse-broken tests/<sub> script. Define each fallback only when the function is missing.
+declare -F gut_subdirs_flag >/dev/null 2>&1 || gut_subdirs_flag(){ [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] || printf '%s' "-ginclude_subdirs"; }
+declare -F gut_load_failure_line >/dev/null 2>&1 || gut_load_failure_line(){ grep -m1 -E 'Failed to load script|Failed to compile depended scripts' "${1:-/dev/null}" 2>/dev/null; }
+GUT_SUBDIRS="$(gut_subdirs_flag)"
 FEAT="${HYGIENE_FEATURE_BRANCH:-overnight/feature}"  # land which agent branch: overnight/feature (27B) | claude/feature (Claude)
 NOW_EPOCH="$(date +%s)"
 
@@ -137,6 +141,26 @@ hyg_gate_run() {
   if [ "$rc" -ne 0 ] && declare -F hyg_fail_detail >/dev/null 2>&1; then _GATE_FAIL_DETAIL="$(hyg_fail_detail "$tmp")"; fi   # the failing test for the streak alert (before the file is removed; guarded: test_hygiene_gate_cap extracts this function alone)
   rm -f "$tmp"
   return $rc
+}
+# hyg_gut_keep <gut output file>: keep the xlite GUT gate's raw output (the godot --import scan + the GUT run) next to the pytest gate files, as
+# logs/hygiene_gate/<ts>.<repo>.gut.XXXXXX (same dir, name scheme and OVN_HYGIENE_GATE_KEEP_DAYS pruning as hyg_gate_cap). 2026-10-13 (platform-night P1): xlite's gate
+# failed 4 passes in a row and logs/hygiene_gate held only pytest/gradle files - the GUT output that explained it was deleted by run_gate's early returns. The path is left in
+# _GATE_GUT_KEEP; the call site below removes it again when the gate is GREEN (a failed gate keeps it). A file over HEAD+TAIL lines keeps its first OVN_HYGIENE_GATE_HEAD=30
+# (min 200 here) and last OVN_HYGIENE_GATE_GUT_TAIL=3000 lines. OVN_HYGIENE_GATE_GUT_KEEP=off disables. Best effort: never changes the gate's result.
+_GATE_GUT_KEEP=""
+hyg_gut_keep() {
+  [ "${OVN_HYGIENE_GATE_GUT_KEEP:-on}" = "off" ] && return 0
+  local src="${1:-}" dir="${OVN_HYGIENE_GATE_DIR:-$SCRIPT_DIR/logs/hygiene_gate}" f n tn
+  [ -s "$src" ] || return 0
+  [ -n "${_GATE_GUT_KEEP:-}" ] && rm -f "$_GATE_GUT_KEEP"   # a retry run replaces the previous attempt's copy
+  _GATE_GUT_KEEP=""
+  mkdir -p "$dir" 2>/dev/null || return 0
+  f="$(mktemp "$dir/$(date +%Y%m%d-%H%M%S).$(basename "${repo:-repo}").gut.XXXXXX" 2>/dev/null)" || return 0
+  find "$dir" -maxdepth 1 -type f -mtime +"${OVN_HYGIENE_GATE_KEEP_DAYS:-3}" -exec rm -f {} + 2>/dev/null
+  tn="${OVN_HYGIENE_GATE_GUT_TAIL:-3000}"; case "$tn" in ''|*[!0-9]*) tn=3000;; esac
+  n="$(wc -l < "$src" | tr -d ' ')"
+  if [ "${n:-0}" -le $((tn + 200)) ]; then cat "$src" > "$f" 2>/dev/null; else { head -n 200 "$src"; echo "... $((n - 200 - tn)) of $n GUT output lines omitted ..."; tail -n "$tn" "$src"; } > "$f" 2>/dev/null; fi
+  _GATE_GUT_KEEP="$f"
 }
 report(){ [ -n "$REPORT_FILE" ] && echo "$*" >> "$REPORT_FILE" || true; }
 
@@ -290,7 +314,7 @@ fi
 # a GUT gate for Godot repos.
 run_gate() {
   local repo="$1" dir="$2" ran=0 rc=0
-  _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""
+  _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""   # (_GATE_GUT_KEEP is NOT reset here: hyg_gut_keep replaces/removes the previous attempt's copy itself)
   # migration safety gate: multi-head + String-FK-to-uuid crash-loop prod (2026-09-03)
   if [ -f "$HOME/overnight-queue/scripts/check_migrations.py" ] && \
      ! python3 "$HOME/overnight-queue/scripts/check_migrations.py" "$dir" >/dev/null 2>&1; then
@@ -311,6 +335,26 @@ run_gate() {
     _sl_src="$(printf '%s\n' "$_sl_all" | grep '^SOURCE' | cut -f2 | head -20 | tr '\n' ' ')"
     if [ -n "$_sl_all" ] && [ -d "$STATE_DIR" ]; then printf '%s\n' "$_sl_all" > "$STATE_DIR/stub_leak_$(basename "$repo").txt" 2>/dev/null || true
     else rm -f "$STATE_DIR/stub_leak_$(basename "$repo").txt" 2>/dev/null || true; fi
+    # 2026-10-13 (platform-night P11): the same flag (same file set) repeated on every pass from 02:00 to 11:00 and nothing alerted - the shadow flag lived only in the log.
+    # A counter in state/stub_leak_streak/<repo>__<feature branch> ("<cksum of the file list> <passes> <alerted>") appends ONE alerts.log warn when the SAME set is seen on
+    # OVN_STUB_LEAK_ALERT_PASSES (default 3) consecutive passes OF THAT LANE; a different set restarts the count, a clean pass removes the file (and so does a pass with nothing
+    # ahead, below). Keyed by repo AND $FEAT like hyg_gate_streak: hygiene runs twice per repo (overnight/feature at :00, claude/feature at :30), and a repo-only key let the
+    # other lane's clean/different pass reset the count so the alert never fired. OVN_STUB_LEAK_ALERT=off disables; DRY_RUN=1 never writes.
+    _sl_feat="${FEAT:-unknown}"   # always set in the real script; the default only keeps an extracted copy of this block (tests, set -u) alive
+    _sl_f="$STATE_DIR/stub_leak_streak/$(basename "$repo")__${_sl_feat//[^A-Za-z0-9._-]/_}"
+    if [ -z "$_sl_src" ]; then rm -f "$_sl_f" 2>/dev/null || true
+    elif [ "${OVN_STUB_LEAK_ALERT:-on}" != "off" ] && [ "${DRY_RUN:-0}" != 1 ] && [ -d "$STATE_DIR" ] && mkdir -p "$STATE_DIR/stub_leak_streak" 2>/dev/null; then
+      _sl_k="$(printf '%s' "$_sl_src" | cksum | cut -d' ' -f1)"; _sl_n=0; _sl_a=0; _sl_ok=""
+      [ -f "$_sl_f" ] && read -r _sl_ok _sl_n _sl_a < "$_sl_f" 2>/dev/null
+      case "$_sl_n$_sl_a" in *[!0-9]*) _sl_n=0; _sl_a=0;; esac
+      if [ "$_sl_ok" = "$_sl_k" ]; then _sl_n=$((_sl_n + 1)); else _sl_n=1; _sl_a=0; fi
+      _sl_th="${OVN_STUB_LEAK_ALERT_PASSES:-3}"; case "$_sl_th" in ''|*[!0-9]*) _sl_th=3;; esac
+      if [ "$_sl_n" -ge "$_sl_th" ] && [ "$_sl_a" -eq 0 ]; then
+        _sl_a=1
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] warn | stub-leak:$(basename "$repo") | placeholder-only source file(s) in the merge candidate for ${_sl_n} consecutive passes (shadow flag, nothing blocks): ${_sl_src}- remove them or promote OVN_STUB_LEAK to enforce" >> "$STATE_DIR/alerts.log" 2>/dev/null || true
+      fi
+      printf '%s %s %s\n' "$_sl_k" "$_sl_n" "$_sl_a" > "$_sl_f" 2>/dev/null || true
+    fi
     if [ -n "$_sl_src" ]; then
       log "  gate: STUB-LEAK FLAG (${OVN_STUB_LEAK:-shadow}): placeholder-only source file(s) in the merge candidate: ${_sl_src}"
       if [ "${OVN_STUB_LEAK:-shadow}" = "enforce" ]; then return 1; fi
@@ -451,18 +495,30 @@ run_gate() {
   # failures count + no-asserts + a parse-error scan of --import output (same
   # rules as the queue's run_repo_verification Godot branch).
   if [ -f "$dir/project.godot" ] && [ -x "$HOME/godot/godot4" ]; then
-    local gout xml _ftmp; gout="$(mktemp)"
+    local gout xml _ftmp _gfirst; gout="$(mktemp)"
     ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >/dev/null 2>&1  # warm cache (class_names + assets) first
     ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless --path . --import ) >"$gout" 2>&1
-    if { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; }; then rm -f "$gout"; return 1; fi
+    # 2026-10-13 (incident gate): both early returns below used to be SILENT (no log line, no _GATE_FAIL_DETAIL), so the hygiene-gate-streak alert for xlite said "FAILED 3
+    # consecutive passes" with no failing test and a 4h hold took a manual log dive to explain. Log the first offending line and hand it to the streak alert.
+    _gfirst="$(grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$gout" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | head -1 | tr -s ' \t' ' ' | cut -c1-300)"
+    if [ -n "$_gfirst" ]; then
+      log "  gate: godot --import scan FAILED: $_gfirst"
+      _GATE_FAIL_DETAIL="godot import error: $_gfirst"
+      hyg_gut_keep "$gout"; rm -f "$gout"; return 1   # reviewer fix: the import-scan trip keeps its output too
+    fi
     if [ -f "$dir/addons/gut/gut_cmdln.gd" ]; then
       xml="$(mktemp)"
       ( cd "$dir" && timeout 120 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests $GUT_SUBDIRS -gexit "-gjunit_xml_file=$xml" ) >>"$gout" 2>&1
+      hyg_gut_keep "$gout"   # 2026-10-13 (P1): keep the raw output BEFORE any scan below can return; removed again at the call site when the gate is green
       # A test/dep script that fails to COMPILE is logged here but is ABSENT from the
       # JUnit XML (failures="0" still holds) and GUT exits 0 - this masked a real
       # battle.gd compile break. Scan for the load/compile-failure signatures.
       # (NOT bare "SCRIPT ERROR": vendored gut_loader.gd emits a benign one each run.)
-      if grep -qE 'Failed to load script|Failed to compile depended scripts' "$gout"; then rm -f "$xml" "$gout"; return 1; fi
+      if _gfirst="$(gut_load_failure_line "$gout")" && [ -n "$_gfirst" ]; then
+        log "  gate: GUT load/compile scan FAILED: $_gfirst"
+        _GATE_FAIL_DETAIL="GUT script failed to load/compile: $_gfirst"
+        rm -f "$xml" "$gout"; return 1
+      fi
       if [ ! -s "$xml" ] || ! gut_xml_green "$xml"; then
         log "  GUT RED: $(gut_xml_summary "$xml")"
         _ftmp="$(mktemp 2>/dev/null)" && { { echo "--- GUT RED"; gut_xml_emit_fail_ids "$xml"; } > "$_ftmp" 2>/dev/null; _GATE_FAIL_DETAIL="$(hyg_fail_detail "$_ftmp")"; rm -f "$_ftmp"; }
@@ -616,6 +672,7 @@ for repo in "${REPOS[@]}"; do
     rm -f "$STATE_DIR/branch_hygiene_review_${name}"   # clear any stale flag now that it's synced
     hyg_gate_streak "$name" "$FEAT" 0                  # nothing ahead = nothing red to gate: a gate-failure streak is over (fixed out of band)
     hyg_merge_streak "$name" "$FEAT" 0                 # nothing ahead = nothing left to merge: a merge-conflict streak is over
+    [ "${DRY_RUN:-0}" = 1 ] || rm -f "$STATE_DIR/stub_leak_streak/${name}__${FEAT//[^A-Za-z0-9._-]/_}" 2>/dev/null   # nothing ahead = nothing flagged: a stub-leak streak (and its alerted=1 dedup) is over (P11 reviewer fix)
     # feature has nothing to land, but $mt (develop) may have advanced independently
     # (reconcile's main->develop back-merges, an out-of-band landing) — keep feature
     # CURRENT so it never falls BEHIND develop. ahead==0 means feature ⊆ $mt, so this
@@ -661,7 +718,7 @@ for repo in "${REPOS[@]}"; do
     report "| $name | 🔴 +$ahead, tracks absolute symlink(s) (tree guard) |"; continue
   fi
   # gate: does $FEAT build + test?
-  run_gate "$repo" "$wt"; g=$?
+  _GATE_GUT_KEEP=""; run_gate "$repo" "$wt"; g=$?
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
 
   # 2026-09-15 RETRY-ON-TIMEOUT: a gate that failed specifically because a `timeout`
@@ -689,10 +746,12 @@ for repo in "${REPOS[@]}"; do
   # OR "no build/test to gate on" (2) is flagged, never merged — so a repo whose
   # tests we can't detect can never be silently auto-deployed.
   hyg_gate_streak "$name" "$FEAT" "$g"   # consecutive-failure alert + reset on green (see hyg_gate_streak)
+  if [ "$g" -eq 0 ] && [ -n "${_GATE_GUT_KEEP:-}" ]; then rm -f "$_GATE_GUT_KEEP"; _GATE_GUT_KEEP=""; fi   # green: nothing to explain (hyg_gut_keep, P1)
   if [ "$g" -ne 0 ]; then
     reason=$([ "$g" -eq 1 ] && echo "gate FAILED (build/tests red)" || echo "no build/test gate available")
     echo "$reason: $FEAT +$ahead $(date)" > "$flag"
     log "  $reason for $name — NOT merging, flagged for review"
+    [ -n "${_GATE_GUT_KEEP:-}" ] && log "  gate GUT output kept in $_GATE_GUT_KEEP"
     report "| $name | 🔴 +$ahead, $reason — needs review |"; continue
   fi
 

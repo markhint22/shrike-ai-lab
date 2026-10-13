@@ -3,6 +3,7 @@
 
   scan <repo>             judge the open T-lines of backlog/<repo>.md into state/spec_gate.jsonl (cron */10; skipped while state/PAUSED exists). NEVER writes the backlog.
   lint [<repo_dir>]       stdin item lines -> stdout, static repairs R01-R03 + R11 (ovn_planner.sh, before feat tagging). Any error echoes stdin unchanged.
+  recover-lint <repo_dir> [repair|enforce|off]   stdin sub-item lines -> stdout with their VERIFY repaired (ovn_recover_parked.sh; see recover_lint); exit 3 = everything dropped (enforce)
   report                  summary of state/spec_gate.jsonl: verdict mix, findings per rule, and how each repair rule performed
   restore <repo> <key>    undo a quarantine: the line goes back to backlog/<repo>.md and is never quarantined again (a sticky `restored` row in state/spec_gate_restored.jsonl, an append-only file the scan never rewrites)
 
@@ -12,7 +13,7 @@ OVN_SPEC_GATE_ENFORCE_RULES. `restore` is the one operator exception (an explici
 Env
   OVN_SPEC_GATE=off|shadow|enforce   default shadow. off: scan/lint do nothing, queue_refill ignores the gate. shadow and enforce judge identically (the row records the mode);
                                      what is ENFORCED is decided only by OVN_SPEC_GATE_ENFORCE_RULES.
-  OVN_SPEC_GATE_ENFORCE_RULES        comma list; UNSET = R01,R11 (the static repair-only rules, 2026-10-10), set-but-empty or `none` = nothing enforced. R01 R02 R03 R11 (repairs), R04 R05 R07 R10 R12 R13 (quarantine), R06 R14 (hold), PB (quarantine a
+  OVN_SPEC_GATE_ENFORCE_RULES        comma list; UNSET = R01,R11 (the static repair-only rules, 2026-10-10), set-but-empty or `none` = nothing enforced. R01 R02 R03 R11 (repairs), R04 R05 R07 R10 R12 R13 R17 (quarantine), R06 R14 (hold), PB (quarantine a
                                      VERIFY that already passes). Rollout order: R01,R02,R03 -> R04,R06 -> R05,R07,R10 (see docs/PIPELINE_REWORK_2026-10-08.md).
   OVN_SPEC_BASE                      the ref everything is judged at (default origin/overnight/feature); OVN_DIR the live dir (default: the parent of this scripts/ dir)
   OVN_SPEC_GATE_MAX_EXEC             VERIFY executions per scan (default 12); OVN_SPEC_GATE_TTL_S verdict lifetime (default 21600)
@@ -42,7 +43,7 @@ except Exception as _e:  # a broken sibling module must never cost the planner i
     E = R = declared_paths = verify_of = None
     _IMPORT_ERR = _e
 
-QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13")
+QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13", "R17")
 HOLD_RULES = ("R06", "R14")
 STATIC_REPAIR_RULES = ("R01", "R02", "R03", "R11", "R16")
 # 2026-10-10 (harness R10, IPTV-2): rules ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET: the static repair-only R01 (bare VERIFY -> backticked) and R11 (gut_cli.gd -> gut_cmdln.gd). An explicitly
@@ -220,7 +221,23 @@ def open_worktree(ovn, clone, branch):
     except (OSError, subprocess.SubprocessError):
         return None
     wt = r.stdout.strip().split("\n")[-1] if r.returncode == 0 else ""
-    return wt if wt and os.path.isdir(wt) else None
+    if not (wt and os.path.isdir(wt)):
+        return None
+    seed_godot(ovn, clone, wt)
+    return wt
+
+
+def seed_godot(ovn, clone, wt):
+    """Intake package (platform P3, 2026-10-13): copy the live clone's gitignored godot import cache (.godot/, *.import) into the gate's worktree. A fresh worktree has none, GUT then prints
+    'Some GUT class_names have not been imported' and exits 0 having run NOTHING, which the gate read as `passes-before` (6 of 6 xlite rows, ~430ms each). Only for a godot project (the walk
+    lists every ignored file, which is slow for a node_modules repo); best effort; OVN_SPEC_GATE_SEED_GODOT=off disables. wt_seed_godot (lib_worktree.sh) COPIES, never links."""
+    if os.environ.get("OVN_SPEC_GATE_SEED_GODOT", "on") == "off" or not os.path.isfile(os.path.join(clone, "project.godot")):
+        return False
+    try:
+        r = _bash_lib(ovn, "wt_seed_godot", clone, wt)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
 
 
 def close_worktree(ovn, clone, wt):
@@ -382,6 +399,54 @@ def lint_stream():
     return 0
 
 
+# ---------------------------------------------------------------- recover-lint (stdin -> stdout)
+RECOVER_REJECT_RULES = ("R13", "R17")
+
+
+def recover_lint(repo_dir, mode):
+    """ovn_recover_parked.sh: the decomposition the 27B wrote for a parked item copies the parent's VERIFY, so a defect in it ('cd /path/to/xlite && ...', 'cd tests && godot -s test_x.gd', a
+    -gdir that names a FILE) survived into every child and looped it through ALREADY-DONE refusals (xlite night F5). stdin = the candidate sub-item lines; stdout = the same lines with their VERIFY
+    repaired (R16 incl. the `godot -s <GutTest>` rewrite). `repair` (default): repair only; a child that still cannot run (R13 / R17) is reported on stderr and KEPT. `enforce`: such a child
+    is dropped; exit 3 when nothing is left (the caller escalates). `off`: echo. Any error echoes the input unchanged."""
+    data = sys.stdin.read()
+    if mode == "off":
+        sys.stdout.write(data)
+        return 0
+    try:
+        lines = [l for l in data.split("\n")]
+        ref = os.environ.get("OVN_SPEC_BASE", "origin/overnight/feature")
+        ctx = R.Ctx(repo_dir, ref)
+        fixed, notes = [], []
+        for l in lines:
+            if l.startswith("- [ ] [T"):
+                l2, f = R.repair_verify(l, ctx)
+                if f:
+                    notes.append("%s repaired (%s)" % (f["rule"], f["msg"].split(":")[0][:80]))
+                fixed.append(l2)
+            else:
+                fixed.append(l)
+        judged = R.lint_batch([l for l in fixed], ctx)
+        out, dropped = [], []
+        for l2, (_, fs) in zip(fixed, judged):
+            bad = [f for f in fs if f["rule"] in RECOVER_REJECT_RULES and f["sev"] == "reject"]
+            if bad and l2.startswith("- [ ] [T"):
+                dropped.append("%s: %s" % (bad[0]["rule"], bad[0]["msg"][:120]))
+                if mode == "enforce":
+                    continue
+            out.append(l2)
+        if notes or dropped:
+            sys.stderr.write("recover-lint (%s): %s%s\n" % (mode, "; ".join(notes) or "no repair",
+                                                            ("; unrunnable VERIFY %s: %s" % ("DROPPED" if mode == "enforce" else "kept (shadow)", " | ".join(dropped))) if dropped else ""))
+        if mode == "enforce" and not [l for l in out if l.strip()]:
+            return 3
+        sys.stdout.write("\n".join(out))
+        return 0
+    except Exception as e:  # noqa: BLE001 - never lose a decomposition to the lint
+        sys.stderr.write("recover-lint failed (%s) - input echoed unchanged\n" % e)
+        sys.stdout.write(data)
+        return 0
+
+
 # ---------------------------------------------------------------- report
 def report():
     warn_enforce_noop()
@@ -463,11 +528,13 @@ def main(argv):
         return scan(argv[2])
     if len(argv) >= 2 and argv[1] == "lint":
         return lint_stream()
+    if len(argv) >= 3 and argv[1] == "recover-lint":
+        return recover_lint(argv[2], argv[3] if len(argv) > 3 else "repair")
     if len(argv) >= 2 and argv[1] == "report":
         return report()
     if len(argv) >= 4 and argv[1] == "restore":
         return restore(argv[2], argv[3])
-    sys.stderr.write("usage: ovn_spec_gate.py scan <repo> | lint [<repo_dir>] | report | restore <repo> <item_key>\n")
+    sys.stderr.write("usage: ovn_spec_gate.py scan <repo> | lint [<repo_dir>] | recover-lint <repo_dir> [mode] | report | restore <repo> <item_key>\n")
     return 2
 
 

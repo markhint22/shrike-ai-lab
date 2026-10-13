@@ -115,6 +115,8 @@ ok("pass: commits ONLY roadmap/demo.md", "roadmap/demo.md" in last and last.coun
 ok("pass: sets cooldown marker + daily count", os.path.exists(os.path.join(d, "state", "local_research_demo")) and
    open(os.path.join(d, "state", "local_research_count_demo_%s" % datetime.date.today().isoformat())).read().strip() == "1")
 ok("pass: writes one alerts.log line", "local-research:demo" in open(os.path.join(d, "state", "alerts.log")).read())
+ok("pass: the refuel notice is level INFO, not warn (2026-10-13 G5: informational, was tagged warn)", "] info | local-research:demo |" in open(os.path.join(d, "state", "alerts.log")).read()
+   and "warn | local-research" not in open(os.path.join(d, "state", "alerts.log")).read())
 
 # --- gating
 out = run(d)

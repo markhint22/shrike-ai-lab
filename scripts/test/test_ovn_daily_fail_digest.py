@@ -169,8 +169,8 @@ try:
     ok("walltime: per repo sums over the window; verify measured only on marker rows (1 of 2); the 50h row is out", d["walltime"] == {"xlite": {"rows": 2, "busy_s": 650, "gen_s": 112, "verify_s": 300, "fixup_s": 45, "rows_with_verify_markers": 1}}, str(d["walltime"]))
     # ---- shadow gate + pollution
     vs = d["verify_shadow"]
-    ok("shadow rows in the window counted by result (the 60h row is out)", vs["rows"] == 4 and vs["results"] == {"path_gate=OK": 1, "result=FAIL": 1, "result=NO_VERIFY_CLAUSE": 1, "result=PASS": 1}, str(vs))
-    ok("foreign (repo=tmp.*) rows are flagged as test pollution with an example", vs["foreign_rows"] == 2 and vs["foreign_examples"] and "repo=tmp.VdAbPPHC3q" in vs["foreign_examples"][0], str(vs))
+    ok("shadow rows of FLEET repos in the window counted by result (the 60h row is out; the 2 tmp.* rows are NOT counted: intake package P8)", vs["rows"] == 2 and vs["results"] == {"result=FAIL": 1, "result=PASS": 1}, str(vs))
+    ok("foreign (repo=tmp.*) rows are labelled as test pollution with an example, outside the counts", vs["foreign_rows"] == 2 and vs["foreign_labels"] == {"tmp.VdAbPPHC3q": 2} and vs["foreign_examples"] and "repo=tmp.VdAbPPHC3q" in vs["foreign_examples"][0], str(vs))
     ok("not_covered names the signals that need logs/git", len(d["not_covered"]) == 4)
 
     # ---- CLI + markdown + JSON

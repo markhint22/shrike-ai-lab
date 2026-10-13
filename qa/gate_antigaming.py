@@ -1775,6 +1775,15 @@ def check(argv):
                            "--no-record" in argv)
         except Exception as ex:  # noqa: BLE001
             notes.append("ag_r10 failed to run: %s: %s" % (type(ex).__name__, str(ex)[:80]))
+    # 2026-10-13 rules (qa/ag_n2.py): N_NEWPATH_LOOKALIKE (FAIL only when `antigaming_newpath` is enforce), N_EMPTIED_SOURCE (FLAG). OVN_QA_AG_N2=off disables
+    # them. Isolated: an error becomes a note.
+    if os.environ.get("OVN_QA_AG_N2", "on") != "off":
+        try:
+            import ag_n2
+            ag_n2.run_all(repo, name, status, st_raw, diffs, findings, notes, max(deadline, time.time()) + float(os.environ.get("QA_AG_N2_BUDGET", "20")),
+                          "--no-record" in argv)
+        except Exception as ex:  # noqa: BLE001
+            notes.append("ag_n2 failed to run: %s: %s" % (type(ex).__name__, str(ex)[:80]))
     apply_demotions(rd, name, head, findings, notes)
     # assemble
     order = {"FAIL": 0, "FLAG": 1}

@@ -430,6 +430,9 @@ if [ "$_ig_fixup_fail" = 0 ] && [[ "$status" == no-op* || "$status" == "<none>"*
   ntoks=$(( $(cat "$ntoksf" 2>/dev/null || echo 0) + cur_toks ))
   printf '%s' "$nc" > "$ncountf"
   printf '%s' "$ntoks" > "$ntoksf"
+  # 2026-10-13 (intake package, xlite night F5): the no-op park once fired on the 10th ALREADY-DONE row, not the 5th, and the per-hash counter files were gone so the miscount could not be
+  # explained. One line per no-op (item id, hash, counter, tokens, caps, status) makes the next one diagnosable. Best effort, never blocks the guard.
+  printf '%s id=%s hash=%s nc=%s/%s ntoks=%s/%s status=%s\n' "$(date '+%F %T')" "$id" "$h" "$nc" "$NCAP" "$ntoks" "$TOKCAP" "$status" >> "$state/item_noop_counter.log" 2>/dev/null || true
   if [ "$nc" -ge "$NCAP" ] || [ "$ntoks" -ge "$TOKCAP" ]; then
     trigger="${NCAP} no-op cycles"; [ "$ntoks" -ge "$TOKCAP" ] && [ "$nc" -lt "$NCAP" ] && trigger="${ntoks} tokens with no landing (only ${nc}/${NCAP} cycles — caught by spend, not attempt count)"
     branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"

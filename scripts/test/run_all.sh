@@ -416,5 +416,28 @@ echo; echo "===== r16: verify audit ====="; bash test_verify_audit.sh || rc=1
 echo; echo "===== r16: verify polarity ====="; bash test_verify_polarity.sh || rc=1
 echo; echo "===== r16: verify polarity shadow ====="; bash test_verify_polarity_shadow.sh || rc=1
 echo; echo "===== r16: verify safe ====="; bash test_verify_safe.sh || rc=1
+echo; echo "===== r17: chronic alert n2 ====="; bash test_chronic_alert_n2.sh || rc=1
+echo; echo "===== r17: create exists shortcircuit ====="; bash test_create_exists_shortcircuit.sh || rc=1
+echo; echo "===== r17: fleet review ops ====="; bash test_fleet_review_ops.sh || rc=1
+echo; echo "===== r17: gut cycle subdirs gate ====="; bash test_gut_cycle_subdirs_gate.sh || rc=1
+echo; echo "===== r17: hygiene gut keep n2 ====="; bash test_hygiene_gut_keep_n2.sh || rc=1
+echo; echo "===== r17: idle growth retention ====="; bash test_idle_growth_retention.sh || rc=1
+echo; echo "===== r17: intake digest ====="; bash test_intake_digest.sh || rc=1
+echo; echo "===== r17: intake lineage scope ====="; bash test_intake_lineage_scope.sh || rc=1
+echo; echo "===== r17: intake park scope ====="; bash test_intake_park_scope.sh || rc=1
+echo; echo "===== r17: intake recover parked ====="; bash test_intake_recover_parked.sh || rc=1
+echo; echo "===== r17: intake unpark ====="; bash test_intake_unpark.sh || rc=1
+echo; echo "===== r17: intake verify lint ====="; bash test_intake_verify_lint.sh || rc=1
+echo; echo "===== r17: intake verify shadow ====="; bash test_intake_verify_shadow.sh || rc=1
+echo; echo "===== r17: qa antigaming n2 ====="; bash test_qa_antigaming_n2.sh || rc=1
+echo; echo "===== r17: qa enforce subkeys n2 ====="; bash test_qa_enforce_subkeys_n2.sh || rc=1
+echo; echo "===== r17: qa replay merges n2 ====="; bash test_qa_replay_merges_n2.sh || rc=1
+echo; echo "===== r17: stage guards runner ====="; bash test_stage_guards_runner.sh || rc=1
+echo; echo "===== r17: stub guard newdir n2 ====="; bash test_stub_guard_newdir_n2.sh || rc=1
+echo; echo "===== r17: stub leak alert n2 ====="; bash test_stub_leak_alert_n2.sh || rc=1
+echo; echo "===== r17: udiff unanchored ====="; bash test_udiff_unanchored.sh || rc=1
+echo; echo "===== r17: verify polarity compound shadow ====="; bash test_verify_polarity_compound_shadow.sh || rc=1
+echo; echo "===== r17: stage guards ====="; python3 test_stage_guards.py || rc=1
+echo; echo "===== r17: verify polarity compound ====="; python3 test_verify_polarity_compound.py || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

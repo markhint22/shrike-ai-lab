@@ -17,6 +17,7 @@ prints PARKED=<n>
 227KB -> 80k-token request vs a 65k context -> ContextWindowExceededError 4 cycles running). Same banned_list/prefix + size rules as above:
   ovn_park_unworkable.py --scout-guard <repo_root> <max_bytes> <item_text_file>   (candidate tokens, one per line, on stdin)
       stdout: "DROP<TAB><tok><TAB><why>" per dropped token, then "UNWORKABLE<TAB><why>" iff the item cannot proceed without a dropped file
+  ovn_park_unworkable.py --edit-text      (item text on stdin -> the text before `VERIFY:` with -s/--script arguments blanked: the only part that can name an edit target)
   ovn_park_unworkable.py --park-line <OVERNIGHT_PROGRESS.md> <line_no> <why>
       tags that one open line "[CLAUDE] [unworkable: <why>]" (same tag format as the sweep); prints PARKED=1|0
 """
@@ -29,6 +30,33 @@ PATH_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}")
 # same "file-shaped" test as run_overnight.sh's _ovn_candidate_tokens: a path separator or a recognised code/doc extension ("datetime.now" is not a file)
 FILEISH_RE = re.compile(r"/|\.(py|ts|tsx|js|jsx|vue|gd|kt|java|go|rb|rs|c|cpp|h|hpp|ya?ml|json|toml|cfg|ini|sh|txt|xml|gradle|properties|env)$")
 DELETE_RE = re.compile(r"—\s*(delete|remove)\b", re.I)
+# 2026-10-13 (intake package, xlite night F2): the VERIFY clause is a COMMAND, not an edit target. Scanning the whole item line took the first path-like token that exists on disk, and the
+# GUT runner `addons/gut/gut_cmdln.gd` (named in every GUT VERIFY) matched the vendored-code ban `addons/`: 9 'Create test X' items were parked [unworkable: hard-banned file
+# addons/gut/gut_cmdln.gd] and the lane ran out of work. Only the text BEFORE `VERIFY:` can name what an item edits, and a token after `-s` / `--script` in a command is the script
+# the engine RUNS, never something the item edits. OVN_PARK_VERIFY_SCOPE=off restores the whole-line scan (kill switch).
+VERIFY_RE = re.compile(r"VERIFY:")
+SCRIPT_ARG_RE = re.compile(r"(?<!\S)(?:-s|--script)(?:=|\s+)\S+")
+
+
+def _scope_on():
+    return os.environ.get("OVN_PARK_VERIFY_SCOPE", "on") != "off"
+
+
+def edit_text(line):
+    """The part of an item line that can name an edit target: everything before `VERIFY:` with the argument of any `-s` / `--script` option blanked. Identity when the kill switch is off."""
+    if not _scope_on():
+        return line
+    return SCRIPT_ARG_RE.sub(" ", VERIFY_RE.split(line, maxsplit=1)[0])
+
+
+def files_text(line):
+    """The text after a `FILES:` marker (aider chat files), searched in the item description first and, for a FILES clause written AFTER the VERIFY, in the VERIFY tail; '' when none."""
+    head = edit_text(line)
+    if "FILES:" in head:
+        return head.split("FILES:", 1)[1]
+    if _scope_on() and "FILES:" in line:
+        return line.split("FILES:", 1)[1]
+    return ""
 
 
 def banned_list(root):
@@ -60,12 +88,13 @@ def why_unworkable(line, root, banned, max_bytes):
     # 2026-10-02: an item that lists "FILES: a, b" gets EVERY listed file added to the aider chat, so any one of them being banned/too big makes the
     # item unworkable even when the first path in the text is small (xlite: "tests/test_battle_persistence.gd ... FILES: scripts/battle/battle.gd" was
     # never parked and overflowed the 65k context 4 cycles in a row).
-    if "FILES:" in line:
-        for tok in PATH_RE.findall(line.split("FILES:", 1)[1]):
+    ft = files_text(line)
+    if ft:
+        for tok in PATH_RE.findall(ft):
             why = _check(tok, root, banned, max_bytes)
             if why:
                 return why
-    for tok in PATH_RE.findall(line):
+    for tok in PATH_RE.findall(edit_text(line)):
         if tok.endswith(".md"):
             continue
         path = os.path.join(root, tok)
@@ -99,7 +128,7 @@ def scout_guard(root, tokens, item_text, max_bytes):
     dropped_toks = {t for t, _ in dropped}
     # the item's own target = first path token of the item text that exists on disk (same rule as why_unworkable)
     target = None
-    for tok in PATH_RE.findall(item_text or ""):
+    for tok in PATH_RE.findall(edit_text(item_text or "")):
         if not tok.endswith(".md") and os.path.isfile(os.path.join(root, tok)):
             target = tok
             break
@@ -133,6 +162,10 @@ def main():
             print("DROP\t%s\t%s" % (tok, w))
         if why:
             print("UNWORKABLE\t%s" % why)
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "--edit-text":
+        # stdin item text -> stdout the part that can name an edit target (ovn_recover_parked.sh: hard-ban check + lineage file)
+        sys.stdout.write(edit_text(sys.stdin.read()))
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "--park-line":
         print("PARKED=%d" % park_line(sys.argv[2], int(sys.argv[3]), sys.argv[4]))

@@ -5,7 +5,7 @@ only `git grep/show` on refs. Every rule is isolated: an internal error or a dea
   E_GD_TEST_NOT_GUT   FLAG  a changed/new GDScript test file (test_*.gd / *_test.gd / has `func test_`) that GUT would silently ignore: no
                             `extends GutTest` (directly or through a project base class) or no `func test_*`. GUT logs 'Ignoring script ... does not
                             extend GutTest' and still exits 0, so the tests never run (xlite carried 4 such files 10-04..10-10).
-  A_TESTFILE_EMPTIED  FLAG  (FAIL only when the gate mode `antigaming_testfiles` = enforce) a changed/new gd/py test file that ends with ZERO test
+  A_TESTFILE_EMPTIED  FLAG  (FAIL only when the gate mode `antigaming_testfiles` = enforce; 2026-10-13: the had-tests-now-none sub-case also by `antigaming_emptied`) a changed/new gd/py test file that ends with ZERO test
                             functions although it had some before (an aider 'remove duplicate' / 'revert to placeholder' emptied it), or a NEW test
                             file with none (harness stub that was never filled). Would have blocked xlite df1de23 and iptv 2dbbc4b2.
   D_UNREFERENCED_FUNC FLAG  a NEW `func` / `static func` in non-test GDScript (private ones too) whose name appears nowhere else in the repo at head
@@ -24,6 +24,7 @@ import time
 import qa_common as qc
 
 TESTFILES_MODE_GATE = "antigaming_testfiles"
+EMPTIED_MODE_GATE = "antigaming_emptied"   # 2026-10-13 (package qa): a dedicated key for A_TESTFILE_EMPTIED alone, so it can be enforced without E_TEST_NOT_COLLECTED
 GD_VIRTUALS = {"_ready", "_process", "_physics_process", "_input", "_unhandled_input", "_unhandled_key_input", "_gui_input", "_draw",
                "_enter_tree", "_exit_tree", "_notification", "_init", "_to_string", "_get", "_set", "_get_property_list", "_validate_property",
                "_property_can_revert", "_property_get_revert", "_get_configuration_warnings", "_shortcut_input", "_integrate_forces",
@@ -45,9 +46,14 @@ def testfiles_sev(status):
     return "FAIL" if (status == "A" and testfiles_mode() == "enforce") else "FLAG"
 
 
-def emptied_sev():
-    """A_TESTFILE_EMPTIED: FAIL (new, edited or renamed file alike) only when `antigaming_testfiles` is enforce, else FLAG."""
-    return "FAIL" if testfiles_mode() == "enforce" else "FLAG"
+def emptied_sev(had_tests=True):
+    """A_TESTFILE_EMPTIED severity. `had_tests` = the file HAD test functions at base and has none now (an emptied-instead-of-deleted test file): FAIL when
+    `antigaming_emptied` (2026-10-13, this sub-case alone) OR `antigaming_testfiles` is enforce. `had_tests` False = a NEW test file with no test function (the
+    harness's placeholder stub that was never filled in): FAIL only when `antigaming_testfiles` is enforce - the 60-day merge-range replay (docs/QA_GATE_READINESS_
+    2026-10-13.md) found that state is routinely transient (the implement step fills the stub in a later commit), so the new key does not arm it. Else FLAG."""
+    if testfiles_mode() == "enforce":
+        return "FAIL"
+    return "FAIL" if (had_tests and qc.mode(EMPTIED_MODE_GATE) == "enforce") else "FLAG"
 
 
 def _ga():
@@ -160,7 +166,7 @@ def rule_test_files(repo, status, diffs, out, notes):
                     continue   # already had no tests: pre-existing, not caused by this diff
             why = ("test file had %d test function(s) and now has none (emptied instead of deleted or fixed)" % old_n) if old_n else \
                   "new test file contains no test function (placeholder / stub that was never filled in)"
-            out.append(_F("A_TESTFILE_EMPTIED", emptied_sev(), path, 1, why, os.path.basename(path)))
+            out.append(_F("A_TESTFILE_EMPTIED", emptied_sev(bool(old_n)), path, 1, why, os.path.basename(path)))
             emptied.add(path)
             continue
         if lang == "gd" and path not in emptied and not extends_gut(repo, txt):

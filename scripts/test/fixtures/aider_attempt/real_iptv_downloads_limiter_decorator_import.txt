@@ -1,0 +1,15 @@
+before adding it to this file. Let me look for the limiter import pattern used
+in other routers.
+
+
+--- iptv-backend/app/routers/downloads.py
++++ iptv-backend/app/routers/downloads.py
+@@ -17,0 +18 @@ from app.services.download_quota import can_download,
+remaining_downloads
++from app.core.limiter import limiter
+@@ -69,0 +71 @@ def _require_recordable_stream_type(stream: Stream) -> None:
++@limiter.limit("5/minute")
+
+
+Tokens: 17k sent, 126 received.
+Applied edit to iptv-backend/app/routers/downloads.py

@@ -169,8 +169,15 @@ _verify_is_gut(){ case "$1" in *gut_cmdln*) return 0;; esac; return 1; }
 # The project root is the cwd (or the target of a leading `cd X &&`).
 _verify_normalize_gut(){
   local c="$1" base="." out
-  if [ "${OVN_GUT_CLAUSE_NORMALIZE:-on}" = off ] || ! _verify_is_gut "$c" || [ ! -f "$_VC_DIR/ovn_gut_clause.py" ]; then printf '%s' "$c"; return 0; fi
-  case "$c" in "cd "*) base="$(printf '%s' "$c" | sed -E 's/^cd +([^ ;&]+).*/\1/')"; [ -d "$base" ] || base="." ;; esac
+  # 2026-10-13 (intake package, F4/P8): also shapes that cannot run AT ALL and that are not GUT-runner calls: a `/path/to/<repo>` placeholder cd, and `[cd D &&] godot -s <GutTest>.gd`
+  # (a GUT test is not a SceneTree script). ovn_gut_clause.normalize decides (it leaves everything else untouched); this only decides whether to ask it. Same kill switch.
+  if [ "${OVN_GUT_CLAUSE_NORMALIZE:-on}" = off ] || [ ! -f "$_VC_DIR/ovn_gut_clause.py" ]; then printf '%s' "$c"; return 0; fi
+  local _gs_re='godot[^;&|]*[[:space:]](-s|--script)[[:space:]=]'
+  if ! _verify_is_gut "$c" && [[ "$c" != */path/to/* ]] && ! [[ "$c" =~ $_gs_re ]]; then printf '%s' "$c"; return 0; fi
+  # the project root is the cwd (or the target of a leading `cd X &&`) - for a GUT runner call only: any other shape is judged from the cwd
+  if _verify_is_gut "$c"; then
+    case "$c" in "cd "*) base="$(printf '%s' "$c" | sed -E 's/^cd +([^ ;&]+).*/\1/')"; [ -d "$base" ] || base="." ;; esac
+  fi
   out="$(printf '%s' "$c" | timeout 20 python3 "$_VC_DIR/ovn_gut_clause.py" normalize "$base" 2>/dev/null)" || out=""
   if [ -n "$out" ]; then printf '%s' "$out"; else printf '%s' "$c"; fi
 }
@@ -369,6 +376,17 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     [ "$rc" -eq 0 ] && rc=1
     _LAST_VERIFY_WHY="GUT target missing"
     tail_out="GUT-target-missing $tail_out"
+  fi
+  # B3 (intake package, platform P3, 2026-10-13): a GUT checkout WITHOUT the godot import cache (.godot/, gitignored: a fresh worktree has none) prints "Some GUT class_names have not been
+  # imported" and exits 0 having run NOTHING - the spec gate (ovn_spec_gate.py scan, a clean detached worktree) read that as PASS, so every GUT item was 'passes-before' (6 of 6 rows, 430ms
+  # each: the real run takes seconds). It is INDETERMINATE, not a pass and not a failure of the item: UNRUNNABLE (rc 127). A script that fails to load is tagged so the classifier can tell it
+  # from an assertion failure. OVN_GUT_CLAUSE_NORMALIZE=off disables both (same switch as X2).
+  if _verify_is_gut "$vcmd" && [ "${OVN_GUT_CLAUSE_NORMALIZE:-on}" != off ]; then
+    if [ "$rc" -eq 0 ] && grep -aq 'GUT class_names have not been imported' <<< "$out"; then
+      rc=127; _LAST_VERIFY_RC=127; tail_out="GUT-not-imported $tail_out"
+    elif grep -aEq 'Failed to load script|Parse Error' <<< "$out"; then
+      tail_out="GUT-load-failed $tail_out"
+    fi
   fi
   # GUT exits 0 on failing tests: the output summary / junit xml decide, not the exit code
   if [ "$rc" -eq 0 ] && _verify_is_gut "$vcmd"; then

@@ -12,8 +12,7 @@
 # Tunables: OVN_STAGE_MAX_ATTEMPTS(2 per step) OVN_STAGE_MAX_STEPS(6) OVN_STAGE_REDECOMP(1)
 set -uo pipefail
 # 2026-10-04: GUT also descends into tests/*/ (release/battle/steam were never run). Verified green on xlite claude/feature (389 scripts, 2862 tests, 0 failing).
-# Kill switch: OVN_GUT_SUBDIRS=off.
-GUT_SUBDIRS="-ginclude_subdirs"; [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] && GUT_SUBDIRS=""
+# Kill switch: OVN_GUT_SUBDIRS=off. 2026-10-13: the flag comes from lib_gut_xml.sh gut_subdirs_flag (sourced below) - one definition shared with run_overnight.sh's per-cycle verify.
 cd "$HOME/overnight-queue" || exit 1
 export PATH="$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 LITELLM="${LITELLM_BASE:-http://localhost:4000}"; LKEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
@@ -105,8 +104,17 @@ source scripts/lib_tree_guard.sh 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
 # here: that would redefine ovn_is_manual_bug_text after the fail-safe stub that follows lib_bug_escalate.sh.
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites.
 source scripts/lib_gut_xml.sh 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; }
+# partial-deploy guard (2026-10-13, review of package gate): a lib_gut_xml.sh that sources fine but PREDATES gut_subdirs_flag/gut_load_failure_line (rsync order, stale live copy) must not leave
+# them undefined - an undefined gut_load_failure_line made the hygiene gate MERGE a parse-broken tests/<sub> script. Define each fallback only when the function is missing.
+declare -F gut_subdirs_flag >/dev/null 2>&1 || gut_subdirs_flag(){ [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] || printf '%s' "-ginclude_subdirs"; }
+GUT_SUBDIRS="$(gut_subdirs_flag)"
 # 2026-10-04 (QA audit H): explicit run of the cycle's new/changed test files (ovn_run_new_tests); lib missing => step is skipped.
 source scripts/lib_new_tests.sh 2>/dev/null || true
+# 2026-10-13 (package stage): deterministic guards (mis-targeted Verify steps / items, class_name conflicts, named tests, item-VERIFY red-before, web verify). Lib missing => every guard is a no-op.
+source scripts/lib_stage_guards.sh 2>/dev/null || true
+declare -F stage_step_mistarget >/dev/null 2>&1 || { stage_step_mistarget(){ return 1; }; stage_item_mistarget(){ return 1; }; stage_class_conflict(){ return 1; }
+  stage_named_tests_check(){ return 0; }; stage_item_verify_run(){ printf 'NO_VERIFY_CLAUSE|lib missing'; }; stage_item_verify_decision(){ echo OK; }
+  stage_red_before_check(){ return 0; }; stage_web_verify(){ return 0; }; stage_tree_restore(){ return 0; }; }
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
@@ -565,6 +573,17 @@ say "watchdog rearmed for ${_armed}s (NSTEPS=$NSTEPS, dynamic budget was ${_dyna
 run_step(){ # $1=idx $2=desc $3=files(space-sep) $4=verify $5=redecomp-left
   local idx="$1" desc="$2" files="$3" verify="$4" rd_left="$5" att fa rc
   local fargs=(); for f in $files; do [ -n "$f" ] && fargs+=(--file "$f"); done
+  # 2026-10-13 (xlite F3, BLOCKER-class): a Verify/Check/Confirm step that names a file which does not exist is MIS-TARGETED. aider happily creates and fills any path it is handed, and a Verify
+  # step is allowed to write: the run fabricated a 52-line scripts/mission/codex_manager.gd (the real module is scripts/codex/codex_manager.gd) whose existence turned the item's grep VERIFY
+  # green. Refuse the step before any model call; it is BLOCKED (no re-decomposition: the target is wrong, not too big). OVN_STAGE_MISTARGET=off disables.
+  local _mt
+  if _mt="$(stage_step_mistarget "$wt" "$desc" "$files")"; then
+    say "  step $idx REFUSED (mis-targeted): ${_mt:0:160}"
+    jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg d "$desc" --arg f "$files" --arg ex "mis-targeted: $_mt" \
+      '{run:$r,step:$i,desc:$d,files:$f,attempt:0,verdict:"fail",fail_reason:"mistargeted",duration_s:0,tokens_sent:0,tokens_recv:0,excerpt:$ex}')"
+    jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" '{run:$r,step:$i,verdict:"blocked"}')"
+    return 1
+  fi
   # AUTO-ADD SOURCE FILES: the #1 no-edit cause on wire/integrate steps was the 27B only getting the
   # TARGET file and then looping "I need to see flanking.gd" (the source it wires FROM). Find the file
   # that DEFINES each symbol the step references and open it too, so the model has the API up front.
@@ -608,6 +627,7 @@ ${_tgtctx}
   # per-step ovn_autotest gdparse/godot --check-only loop then makes it fix any residual mistakes.
   local _gd4="$HOME/overnight-queue/assets/GODOT4.md"; local _is_godot=0
   case "$item$files$desc" in *.gd*|*[Gg][Dd][Ss]cript*|*[Gg]odot*) [ -f "$_gd4" ] && { rdargs+=(--read "$_gd4"); _is_godot=1; } ;; esac
+  local _cc="" _abandon=0
   for att in $(seq 1 "$MAX_ATT"); do
     local base t0 atmp; base="$(git -C "$wt" rev-parse HEAD)"; t0=$(date +%s); atmp="$(mktemp)"
     { echo "===== step $idx attempt $att @ $(date '+%F %T') (map=$mt arch=${#archargs[@]} read=${#rdargs[@]}) ====="; echo "DESC: $desc"; echo "FILES: $files"; echo "VERIFY: $verify"; } >> "$slog"
@@ -645,6 +665,12 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       # aider never completed the edit — do NOT let a trivial partial change false-pass the scoped gate
       fa="context-exceeded"; rc=1
       excerpt="27B context window exceeded; shrinking (map->$((mt/2)), drop architect+AGENTS) and retrying"
+    elif _cc="$(stage_class_conflict "$atmp")"; then
+      # 2026-10-13 (xlite F3): Godot's `Class "X" hides an autoload singleton` / `hides a global script class` means the class this step wrote ALREADY EXISTS under that name (the real
+      # CodexManager is an autoload). aider's own fix loop answered it by deleting the class_name line and the fabricated file went on to be committed. The step is aimed at something
+      # that exists: abandon it (no retry, no re-decomposition). OVN_STAGE_CLASS_CONFLICT=off disables.
+      fa="class-conflict"; rc=1; _abandon=1
+      excerpt="Godot reported a class_name / autoload conflict (${_cc:0:90}): the class already exists - step abandoned, not retried"
     elif [ "$dur" -ge $((STEP_TIMEOUT - 12)) ]; then
       # aider was HARD-KILLED at the step timeout = it wandered / never finished its turn. A clean turn
       # exits before the timeout. Refuse to count a killed-mid-edit change as a pass (the T4 false-pass).
@@ -717,11 +743,17 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       '{run:$r,step:$i,desc:$d,files:$f,attempt:$a,verdict:$v,fail_reason:$fr,duration_s:$dur,tokens_sent:$ts,tokens_recv:$tr,tok_s:$tps,diffstat:$ds,excerpt:$ex}')"
     if [ "$rc" -eq 0 ]; then
       say "  step $idx PASS (att $att, ${dur}s, ${dstat:-nostat}): ${desc:0:55}"
+      STAGE_STEP_TEXT="${STAGE_STEP_TEXT:-}${desc//$'\n'/ }"$'\t'"${verify//$'\n'/ }"$'\n'   # iptv F2: the tests a LANDED step promised are checked in the final tree (stage_named_tests_check)
       git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "feat($repo): staged step $idx — ${desc:0:60}" 2>/dev/null
       return 0
     fi
     say "  step $idx att $att FAIL ($fa, ${dur}s): ${excerpt:0:90}"
     git -C "$wt" reset -q --hard "$base"; git -C "$wt" clean -qfd 2>/dev/null
+    if [ "${_abandon:-0}" = 1 ]; then
+      say "  step $idx ABANDONED ($fa): not retrying, not re-decomposing"
+      jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" '{run:$r,step:$i,verdict:"blocked"}')"
+      return 1
+    fi
     # if we blew the context window, shrink it for the next attempt so the step can actually fit
     if [ "$ctx" = 1 ]; then mt=$(( mt/2 < 1024 ? 1024 : mt/2 )); rdargs=(); archargs=(); fi
   done
@@ -759,12 +791,34 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
 # ---- run all steps ----
 passed=0
 STAGE_PARTIAL=0   # steps that landed only some of their re-decomposed sub-steps (see run_step)
+STAGE_STEP_TEXT=""   # "desc<TAB>verify" of every step that LANDED (the tests they promised are checked in the final tree)
+STAGE_MISTARGET_ITEM=0
+# 2026-10-13 (xlite F3): an item whose OWN VERIFY greps a file that does not exist in the pristine tree (and that the item does not create) was aimed at a wrong path (the real module was
+# scripts/codex/codex_manager.gd, the item said scripts/mission/): its VERIFY goes green the moment ANY step creates that file, which is how the fabricated module was credited. No step runs;
+# the item is parked for Claude right away (zero-landing cap 1 below) - the 27B cannot fix a wrong path in the item text. OVN_STAGE_MISTARGET=off disables.
+if _mti="$(stage_item_mistarget "$wt" "$item")"; then
+  STAGE_MISTARGET_ITEM=1
+  say "item REFUSED (mis-targeted): ${_mti:0:200}"
+  jlog "$(jq -nc --arg r "$RUNID" --arg ex "mis-targeted item: $_mti" '{run:$r,step:-1,desc:"item pre-check",files:"",attempt:0,verdict:"fail",fail_reason:"mistargeted",duration_s:0,tokens_sent:0,tokens_recv:0,excerpt:$ex}')"
+  echo "-- QUALITY FAIL: mis-targeted item: ${_mti} --" > "${SLOG%.jsonl}.verify.log"
+fi
+# 2026-10-13 (xlite F3 / iptv F2): the item's own VERIFY on the PRISTINE tree (red-before). Shadow by default (OVN_STAGE_ITEM_VERIFY=off|shadow|enforce); the verdict after the change is taken below.
+STAGE_IV_PRE=""
+_iv_mode="${OVN_STAGE_ITEM_VERIFY:-shadow}"
+if [ "$STAGE_MISTARGET_ITEM" = 0 ] && [ "$_iv_mode" != off ]; then
+  _iv_snap="$(git -C "$wt" status --porcelain -uall 2>/dev/null)"
+  STAGE_IV_PRE="$(OVN_STAGE_REPO="$repo" stage_item_verify_run "$wt" "$item")"
+  stage_tree_restore "$wt" "$_iv_snap"   # a VERIFY run must leave nothing behind that the per-step no-edit check (git status) would read as an edit (the provisioned node_modules / .godot symlinks stay)
+  say "item VERIFY on the pristine tree: ${STAGE_IV_PRE%%|*}"
+fi
+if [ "$STAGE_MISTARGET_ITEM" = 0 ]; then
 for i in $(seq 0 $((NSTEPS-1))); do
   d="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].desc")"
   f="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].files // [] | join(\" \")")"
   v="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].verify // \"tests green\"")"
   run_step "$i" "$d" "$f" "$v" "$REDECOMP" && passed=$((passed+1))
 done
+fi
 
 # ---- INDEPENDENT full verification (autonomous — does NOT depend on a human spot-checking) ----
 # The per-step gate proved insufficient (a circular import that broke the whole backend, and a
@@ -1005,6 +1059,28 @@ sys.exit(1)
       echo "-- QUALITY FAIL: no changed test exercises the changed source (no new symbol, added route, NOR the changed module referenced) --" >> "$vlog"; vok=0
     fi
   fi
+  # NAMED TESTS (2026-10-13, iptv F2): every test function the item / a landed step PROMISED ("Add test test_x") must exist in the FINAL tree and pass when run by node id (rc 4 / 5 = not found /
+  # not collected = a failure). A repair round used to delete the very test it was meant to fix and the green suite (which no longer contained it) credited the item. The failure lines are
+  # `-- QUALITY FAIL` rows, so the repair prompt carries them. OVN_STAGE_NAMED_TESTS=off|shadow|enforce (default enforce).
+  if [ "$vok" = 1 ]; then
+    stage_named_tests_check "$wt" "$vlog" "$item" "${STAGE_STEP_TEXT:-}" "${vp:+$HOME/overnight-queue/$vp}" "${pkg:-.}" || vok=0
+  fi
+  # RED-BEFORE (2026-10-13, iptv F6, SHADOW by default): a test the change ADDED must FAIL once the change's non-test python source is reverted (test_genres_query_count passed on the pre-change code too).
+  if [ "$vok" = 1 ] && [ "${OVN_STAGE_RED_BEFORE:-shadow}" != off ]; then
+    local _rb _rbrc=0
+    _rb="$(stage_red_before_check "$wt" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" "$vlog" "${vp:+$HOME/overnight-queue/$vp}" "${pkg:-.}")" || _rbrc=$?
+    [ -n "$_rb" ] && { say "red-before (${OVN_STAGE_RED_BEFORE:-shadow}): ${_rb#RB }"; jlog "$(jq -nc --arg r "$RUNID" --arg d "$_rb" --arg m "${OVN_STAGE_RED_BEFORE:-shadow}" '{run:$r,event:"red_before",mode:$m,detail:$d}')"; }
+    [ "$_rbrc" -ne 0 ] && vok=0
+  fi
+  # WEB (2026-10-13, iptv F6, SHADOW by default): vue-tsc + vitest related for the changed web files (the staged full-verify ran only pytest and gradle; web breakage surfaced hours later at the hygiene gate).
+  if [ "$vok" = 1 ] && [ "${OVN_STAGE_WEB_VERIFY:-shadow}" != off ]; then
+    local _wv _wvrc=0 _wv_snap
+    _wv_snap="$(git -C "$wt" status --porcelain -uall 2>/dev/null)"
+    _wv="$(stage_web_verify "$wt" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" "$vlog")" || _wvrc=$?
+    stage_tree_restore "$wt" "$_wv_snap"   # tsc / vitest droppings must never reach a later `git add -A` (repair round commit)
+    [ -n "$_wv" ] && { say "web-verify (${OVN_STAGE_WEB_VERIFY:-shadow}): ${_wv#WEB }"; jlog "$(jq -nc --arg r "$RUNID" --arg d "$_wv" --arg m "${OVN_STAGE_WEB_VERIFY:-shadow}" '{run:$r,event:"web_verify",mode:$m,detail:$d}')"; }
+    [ "$_wvrc" -ne 0 ] && vok=0
+  fi
   return $((1 - vok))
 }
 
@@ -1165,7 +1241,7 @@ if [ "$passed" -gt 0 ]; then
       nchg=$(printf '%s' "$changed_files" | wc -w | tr -d ' ')
       say "verify FAILED — repair round $_rr/$REPAIR_ROUNDS (recovering $nchg changed file(s))"
       repair_fargs=(); for cf in $changed_files; do [ -f "$wt/$cf" ] && repair_fargs+=(--file "$cf"); done
-      rmsg="Your change LANDED but FAILED final verification. Fix it so verification passes — edit the SOURCE and/or the TEST, whichever is actually wrong; do NOT revert the working parts, make the minimal fix. Likely causes: (a) your new test asserts a guessed/wrong value or a tz/precision a DB round-trip drops (SQLite naive datetimes) — assert real behavior/PROPERTIES instead; (b) the test never calls the code you changed — import and exercise the real symbol, or drive an endpoint via TestClient; (c) a stub/placeholder remains — implement it for real; (d) the change broke a sibling test — fix the source. THE EXACT FAILURE:
+      rmsg="Your change LANDED but FAILED final verification. Fix it so verification passes — edit the SOURCE and/or the TEST, whichever is actually wrong; do NOT revert the working parts, make the minimal fix. Likely causes: (a) your new test asserts a guessed/wrong value or a tz/precision a DB round-trip drops (SQLite naive datetimes) — assert real behavior/PROPERTIES instead; (b) the test never calls the code you changed — import and exercise the real symbol, or drive an endpoint via TestClient; (c) a stub/placeholder remains — implement it for real; (d) the change broke a sibling test — fix the source; (e) a test this change promised is missing or red — FIX it, NEVER delete, empty, skip or xfail the test the change added (a repair that removes it is rejected and the item is not credited). THE EXACT FAILURE:
 $reason"
       ( cd "$wt" && timeout "$STEP_TIMEOUT" aider --yes-always --no-check-update --no-auto-commits --edit-format udiff \
           --model "openai/$MODEL" --openai-api-base "$LITELLM/v1" --openai-api-key "$LKEY" \
@@ -1180,6 +1256,23 @@ $reason"
     done
     [ "$VERIFIED" = 0 ] && { say "independent full-verify: FAILED — NOT pushing, re-opening (see ${SLOG%.jsonl}.verify.log)"; passed=0; }
   fi
+fi
+# ---- ITEM VERIFY: red before, green after (2026-10-13; xlite F3 + iptv F2). The item was ticked on the full suite alone: its OWN VERIFY was never run after the change (iptv: the test it named had been
+# deleted) and never required to have been RED before (xlite: a grep on a file that did not exist went green once a step created it). Run it on the final tree through the same shadow_check every
+# other credit path uses and compare with the pristine-tree verdict taken before the first step. OVN_STAGE_ITEM_VERIFY=off|shadow|enforce (default SHADOW: the verdict is journalled as an
+# item_verify event, nothing changes). ENFORCE: an item whose VERIFY is RED after the change, or was already GREEN before it, is NOT ticked - its code is still pushed (the full suite was green) and the
+# line is parked '[AUTO-SKIP staged ... item VERIFY did not confirm ...]' for review. TIMEOUT / UNRUNNABLE / no clause on either side is no evidence: credited as before.
+STAGE_NOCREDIT=0; STAGE_NOCREDIT_WHY=""
+if [ "$VERIFIED" = 1 ] && [ "${_iv_mode:-off}" != off ] && [ "${STAGE_MISTARGET_ITEM:-0}" = 0 ]; then
+  case "${STAGE_IV_PRE%%|*}" in
+    PASS|FAIL)
+      _ivpost="$(OVN_STAGE_REPO="$repo" stage_item_verify_run "$wt" "$item")"
+      _ivdec="$(stage_item_verify_decision "$STAGE_IV_PRE" "$_ivpost")"
+      say "item VERIFY (${_iv_mode}): pre=${STAGE_IV_PRE%%|*} post=${_ivpost%%|*} -> ${_ivdec}"
+      jlog "$(jq -nc --arg r "$RUNID" --arg pre "${STAGE_IV_PRE%%|*}" --arg post "${_ivpost%%|*}" --arg why "${_ivpost#*|}" --arg dec "$_ivdec" --arg m "$_iv_mode" '{run:$r,event:"item_verify",mode:$m,pre:$pre,post:$post,post_why:$why,decision:$dec}')"
+      if [ "${_ivdec%%:*}" = refuse ] && [ "$_iv_mode" = enforce ]; then STAGE_NOCREDIT=1; STAGE_NOCREDIT_WHY="${_ivdec#refuse:}"; fi ;;
+    *) jlog "$(jq -nc --arg r "$RUNID" --arg pre "${STAGE_IV_PRE%%|*}" --arg m "$_iv_mode" '{run:$r,event:"item_verify",mode:$m,pre:$pre,post:"not-run",decision:"no-evidence"}')" ;;
+  esac
 fi
 qa_baseline_record "$VERIFIED"   # SHADOW only (QA S4): one paired row (baseline verdict vs the runner's final decision); no-op unless the first verify was red
 jlog "$(jq -nc --arg r "$RUNID" --argjson v "$VERIFIED" '{run:$r,event:"verify",verified:($v==1)}')"
@@ -1217,18 +1310,21 @@ if [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -gt 0 ] && [
   ./queue.sh hold "$repo" >/dev/null 2>&1
   ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   _is_bug=0; ovn_is_manual_bug_text "$item" && _is_bug=1
-  OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" OVN_BUG="$_is_bug" OVN_PARTIAL="${STAGE_PARTIAL:-0}" python3 - <<'PY'
+  OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" OVN_BUG="$_is_bug" OVN_PARTIAL="${STAGE_PARTIAL:-0}" OVN_NOCREDIT="${STAGE_NOCREDIT:-0}" OVN_NOCREDIT_WHY="${STAGE_NOCREDIT_WHY//[\]\[]/}" python3 - <<'PY'
 import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; p=int(os.environ["OVN_P"]); n=int(os.environ["OVN_N"])
+nocredit=os.environ.get("OVN_NOCREDIT")=="1"   # 2026-10-13: item VERIFY did not confirm the change (enforce mode only): never check the item off
 # 2026-10-10 (BX-09): a step that landed only some of its re-decomposed sub-steps (BLOCKED ones are not landed) must not let the item be checked off as fully done
 partial=int(os.environ.get("OVN_PARTIAL") or 0)
 lines=open(f,encoding="utf-8").read().split("\n"); key=item[:55]
 for i,ln in enumerate(lines):
     if ln.startswith("- [ ] ") and key and key in ln:
-        if p>=n and partial==0:  # fully done -> check it off
+        if p>=n and partial==0 and not nocredit:  # fully done -> check it off
             lines[i]=ln.replace("- [ ] ","- [x] ",1)+f"  <!-- staged {p}/{n} DONE -->"
         elif os.environ.get("OVN_BUG") == "1":
             pass  # a manual bug is NEVER AUTO-SKIPped (2026-10-02): stage_bug_attempt below counts the attempt and escalates at the cap
+        elif nocredit and "AUTO-SKIP staged" not in ln:
+            lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — the verified code landed but the item's own VERIFY did not confirm it ({}); recover/review] ".format(p,n,os.environ.get("OVN_NOCREDIT_WHY") or "item VERIFY"),1)
         elif "AUTO-SKIP staged" not in ln:  # partial -> park the remainder, but only tag it ONCE -
             # blindly re-prepending on every retry stacked duplicate tags without bound (found live:
             # 4 on a test-automation-agent item, 15 on a shrike-monitor item, 2026-09-22).
@@ -1238,7 +1334,7 @@ for i,ln in enumerate(lines):
 PY
   [ "${passed:-0}" -gt 0 ] && rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").zerocount" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
   if [ "$_is_bug" = 1 ]; then
-    if [ "$passed" -ge "$NSTEPS" ] && [ "${STAGE_PARTIAL:-0}" = 0 ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
+    if [ "$passed" -ge "$NSTEPS" ] && [ "${STAGE_PARTIAL:-0}" = 0 ] && [ "${STAGE_NOCREDIT:-0}" = 0 ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
     else stage_bug_attempt "staged ${passed} of ${NSTEPS} landed"; fi
   fi
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {
@@ -1272,6 +1368,7 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   # recorded and fed into the next decomposition - and only the cap routes it to Claude. OVN_STAGE_ZERO_CAP=1 = the old immediate escalation.
   _zh="$(ovn_item_hash "$item")"; _zf="state/item_fails/stage-${repo}.${_zh}.zerocount"; mkdir -p state/item_fails 2>/dev/null
   _zcap="${OVN_STAGE_ZERO_CAP:-3}"; case "$_zcap" in ''|*[!0-9]*|0) _zcap=3;; esac
+  [ "${STAGE_MISTARGET_ITEM:-0}" = 1 ] && _zcap=1   # 2026-10-13 (xlite F3): a mis-targeted item can never land; retrying only re-plans the same wrong path - escalate at once
   _zc=$(( $(cat "$_zf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$_zc" > "$_zf"
   jlog "$(jq -nc --arg r "$RUNID" --argjson c "$_zc" --argjson m "$_zcap" '{run:$r,event:"zero_landing_attempt",attempt:$c,cap:$m}')"
   if [ "$_zc" -lt "$_zcap" ]; then

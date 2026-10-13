@@ -14,6 +14,9 @@ Rules, first match wins (rc = the VERIFY's exit code, out_tail = the last ~300 c
   rc 124 / 126 / 127                                      bad-spec/unrunnable
   NameError / SyntaxError / IndentationError              bad-spec/crash-unexplained   (the VERIFY itself is broken, it asserts nothing)
   GUT "Could not find script"                             red/new-target if the item declares that script, else bad-spec/crash-unexplained
+  GUT ran nothing behind exit 0 ("Failed to load script", "Parse Error", "Nothing was run", "Tests 0", class_names not imported, or the runner's GUT-load-failed /
+  GUT-not-imported markers): NEVER passes-before (intake package, platform P3: GUT exits 0 when it could not load or find the script, so a brand-new test target read as
+  already passing); bad-spec/crash-unexplained, or red/new-target when the only thing missing is a script the item declares
   pytest rc 5 / "no tests ran" / "collected 0 items"      bad-spec/no-tests-collected, unless the item creates that test (red/new-target)
   ModuleNotFoundError / "cannot import name" / FileNotFoundError / "No such file" / pytest rc 4 ("not found:")
                                                           red/new-target ONLY when the missing module/path maps onto a path the item DECLARES (its target path
@@ -41,6 +44,10 @@ CREATE_VERB = re.compile(r"\b(create|add|write|introduce|new|implement|define)\b
 PATH_RE = re.compile(r"(?<![\w./:-])((?:[\w.-]+/)*[\w.-]+\.(?:py|gd|ts|tsx|js|jsx|kt|swift|vue|json|md|sh|tscn|tres))(?![\w/])")
 _FATAL_VERIFY = re.compile(r"\b(NameError|SyntaxError|IndentationError)\b")
 _NO_TESTS = re.compile(r"no tests ran|collected 0 items|no-tests-ran")
+# GUT exits 0 when it could not load / find / import the script it was asked to run: output that says so is never a pass
+_GUT_NORUN = re.compile(r"Failed to load script|Parse Error|GUT-load-failed|GUT-not-imported|class_names have not been imported")
+# ... and, behind an EXIT 0 only (a nonzero exit with 'Nothing was run' is X2's FAIL for a not-yet-written test function: a legitimate red-before, left as it was):
+_GUT_NORUN_RC0 = re.compile(r"Could not find script|Nothing was run|(?<![\w.])Tests\s+0(?!\d)")
 # any exception other than AssertionError (ZeroDivisionError, AttributeError, TypeError, ...) or a Traceback means the VERIFY crashed instead of asserting
 # 2026-10-10 (F2): the old pattern matched ANY identifier ending in Error/Exception - including the import names ruff prints in its F401 messages
 # (`app.core.ssrf.SSRFError` imported but unused) - so every unused-import-of-an-exception gap was a permanent bad-spec. A real crash prints a Traceback, or an
@@ -153,6 +160,23 @@ def _declared_in_cmd(vcmd, declared):
     return any(maps_onto(t, declared) for t in toks if "/" in t or "." in t)
 
 
+_GUT_ENV_MARKERS = re.compile(r"GUT-not-imported|class_names have not been imported")
+_LOAD_FAIL_REF = re.compile(r"Failed to load script\s+[\"']?([^\"'\s]+\.gd)|\((res://[^:)\s]+\.gd):\d+\)")
+
+
+def _gut_load_failure_is_new_target(text, vcmd, declared):
+    """True when GUT could not load/parse scripts, EVERY failing script maps onto a path the item declares, none of them is the test file the VERIFY runs (-gtest), and the output is not
+    the unseeded-import-cache failure. Narrows 'Failed to load script' / 'Parse Error' behind a nonzero exit: a missing/broken class the item creates is a legitimate red-before; a
+    test file that does not even load, or a script nobody declared, stays bad-spec (the VERIFY or the environment is broken)."""
+    if _GUT_ENV_MARKERS.search(text) or not declared:
+        return False
+    refs = [a or b for a, b in _LOAD_FAIL_REF.findall(text)]
+    if not refs:
+        return False
+    tests = [_noext(x) for g in re.findall(r"-gtest=([^\s'\"]+)", vcmd or "") for x in g.split(",") if x]
+    return all(maps_onto(r, declared) and _noext(r) not in tests for r in refs)
+
+
 def classify(item_line, rc, out_tail):
     vcmd = verify_of(item_line)
     if not vcmd:
@@ -160,7 +184,8 @@ def classify(item_line, rc, out_tail):
     if rc is None:
         return "bad-spec", "no-rc"
     text = out_tail or ""
-    if rc == 0 and "GUT-target-missing" not in text and "no-tests-ran" not in text:
+    gut_norun = "gut_cmdln" in vcmd and bool(_GUT_NORUN.search(text) or (rc == 0 and _GUT_NORUN_RC0.search(text)))
+    if rc == 0 and "GUT-target-missing" not in text and "no-tests-ran" not in text and not gut_norun:
         return "passes-before", ""
     if rc in (124, 126, 127):
         return "bad-spec", "unrunnable"
@@ -171,6 +196,10 @@ def classify(item_line, rc, out_tail):
         refs = _missing_refs(text, vcmd)
         if refs and all(maps_onto(r, declared) for r in refs) or (not refs and _declared_in_cmd(vcmd, declared)):
             return "red", "new-target"
+        return "bad-spec", "crash-unexplained"
+    if gut_norun and rc != 0 and _gut_load_failure_is_new_target(text, vcmd, declared):
+        return "red", "new-target"                 # a bug-fix / create item whose red-before IS a script the item declares failing to load or parse (not the test file, not an import-cache problem)
+    if gut_norun:                                  # GUT ran nothing (failed to load / parse the script, nothing imported, 0 tests) behind exit 0 or a bare failure: not an assertion, never a pass
         return "bad-spec", "crash-unexplained"
     # (pytest prints 'no tests ran' after a 'not found' error too: a missing target is judged as missing, not as an empty collection)
     if rc != 5 and (rc == 4 or _MISSING_FILE.search(text) or _MISSING_MOD.search(text)):

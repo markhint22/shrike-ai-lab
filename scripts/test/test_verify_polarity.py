@@ -113,11 +113,16 @@ del os.environ["OVN_VERIFY_POLARITY"]
 
 print("== MUTATION: polarity disabled -> the false credit comes back")
 _vc = E.verify_clause_and_polarity
+_au = E.absence_narration_unresolved
 E.verify_clause_and_polarity = lambda line: (E.extract_verify(line) or "", "unknown")
 try:
-    ok("mutant credits the still-present symbol (proves the test above can fail)", Q.already_satisfied(l_sym, d) is True)
+    # 2026-10-13 (iptv F3): a second layer now refuses an absence narration the polarity reader left unresolved, so disabling ONLY the polarity reader no longer credits it
+    ok("polarity reader disabled alone: the unresolved-absence refusal still blocks the credit (defence in depth)", Q.already_satisfied(l_sym, d) is False)
+    E.absence_narration_unresolved = lambda line: False
+    ok("mutant (both layers disabled) credits the still-present symbol (proves the test above can fail)", Q.already_satisfied(l_sym, d) is True)
 finally:
     E.verify_clause_and_polarity = _vc
+    E.absence_narration_unresolved = _au
 
 print("== R03: 'returns no lines|no output|nothing|empty [containing ...]' (iptv D)")
 l = it('`grep -n "_cache" discover.py | grep -v "_catalog_cache"` returns no lines containing _cache: dict[str, list[dict[str, Any]]].', "")

@@ -12,6 +12,11 @@
 # Env (tests): OVN_DIR, OVN_REPOS_DIR, OVN_CANARY_REPOS="name:kind:subdir ...", OVN_CANARY_REF, OVN_CANARY_PYTEST, OVN_CANARY_GODOT, OVN_CANARY_MAX.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 2026-10-13: the GUT recursion flag is the shared lib_gut_xml.sh definition (same one run_overnight.sh / branch_hygiene.sh use); fallback = the same semantics inline
+source "$HERE/lib_gut_xml.sh" 2>/dev/null || :
+# partial-deploy guard (2026-10-13, review of package gate): a lib_gut_xml.sh that sources fine but PREDATES gut_subdirs_flag/gut_load_failure_line (rsync order, stale live copy) must not leave
+# them undefined - an undefined gut_load_failure_line made the hygiene gate MERGE a parse-broken tests/<sub> script. Define each fallback only when the function is missing.
+declare -F gut_subdirs_flag >/dev/null 2>&1 || gut_subdirs_flag(){ [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] || printf '%s' "-ginclude_subdirs"; }
 OVN="${OVN_DIR:-$(cd "$HERE/.." && pwd)}"
 REPOS="${OVN_REPOS_DIR:-$OVN/repos}"
 STATE="${OVN_STATE_DIR:-$OVN/state}"; mkdir -p "$STATE" 2>/dev/null
@@ -57,10 +62,10 @@ canary_py(){ # name rd wt sub
 }
 
 canary_gd(){ # name rd wt
-  local name="$1" rd="$2" wt="$3" godot d c xml sub="-ginclude_subdirs" rc
+  local name="$1" rd="$2" wt="$3" godot d c xml sub rc
   godot="${OVN_CANARY_GODOT:-$HOME/godot/godot4}"
   [ -x "$godot" ] && [ -f "$wt/project.godot" ] && [ -f "$wt/addons/gut/gut_cmdln.gd" ] || { log "$name: infra (no godot/gut) - skipped, no alert"; return 0; }
-  [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] && sub=""
+  sub="$(gut_subdirs_flag)"
   d="$(mktemp)"; c="$(mktemp)"; xml="$(mktemp)"
   ( cd "$wt" && git ls-files -- tests test ) | grep -E '\.gd$' | while IFS= read -r f; do grep -qE '^[[:space:]]*func[[:space:]]+test_' "$wt/$f" 2>/dev/null && echo "$f"; done > "$d"
   if [ -z "${OVN_CANARY_GODOT_NOIMPORT:-}" ]; then

@@ -96,13 +96,16 @@ if python3 -c 'import pytest' >/dev/null 2>&1; then
     assert 1 == 2' > "$W/iptv-backend/test_real_bad.py"
   ovn_run_new_tests "$W" iptv-backend "$T/realpytest" "" "$BASE" "$LOG"; ok "REAL pytest NEGATIVE: failing new test file => 1" "$([ $? = 1 ] && echo 1 || echo 0)"
 else echo "  skip real pytest cases (python3 has no pytest)"; fi
-# ---- (C) GUT -ginclude_subdirs wiring: default ON at all three call sites, OVN_GUT_SUBDIRS=off kill switch ----
+# ---- (C) GUT -ginclude_subdirs wiring: default ON at all call sites, OVN_GUT_SUBDIRS=off kill switch ----
+# 2026-10-13 (incident gate): ONE definition, lib_gut_xml.sh gut_subdirs_flag; every GUT-running site takes its flag from it (the sites' effective flag is proven in test_gut_cycle_subdirs_gate.sh)
+v="$(OVN_GUT_SUBDIRS= bash -c '. "'"$ROOT"'/scripts/lib_gut_xml.sh"; echo "[$(gut_subdirs_flag)]"')"
+ok "gut_subdirs_flag: default is -ginclude_subdirs" "$([ "$v" = "[-ginclude_subdirs]" ] && echo 1 || echo 0)"
+v="$(OVN_GUT_SUBDIRS=off bash -c '. "'"$ROOT"'/scripts/lib_gut_xml.sh"; echo "[$(gut_subdirs_flag)]"')"
+ok "gut_subdirs_flag: OVN_GUT_SUBDIRS=off empties the flag (kill switch)" "$([ "$v" = "[]" ] && echo 1 || echo 0)"
 for f in branch_hygiene.sh ovn_stage_runner.sh ovn_test_watch.sh; do
   ok "$f: GUT command carries \$GUT_SUBDIRS after -gdir=res://tests" "$(grep -q 'gdir=res://tests \$GUT_SUBDIRS -gexit' "$ROOT/$f" && echo 1 || echo 0)"
-  v="$(OVN_GUT_SUBDIRS= bash -c 'eval "$(grep -E "^GUT_SUBDIRS=" "'"$ROOT/$f"'")"; echo "[$GUT_SUBDIRS]"')"
-  ok "$f: default flag is -ginclude_subdirs" "$([ "$v" = "[-ginclude_subdirs]" ] && echo 1 || echo 0)"
-  v="$(OVN_GUT_SUBDIRS=off bash -c 'eval "$(grep -E "^GUT_SUBDIRS=" "'"$ROOT/$f"'")"; echo "[$GUT_SUBDIRS]"')"
-  ok "$f: OVN_GUT_SUBDIRS=off empties the flag (kill switch)" "$([ "$v" = "[]" ] && echo 1 || echo 0)"
+  ok "$f: \$GUT_SUBDIRS comes from gut_subdirs_flag" "$(grep -q '^GUT_SUBDIRS="\$(gut_subdirs_flag)"' "$ROOT/$f" && echo 1 || echo 0)"
 done
+ok "run_overnight.sh: the per-cycle GUT command carries the gut_subdirs_flag value after -gdir=res://tests" "$(grep -q '_gut_sub="\$(gut_subdirs_flag)"' "$ROOT/run_overnight.sh" && grep -q 'gdir=res://tests \$_gut_sub -gexit' "$ROOT/run_overnight.sh" && echo 1 || echo 0)"
 ok "stage runner calls ovn_run_new_tests behind OVN_RUN_NEW_TESTS and sources the lib" "$(grep -q 'source scripts/lib_new_tests.sh' "$ROOT/ovn_stage_runner.sh" && grep -q 'OVN_RUN_NEW_TESTS:-on' "$ROOT/ovn_stage_runner.sh" && grep -q 'ovn_run_new_tests "\$wt"' "$ROOT/ovn_stage_runner.sh" && echo 1 || echo 0)"
 echo; echo "new-tests lib tests: $pass passed, $fail failed"; [ "$fail" = 0 ]

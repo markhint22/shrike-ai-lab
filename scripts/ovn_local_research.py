@@ -477,7 +477,7 @@ def main(argv):
     append_and_commit(repo, kept, len(evidence))
     try:
         with open(os.path.join(state, "alerts.log"), "a") as f:
-            f.write("[%s] warn | local-research:%s | refueled %d [ready] item(s) from local-27B drafts (Claude not needed)\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), repo, len(kept)))
+            f.write("[%s] info | local-research:%s | refueled %d [ready] item(s) from local-27B drafts (Claude not needed)\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), repo, len(kept)))
     except OSError:
         pass
     print("%s: APPENDED %d local-research [ready] item(s) (%d proposed)" % (repo, len(kept), len(proposed)))

@@ -625,6 +625,43 @@ ovn_udiff_nudge_text() {
 }
 
 # =====================================================================================================================================================
+# UNANCHORED UDIFF HUNKS ON LARGE FILES (2026-10-13, night review xlite F6)
+# aider's udiff coder APPENDS a hunk that has no context line and no removed line to the END of the file. On a ~1100-line unit.gd the 27B's `@@ -1,0 +1,2 @@` hunk (two '+'
+# lines meant for display_name()) landed after _draw(): parse error -> build-gate fix-up removed the lines -> NET-ZERO GUARD reset. Three identical cycles in a row (421 s, plus a
+# 330k-token auto-skip), because nothing ever told the model its hunk had no anchor. The verdict above calls such an attempt 'applied', so it needs its own check:
+#   ovn_udiff_unanchored_scan <log-slice-file> <repo-dir> <pre-attempt-sha>: prints '<path>\t<lines>\t<hunk header>' per unanchored hunk against an existing file of more than
+#       OVN_UDIFF_UNANCHORED_MIN_LINES (default 300) lines (scripts/ovn_udiff_anchor.py; prints nothing on any error).
+#       Python exemption (2026-10-13 review): in a .py file a hunk whose added lines are all module-level def/class/decorator/import/assignment is not reported (it still works at EOF;
+#       4 such cycles landed on the box). OVN_UDIFF_PY_EOF_OK=off reports them again. The OVN_UDIFF_UNANCHORED=shadow switch is the way to measure the refuse leg before enforcing it.
+#   ovn_udiff_unanchored_decision <found 0|1> <already_retried 0|1> <mode>: prints reset-retry | refuse | shadow | none.
+#       mode = OVN_UDIFF_UNANCHORED (on default | shadow = log only | off). found + not retried => reset-retry; found + retried => refuse (reset, no-op(unanchored-hunk)).
+#   ovn_udiff_unanchored_nudge_text <scan-output>: the retry prompt suffix; names the file, its length and the rule (3 lines of context, or the last lines of the file for a real append).
+# =====================================================================================================================================================
+ovn_udiff_unanchored_scan() {
+  local slice="${1:-}" repo="${2:-.}" rev="${3:-}" here="$_OVN_LF_DIR"
+  [ -f "$slice" ] || return 0
+  [ -f "$here/ovn_udiff_anchor.py" ] || return 0
+  if [ -n "$rev" ]; then python3 "$here/ovn_udiff_anchor.py" "$slice" "$repo" --rev "$rev" 2>/dev/null || true
+  else python3 "$here/ovn_udiff_anchor.py" "$slice" "$repo" 2>/dev/null || true; fi
+}
+
+ovn_udiff_unanchored_decision() {
+  local found="${1:-0}" retried="${2:-0}" mode="${3:-${OVN_UDIFF_UNANCHORED:-on}}"
+  [ "$found" = 1 ] || { echo none; return 0; }
+  case "$mode" in
+    off) echo none ;;
+    shadow) echo shadow ;;
+    *) if [ "$retried" = 0 ]; then echo reset-retry; else echo refuse; fi ;;
+  esac
+}
+
+ovn_udiff_unanchored_nudge_text() {
+  local scan="${1:-}" path lines hdr
+  IFS=$'\t' read -r path lines hdr <<< "$(printf '%s\n' "$scan" | head -n1)"
+  printf 'Your previous diff for %s had a hunk (%s) with NO context lines and no removed lines, so aider could not place it and appended it to the END of the file (%s lines long); that edit was discarded. Resend it as a fenced ```diff block whose hunk starts with at least 3 unchanged lines copied EXACTLY from the target spot (for example the enclosing `func`/`def` line and the lines right before the insertion point). A pure insertion without such context lines is never acceptable in a file this long, unless you really mean to append at the very end, in which case copy the last 3 lines of the file as context.' "${path:-the file}" "${hdr:-@@}" "${lines:-many}"
+}
+
+# =====================================================================================================================================================
 # IDLE BEHAVIOUR (2026-10-09, harness-credit-integrity item 11)
 # When every lane has nothing doable the pass ends in seconds, systemd restarts the unit at once and the cycle repeats: restart spam, a skip(exhausted) outcomes row per
 # lane per pass (hundreds of identical rows), and no one asks the supply to produce more work.
@@ -650,6 +687,35 @@ ovn_idle_wait() {
   echo timeout
   return 0
 }
+
+# (d) GROWING IDLE WAIT (2026-10-13, night review platform P9): a fleet that is skip(exhausted) on every lane for hours still ran a pass every ~65 s (863 restarts, run dirs
+# and reports per day: 46k run dirs / 40k reports on the box). ovn_idle_wait_seconds <state_dir> [now]: prints the wait for THIS all-idle pass. state/idle_since holds the epoch of
+# the first pass of the current all-idle streak (written here when absent; ovn_idle_clear removes it after any pass that had work). Idle for <= OVN_IDLE_GROW_AFTER_S (default
+# 3600) => OVN_IDLE_SLEEP_S (60); after that the wait DOUBLES every OVN_IDLE_GROW_STEP_S (default 1800): 120, 240, capped at OVN_IDLE_SLEEP_MAX_S (default 300). So a report is still
+# written every <= ~5 min (box_deadman's stalled threshold is 20 min; ovn_notify's silent-queue note 40 min) and state/supply_kick still wakes the wait early.
+# OVN_IDLE_GROW=off keeps the flat OVN_IDLE_SLEEP_S wait. Non-numeric env values fall back to the defaults; never prints less than the base or more than the cap.
+ovn_idle_wait_seconds() {
+  local sd="${1:-state}" now="${2:-$(date +%s)}" base="${OVN_IDLE_SLEEP_S:-60}" max="${OVN_IDLE_SLEEP_MAX_S:-300}" after="${OVN_IDLE_GROW_AFTER_S:-3600}" step="${OVN_IDLE_GROW_STEP_S:-1800}" since d w
+  case "$base" in ''|*[!0-9]*) base=60 ;; esac
+  case "$max" in ''|*[!0-9]*) max=300 ;; esac
+  case "$after" in ''|*[!0-9]*) after=3600 ;; esac
+  case "$step" in ''|*[!0-9]*|0) step=1800 ;; esac
+  case "$now" in ''|*[!0-9]*) now="$(date +%s)" ;; esac
+  [ "$max" -lt "$base" ] && max="$base"
+  if [ "${OVN_IDLE_GROW:-on}" = off ]; then echo "$base"; return 0; fi
+  since="$(cat "$sd/idle_since" 2>/dev/null)"
+  case "$since" in ''|*[!0-9]*) since="$now"; mkdir -p "$sd" 2>/dev/null; printf '%s' "$now" > "$sd/idle_since" 2>/dev/null ;; esac
+  d=$(( now - since )); [ "$d" -lt 0 ] && d=0
+  w="$base"
+  if [ "$d" -gt "$after" ]; then
+    w=$(( base * 2 ))
+    d=$(( d - after ))
+    while [ "$d" -ge "$step" ] && [ "$w" -lt "$max" ]; do w=$(( w * 2 )); d=$(( d - step )); done
+  fi
+  [ "$w" -gt "$max" ] && w="$max"
+  echo "$w"
+}
+ovn_idle_clear() { rm -f "${1:-state}/idle_since" 2>/dev/null; return 0; }
 
 ovn_skip_row_should_write() {
   local repo="${1:-none}" sd="${2:-state}" f now last
@@ -715,6 +781,20 @@ ovn_executor_log() {  # <ovn_dir> <repo_dir> <kind> <mode> <verdict> <item_hash>
   return 0
 }
 
+# ovn_parked_idle_should_log <state_dir> <repo> <count>: the shadow 'parked-idle' breadcrumb used to be written on EVERY idle pass (656 identical rows in 2 days). rc 0 = write it:
+# the count changed since the last breadcrumb for this repo, or OVN_PARKED_IDLE_DEDUPE_S (default 3600) passed. state/parked_idle_<repo> holds 'epoch count'.
+# OVN_PARKED_IDLE_DEDUPE=off writes every row (old behaviour). Never fails the caller.
+ovn_parked_idle_should_log() {
+  local sd="${1:-state}" repo="${2:-none}" n="${3:-0}" f now last lastn win
+  [ "${OVN_PARKED_IDLE_DEDUPE:-on}" = off ] && return 0
+  win="${OVN_PARKED_IDLE_DEDUPE_S:-3600}"; case "$win" in ''|*[!0-9]*) win=3600 ;; esac
+  f="$sd/parked_idle_${repo}"; now="$(date +%s)"
+  { read -r last lastn < "$f"; } 2>/dev/null || { last=0; lastn=""; }
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  if [ "$lastn" != "$n" ] || [ $((now - last)) -ge "$win" ]; then mkdir -p "$sd" 2>/dev/null; printf '%s %s\n' "$now" "$n" > "$f" 2>/dev/null; return 0; fi
+  return 1
+}
+
 # _ovn_doc_shadow_check_parked <od> <rd> <script> <prog> <ere>: SHADOW evidence for parked gaps (2026-10-10, docexec round 2). A lane whose only open doc items are parked never
 # reaches ovn_executor_hook, so without this the would-apply rate (and the readiness gates) would depend entirely on operator-run `rehearse`. Runs the executor's read-only `check`
 # over up to OVN_DOC_SHADOW_PARKED_MAX (default 5) parked lines per call that have no shadow would-apply/skip row yet (so successive idle cycles walk the whole list and the log does
@@ -763,7 +843,9 @@ ovn_doc_reroute_item() {
     if [ "$m" = shadow ]; then
       n="$(grep -E '^- \[ \] ' "$prog" 2>/dev/null | grep -F 'supply:gd-missing-doc' | grep -E "$ere" | grep -vE 'HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]|\(retired-' | grep -vcE "${OVN_PARKED_CS_ERE:-BLOCKED}")"
       if [ "${n:-0}" -gt 0 ] 2>/dev/null; then
-        ovn_executor_log "$od" "$rd" doc shadow parked-idle - "${n} parked gd-missing-doc gap(s) idle; they re-route to the executor only when mode=on" ""
+        if ovn_parked_idle_should_log "$od/state" "$(basename "$rd")" "$n"; then   # 2026-10-13 (P9): one breadcrumb per repo per hour (or when the count changes), not one per idle pass
+          ovn_executor_log "$od" "$rd" doc shadow parked-idle - "${n} parked gd-missing-doc gap(s) idle; they re-route to the executor only when mode=on" ""
+        fi
         _ovn_doc_shadow_check_parked "$od" "$rd" "$script" "$prog" "$ere"
       fi
     fi

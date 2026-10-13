@@ -138,7 +138,7 @@ else
   echo "  SKIP T9: ovn_credit_already_satisfied.sh needs GNU sed (run on the box)"
 fi
 # wiring present at the three runner credit sites
-ok "T10 run_overnight.sh calls ovn_credit_twins at the delete-executor credit, the ALREADY-GONE credit and the scout ALREADY-DONE credit" "[ \"\$(grep -c 'ovn_credit_twins OVERNIGHT_PROGRESS.md' '$RUN')\" = 3 ]"
+ok "T10 run_overnight.sh calls ovn_credit_twins at the delete-executor credit, the ALREADY-GONE credit, the CREATE-EXISTS credit and the scout ALREADY-DONE credit" "[ \"\$(grep -c 'ovn_credit_twins OVERNIGHT_PROGRESS.md' '$RUN')\" = 4 ]"
 
 # ============================== F. filter-new (planner/refill dedupe CLI) ==============================
 printf '%s\n%s\n' "$DONE_ANN" "$SIB" > "$W/exist.md"
@@ -156,8 +156,10 @@ EOP
 GL="$W/gate.log"
 gate(){ : > "$GL"; ( cd "$D" && ovn_credit_verify_gate "$D/prog.md" 2 "$GL" "${1:-scout ALREADY-DONE credit}" ); echo $?; }
 crf="$OVN_STATE_DIR/credit_refused"
-rm -rf "$crf"; r="$(gate)"
-ok "S1 DEFAULT (shadow): the refusal is still rc 1, logs 'SHADOW ... would count as refusal 1 of 2' and writes NO counter" "[ \"\$r\" = 1 ] && grep -q 'SHADOW scout ALREADY-DONE refusal at line 2 would count as refusal 1 of 2' '$GL' && [ -z \"\$(ls '$crf' 2>/dev/null)\" ]"
+rm -rf "$crf"; r="$(gate)"; r2="$(gate)"; f0="$(ls "$crf"/* 2>/dev/null | head -1)"
+ok "S1 DEFAULT (on since 2026-10-13, night review iptv F5): the refusal is rc 1 and each one bumps the credit_refused counter (2 after 2 refusals), no SHADOW line" "[ \"\$r\" = 1 ] && [ -n '$f0' ] && [ \"\$(sed -n 1p '$f0')\" = 2 ] && ! grep -q 'SHADOW' '$GL' && grep -q 'counted toward the credit-refusal park' '$GL'"
+rm -rf "$crf"; r="$(OVN_SCOUT_REFUSAL_PARK=shadow gate)"
+ok "S1b OVN_SCOUT_REFUSAL_PARK=shadow (the previous default): rc 1, logs 'SHADOW ... would count as refusal 1 of 2' and writes NO counter" "[ \"\$r\" = 1 ] && grep -q 'SHADOW scout ALREADY-DONE refusal at line 2 would count as refusal 1 of 2' '$GL' && [ -z \"\$(ls '$crf' 2>/dev/null)\" ]"
 rm -rf "$crf"; r="$(OVN_SCOUT_REFUSAL_PARK=on gate)"; r2="$(OVN_SCOUT_REFUSAL_PARK=on gate)"
 f="$(ls "$crf"/* 2>/dev/null | head -1)"
 ok "S2 OVN_SCOUT_REFUSAL_PARK=on: each refusal bumps the credit_refused counter (2 after 2 refusals) with the VERIFY-failed reason and the item line" "[ -n '$f' ] && [ \"\$(sed -n 1p '$f')\" = 2 ] && sed -n 2p '$f' | grep -q '^VERIFY failed' && sed -n 3p '$f' | grep -q 'app/x.gd — Add f'"

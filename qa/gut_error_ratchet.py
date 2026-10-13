@@ -132,8 +132,14 @@ def seed_and_import(scratch, repo_dir):
             pass
 
 
+def gut_subdirs_args():
+    """[] when OVN_GUT_SUBDIRS=off, else ['-ginclude_subdirs'] - the python twin of lib_gut_xml.sh gut_subdirs_flag."""
+    return [] if os.environ.get("OVN_GUT_SUBDIRS", "on") == "off" else ["-ginclude_subdirs"]
+
+
 def run_suite(scratch):
-    cmd = [godot_bin(), "--headless", "--path", ".", "-s", "addons/gut/gut_cmdln.gd", "-gdir=res://tests", "-ginclude_subdirs", "-gexit"]
+    # same kill switch as lib_gut_xml.sh gut_subdirs_flag (OVN_GUT_SUBDIRS=off drops the recursion flag everywhere, including this ratchet)
+    cmd = [godot_bin(), "--headless", "--path", ".", "-s", "addons/gut/gut_cmdln.gd", "-gdir=res://tests"] + gut_subdirs_args() + ["-gexit"]
     p = subprocess.Popen(cmd, cwd=scratch, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", start_new_session=True,
                          preexec_fn=lambda: os.nice(15))
     try:

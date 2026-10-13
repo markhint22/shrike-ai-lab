@@ -91,15 +91,23 @@ def gpu_alert(now=None):
     pct, n = gpu_busy(24.0, now)
     if pct is None or n < GPU_MIN_SAMPLES or pct >= GPU_ALERT_BELOW or not _any_lane_enabled():
         return None
+    line = ("[%s] warn | gpu-util | GPU busy only %g%% over the last 24h (%d samples, busy = >=%g%% util) "
+            "while a lane is enabled - cycles are spending their time outside model generation"
+            % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), pct, n, GPU_BUSY_MIN))
+    # 2026-10-13 (G5): a chronic condition. The FIRST sighting writes this exact line (onset); while it persists the repeat is folded into ONE daily
+    # `info | chronic-daily` line shared with the roadmap-floor alert (scripts/ovn_chronic_alert.py). OVN_CHRONIC_DAILY=off = the legacy 6h-deduped line below.
+    try:
+        import ovn_chronic_alert as _ca
+        if _ca.enabled():
+            return _ca.note(STATE_DIR, "gpu-util", line, now)
+    except ImportError:
+        pass   # module not deployed next to this script: the legacy line
     stamp = os.path.join(STATE_DIR, ".gpu_util_alerted")
     try:
         if now - float(open(stamp).read().strip() or "0") < GPU_ALERT_DEDUP_S:
             return None
     except (OSError, ValueError):
         pass
-    line = ("[%s] warn | gpu-util | GPU busy only %g%% over the last 24h (%d samples, busy = >=%g%% util) "
-            "while a lane is enabled - cycles are spending their time outside model generation"
-            % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), pct, n, GPU_BUSY_MIN))
     try:
         with open(os.path.join(STATE_DIR, "alerts.log"), "a") as f:
             f.write(line + "\n")

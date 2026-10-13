@@ -81,7 +81,18 @@ for r in $REPOS; do
   # never matched and every item silently fell back to the __unknown bucket
   # (capping recoveries per-REPO instead of per-FILE, more aggressive than
   # intended). Search anywhere in the string instead of anchoring to start.
-  lineage_file="$(printf '%s' "$task" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+  # 2026-10-13 (intake package, xlite night F2): only the text BEFORE `VERIFY:` can name what the item edits. The VERIFY clause is a command: the GUT runner it names
+  # (addons/gut/gut_cmdln.gd, after `-s`) is not an edit target, and as a bare substring it matched the vendored-code ban `addons/` below (9 'Create test X' items were escalated
+  # as hard-banned). ovn_park_unworkable.py --edit-text is the one definition of that scope (shared with its park + scout-guard checks); the bash cut is the fallback when python is unavailable.
+  task_edit="$(printf '%s' "$task" | python3 "$HOME/overnight-queue/ovn_park_unworkable.py" --edit-text 2>/dev/null)"
+  [ -n "$task_edit" ] || task_edit="${task%%VERIFY:*}"
+  # (self-contained: test_recover_parked_lineage_normalization.sh / test_intake_lineage_scope.sh eval just this block.) The text is $task_edit (OVN_PARK_VERIFY_SCOPE=off makes that the
+  # whole item, the old behaviour); an item whose ONLY path sits inside its VERIFY falls back to the whole item minus the -s/--script argument (the engine runs that, the item does not edit it),
+  # so it keeps a per-FILE lineage bucket instead of the per-repo __unknown one.
+  lineage_file="$(printf '%s' "${task_edit:-${task%%VERIFY:*}}" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+  if [ -z "$lineage_file" ] && [ "${OVN_PARK_VERIFY_SCOPE:-on}" != off ]; then
+    lineage_file="$(printf '%s' "$task" | sed -E 's/(^|[[:space:]])(-s|--script)(=|[[:space:]]+)[^[:space:]]+//g; s#res://##g' | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+  fi
   # PATH-PHRASING NORMALIZATION (2026-09-28): raw extracted text is taken verbatim, so the
   # SAME file phrased two different ways across two recovery rounds (e.g. a re-decomposed
   # item wording it "backend/tests/test_x.py" one time and "tests/test_x.py" the next -
@@ -113,7 +124,7 @@ for r in $REPOS; do
   if [ -f "$rd/.queue-hard-banned-files" ]; then
     while IFS= read -r bpat; do
       [ -z "$bpat" ] && continue
-      case "$task" in *"$bpat"*) banned_hit="$bpat"; break ;; esac
+      case "$task_edit" in *"$bpat"*) banned_hit="$bpat"; break ;; esac
     done < <(grep -v '^\s*#' "$rd/.queue-hard-banned-files" | grep -v '^\s*$')
   fi
   if [ "$lineage_n" -gt "$LINEAGE_CAP" ]; then
@@ -286,6 +297,24 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
         _kept="${_kept}${_kept:+$'\n'}${_it}"
       done <<< "$items"
       items="$_kept"
+    fi
+  fi
+  # VERIFY INTAKE LINT (2026-10-13, intake package, xlite night F5): the decomposition copies the parent's VERIFY verbatim, so a clause that can never run ('cd /path/to/xlite && godot ...',
+  # 'cd tests && godot -s test_x.gd', '-gdir=<file>.gd') survived into every child (xlite line 2737: the identical bad VERIFY, 10 ALREADY-DONE cycles, parked again). Repair what is
+  # deterministically repairable; a child that still cannot run is reported (shadow) or dropped (OVN_RECOVER_VERIFY_LINT=enforce; everything dropped -> one [CLAUDE] escalation line).
+  # OVN_RECOVER_VERIFY_LINT=repair (default) | enforce | off. ovn_spec_gate.py recover-lint never loses the input: any error echoes it unchanged.
+  _vl_mode="${OVN_RECOVER_VERIFY_LINT:-repair}"
+  _vl_py="$HOME/overnight-queue/scripts/ovn_spec_gate.py"
+  if [ -n "$items" ] && [ "$_vl_mode" != off ] && [ -f "$_vl_py" ]; then
+    _vl_log="$(mktemp)"
+    _vl_out="$(printf '%s\n' "$items" | python3 "$_vl_py" recover-lint "$rd" "$_vl_mode" 2>"$_vl_log")"; _vl_rc=$?
+    [ -s "$_vl_log" ] && say "$r: $(head -c 600 "$_vl_log")"
+    rm -f "$_vl_log"
+    if [ "$_vl_rc" -eq 3 ]; then
+      say "$r: every recovered sub-item had a VERIFY that can never run - escalating instead of queueing them"
+      items="- [ ] [CLAUDE] recovery decomposition produced only sub-items whose VERIFY can never run (placeholder path / GUT test run as a script) - needs a human/Claude session to write a runnable VERIFY (recovery:escalated)"
+    elif [ -n "$_vl_out" ]; then
+      items="$_vl_out"
     fi
   fi
   cnt=$(printf '%s' "$items" | grep -c '^- \[ \]')

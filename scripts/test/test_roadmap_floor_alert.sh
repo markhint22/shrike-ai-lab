@@ -52,7 +52,12 @@ out["marker"] = marker(h).get("xlite") == time.strftime("%Y-%m-%d", time.localti
 for _ in range(3): run(h)
 out["dedup_same_day"] = len(alerts(h)) == 1
 # 3. the next local day (marker is yesterday) -> a second line
-mp = os.path.join(h, "overnight-queue", "state", "roadmap_floor_alerted.json"); json.dump({"xlite": "2000-01-01"}, open(mp, "w")); run(h)
+mp = os.path.join(h, "overnight-queue", "state", "roadmap_floor_alerted.json"); json.dump({"xlite": "2000-01-01"}, open(mp, "w"))
+# 2026-10-13 (G5): by default a lane that STAYS at the floor is folded into the shared daily `info | chronic-daily` line (scripts/ovn_chronic_alert.py), so the next day
+# writes NO second floor line from here (the onset line above was the real alert). OVN_CHRONIC_DAILY=off is the legacy one-line-per-lane-per-day behaviour (A5).
+run(h)
+out["next_day_chronic_quiet"] = len(alerts(h)) == 1
+run(h, {"OVN_CHRONIC_DAILY": "off"})
 out["next_day"] = len(alerts(h)) == 2 and marker(h)["xlite"] == time.strftime("%Y-%m-%d", time.localtime())
 # 4. the starving state file is unchanged in shape (no internal fields leak to the session-side poller)
 st = json.load(open(os.path.join(h, "overnight-queue", "state", "research_trigger_starving.json")))
@@ -89,7 +94,7 @@ out["healthy_quiet"] = alerts(h) == [] and marker(h) == {}
 print(json.dumps(out))
 PYEOF
 FR="$("$PY" "$tmp/floor_check.py" "$TC" 2>/dev/null | tail -1)"
-for k in one_alert:"A1 xlite starved 7h at backlog 0 => exactly ONE warn line" format:"A2 the line is '[ts] warn | ongoing-xlite | roadmap-feature floor: ... for 7.xh ... roadmap/xlite.md' (alerts.log format)" marker:"A3 the dedup marker holds today's date" dedup_same_day:"A4 three more runs the same day => still ONE line" next_day:"A5 a marker from an earlier day => the next day alerts again (one per lane per DAY)" state_clean:"A6 research_trigger_starving.json keeps its shape (no internal _h leaked)" below_floor:"A7 5h < 6h floor => starving but NO alert, no marker" not_zero_backlog:"A8 'backlog low (3)' for 8h is thin, not the floor => no alert" per_lane:"A9 two lanes at the floor => one line EACH" decomp_clears:"A10 a decomposition event clears the streak => no alert" kill_switch:"A11 OVN_FLOOR_ALERT=off => no alert" threshold_env:"A12 OVN_FLOOR_ALERT_H=1 lowers the floor (2.5h alerts)" max_backlog_env:"A13 OVN_FLOOR_ALERT_MAX_BACKLOG=2 widens what counts as the floor" unwritable_safe:"A14 an unwritable alerts.log never crashes the timer, writes no marker, the starving file is still written" legacy_mode:"A15 OVN_TRIGGER_MONOTONIC=off (legacy walk-back streak) alerts too" healthy_quiet:"A16 a healthy planner log => no alert, no marker"; do
+for k in one_alert:"A1 xlite starved 7h at backlog 0 => exactly ONE warn line" format:"A2 the line is '[ts] warn | ongoing-xlite | roadmap-feature floor: ... for 7.xh ... roadmap/xlite.md' (alerts.log format)" marker:"A3 the dedup marker holds today's date" dedup_same_day:"A4 three more runs the same day => still ONE line" next_day_chronic_quiet:"A5b default (OVN_CHRONIC_DAILY on): a lane that stays at the floor on a later day writes NO second line (folded into the chronic-daily digest)" next_day:"A5 legacy (OVN_CHRONIC_DAILY=off): a marker from an earlier day => the next day alerts again (one per lane per DAY)" state_clean:"A6 research_trigger_starving.json keeps its shape (no internal _h leaked)" below_floor:"A7 5h < 6h floor => starving but NO alert, no marker" not_zero_backlog:"A8 'backlog low (3)' for 8h is thin, not the floor => no alert" per_lane:"A9 two lanes at the floor => one line EACH" decomp_clears:"A10 a decomposition event clears the streak => no alert" kill_switch:"A11 OVN_FLOOR_ALERT=off => no alert" threshold_env:"A12 OVN_FLOOR_ALERT_H=1 lowers the floor (2.5h alerts)" max_backlog_env:"A13 OVN_FLOOR_ALERT_MAX_BACKLOG=2 widens what counts as the floor" unwritable_safe:"A14 an unwritable alerts.log never crashes the timer, writes no marker, the starving file is still written" legacy_mode:"A15 OVN_TRIGGER_MONOTONIC=off (legacy walk-back streak) alerts too" healthy_quiet:"A16 a healthy planner log => no alert, no marker"; do
   ok "${k#*:}" "printf '%s' '$FR' | jq -e '.${k%%:*}'"
 done
 
@@ -140,9 +145,9 @@ def mut(s, a, b, path):
     assert s.count(a) == 1, a
     open(path, "w").write(s.replace(a, b))
 t = sys.argv[3]
-mut(tc, '        if r.get("_h", 0.0) <= floor_h or seen.get(repo) == today:', '        if r.get("_h", 0.0) <= floor_h:', t + "/mut/m_nodedup.py")
+mut(tc, '        if r.get("_h", 0.0) <= floor_h or (seen.get(repo) == today and not chronic):', '        if r.get("_h", 0.0) <= floor_h:', t + "/mut/m_nodedup.py")
 mut(tc, '        if n is None or n > max_b:\n            continue\n', '', t + "/mut/m_nobacklog.py")
-mut(tc, '        if r.get("_h", 0.0) <= floor_h or seen.get(repo) == today:', '        if seen.get(repo) == today:', t + "/mut/m_nofloor.py")
+mut(tc, '        if r.get("_h", 0.0) <= floor_h or (seen.get(repo) == today and not chronic):', '        if (seen.get(repo) == today and not chronic):', t + "/mut/m_nofloor.py")
 mut(pl, '  if [ "$PLN_LOG_REPEAT_S" -gt 0 ]; then', '  if false; then', t + "/m_planner_norl.sh")
 PYEOF
 mfloor(){ "$PY" - "$1" "$2" <<'PYEOF'
@@ -154,7 +159,7 @@ n = {"nodedup": 0, "nobacklog": 3, "nofloor": 0}[case]; span = 5 if case == "nof
 with open(h + "/overnight-queue/logs/ovn_planner.log", "w") as f:
     t = span
     while t >= 0: f.write("%s xlite: backlog low (%d) but no [ready] roadmap feature (needs Claude research?)\n" % (st(t), n)); t -= 0.5
-e = dict(os.environ); e["HOME"] = h
+e = dict(os.environ); e["HOME"] = h; e["OVN_CHRONIC_DAILY"] = "off"   # 2026-10-13 (G5): these controls prove the LEGACY per-lane-per-day dedup (the chronic fold has its own tests, test_chronic_alert_n2.py)
 for _ in range(3): subprocess.run([sys.executable, tc, "2", h + "/overnight-queue/logs/ovn_planner.log"], capture_output=True, env=e, timeout=60)
 p = h + "/overnight-queue/state/alerts.log"
 print(len([l for l in open(p) if "roadmap-feature floor" in l]) if os.path.exists(p) else 0)

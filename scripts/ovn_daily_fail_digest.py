@@ -18,7 +18,11 @@ Sections (JSON keys)
   gpu_sinks         items (feat_tag, else item_hash) with the most cycle seconds that LANDED NOTHING in the window (top N; a landed or landed-uncredited push counts as landing, a credit-only push does not), with their share of all busy seconds
   walltime          per repo busy / generation / verify / fix-up seconds from cycle_walltime.jsonl rows in the window (verify_s is measured only on rows whose verify_basis is
                     "markers", i.e. written after the runner logs '--- verify done in Ns ---'; the count of such rows is reported)
-  verify_shadow     result counts of state/verify_gate_shadow.log rows in the window and `foreign_rows`: rows whose repo label is not a repo seen in outcomes (test pollution)
+  verify_shadow     result counts of state/verify_gate_shadow.log rows of FLEET repos in the window. That log is every VERIFY EXECUTION (red-before runs, item rechecks, unwinnable clauses retried every
+                    10-20 minutes), not a count of failed items, so raw FAIL rows overstate the problem (2026-10-13: 116 FAIL of 153 rows, ~54 of them three unwinnable clauses): the digest also reports per
+                    (repo, cmd) the FINAL result (the newest row), `distinct_cmds_last_fail` = how many distinct commands END on FAIL, how many went FAIL then PASS (a healthy red-before / green-after) and the
+                    top still-failing commands. Rows whose repo label is not a fleet repo (tmp.*, dbg*, a test run that wrote into the live state dir) are NOT counted: they are labelled in `foreign_rows` /
+                    `foreign_labels` / `foreign_examples`
   not_covered       the P11 signals this digest does NOT compute (they need cycle logs / git): pre-existing-red detector, held-branch age, placeholder-only files, reboot/NRestarts
 
 Root-cause signature of a bad row = "<class>/<core>" where <core> is the row's fail_reason when it has one (ovn_classify_fail.sh's bounded tags: net-zero, test-regression,
@@ -46,6 +50,10 @@ NOT_COVERED = [
     "reboot / boot-count change and NRestarts of the LLM stack (needs systemd)",
 ]
 LANDING_CLASSES = ("landed", "landed-uncredited")
+# repos the fleet runs (ovn_recover_parked.sh REPOS); a shadow-log repo label outside this set AND outside the repos seen in outcomes is a test run that wrote into the live state dir
+FLEET_REPOS = ("billwatch", "gitlark", "iptv_apps", "test-automation-agent", "xlite", "shrike-notify", "shrike-monitor")
+_CMD_RE = re.compile(r"\bcmd=(.*?)(?:\s+tail=|\s*$)")
+_LINE_NO_RE = re.compile(r"\bline=(\d+)")
 _SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 _PATH = re.compile(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+")
 _TAG = re.compile(r"\[[^\]]*\]")
@@ -244,25 +252,56 @@ def build(state_dir, hours=24.0, now=None, top=10):
         d["rows_with_verify_markers"] += 1 if r.get("verify_basis") == "markers" else 0
     out["walltime"] = dict(sorted(wt.items()))
 
-    # ---- shadow-gate rows (and test pollution)
-    repos_seen = set(r.get("repo") for r in rows if r.get("repo"))
-    shadow = {"rows": 0, "results": {}, "foreign_rows": 0, "foreign_examples": []}
+    # ---- shadow-gate rows: fleet rows only (test pollution is labelled, never counted), final result per (repo, cmd)
+    fleet = set(FLEET_REPOS) | set(r.get("repo") for r in rows if r.get("repo"))
+    shadow = {"rows": 0, "results": {}, "foreign_rows": 0, "foreign_labels": {}, "foreign_examples": []}
     line_re = re.compile(r"^(\S+)\s+repo=(\S+)\s+.*?\b(result|path_gate)=(\S+)")
 
     def _ts_plain(line):
         return epoch_of(line.split(" ", 1)[0])
+    execs = []    # (epoch, seq, repo, result, cmd, line_no) of fleet rows that carry a command and a result
+    seq = 0
     for line in read_tail_lines(os.path.join(state_dir, "verify_gate_shadow.log"), cutoff, _ts_plain):
         m = line_re.match(line)
         if not m or epoch_of(m.group(1)) < cutoff:
             continue
+        repo = m.group(2)
+        if repo not in fleet:
+            shadow["foreign_rows"] += 1
+            shadow["foreign_labels"][repo] = shadow["foreign_labels"].get(repo, 0) + 1
+            if len(shadow["foreign_examples"]) < 3:
+                shadow["foreign_examples"].append(line[:160])
+            continue
         shadow["rows"] += 1
         key = "%s=%s" % (m.group(3), m.group(4))
         shadow["results"][key] = shadow["results"].get(key, 0) + 1
-        if repos_seen and m.group(2) not in repos_seen and m.group(2).startswith("tmp"):
-            shadow["foreign_rows"] += 1
-            if len(shadow["foreign_examples"]) < 3:
-                shadow["foreign_examples"].append(line[:160])
+        cm = _CMD_RE.search(line) if m.group(3) == "result" else None
+        if cm:
+            ln = _LINE_NO_RE.search(line)
+            seq += 1
+            execs.append((epoch_of(m.group(1)), -seq, repo, m.group(4), " ".join(cm.group(1).split()), ln.group(1) if ln else ""))   # -seq: the reader yields NEWEST first, so a tie keeps the later line
     shadow["results"] = dict(sorted(shadow["results"].items()))
+    shadow["foreign_labels"] = dict(sorted(shadow["foreign_labels"].items()))
+    execs.sort()
+    cmds = {}
+    for e, _, repo, result, cmd, ln in execs:
+        d = cmds.setdefault((repo, cmd), {"rows": 0, "fails": 0, "passes": 0, "first": result, "last": result, "last_ts": e, "lines": []})
+        d["rows"] += 1
+        d["fails"] += 1 if result == "FAIL" else 0
+        d["passes"] += 1 if result == "PASS" else 0
+        d["last"], d["last_ts"] = result, e
+        if ln and ln not in d["lines"] and len(d["lines"]) < 3:
+            d["lines"].append(ln)
+    final = {}
+    for d in cmds.values():
+        final["result=" + d["last"]] = final.get("result=" + d["last"], 0) + 1
+    last_fail = sorted(((k, d) for k, d in cmds.items() if d["last"] == "FAIL"), key=lambda kv: (-kv[1]["rows"], kv[0]))
+    shadow["distinct_cmds"] = len(cmds)
+    shadow["final"] = dict(sorted(final.items()))
+    shadow["distinct_cmds_last_fail"] = len(last_fail)
+    shadow["fail_then_pass"] = sum(1 for d in cmds.values() if d["last"] == "PASS" and d["fails"] > 0)
+    shadow["last_fail"] = [{"repo": k[0], "cmd": k[1][:140], "rows": d["rows"], "fails": d["fails"], "last_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(d["last_ts"])), "lines": d["lines"]}
+                           for k, d in last_fail[:top]]
     out["verify_shadow"] = shadow
     out["not_covered"] = NOT_COVERED
     return out
@@ -309,8 +348,13 @@ def markdown(d, top=10):
     vs = d["verify_shadow"]
     if vs["rows"]:
         L += ["", "## Shadow gate rows: %d (%s)" % (vs["rows"], ", ".join("%s %d" % kv for kv in vs["results"].items()))]
-        if vs["foreign_rows"]:
-            L.append("WARNING: %d row(s) from non-fleet repo labels (a test wrote into the live state dir): e.g. `%s`" % (vs["foreign_rows"], vs["foreign_examples"][0]))
+        L.append("These are VERIFY executions, not items. %d distinct command(s): %s; **%d end on FAIL**, %d went FAIL then PASS (healthy red-before / green-after)." % (
+            vs["distinct_cmds"], ", ".join("%s %d" % (k.split("=", 1)[1], v) for k, v in vs["final"].items()) or "none", vs["distinct_cmds_last_fail"], vs["fail_then_pass"]))
+        for x in vs["last_fail"]:
+            L.append("- %s `%s`: %d rows, %d FAIL, last %s%s" % (x["repo"], x["cmd"], x["rows"], x["fails"], x["last_ts"], (" (line %s)" % ", ".join(x["lines"])) if x["lines"] else ""))
+    if vs["foreign_rows"]:
+        L += ["", "WARNING: %d row(s) from non-fleet repo labels (%s), NOT counted above (a test wrote into the live state dir): e.g. `%s`" % (
+            vs["foreign_rows"], ", ".join("%s %d" % kv for kv in list(vs["foreign_labels"].items())[:5]), vs["foreign_examples"][0])]
     L += ["", "Not covered here: " + "; ".join(x.split(" (")[0] for x in d["not_covered"]) + "."]
     return "\n".join(L) + "\n"
 

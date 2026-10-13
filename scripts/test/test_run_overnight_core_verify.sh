@@ -137,7 +137,7 @@ mkdir -p addons/gut tests; echo x > addons/gut/gut_cmdln.gd; commit_files
 GODOT_OUT_TEXT=""; GODOT_XML='<testsuites failures="0" tests="3"></testsuites>'
 r="$(run_repo_verification)"
 eq "GUT green (failures=0) -> pass" pass "$r"
-has "GUT path logged" "$(cat "$task_log")" "--- verify: GUT tests in . (90s cap) ---"
+has "GUT path logged" "$(cat "$task_log")" "--- verify: GUT tests in . (cap 60s) ---"
 GODOT_XML='<testsuites failures="2" tests="3"></testsuites>'
 eq "GUT failures>0 -> fail" fail "$(run_repo_verification)"
 GODOT_XML=""

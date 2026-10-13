@@ -132,6 +132,10 @@ source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_unstage_abs_sy
 # shellcheck source=scripts/lib_gut_xml.sh
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites (xlite main red since 09-29).
 source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; gut_xml_emit_fail_ids(){ :; }; }
+# partial-deploy guard (2026-10-13, review of package gate): a lib_gut_xml.sh that sources fine but PREDATES gut_subdirs_flag/gut_load_failure_line (rsync order, stale live copy) must not leave
+# them undefined - an undefined gut_load_failure_line made the hygiene gate MERGE a parse-broken tests/<sub> script. Define each fallback only when the function is missing.
+declare -F gut_subdirs_flag >/dev/null 2>&1 || gut_subdirs_flag(){ [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] || printf '%s' "-ginclude_subdirs"; }
+declare -F gut_load_failure_line >/dev/null 2>&1 || gut_load_failure_line(){ grep -m1 -E 'Failed to load script|Failed to compile depended scripts' "${1:-/dev/null}" 2>/dev/null; }
 # 2026-10-09 (harness-credit-integrity, picker patterns): "BLOCKED" must only park an item when it is the UPPER-CASE tag - a lower-case "blocked" in an item's prose used to hide
 # the item from every picker (grep -i). scripts/lib_parked_pattern.sh (package spec-compiler-v2) owns OVN_PARKED_CI_ERE (case-insensitive tags) and OVN_PARKED_CS_ERE (case-sensitive
 # BLOCKED); the inline defaults below make this script correct whichever package deploys first. Every picker is: grep -viE "<CI_ERE>" | grep -vE "<CS_ERE>", written with the same default inline (${VAR:-default}) so a block evaluated without these top-of-file defaults (unit-test harnesses extract blocks) still filters instead of matching nothing.
@@ -616,7 +620,7 @@ run_repo_verification() {
   _ovn_red_mark() { echo "--- verify-suite-red: $1 in ${2:-.} rc=${3:-?} ---" >> "$task_log"; }
   # 2026-10-11 (r11 acct, platform P9): the cycle log carried no per-phase timestamps, so cycle_walltime.jsonl verify_s was 0 for every row (only logged VERIFY *timeouts* counted). One marker per
   # verification run, written to the task log (stdout is the verdict, captured by every caller): '--- verify done in Ns ---'. ovn_cycle_walltime.py sums them. Never fatal.
-  _ovn_verify_done_mark() { { echo "--- verify done in $(( $(date +%s) - ${_ovn_vt0:-$(date +%s)} ))s ---" >> "${task_log:-/dev/null}"; } 2>/dev/null || true; }
+  _ovn_verify_done_mark() { { echo "--- verify done in $(( $(date +%s) - ${_ovn_vt0:-$(date +%s)} ))s ---" >> "${task_log:-/dev/null}"; } 2>/dev/null || true; declare -F ovn_tree_dirty_note >/dev/null 2>&1 && ovn_tree_dirty_note "$PWD" "${task_log:-}" "verify (${_ovnv:-repo suites})"; }   # 2026-10-13 (iptv F9): name the step that left a tracked file dirty
   _ovn_touched() {
     local d="${1#./}"
     [ -z "$_OVN_CHANGED" ] && return 0    # unknown -> run (safe default)
@@ -757,13 +761,19 @@ run_repo_verification() {
       GODOT_OUT="$(mktemp)"
       if [ -f "${dir}/addons/gut/gut_cmdln.gd" ]; then
         # GUT installed: real per-test pass/fail via JUnit XML, not exit code.
-        echo "--- verify: GUT tests in ${dir} (90s cap) ---" >> "$task_log"
+        # 2026-10-13 (incident gate): the SAME recursion flag as branch_hygiene.sh's gate (gut_subdirs_flag: -ginclude_subdirs, kill switch OVN_GUT_SUBDIRS=off). Without it
+        # a parse-broken tests/<sub>/x.gd (ad33d45: tests/mission/test_mission_directive.gd used MissionDirective.REINFORCEMENTS, the enum is MissionDirective.Directive) was
+        # green here and red only at merge time, holding xlite overnight/feature off develop for ~4h. OVN_GUT_CYCLE_TIMEOUT (default 60s; was a hard-coded 30s that the
+        # recursive run, ~20s idle, would sit too close to) bounds the GUT run; a kill leaves no junit xml = red, exactly as before.
+        _gut_sub="$(gut_subdirs_flag)"; _gut_secs="${OVN_GUT_CYCLE_TIMEOUT:-60}"; case "$_gut_secs" in ''|*[!0-9]*) _gut_secs=60;; esac
+        echo "--- verify: GUT tests in ${dir} (cap ${_gut_secs}s) ---" >> "$task_log"   # the REAL cap (was a stale '(90s cap)' beside a 60s default); the walltime/observability parsers key on the prefix only
+        echo "--- verify: GUT run args: -gdir=res://tests${_gut_sub:+ ${_gut_sub}} -gexit ---" >> "$task_log"
         XML_OUT="$(mktemp)"
         (
           cd "$dir" &&
           timeout 60 "$HOME/godot/godot4" --headless --path . --import >/dev/null 2>&1; timeout 60 "$HOME/godot/godot4" --headless --path . --import &&
-          timeout 30 "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd \
-            -gdir=res://tests -gexit "-gjunit_xml_file=${XML_OUT}"
+          timeout "$_gut_secs" "$HOME/godot/godot4" --headless -s addons/gut/gut_cmdln.gd \
+            -gdir=res://tests $_gut_sub -gexit "-gjunit_xml_file=${XML_OUT}"
         ) > "$GODOT_OUT" 2>&1
         cat "$GODOT_OUT" >> "$task_log"
         # the junit XML ends WITHOUT a newline: end the line so the markers written below start at a line start (2026-10-11 gutparity: "</testsuites>--- verify-suite-red" was glued)
@@ -786,7 +796,11 @@ run_repo_verification() {
         # battle.gd's loadability entirely) can coexist with a clean GUT run,
         # since GUT never touches that file. $GODOT_OUT already has the --import
         # step's own output (runs before GUT) - check it too.
-        { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; } && { any_failed=1; _ovn_red_mark gut "$dir" 1; }
+        # a test script that fails to LOAD/COMPILE is ABSENT from the junit xml (failures="0" holds) and GUT exits 0: scan for the same signatures the hygiene gate does
+        # (gut_load_failure_line; 'Failed to compile depended scripts' is NOT matched by the 'ERROR: Failed to load' pattern below). One red mark either way.
+        _gut_lf="$(gut_load_failure_line "$GODOT_OUT")"
+        if [ -n "$_gut_lf" ]; then echo "--- GUT LOAD/COMPILE FAILURE: ${_gut_lf}" >> "$task_log"; fi
+        { [ -n "$_gut_lf" ] || { grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed to load" "$GODOT_OUT" | grep -vE "has no resource loaders|Cannot call method '[^']*' on a null value|AudioStreamOggVorbis|base object of type 'Nil'|Attempted to free a RefCounted|Parameter .* is null" | grep -q .; }; } && { any_failed=1; _ovn_red_mark gut "$dir" 1; }
         rm -f "$XML_OUT"
       else
         # No test framework yet: just confirm the project still parses/runs.
@@ -1798,6 +1812,62 @@ STUB
     esac
     # <<< SUPPLY-RECHECK-END
 
+    # >>> CREATE-EXISTS-BEGIN
+    # 2026-10-13 (xlite F7, package stage): the scout is nondeterministic about an item that is already satisfied. A `Create <test file>` item whose target ALREADY exists with the test functions it names
+    # (or, naming none, with at least one test function) came back PROCEED in one cycle and ALREADY-DONE in its siblings; on PROCEED the implement step APPENDED a second `extends GutTest` + both functions
+    # (1d98f79), the build-gate fix-up removed them ('Unexpected "extends" in class body') and the cycle ended no-op(fixup-undid-item): 395s and 145k tokens for nothing. Decide it deterministically,
+    # before the scout and the implement step run (no model call): scripts/ovn_stage_guards.py create-exists. OVN_CREATE_EXISTS=off|shadow|on (default SHADOW: only logs 'would credit' to
+    # state/create_exists.log and the cycle runs as before). ON: credit exactly like the scout ALREADY-DONE path (target-path gate, then the item's own VERIFY must not FAIL - ovn_credit_verify_gate),
+    # push, and return no-op(ALREADY-DONE); when the VERIFY gate refuses the credit the cycle STILL returns no-op(ALREADY-DONE) without a model call (the item guard parks it after its no-op cap).
+    case "$id" in
+      ongoing-*)
+        if [ "${OVN_CREATE_EXISTS:-shadow}" != "off" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_stage_guards.py" ]; then
+          # SAME selector the scout path falls back to (ovn_resolve_top_item with no task_log = the top doable line in bugs-first order): the item this block decides is the item the cycle would work
+          # (second review 2026-10-13). The inline pipeline is the identical fallback for a deployment whose lib_item_select.sh did not load.
+          if declare -F ovn_resolve_top_item >/dev/null 2>&1; then
+            _ce_top="$(ovn_resolve_top_item ".")"
+          else
+            _ce_top="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE "${OVN_PARKED_CI_ERE:-AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}" | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}" | ovn_bug_first_order | head -1)"
+          fi
+          _ce_ln="${_ce_top%%:*}"
+          if [ -n "$_ce_top" ] && _ce_out="$(timeout 30 python3 "$SCRIPT_DIR/scripts/ovn_stage_guards.py" create-exists "$PWD" "${_ce_top#*:}" 2>/dev/null)"; then
+            _ce_path="${_ce_out%%$'\t'*}"
+            mkdir -p "$STATE_DIR" 2>/dev/null
+            # SHADOW logs ONE row per (repo, item text, target): the same top item matches every cycle until someone credits it, and one row per cycle was pure noise. ON always logs (it acts, then the item is ticked).
+            _ce_key="item=$(printf '%s' "${_ce_top#*:}" | cksum | cut -d' ' -f1)"
+            if [ "${OVN_CREATE_EXISTS:-shadow}" != shadow ] || ! grep -qE -- "repo=$(basename "$PWD") ${_ce_key} line=[0-9]+ mode=shadow " "$STATE_DIR/create_exists.log" 2>/dev/null; then
+              echo "$(date -u +%FT%TZ) repo=$(basename "$PWD") ${_ce_key} line=${_ce_ln} mode=${OVN_CREATE_EXISTS:-shadow} target=${_ce_path} detail=$(printf '%s' "$_ce_out" | tr '\t' ' ' | cut -c1-200)" >> "$STATE_DIR/create_exists.log" 2>/dev/null
+            fi
+            if [ "${OVN_CREATE_EXISTS:-shadow}" = shadow ]; then
+              echo "--- CREATE-EXISTS (shadow): line ${_ce_ln} is a Create item whose target ${_ce_path} already exists with its test function(s) - would short-circuit to ALREADY-DONE ---" >> "$task_log"
+            else
+              echo "--- CREATE-EXISTS: line ${_ce_ln} is a Create item whose target ${_ce_path} already exists with its test function(s) - ALREADY-DONE, no model call ---" >> "$task_log"
+              _ce_pg="$(python3 "$SCRIPT_DIR/scripts/ovn_path_gate.py" OVERNIGHT_PROGRESS.md "$_ce_ln" "$PWD" 2>/dev/null)"
+              case "${_ce_pg%% *}" in
+                MISSING|STILL_EXISTS) echo "--- CREATE-EXISTS credit REFUSED (path gate: ${_ce_pg}) - left open ---" >> "$task_log"; echo "no-op(ALREADY-DONE)"; return ;;
+              esac
+              if declare -F ovn_credit_verify_gate >/dev/null 2>&1 && ! ovn_credit_verify_gate OVERNIGHT_PROGRESS.md "$_ce_ln" "$task_log" "create-exists credit"; then
+                echo "--- CREATE-EXISTS credit REFUSED (the item's own VERIFY failed) - left open, no model call spent ---" >> "$task_log"
+                echo "no-op(ALREADY-DONE)"
+                return
+              fi
+              if declare -F _ovn_sed_i >/dev/null 2>&1; then _ovn_sed_i "${_ce_ln}s/^- \[ \] /- [x] (already-done, create target exists with its tests) /" OVERNIGHT_PROGRESS.md; else sed -i "${_ce_ln}s/^- \[ \] /- [x] (already-done, create target exists with its tests) /" OVERNIGHT_PROGRESS.md; fi
+              declare -F ovn_credit_twins >/dev/null 2>&1 && ovn_credit_twins OVERNIGHT_PROGRESS.md "${_ce_ln}" "$task_log"
+              git add OVERNIGHT_PROGRESS.md
+              if git commit -q -m "chore(queue): credit create item already satisfied (${_ce_path} exists with its tests)" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then
+                timeout 30 git push origin "$branch" --quiet 2>>"$task_log" || { timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; } \
+                  || { git rebase --abort >/dev/null 2>&1 || true; echo "--- CREATE-EXISTS: credit push failed; credit may be lost on the next reset ---" >> "$task_log"; }
+                echo "no-op(ALREADY-DONE)"
+                return
+              fi
+              git checkout -q -- OVERNIGHT_PROGRESS.md 2>/dev/null   # commit failed: drop only our edit, the normal path continues
+            fi
+          fi
+        fi
+        ;;
+    esac
+    # <<< CREATE-EXISTS-END
+
     if [ -f "OVERNIGHT_PROGRESS.md" ]; then
       # 2026-09-16 FIX: OVERNIGHT_PROGRESS.md is append-only and long-lived —
       # billwatch/gitlark/iptv_apps/test-automation-agent/xlite had all grown
@@ -2314,6 +2384,7 @@ PYEOF
       _credit_push() {
         timeout 30 git push origin "$branch" --quiet 2>>"$task_log" && return 0
         echo "--- credit-push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
+        if declare -F ovn_tree_dirty_note >/dev/null 2>&1; then ovn_tree_dirty_note "$PWD" "$task_log" "the cycle (before the credit-push rebase)"; ovn_reset_dirty_lockfiles "$PWD" "$task_log" "credit-push-retry"; fi   # 2026-10-13 (iptv F9)
         if timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
           return 0
         fi
@@ -2603,7 +2674,7 @@ ${full_prompt}"
     ovn_autotest_base_export "$(basename "$PWD")" "$BEFORE_SHA" "$SCRIPT_DIR/state"   # in-loop test feedback fix (per-repo opt-in)
     ATTEMPT=1
     # 2026-10-09 (harness-credit-integrity item 10): at most ONE retry per failure shape inside this cycle (OVN_UDIFF_RETRY=off disables both)
-    _ovn_retry_nm=0; _ovn_retry_unf=0
+    _ovn_retry_nm=0; _ovn_retry_unf=0; _ovn_retry_una=0; _ovn_una_refused=0
     while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
       echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
       _ovn_att_sha="$(git rev-parse HEAD)"; _ovn_att_off="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
@@ -2632,6 +2703,32 @@ ${full_prompt}"
         _ovn_verdict="$(ovn_aider_attempt_verdict "$_ovn_slice")"; rm -f "$_ovn_slice"
         echo "--- aider attempt ${ATTEMPT} verdict: ${_ovn_verdict} ---" >> "$task_log"
         _ovn_moved=0; { [ "$(git rev-parse HEAD)" != "$_ovn_att_sha" ] || [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; } && _ovn_moved=1
+        # 2026-10-13 (night review xlite F6): a udiff hunk with NO context/removed lines on a >300-line file is appended at the END of the file by aider ('Applied edit' looks fine,
+        # then the build gate fails, the fix-up removes the stray lines and the net-zero guard resets the cycle: 3 identical cycles). Discard it and retry once with a targeted nudge;
+        # a second occurrence refuses early (no-op(unanchored-hunk)). OVN_UDIFF_UNANCHORED=shadow only logs, =off disables (OVN_UDIFF_RETRY=off, which gates this whole block, does too).
+        if [ "${OVN_UDIFF_UNANCHORED:-on}" != off ] && [ "$_ovn_moved" = 1 ] && declare -F ovn_udiff_unanchored_scan >/dev/null 2>&1; then
+          _ovn_slice2="$(mktemp 2>/dev/null || echo "/tmp/ovn_slice2.$$")"
+          tail -c +$(( ${_ovn_att_off:-0} + 1 )) "$task_log" > "$_ovn_slice2" 2>/dev/null
+          _ovn_una_out="$(ovn_udiff_unanchored_scan "$_ovn_slice2" "$PWD" "$_ovn_att_sha")"; rm -f "$_ovn_slice2"
+          _ovn_una_found=0; [ -n "$_ovn_una_out" ] && _ovn_una_found=1
+          case "$(ovn_udiff_unanchored_decision "$_ovn_una_found" "$_ovn_retry_una")" in
+            reset-retry)
+              _ovn_retry_una=1
+              echo "--- UDIFF-UNANCHORED: ${_ovn_una_out%%$'\n'*} - hunk has no anchor and was appended at EOF; resetting to ${_ovn_att_sha:0:12} and retrying once with the anchor nudge ---" >> "$task_log"
+              git reset --hard "$_ovn_att_sha" --quiet; git clean -fd --quiet 2>/dev/null
+              full_prompt="${full_prompt}
+
+$(ovn_udiff_unanchored_nudge_text "$_ovn_una_out")"
+              continue ;;
+            refuse)
+              _ovn_una_refused=1
+              echo "--- UDIFF-UNANCHORED: ${_ovn_una_out%%$'\n'*} - the unanchored hunk came back again after the nudge; resetting to ${_ovn_att_sha:0:12} and refusing early (no net-zero cycle) ---" >> "$task_log"
+              git reset --hard "$_ovn_att_sha" --quiet; git clean -fd --quiet 2>/dev/null
+              break ;;
+            shadow)
+              echo "--- UDIFF-UNANCHORED (shadow): ${_ovn_una_out%%$'\n'*} - would reset and retry with the anchor nudge ---" >> "$task_log" ;;
+          esac
+        fi
         case "$(ovn_udiff_retry_decision "$_ovn_verdict" "$_ovn_retry_nm" "$_ovn_retry_unf" "$_ovn_moved")" in
           reset-retry)
             # a hunk failed to apply AFTER earlier hunks did: aider committed a half-applied edit. Discard it and retry once from the pre-attempt state.
@@ -2681,6 +2778,11 @@ $(ovn_udiff_nudge_text)"
     done
 
     AFTER_SHA="$(git rev-parse HEAD)"
+    if [ "${_ovn_una_refused:-0}" = 1 ] && [ "$AFTER_SHA" = "$BEFORE_SHA" ]; then
+      emit_alert warn "$id" "unanchored udiff hunk on a large file came back twice; cycle refused early (nothing pushed)"
+      echo "no-op(unanchored-hunk)"
+      return
+    fi
 
     # DELETE: trailer handling (2026-08-25). Deleting a file via aider's udiff
     # format makes the model reproduce the ENTIRE file as removed lines — for a
@@ -3016,6 +3118,9 @@ $(ovn_udiff_nudge_text)"
       _ovn_main_sha="$AFTER_SHA"   # 2026-10-09: the MAIN commit, before any fix-up (ovn_fixup_integrity_gate compares the fix-up result against it)
       _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"   # where THIS verify run's output starts (baseline subtraction parses only it)
       VERIFY_RESULT="$(run_repo_verification)"
+      # 2026-10-13 (iptv F9): a tool (npm in the verify) can leave a tracked lockfile modified; the dirty tree made auto-credit refuse and later broke the push-retry rebase.
+      # What the cycle meant to keep is committed by now, so restore dirty tracked lockfiles (OVN_LOCKFILE_RESET=off disables). Other dirty paths are only logged.
+      declare -F ovn_reset_dirty_lockfiles >/dev/null 2>&1 && ovn_reset_dirty_lockfiles "$PWD" "$task_log" "after verify"
 
       # VERIFY-SKIP GUARD (2026-09-29): a lock-contended .ovn-verify.sh (iptv_apps,
       # shrike-monitor, shrike-notify) returns "skip", not "pass" or "fail" - tests
@@ -3634,6 +3739,7 @@ All files you need are already in the chat. You cannot run commands or call tool
         # auto-disabling healthy repos - billwatch/shrike - during heavy manual
         # pushing). If the rebase-retry also fails, emit a transient status.
         echo "--- push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
+        if declare -F ovn_tree_dirty_note >/dev/null 2>&1; then ovn_tree_dirty_note "$PWD" "$task_log" "the cycle (before the push-retry rebase)"; ovn_reset_dirty_lockfiles "$PWD" "$task_log" "push-retry"; fi   # 2026-10-13 (iptv F9)
         if timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
           # rebase rewrote the commit(s): AFTER_SHA itself is no longer an ancestor, so check the rebased HEAD (which must also differ from BEFORE_SHA)
           if [ "$(git rev-parse HEAD)" = "$BEFORE_SHA" ] || ! ovn_ri_commit_reachable "$(git rev-parse HEAD)" "$branch"; then
@@ -4114,9 +4220,13 @@ fi
 # OVN_IDLE_SLEEP_S (default 60) in 5 s steps, waking early on state/supply_kick, and exit as before - the unit restarts exactly as it always did.
 if [ "${_ovn_lanes_seen:-0}" -gt 0 ] && [ "${_ovn_lanes_idle:-0}" -eq "${_ovn_lanes_seen:-0}" ] && [ "${OVN_IDLE_SLEEP_S:-60}" != 0 ] && declare -F ovn_idle_wait >/dev/null 2>&1; then
   exec 200>&-   # NOT '2>/dev/null' here: on a bare exec the redirection would stay on the shell's stderr for the rest of the run (journald loses everything after)
-  log "all ${_ovn_lanes_seen} lane(s) idle (skip(exhausted)) - waiting up to ${OVN_IDLE_SLEEP_S:-60}s (wakes early on state/supply_kick) before exiting"
-  _ovn_idle_res="$(ovn_idle_wait "$STATE_DIR")"
+  # 2026-10-13 (night review platform P9): the wait grows 60 -> 300 s once every lane has been idle for over an hour (ovn_idle_wait_seconds in lib_fixup.sh; OVN_IDLE_GROW=off = flat)
+  _ovn_idle_s="${OVN_IDLE_SLEEP_S:-60}"; declare -F ovn_idle_wait_seconds >/dev/null 2>&1 && _ovn_idle_s="$(ovn_idle_wait_seconds "$STATE_DIR")"
+  log "all ${_ovn_lanes_seen} lane(s) idle (skip(exhausted)) - waiting up to ${_ovn_idle_s}s (wakes early on state/supply_kick) before exiting"
+  _ovn_idle_res="$(ovn_idle_wait "$STATE_DIR" "$_ovn_idle_s")"
   log "idle wait over (${_ovn_idle_res})"
+elif [ "${_ovn_lanes_seen:-0}" -gt 0 ] && declare -F ovn_idle_clear >/dev/null 2>&1; then
+  ovn_idle_clear "$STATE_DIR"   # a pass with work ends the all-idle streak: the next idle pass starts at the base wait again
 fi
 
 # --- daily branch hygiene: REMOVED 2026-09-20 ---

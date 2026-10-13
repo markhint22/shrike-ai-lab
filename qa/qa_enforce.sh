@@ -41,7 +41,8 @@ for g in gates:
     r = last.get(g)
     print("%-14s %-8s source=%-7s last change: %s" % (g, m, src, ("%s -> %s by %s at %s" % (r.get("from"), r.get("to"), r.get("who"), r.get("ts"))) if r else "never (default)"))
 # second keys inside gate_antigaming.py (2026-10-10): FAIL severities only armed when the shared `antigaming` gate AND the sub-key are enforce
-for sub, what in (("antigaming_frozen", "D_FROZEN_EDIT FAIL"), ("antigaming_testfiles", "A_TESTFILE_EMPTIED + E_TEST_NOT_COLLECTED(new file) FAIL")):
+for sub, what in (("antigaming_frozen", "D_FROZEN_EDIT FAIL"), ("antigaming_testfiles", "A_TESTFILE_EMPTIED + E_TEST_NOT_COLLECTED(new file) FAIL"),
+                  ("antigaming_emptied", "A_TESTFILE_EMPTIED FAIL (this rule alone)"), ("antigaming_newpath", "N_NEWPATH_LOOKALIKE FAIL (off = rule skipped)")):
     sm, ssrc = qc.mode_source(sub)
     sr = last.get(sub)
     print("%-20s %-8s source=%-7s second key of antigaming: %s when enforce (else FLAG); last change: %s" % (sub, sm, ssrc, what, ("%s -> %s by %s at %s" % (sr.get("from"), sr.get("to"), sr.get("who"), sr.get("ts"))) if sr else "never (default)"))
@@ -88,8 +89,9 @@ PY
     # staging_check is a PROMOTE-time gate (qa/promote_gate.py), not a gate_*.py hygiene gate
     # staging_e2e is promote-time too (promote_gate.py reads the live-staging e2e evidence)
     # antigaming_frozen / antigaming_testfiles (2026-10-10) are second keys INSIDE gate_antigaming.py (severity of D_FROZEN_EDIT; A_TESTFILE_EMPTIED + E_TEST_NOT_COLLECTED for new files)
+    # antigaming_emptied / antigaming_newpath (2026-10-13, package qa): A_TESTFILE_EMPTIED alone; N_NEWPATH_LOOKALIKE (new file in a directory that doubles / typos an existing one)
     if [ "$m" = enforce ] && [ ! -f "$GD/gate_$g.py" ] && ! { { [ "$g" = staging_check ] || [ "$g" = staging_e2e ]; } && [ -f "$HERE/promote_gate.py" ]; } \
-       && ! { case "$g" in antigaming_frozen|antigaming_testfiles) [ -f "$GD/gate_antigaming.py" ] ;; *) false ;; esac; }; then echo "qa_enforce: no such gate: $GD/gate_$g.py" >&2; exit 2; fi
+       && ! { case "$g" in antigaming_frozen|antigaming_testfiles|antigaming_emptied|antigaming_newpath) [ -f "$GD/gate_antigaming.py" ] ;; *) false ;; esac; }; then echo "qa_enforce: no such gate: $GD/gate_$g.py" >&2; exit 2; fi
     QA_WHO="$(who)" QA_G="$g" QA_M="$m" HERE_PY="$HERE" "$PY" - <<'PY' || exit 1
 import os, sys
 sys.path.insert(0, os.environ["HERE_PY"])
@@ -104,7 +106,7 @@ PY
     # 2026-10-10: was `[ "$m" = enforce ] && echo ...` as the LAST command, so a successful flip to shadow/off exited 1
     if [ "$m" = enforce ]; then
       case "$g" in
-        antigaming_frozen|antigaming_testfiles) echo "ENFORCING the second key '$g': the FAIL severities it arms only block a merge prefix while the shared 'antigaming' gate is ALSO enforce. Rollback: $0 $g shadow" ;;
+        antigaming_frozen|antigaming_testfiles|antigaming_emptied|antigaming_newpath) echo "ENFORCING the second key '$g': the FAIL severities it arms only block a merge prefix while the shared 'antigaming' gate is ALSO enforce. Rollback: $0 $g shadow" ;;
         *) echo "ENFORCING: a FAIL verdict from '$g' now blocks the offending commit(s) at the pre-push step of branch_hygiene.sh. Rollback: $0 $g shadow" ;;
       esac
     fi

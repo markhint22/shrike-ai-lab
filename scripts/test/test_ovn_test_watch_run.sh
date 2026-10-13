@@ -43,6 +43,7 @@ case "$*" in *--import*) exit 0;; esac
 case "$(cat GUT_MODE 2>/dev/null)" in
   red) printf 'Totals\n2 failing\nErrors 1\n';;
   redsum) printf '= Run Summary\n\nres://tests/test_orphan_save_manager.gd\n- test_orphan_save_manager_does_not_exist\n    [Failed]:  scripts/battle/save_manager.gd should not exist\n\n---- Totals ----\nTests 3001\n  Failing         1\nERROR: 12 RID allocations of type X were leaked at exit.\nERROR: 9 resources still in use at exit (run with --verbose for details).\n';;
+  loadfail) printf 'SCRIPT ERROR: Parse Error: Cannot find member "REINFORCEMENTS" in base "MissionDirective".\nERROR: Failed to load script "res://tests/mission/test_mission_directive.gd" with error "Parse error".\n'; for i in $(seq 1 45); do echo "  res://tests/test_pad_$i.gd"; done; printf 'Totals\n9 passed\n';;
   *)   printf 'Totals\n9 passed\n';;
 esac
 exit 0
@@ -107,6 +108,7 @@ mkclone r_web_novitest; webpkg r_web_novitest red 0 1
 mkclone r_gd_red;     mkdir -p "$R/repos/r_gd_red/game/addons/gut"; touch "$R/repos/r_gd_red/game/addons/gut/gut_cmdln.gd" "$R/repos/r_gd_red/game/project.godot"; echo red > "$R/repos/r_gd_red/game/GUT_MODE"
 mkclone r_gd_redsum;  mkdir -p "$R/repos/r_gd_redsum/game/addons/gut"; touch "$R/repos/r_gd_redsum/game/addons/gut/gut_cmdln.gd" "$R/repos/r_gd_redsum/game/project.godot"; echo redsum > "$R/repos/r_gd_redsum/game/GUT_MODE"
 mkclone r_gd_green;   mkdir -p "$R/repos/r_gd_green/game/addons/gut"; touch "$R/repos/r_gd_green/game/addons/gut/gut_cmdln.gd" "$R/repos/r_gd_green/game/project.godot"
+mkclone r_gd_loadfail; mkdir -p "$R/repos/r_gd_loadfail/game/addons/gut"; touch "$R/repos/r_gd_loadfail/game/addons/gut/gut_cmdln.gd" "$R/repos/r_gd_loadfail/game/project.godot"; echo loadfail > "$R/repos/r_gd_loadfail/game/GUT_MODE"
 mkclone r_gd_nogut;   mkdir -p "$R/repos/r_gd_nogut/game"; touch "$R/repos/r_gd_nogut/game/project.godot"
 # repo whose origin lacks overnight/feature -> git sync failure
 mkdir -p "$R/repos/r_nosync"; ( cd "$R/repos/r_nosync" && git init -q -b main && git config user.email t@t && git config user.name t && echo x > f && git add f && git commit -q -m x && git init -q --bare "$ORG/r_nosync.git" && git remote add origin "$ORG/r_nosync.git" && git push -q origin main )
@@ -120,7 +122,7 @@ for d in "$R"/repos/*/; do
 done
 # r_py_pushfail: origin rejects every push from now on -> the EMERGENCY write fails after its worktree was opened
 printf '#!/bin/sh\nexit 1\n' > "$ORG/r_py_pushfail.git/hooks/pre-receive"; chmod +x "$ORG/r_py_pushfail.git/hooks/pre-receive"
-ALL="r_missing r_nosync r_py_red r_py_flaky r_py_green r_py_timeout r_py_errnl r_py_nested r_py_nohdr r_py_closed r_py_noprog r_web_red r_web_timeout r_web_green r_web_noprov r_web_novitest r_gd_red r_gd_redsum r_gd_green r_gd_nogut"
+ALL="r_gd_loadfail r_missing r_nosync r_py_red r_py_flaky r_py_green r_py_timeout r_py_errnl r_py_nested r_py_nohdr r_py_closed r_py_noprog r_web_red r_web_timeout r_web_green r_web_noprov r_web_novitest r_gd_red r_gd_redsum r_gd_green r_gd_nogut"
 run(){ OUT="$(cd "$H" && HOME="$H" bash "$TW" "$@" 2>&1)"; RC=$?; }
 snap(){ { git -C "$R/repos/$1" rev-parse HEAD; git -C "$R/repos/$1" status --porcelain; git -C "$R/repos/$1" rev-parse --abbrev-ref HEAD; } | md5sum 2>/dev/null || md5; }
 LIVE_BEFORE="$(snap r_py_red)|$(snap r_web_red)|$(snap r_py_green)"
@@ -149,6 +151,9 @@ gl="$(printf '%s\n' "$OUT" | grep 'r_gd_redsum: GUT RED')"   # (captured: no `| 
 case "$gl" in *'RID allocations'*) gn=0;; *) gn=1;; esac
 ok "GUT red with a Run Summary: no exit-leak noise in the detail" "$gn"
 ok "GUT red without a Run Summary keeps the old detail (generic fallback not applied to full output)" "$(has 'r_gd_red: GUT RED — 2 failing;Errors 1')"
+# 2026-10-13 (incident gate): a script that fails to LOAD prints its error far above the tail-30 window and is absent from the report: the full-output scan makes it RED (old: "GUT green (9 passed)")
+ok "GUT load failure (error above the tail-30 window, 9 passed): RED, naming the script and the parse error" "$(has 'r_gd_loadfail: GUT RED — GUT script failed to load/compile: SCRIPT ERROR: Parse Error: Cannot find member "REINFORCEMENTS" in base "MissionDirective". | ERROR: Failed to load script "res://tests/mission/test_mission_directive.gd"')"
+ok "GUT load failure: NOT logged green" "$(printf '%s' "$OUT" | grep -q 'r_gd_loadfail: GUT green' && echo 0 || echo 1)"
 ok "GUT green logged with count" "$(has 'r_gd_green: GUT green (9 passed)')"
 ok "godot project without addons/gut ignored" "$(printf '%s' "$OUT" | grep -q 'r_gd_nogut: GUT' && echo 0 || echo 1)"
 
@@ -162,6 +167,7 @@ ok "vitest red EMERGENCY pushed" "$(fetch_prog r_web_red | grep -q 'web vitest s
 gp="$(fetch_prog r_gd_redsum)"
 case "$gp" in *'Failing: GUT failing: tests/test_orphan_save_manager.gd::test_orphan_save_manager_does_not_exist'*) gq=1;; *) gq=0;; esac
 ok "GUT red EMERGENCY item names the failing test" "$gq"
+ok "GUT load-failure EMERGENCY pushed with the script named" "$(fetch_prog r_gd_loadfail | grep -q 'tests/mission/test_mission_directive.gd' && echo 1 || echo 0)"
 ok "GUT red EMERGENCY pushed" "$(fetch_prog r_gd_red | grep -q 'godot GUT suite is RED' && echo 1 || echo 0)"
 ok "progress file with NO '## Next Steps' header gets one prepended" "$(fetch_prog r_py_nohdr | head -2 | tr '\n' '|' | grep -q '^## Next Steps|- \[ \] \[EMERGENCY\]' && echo 1 || echo 0)"
 ok "closed/retired '- [x]' emergency does NOT block a fresh one" "$(fetch_prog r_py_closed | grep -c '^- \[ \] \[EMERGENCY\]\[T2\] r_py_closed pytest suite is RED' | grep -q '^1$' && echo 1 || echo 0)"

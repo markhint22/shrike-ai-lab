@@ -19,10 +19,15 @@
 # Cron (server):  17 */6 * * *  cd ~/overnight-queue && ./ovn_test_watch.sh >> logs/ovn_test_watch.log 2>&1
 set -uo pipefail
 # 2026-10-04: GUT also descends into tests/*/ (release/battle/steam were never run). Verified green on xlite claude/feature (389 scripts, 2862 tests, 0 failing).
-# Kill switch: OVN_GUT_SUBDIRS=off.
-GUT_SUBDIRS="-ginclude_subdirs"; [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] && GUT_SUBDIRS=""
+# Kill switch: OVN_GUT_SUBDIRS=off. 2026-10-13: the flag comes from lib_gut_xml.sh gut_subdirs_flag - one definition shared with run_overnight.sh's per-cycle verify.
 # locate sibling libs BEFORE the cd (BASH_SOURCE, not $0: unit tests `source` this file, where $0 is the caller's)
 TW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$TW_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { :; }
+# partial-deploy guard (2026-10-13, review of package gate): a lib_gut_xml.sh that sources fine but PREDATES gut_subdirs_flag/gut_load_failure_line (rsync order, stale live copy) must not leave
+# them undefined - an undefined gut_load_failure_line made the hygiene gate MERGE a parse-broken tests/<sub> script. Define each fallback only when the function is missing.
+declare -F gut_subdirs_flag >/dev/null 2>&1 || gut_subdirs_flag(){ [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] || printf '%s' "-ginclude_subdirs"; }
+declare -F gut_load_failure_line >/dev/null 2>&1 || gut_load_failure_line(){ grep -m1 -E 'Failed to load script|Failed to compile depended scripts' "${1:-/dev/null}" 2>/dev/null; }
+GUT_SUBDIRS="$(gut_subdirs_flag)"
 cd "$HOME/overnight-queue" || exit 1
 export PATH="$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
@@ -249,13 +254,17 @@ for r in $REPOS; do
       # ERROR lines in the EMERGENCY item) so ovn_extract_failure.sh can name the failing test; `out` is still the last 30 lines for the verdict regexes below.
       gfull="$( cd "$gd" && tw_run timeout 60 "$GODOT" --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests $GUT_SUBDIRS -gexit 2>&1 )"
       out="$(printf '%s\n' "$gfull" | tail -30)"
-      if printf '%s' "$out" | grep -qE 'Failing|[1-9][0-9]* failing|Errors|SCRIPT ERROR'; then
+      # 2026-10-13 (incident gate): a test script that fails to LOAD/COMPILE prints its error early in the output and is absent from the report, so the tail-30 verdict above can
+      # miss it; scan the FULL output with the same signatures the hygiene gate uses (gut_load_failure_line)
+      glf=""; gltmp="$(mktemp 2>/dev/null)" && { printf '%s\n' "$gfull" > "$gltmp"; glf="$(gut_load_failure_line "$gltmp")"; rm -f "$gltmp"; }
+      if [ -n "$glf" ] || printf '%s' "$out" | grep -qE 'Failing|[1-9][0-9]* failing|Errors|SCRIPT ERROR'; then
         fails=""
         if [ -x "$TW_DIR/scripts/ovn_extract_failure.sh" ]; then
           gtmp="$(mktemp 2>/dev/null)" && { printf '%s\n' "$gfull" > "$gtmp"; fails="$(bash "$TW_DIR/scripts/ovn_extract_failure.sh" "$gtmp" 2>/dev/null)"; rm -f "$gtmp"; }
           case "$fails" in "GUT failing:"*) ;; *) fails="";; esac   # the extractor's generic fallback over the FULL output would be exit-leak noise; keep the old tail-30 detail then
         fi
         [ -n "$fails" ] || fails="$(printf '%s' "$out" | grep -iE 'failing|error' | grep -vE 'RID allocations|resources still in use|leaked at exit' | head -5 | paste -sd'; ' -)"
+        [ -n "$glf" ] && fails="GUT script failed to load/compile: ${glf}${fails:+; $fails}"
         log "$r: GUT RED — $fails"
         emergency_enqueue "$r" "godot GUT" "${fails:-see log}"
       else

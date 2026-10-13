@@ -21,6 +21,7 @@ EOS
 cat > "$T/bin/fakegodot" <<'EOS'
 #!/usr/bin/env bash
 for a in "$@"; do case "$a" in -gjunit_xml_file=*) x="${a#-gjunit_xml_file=}";; esac; done
+[ -n "${GODOT_ARGLOG:-}" ] && echo "$*" >> "$GODOT_ARGLOG"
 [ -n "${x:-}" ] && [ -n "${GODOT_SUITES:-}" ] && { echo '<testsuites failures="0" tests="1">' > "$x"; for s in $GODOT_SUITES; do echo "<testsuite name=\"$s\" tests=\"1\" failures=\"0\"></testsuite>" >> "$x"; done; echo '</testsuites>' >> "$x"; }
 exit 0
 EOS
@@ -70,4 +71,21 @@ mkrepo xl2 tests/test_a.gd tests/helpers/builder.gd
 printf 'extends RefCounted\nfunc build():\n\tpass\n' > "$T/repos/xl2/tests/helpers/builder.gd"; git -C "$T/repos/xl2" add -A >/dev/null; git -C "$T/repos/xl2" -c user.name=t -c user.email=t@t commit -q -m h
 reset; run GODOT_SUITES="tests/test_a.gd" OVN_CANARY_REPOS="xl2:gd:." >/dev/null
 ok "GUT BENIGN: a non-test helper under tests/ (no func test_) is not counted as a ghost" "$([ "$(alerts xl2)" = 0 ] && echo 1 || echo 0)"
+# 2026-10-13 (incident gate): the canary takes its recursion flag from lib_gut_xml.sh gut_subdirs_flag, like every other GUT site
+reset; rm -f "$T/arglog"; run GODOT_ARGLOG="$T/arglog" GODOT_SUITES="tests/test_a.gd" OVN_CANARY_REPOS="xl2:gd:." >/dev/null
+ok "GUT flag parity: the canary's GUT run carries -gdir=res://tests -ginclude_subdirs by default" "$(grep -q 'gut_cmdln.gd -gdir=res://tests -ginclude_subdirs -gexit' "$T/arglog" 2>/dev/null && echo 1 || echo 0)"
+reset; rm -f "$T/arglog"; run OVN_GUT_SUBDIRS=off GODOT_ARGLOG="$T/arglog" GODOT_SUITES="tests/test_a.gd" OVN_CANARY_REPOS="xl2:gd:." >/dev/null
+ok "GUT flag parity: OVN_GUT_SUBDIRS=off drops the flag (kill switch)" "$(grep -q 'gdir=res://tests -gexit' "$T/arglog" 2>/dev/null && ! grep -q include_subdirs "$T/arglog" && echo 1 || echo 0)"
+# 2026-10-13 (review of package gate): PARTIAL DEPLOY - the new canary next to a lib_gut_xml.sh that predates gut_subdirs_flag must still pass the recursion flag
+# (`source lib || fallback` never fires when the source succeeds, so the helper was undefined and the canary silently ran non-recursive: tests/<sub> ghosts, false alerts)
+STALE="$T/stale_canary"; rm -rf "$STALE"; mkdir -p "$STALE"
+find "$ROOT/scripts" -maxdepth 1 -type f -exec cp {} "$STALE/" \;
+awk '/^gut_(subdirs_flag|load_failure_line)\(\) \{/ { skip = 1 } !skip { print } skip && /^\}/ { skip = 0 }' "$ROOT/scripts/lib_gut_xml.sh" > "$STALE/lib_gut_xml.sh"
+ok "stale-lib setup: the copied lib lacks gut_subdirs_flag but keeps gut_xml_green" "$(! grep -q 'gut_subdirs_flag()' "$STALE/lib_gut_xml.sh" && grep -q 'gut_xml_green()' "$STALE/lib_gut_xml.sh" && echo 1 || echo 0)"
+REAL_CAN="$CAN"; CAN="$STALE/ovn_test_collect_canary.sh"
+reset; rm -f "$T/arglog"; run GODOT_ARGLOG="$T/arglog" GODOT_SUITES="tests/test_a.gd" OVN_CANARY_REPOS="xl2:gd:." >/dev/null
+ok "stale lib: the canary's GUT run STILL carries -ginclude_subdirs (unguarded: flag silently dropped)" "$(grep -q 'gut_cmdln.gd -gdir=res://tests -ginclude_subdirs -gexit' "$T/arglog" 2>/dev/null && echo 1 || echo 0)"
+reset; rm -f "$T/arglog"; run OVN_GUT_SUBDIRS=off GODOT_ARGLOG="$T/arglog" GODOT_SUITES="tests/test_a.gd" OVN_CANARY_REPOS="xl2:gd:." >/dev/null
+ok "stale lib: the kill switch still drops the flag" "$(grep -q 'gdir=res://tests -gexit' "$T/arglog" 2>/dev/null && ! grep -q include_subdirs "$T/arglog" && echo 1 || echo 0)"
+CAN="$REAL_CAN"
 echo; echo "collect canary tests: $pass passed, $fail failed"; [ "$fail" = 0 ]

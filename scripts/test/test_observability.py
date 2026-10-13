@@ -431,7 +431,9 @@ def test_gpu():
         r = run([sys.executable, STATS, "24", "--ntfy"], env)
         ok("ntfy prints GPU busy LOW", "GPU busy 26.1% over 24h" in r.stdout and "LOW" in r.stdout, r.stdout)
         # BENIGN: busy 100% -> no alert (fresh state)
-        os.remove(os.path.join(d, "state", ".gpu_util_alerted"))
+        for _f in (".gpu_util_alerted", "chronic_alerts.json"):   # 2026-10-13: the chronic-daily state replaces the 6h stamp (OVN_CHRONIC_DAILY on by default)
+            if os.path.exists(os.path.join(d, "state", _f)):
+                os.remove(os.path.join(d, "state", _f))
         os.remove(os.path.join(d, "state", "alerts.log"))
         open(lg, "w").write("".join("%d 80 1000\n" % (now - 3600 * 23 + i * 3500) for i in range(23)))
         run([sys.executable, STATS, "--gpu-alert"], env)

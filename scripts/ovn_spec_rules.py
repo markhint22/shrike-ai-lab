@@ -16,8 +16,10 @@ Finding = {"rule": "R0x", "sev": "repair" | "reject" | "flag", "msg": str, "evid
               (old/current/today/initially/when/because/before/if/passes ...) leaves the line untouched and emits an R03 'flag' finding for human review
   R11 repair  a GUT VERIFY that calls addons/gut/cli/gut_cli.gd -> addons/gut/gut_cmdln.gd (gut_cli.gd `extends Node`: it is not a SceneTree script and can never be a `godot -s`
               entry point, so the clause can never pass; xlite techs_data: 20 lines, ALREADY-DONE x6 + fixup-undid-item x3, 2026-10-09)
-  R16 repair  a GUT VERIFY in a shape GUT cannot run -> `-gdir=<p>.gd` -> `-gtest=res://<p>.gd`; bare `-gtest=<name>.gd` -> the unique tracked res:// path (ambiguous / missing: untouched +
+  R16 repair  (intake package: also a placeholder `cd /path/to/<repo>[/<sub>] &&` prefix is dropped (`cd <sub> &&` for a sub directory), any command) a GUT VERIFY in a shape GUT cannot run -> `-gdir=<p>.gd` -> `-gtest=res://<p>.gd`; bare `-gtest=<name>.gd` -> the unique tracked res:// path (ambiguous / missing: untouched +
               'flag' with ctx); `-gselect=<function>` -> `-gunit_test_name=<function>` (ovn_gut_clause.py; xlite ~64% of cycle time went to re-attempting landed work whose VERIFY could never pass)
+  R17 reject  (intake package, 2026-10-13) a VERIFY that can never run even AFTER the static repairs: a `/path/to/` placeholder that R16 could not strip (it was not a leading `cd`), `-ginclude=`
+              (not a GUT option). A GUT test run as a script (`cd tests && godot -s test_x.gd`) is R13's. Shadow until armed in OVN_SPEC_GATE_ENFORCE_RULES (never in the default set)
   R12 flag    a VERIFY names a TEST path (.gd/.py) that does not exist at the ref and that neither this item nor a sibling item of the same [feat] batch creates (xlite
               roster-coerce: `godot -s tests/test_roster_coercion.gd`, a file nothing ever created); batch rule, shadow-only until armed in OVN_SPEC_GATE_ENFORCE_RULES
   R04 reject  TARGET path (text before the first ' - ') is vendored (addons/) or matches .queue-hard-banned-files at the ref
@@ -53,7 +55,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ovn_backlog_eligibility import (  # noqa: E402
-    extract_verify, item_target, is_open_item, normalize_vacuous_echo, is_vacuous_cmd, repair_vacuous_cmd)
+    extract_verify, item_target, is_open_item, normalize_vacuous_echo, is_vacuous_cmd, repair_vacuous_cmd, unrunnable_verify_reason)
 from ovn_spec_classify import clean_bare_verify, declared_paths  # noqa: E402
 
 ITEM_RE = re.compile(r"^- \[ \] \[(T[1-5])\]\s+(?P<target>.+?)\s+—\s+(?P<body>.*)$")
@@ -479,11 +481,14 @@ class _ItemFS:
     def any_basename_contains(self, sub):
         return self.base.any_basename_contains(sub) or any(sub in os.path.basename(e) for e in self.extra)
 
+    def gut_project(self):
+        return self.base.gut_project()
+
     def read(self, rel):
         return self.base.read(rel)
 
 
-def _r16(line, ctx=None):
+def _r16(line, ctx=None, repair_script=False):
     """R16 (R14 verify package, xlite X2 / platform P3): a GUT VERIFY GUT cannot execute is rewritten to a runnable form (ovn_gut_clause.normalize):
     `-gdir=<p>.gd` -> `-gtest=res://<p>.gd`; a bare `-gtest=<name>.gd` -> the unique tracked `res://.../<name>.gd` (a -gdir naming its directory is dropped); `-gselect=<function>` ->
     `-gunit_test_name=<function>` (needs the repo at the ref). Without ctx only the context-free first rewrite applies (queue_refill / planner lint); an ambiguous or missing bare name is
@@ -498,15 +503,15 @@ def _r16(line, ctx=None):
         s0, e0, cmd = m.start(1), m.end(1), m.group(1)
         if cmd.endswith(".") and len(cmd) > 1 and cmd[-2] not in " ./":      # a bare clause carries the sentence period glued to its last token
             cmd, e0 = cmd[:-1], e0 - 1
-    if "gut_cmdln" not in cmd:
-        return line, None
     try:
         import ovn_gut_clause as G
+        if not G.needs_normalize(cmd):
+            return line, None
         fs = G.NullFS()
         if ctx is not None:
             p = parse(line)
             fs = _ItemFS(G.CtxFS(ctx), [p["target"]] if p and p["target"].endswith(".gd") else [])
-        new, notes = G.normalize(cmd, fs, require_exists=False)
+        new, notes = G.normalize(cmd, fs, require_exists=False, repair_script=repair_script)
     except Exception:  # noqa: BLE001 - a broken helper must never cost the line
         return line, None
     if new != cmd:
@@ -514,6 +519,20 @@ def _r16(line, ctx=None):
     if ctx is not None and "gtest-bare-unresolved" in notes:
         return line, finding("R16", "flag", "GUT VERIFY names a bare -gtest=<name>.gd that is ambiguous or missing in the repo: left untouched", cmd)
     return line, None
+
+
+def repair_verify(line, ctx=None):
+    """The R16 repairs INCLUDING `[cd D &&] godot -s <GutTest>.gd` -> the gut_cmdln form (ovn_recover_parked.sh: a decomposed child must never inherit a VERIFY that can never run; R16 itself
+    leaves that shape to R13). -> (line2, finding or None)."""
+    return _r16(line, ctx, repair_script=True)
+
+
+def _r17(line):
+    v = extract_verify(line)
+    why = unrunnable_verify_reason(v) if v else None
+    if not why:
+        return None
+    return finding("R17", "reject", "VERIFY can never run: " + why, v[:160])
 
 
 def _r16_static(line):
@@ -1007,7 +1026,7 @@ def lint_batch(lines, ctx=None):
         fs = list(fs)
         if p is not None:
             for f in (_r04(p, ctx), _r05(line2, p), _r06(i, parsed, ctx), _r08(p, ctx), _r10(line2, p), _r12(line2, p, [l for l, _ in lined], ctx),
-                      _r13(line2, ctx), _r14(i, parsed, [l for l, _ in lined], ctx), _r15(p, ctx)):
+                      _r13(line2, ctx), _r14(i, parsed, [l for l, _ in lined], ctx), _r15(p, ctx), _r17(line2)):
                 if f:
                     fs.append(f)
             for key in dels:

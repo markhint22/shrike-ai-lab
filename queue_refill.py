@@ -172,6 +172,13 @@ def already_satisfied(line, repo_root, timeout=8):
             pol_cmd, pol = (cmd, "unknown")
     if pol == "neg":
         return _already_satisfied_neg(pol_cmd, repo_root, timeout)
+    # iptv F3 (2026-10-13): an absence narration the reader could not resolve ('returns no matches before the change', a mixed sentence) must not fall through to 'grep exit 0 = satisfied'
+    if pol == "unknown" and _HAVE_E and os.environ.get("OVN_VERIFY_POLARITY", "on") != "off":
+        try:
+            if _E.absence_narration_unresolved(line):
+                return False
+        except Exception:
+            pass
     # h13 (2026-10-04): `test ! -f <path>` (a "delete X" item whose file an earlier commit already removed) is cheap and side-effect free, but
     # was never recognised, so such items were pulled into the live queue and flailed. Accept ONLY the bare single-path form (no operators), and
     # only when the path is a plain relative repo path.
@@ -284,10 +291,10 @@ def relocate_new_tests(line, repo_root):
 # for the rules named in OVN_SPEC_GATE_ENFORCE_RULES (default: the repair-only R01,R11 - see DEFAULT_ENFORCE_RULES; set it empty for nothing; OVN_SPEC_GATE=off disables even that).
 #   R01 R02 R03 R11 (+ A3)  repair the pulled line in place (static, no verdict needed)
 #   R06 R14             HOLD: the line stays in the backlog (a delete whose references are not removed yet / a `test ! -f P` item ahead of the delete of P); later items are pulled first
-#   R04 R05 R07 R10 R12 R13 QUARANTINE: moved to backlog/quarantine/<repo>.md with '<!-- spec-gate:RNN <ts> -->' (never an AUTO-SKIP tag: the Claude-queue bridge harvests those)
+#   R04 R05 R07 R10 R12 R13 R17 QUARANTINE: moved to backlog/quarantine/<repo>.md with '<!-- spec-gate:RNN <ts> -->' (never an AUTO-SKIP tag: the Claude-queue bridge harvests those)
 #   PB                  QUARANTINE a line whose VERIFY already passes (verdict passes-before) as 'already-satisfied?' - never credited
 # A line with no fresh verdict is pulled (OVN_SPEC_GATE_UNJUDGED=pull, default) or held (=hold; only meaningful when a verdict-based rule is enforced).
-GATE_QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13")
+GATE_QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13", "R17")
 GATE_HOLD_RULES = ("R06", "R14")
 GATE_STATIC_RULES = ("R01", "R02", "R03", "R11", "R16")
 # 2026-10-10 (harness R10, IPTV-2): the repair-only static rules that are ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET. R01 (bare `VERIFY: cmd (cat:` -> backticked) was shadow-only

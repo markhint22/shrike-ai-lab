@@ -351,11 +351,15 @@ ovn_landed_uncredited() {
 # SCOUT-REFUSAL COUNTER (2026-10-12, package uidcredit). The scout ALREADY-DONE credit above refuses when the item's own VERIFY FAILS, but that refusal was never counted toward the
 # credit_refused park: xlite `add-enemyfactionmap` T1/T2 had `-gdir=tests/test_x.gd` VERIFYs (GUT -gdir takes a DIRECTORY: "The path [tests/test_x.gd] does not exist. Nothing was run";
 # real run on the box 2026-10-12) that can never pass, so 4 cycles in a row the scout said ALREADY-DONE (true: faction_for exists), the gate refused, and only the 5-no-op cap ended it.
-# OVN_SCOUT_REFUSAL_PARK=off|shadow|on (default SHADOW = log what would be counted): `on` bumps the same state/credit_refused counter the auto-credit refusals use, so
+# OVN_SCOUT_REFUSAL_PARK=on|shadow|off (default ON since 2026-10-13, was shadow): `on` bumps the same state/credit_refused counter the auto-credit refusals use, so
 # ovn_item_guard parks the item at OVN_REFUSED_PARK_AT (default 2) with '[AUTO-SKIP after N credit refusals: VERIFY failed (...)]'. Only the scout ALREADY-DONE label counts
-# (the DONE-trailer gate runs on a commit that may be a half-done attempt that the failed-attempt counters already bill).
+# (the DONE-trailer gate runs on a commit that may be a half-done attempt that the failed-attempt counters already bill). shadow = log what would be counted, off = old behaviour.
+# WHY ON (night review 2026-10-13, iptv F5; evidence table in docs/SCOUT_REFUSAL_PARK_2026-10-13.md): 26 distinct items / 83 cycles had a scout ALREADY-DONE credit refused by
+# the item's own VERIFY (10-04..10-13); every one of the 20+ hand-checked items was genuinely done in code and its VERIFY unsatisfiable or unrunnable (TS generic breaking a literal
+# grep, a -k test name that does not exist, a literal import line, 'cd /path/to/xlite', 'cd tests && godot -s'). No hand-checked item was a wrong scout claim. Parking at the 2nd
+# refusal would have skipped 41 of the 83 cycles; the 5-no-op cap used to be the only brake (9 wasted cycles / 258k tokens on one recordings.ts item).
 _ovn_scout_refusal() {  # <prog> <line> <label> [task_log]
-  local prog="$1" ln="$2" label="$3" tl="${4:-}" mode="${OVN_SCOUT_REFUSAL_PARK:-shadow}" text n cf
+  local prog="$1" ln="$2" label="$3" tl="${4:-}" mode="${OVN_SCOUT_REFUSAL_PARK:-on}" text n cf
   case "$label" in "scout ALREADY-DONE credit") ;; *) return 0 ;; esac
   [ "$mode" = off ] && return 0
   [ "${OVN_REFUSED_PARK_AT:-2}" = 0 ] && return 0

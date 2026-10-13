@@ -255,9 +255,37 @@ def _narration_after_backtick(line, m):
     return rem[:se.start()] if se else rem
 
 
+_NARR_COMPOUND_TAIL = re.compile(r"(?:[\s,;]*\band)?[\s,;]*$", re.I)
+
+
+def narration_head(text):
+    """The part of a VERIFY narration that talks about the FIRST command: everything up to the first backtick (a second command or a quoted symbol starts there), with a trailing
+    ' and' / ',' / ';' dropped. 2026-10-13 (iptv F3): `grep -rn "X" d/` returns nothing and `python -c ...` succeeds - the old rule returned 'unknown' for ANY narration containing a
+    backtick, so already_satisfied fell back to 'grep exit 0 = satisfied' and credited two items whose class was still in the tree. The head ('returns nothing') is the verdict on the
+    first command, which is the one every credit path runs; the tail narrates the second command and is not its verdict. OVN_VERIFY_NARRATION_HEAD=off restores the old unknown."""
+    t = re.sub(r"\s+", " ", text.strip().lstrip(",:-\u2014\u2013 ").strip())
+    if "`" not in t:
+        return t
+    if os.environ.get("OVN_VERIFY_NARRATION_HEAD", "on") == "off":
+        return t
+    raw = t[:t.index("`")]
+    # only a JOIN ('... and `cmd2`', '..., `cmd2`', '...; `cmd2`') ends the head of the first command. A backtick that continues the sentence ('returns no lines containing `X`',
+    # 'returns no matches for `X`') quotes an operand that NARROWS the claim below what the command itself checks: that stays unknown, exactly as before this fix.
+    if not re.search(r"(?:\band|\bthen|[,;&])\s*$", raw, re.I):
+        return t
+    return _NARR_COMPOUND_TAIL.sub("", raw).strip()
+
+
 def _polarity_of_text(text):
     t = re.sub(r"\s+", " ", text.strip().lstrip(",:-\u2014\u2013 ").strip())
-    if not t or "`" in t:
+    if "`" in t:
+        # a qualifier ('but', 'before', 'if' ...) anywhere in the narration - quoted spans removed - still makes the whole thing unknown
+        if _POL_QUAL.search(re.sub(r"`[^`]*`", " ", t)):
+            return "unknown"
+        t = narration_head(t)
+        if "`" in t:       # kill switch: the old rule (any backtick = unknown)
+            return "unknown"
+    if not t:
         return "unknown"
     if _POL_QUAL.search(t):
         return "unknown"
@@ -307,6 +335,25 @@ def verify_clause_and_polarity(line):
 def verify_polarity(line):
     """'pos' | 'neg' | 'unknown': the stated polarity of an item line's VERIFY (see the block comment above)."""
     return verify_clause_and_polarity(line)[1]
+
+
+def absence_narration_unresolved(line):
+    """True when an item's backticked exit-code VERIFY (grep family / ls / test / stat / cat / find) carries a narration that SAYS absence ('returns nothing', 'no matches', 'fails with No such
+    file') but the polarity reader could not turn it into `neg` (a red-state / conditional / mixed narration). Such an item must not be credited from 'exit 0 = satisfied': rc 0 there may mean
+    the thing is STILL PRESENT (iptv F3, 2026-10-13: two pre-verified credits for classes that were still in the tree). Callers that pre-credit on a bare exit status (queue_refill.already_satisfied)
+    refuse these. False for a command that is already negated (`! grep`, `test !`), a runner (pytest / python -c), no narration, or any item whose polarity resolved. OVN_VERIFY_AMBIGUOUS_NEG=off disables."""
+    if os.environ.get("OVN_VERIFY_AMBIGUOUS_NEG", "on") == "off":
+        return False
+    m = re.search(r"VERIFY:\s*`([^`]+)`", line)
+    if not m:
+        return False
+    cmd = m.group(1).strip()
+    if cmd.startswith("!") or re.match(r"^test\s+!", cmd) or verify_tool_class(cmd) not in ("grep", "exit"):
+        return False
+    if verify_polarity(line) != "unknown":
+        return False
+    narr = re.sub(r"\s+", " ", _narration_after_backtick(line, m).strip().lstrip(",:-\u2014\u2013 ").strip())
+    return bool(_POL_NEG.search(narration_head(narr)))
 
 
 def polarity_verdict(polarity, tool_class, rc):
@@ -395,6 +442,69 @@ def normalize_vacuous_echo(line):
     return line[:s] + new + line[e:], 1
 
 
+# ---------------------------------------------------------------- intake lint: a VERIFY that can never run (intake package, 2026-10-13; xlite night F4/F5, platform P8)
+# The 27B planner / recovery step writes VERIFY clauses that cannot execute, and nothing checked at intake: `cd /path/to/xlite && godot ...` (a prompt placeholder, 27+ FAIL rows in one night),
+# `cd tests && godot -s test_x.gd` (a GUT test is not a SceneTree script), `-ginclude=` (not a GUT option: "Unknown arguments"). Each loops the item through ALREADY-DONE refusals until the no-op cap.
+# This is the DETECTION side (pure text, no repo); the repairs live in ovn_gut_clause.normalize (R16 / the run-time normaliser) and the lint decides what is left. Returns a short reason or None.
+_PLACEHOLDER_PATH = re.compile(r"/path/to(?:/|\b)")
+# A placeholder only matters where it is a PATH the command uses (a cd, a file argument). Text that merely MENTIONS it - a quoted grep/echo pattern, the pattern argument of grep/rg/sed/awk -
+# is data: `grep -q '/path/to/' README.md` (a docs check) must not be rejected. Quoted strings are blanked, except the target of a `cd`, which is judged first.
+_PH_CD = re.compile(r"(?:^|[;&|(]\s*)cd\s+[\"']?/path/to(?:/|\b)")
+_QUOTED = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'")
+_PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "ag", "sed", "awk", "gawk"}
+_SEG_SEP = re.compile(r"[;&|]+")
+
+
+def placeholder_in_path_position(cmd):
+    """True when `/path/to` appears as a path the command uses (see above), not as quoted text or a grep/sed/awk pattern argument."""
+    if not cmd or "/path/to" not in cmd:
+        return False
+    if _PH_CD.search(cmd):
+        return True
+    for seg in _SEG_SEP.split(_QUOTED.sub(" ", cmd)):
+        toks = seg.split()
+        if toks and os.path.basename(toks[0]) in _PATTERN_FIRST:
+            nxt = [i for i, t in enumerate(toks[1:], 1) if not t.startswith("-")]      # the first non-option argument is the pattern
+            if nxt:
+                toks[nxt[0]] = ""
+        if _PLACEHOLDER_PATH.search(" ".join(toks)):
+            return True
+    return False
+_GODOT_S_TEST = re.compile(r"(?:^|[;&|(]\s*)(?:\S*/)?godot[\w.-]*\b[^;&|`]*?\s(?:-s|--script)(?:=|\s+)[\"']?([^\s\"';&|`]+\.gd)\b")
+_GUT_RUNNERS = ("gut_cmdln.gd", "gut_cli.gd")
+_TEST_PATH = re.compile(r"(^|/)(tests?|__tests__)/|(^|/)test_[^/]*$|_test\.[a-z]+$")
+_GUT_UNKNOWN_OPT = re.compile(r"(?<!\S)-ginclude=")
+
+
+def unrunnable_verify_reason(cmd):
+    """Why the VERIFY command `cmd` can never run / pass as written, or None. Order = specificity."""
+    if not cmd:
+        return None
+    if placeholder_in_path_position(cmd):
+        return "placeholder path /path/to/ (the model copied it from its prompt; the cd / file never exists)"
+    for m in _GODOT_S_TEST.finditer(cmd):
+        t = m.group(1)
+        t = t[len("res://"):] if t.startswith("res://") else t
+        if os.path.basename(t) in _GUT_RUNNERS or t.startswith("addons/") or not _TEST_PATH.search(t):
+            continue
+        return "runs a test file as a script (godot -s %s): a GUT test is not a SceneTree script - use addons/gut/gut_cmdln.gd -gtest=res://<test>.gd" % t
+    if "gut_cmdln" in cmd and _GUT_UNKNOWN_OPT.search(cmd):
+        return "-ginclude is not a GUT option (GUT exits 1 'Unknown arguments')"
+    return None
+
+
+def verify_lint_lines(text):
+    """[(line_no_1based, reason)] for every open item of `text` whose VERIFY can never run (extract_verify reads backticked and bare clauses)."""
+    out = []
+    for n, l in enumerate(text.split("\n"), 1):
+        if not is_open_item(l):
+            continue
+        why = unrunnable_verify_reason(extract_verify(l) or "")
+        if why:
+            out.append((n, why))
+    return out
+
+
 # ---------------------------------------------------------------- the pullable set
 def pullable(backlog_text, progress_text, done_text="", banned=None):
     """Open, un-parked backlog lines that are not already queued / done (same normalisation as queue_refill) and, when `banned` is given, not a banned target."""
@@ -430,7 +540,12 @@ def main(argv):
             print("%s:%d: %s" % (rel, n, text))
         print("%d site(s) still match BLOCKED case-insensitively under %s" % (len(sites), root))
         return 1 if sites else 0
-    sys.stderr.write("usage: ovn_backlog_eligibility.py count <repo_dir> <backlog_file> | sites [root]\n")
+    if len(argv) == 2 and argv[1] == "verify-lint":
+        # stdin item lines -> "<line>\t<reason>" per open item whose VERIFY can never run (ovn_recover_parked.sh: a decomposed child must not inherit such a clause)
+        for n, why in verify_lint_lines(sys.stdin.read()):
+            print("%d\t%s" % (n, why))
+        return 0
+    sys.stderr.write("usage: ovn_backlog_eligibility.py count <repo_dir> <backlog_file> | sites [root] | verify-lint (stdin)\n")
     return 2
 
 

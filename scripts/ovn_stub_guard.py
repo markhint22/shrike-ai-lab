@@ -18,6 +18,11 @@ file's udiff is unreliable on this model). 2026-10-11 showed four defects, all f
                                      missing AGENTS.md declares nothing
               bare-basename          the path has no directory ('in_range.gd' from prose) and a tracked file of that name exists in a subdirectory:
                                      stubbing would create a junk copy at the repo root (xlite in_range.gd / scatter.gd)
+              new-dir-lookalike      (2026-10-13, SHADOW by default: OVN_STUB_NEWDIR_GUARD=enforce|shadow|off) the path's first directory that does not exist yet
+                                     repeats its parent's name (exactly or within edit distance 2) while the collapsed path exists (`iptv-backend/iptv-backend/tests/` with
+                                     `iptv-backend/tests/` present; `app/routers/outers/`), or is within edit distance 2 of an existing sibling directory (`servces/` vs
+                                     `services/`): a mis-resolved / typo'd path. Stubbing it created 3 stray tests nothing collected (iptv 10-09). In shadow the
+                                     would-be refusal is only written to logs/stub_guard.log. Logic shared with qa/ag_n2.py (judge); the guard is skipped when that file is absent.
               asserts-absent         the path ITSELF is said to be absent: "does not exist"/"is deleted" directly after it (a test asserting the
                                      file is gone). A create item that only mentions a missing thing further on in its description is NOT refused.
           The extraction itself has a RIGHT boundary: '.kts' no longer truncates to '.kt' (the junk iptv-android/app/build.gradle.kt that
@@ -118,6 +123,60 @@ def _bare_basename_elsewhere(repo, path):
     return ""
 
 
+def _load_ag_n2():
+    """qa/ag_n2.py (the gate's lookalike logic) by file path; None when it is not deployed next to scripts/ (the guard is then simply skipped)."""
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        fp = os.path.join(here, "..", "qa", "ag_n2.py")
+        if not os.path.isfile(fp):
+            return None
+        sys.path.insert(0, os.path.dirname(fp))
+        spec = importlib.util.spec_from_file_location("ag_n2_stubguard", fp)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def new_dir_lookalike(repo, path):
+    """'' or a reason string 'doubled:<existing dir>' / 'lookalike:<existing dir>' for the first directory of `path` that does not exist in the working tree."""
+    n2 = _load_ag_n2()
+    if n2 is None:
+        return ""
+    norm = path[2:] if path.startswith("./") else path
+    comps = norm.split("/")[:-1]
+    for i, name in enumerate(comps):
+        if os.path.isdir(os.path.join(repo, *comps[:i + 1])):
+            continue
+        if i > 0 and (name == comps[i - 1] or n2.lookalike(name, comps[i - 1])):
+            collapsed = comps[:i] + comps[i + 1:]
+            if not collapsed or os.path.isdir(os.path.join(repo, *collapsed)):
+                return "doubled:" + "/".join(collapsed)
+        parent = os.path.join(repo, *comps[:i])
+        try:
+            sibs = sorted(d for d in os.listdir(parent) if os.path.isdir(os.path.join(parent, d)))
+        except OSError:
+            return ""
+        for sib in sibs:
+            if n2.lookalike(name, sib):
+                return "lookalike:" + "/".join(comps[:i] + [sib])
+        return ""
+    return ""
+
+
+def _shadow_log(msg):
+    try:
+        lp = os.environ.get("OVN_STUB_GUARD_LOG") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "stub_guard.log")
+        os.makedirs(os.path.dirname(lp), exist_ok=True)
+        import time
+        with open(lp, "a") as f:
+            f.write("[%s] %s\n" % (time.strftime("%F %T"), msg))
+    except Exception:
+        pass
+
+
 def deleted_in_history(repo, path):
     rc, out = _git(repo, "log", "--diff-filter=D", "--format=%h", "-1", "--", ":(literal)" + path, timeout=30)
     return rc == 0 and out.strip() != ""
@@ -171,6 +230,13 @@ def pick(repo, text):
     if deleted_in_history(repo, path):
         return "SKIP\tdeleted-in-history\t" + path
     norm = path[2:] if path.startswith("./") else path
+    ndg = os.environ.get("OVN_STUB_NEWDIR_GUARD", "shadow")
+    if ndg in ("shadow", "enforce"):
+        why = new_dir_lookalike(repo, path)
+        if why and ndg == "enforce":
+            return "SKIP\tnew-dir-" + why + "\t" + path
+        if why:
+            _shadow_log("%s: stub-guard SHADOW new-dir-lookalike (would refuse, stubbing anyway): %s [%s]" % (os.path.basename(os.path.abspath(repo)), path, why))
     for d in out_of_scope_dirs(repo):
         if norm == d or norm.startswith(d + "/"):
             return "SKIP\tout-of-scope:" + d + "\t" + path

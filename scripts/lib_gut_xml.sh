@@ -22,6 +22,39 @@ gut_xml_green() {
   return 0
 }
 
+# gut_subdirs_flag -> prints the ONE GUT recursion flag every GUT-running site must pass right after -gdir=res://tests: "-ginclude_subdirs" (default), or nothing when
+# OVN_GUT_SUBDIRS=off (kill switch). 2026-10-13 (incident gate): run_overnight.sh's per-cycle verify ran GUT WITHOUT it while the hygiene gate had it, so a parse-broken
+# tests/mission/test_mission_directive.gd was green in the cycle that wrote it and only red at merge time (xlite overnight/feature held off develop 04:03-08:00).
+# Used by run_overnight.sh, branch_hygiene.sh, ovn_stage_runner.sh, ovn_test_watch.sh and ovn_test_collect_canary.sh; qa/*.py read the same OVN_GUT_SUBDIRS semantics.
+# Always exit 0, prints no trailing newline (use as: GUT_SUBDIRS="$(gut_subdirs_flag)" and leave it UNQUOTED in the command so an empty value vanishes).
+gut_subdirs_flag() {
+  [ "${OVN_GUT_SUBDIRS:-on}" = "off" ] && return 0
+  printf '%s' "-ginclude_subdirs"
+  return 0
+}
+
+# gut_load_failure_line LOGFILE -> rc 0 + ONE compact line on stdout when a GUT/Godot run log shows a script that failed to LOAD or COMPILE, rc 1 (no output) when clean.
+# Such a script is ABSENT from the junit xml (root failures="0" still holds) and GUT exits 0, so the xml alone can never catch it. Signatures: 'Failed to load script' and
+# 'Failed to compile depended scripts' (NOT bare 'SCRIPT ERROR': vendored gut_loader.gd emits a benign one each run). The line names the script (res:// path) and, when the log
+# carries one, the preceding 'SCRIPT ERROR: Parse Error: ...' reason, e.g. 'Cannot find member "REINFORCEMENTS" in base "MissionDirective"'. Cut at 300 chars. Never raises.
+gut_load_failure_line() {
+  local log="${1:-}" lf pe out path
+  [ -n "$log" ] && [ -s "$log" ] || return 1
+  lf="$(grep -m1 -E 'Failed to load script|Failed to compile depended scripts' "$log" 2>/dev/null)"
+  [ -n "$lf" ] || return 1
+  # pair the reason with THIS script: the Parse Error whose next 'at: ... (res://path:N)' line names the failing script's path (an unrelated earlier Parse Error, e.g. from a
+  # script that loads fine or a different broken one, used to be quoted next to the wrong script); no 'at:' match -> the last Parse Error before the load-failure line.
+  path="$(printf '%s\n' "$lf" | grep -oE 'res://[^" ]+' | head -1)"
+  pe="$(awk -v p="$path" '
+    /Parse Error/ { last = $0 }
+    p != "" && /at: / && index($0, "(" p ":") { if (last != "") { paired = last; exit } }
+    /Failed to load script|Failed to compile depended scripts/ { exit }
+    END { print (paired != "" ? paired : last) }' "$log" 2>/dev/null)"
+  out="$lf"; [ -n "$pe" ] && out="$pe | $lf"
+  printf '%s\n' "$out" | tr -s ' \t' ' ' | sed -e 's/^ //' | cut -c1-300
+  return 0
+}
+
 gut_xml_summary() {
   local x="${1:-}" root
   [ -n "$x" ] && [ -s "$x" ] || { echo "no junit xml"; return 0; }

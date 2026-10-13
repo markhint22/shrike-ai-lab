@@ -2,7 +2,7 @@
 """qa_replay.py - replay a QA gate over historical commits to measure its flag rate / false positives WITHOUT new dev traffic.
 
 usage: qa_replay.py <gate_script.py> <repo> [--days 14] [--limit 200] [--branch origin/develop] [--author SUBSTR]
-                    [--sample 15] [--extra "--flag value"]
+                    [--sample 15] [--extra "--flag value"] [--merges]
        qa_replay.py --gold [--gold-file qa/gold_set.json] [--only G1,G7] [--gates antigaming,reviewer] [--live-model] [--json] [--strict]
 
 For every non-merge commit on <branch> in the window, runs
@@ -27,12 +27,15 @@ import qa_common as qc  # noqa: E402
 
 
 def parse(argv):
-    o = {"days": 14, "limit": 200, "branch": "origin/develop", "author": "", "sample": 15, "extra": ""}
+    o = {"days": 14, "limit": 200, "branch": "origin/develop", "author": "", "sample": 15, "extra": "", "merges": False}
     pos = []
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a.startswith("--") and a[2:] in o and i + 1 < len(argv):
+        if a == "--merges":      # 2026-10-13: replay MERGE-RANGE semantics (see the usage text); a bare flag, no value
+            o["merges"] = True
+            i += 1
+        elif a.startswith("--") and a[2:] in o and a[2:] != "merges" and i + 1 < len(argv):
             o[a[2:]] = type(o[a[2:]])(argv[i + 1]) if not isinstance(o[a[2:]], str) else argv[i + 1]
             i += 2
         else:
@@ -205,7 +208,9 @@ def main(argv):
         print("no clone for repo %s" % repo)
         return 2
     gate = os.path.splitext(os.path.basename(gate_script))[0]
-    args = ["log", "--no-merges", "--since=%d.days" % o["days"], "--format=%H", "-n", str(o["limit"]), o["branch"]]
+    # --merges: judge each first-parent MERGE of <branch> as `<merge>^..<merge>` (what branch_hygiene's pre-push QA hook evaluates: the develop tip vs the merge of a whole
+    # feature-branch range). A per-commit replay judges every intermediate state, e.g. the harness's placeholder-stub commit before its fill-in commit.
+    args = (["log", "--first-parent", "--merges"] if o["merges"] else ["log", "--no-merges"]) + ["--since=%d.days" % o["days"], "--format=%H", "-n", str(o["limit"]), o["branch"]]
     if o["author"]:
         args.insert(1, "--author=" + o["author"])
     rc, out, err = qc.git(rd, *args)

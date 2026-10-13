@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# scripts/lib_stage_guards.sh - bash wrappers + kill switches for the staged runner's deterministic guards (scripts/ovn_stage_guards.py). 2026-10-13, package `stage`.
+# Sourced by ovn_stage_runner.sh (and the tests). Every function is fail-safe: a missing python helper, an unreadable tree or a timeout means "no finding" (rc 1 / rc 0 as documented),
+# never a refusal. Kill switches (each: off | shadow | enforce unless noted):
+#   OVN_STAGE_MISTARGET        on|off   (default on)  MASTER switch of both mis-target guards; off disables them. On: refuse a Verify/Check/Confirm step naming a non-existent file (xlite F3)
+#   OVN_STAGE_ITEM_MISTARGET   off|shadow|enforce (default shadow)  the item-level half: an item whose own (backticked) VERIFY greps a non-existent path it does not create. SHADOW logs the verdict to
+#                                                    ${OVN_STAGE_SHADOW_LOG:-state/stage_guards_shadow.log} and changes nothing; flip to enforce only after that log has been read (reviewer 2026-10-13: new enforcement ships shadow)
+#   OVN_STAGE_CLASS_CONFLICT   on|off   (default on)  abandon a step when Godot says the class hides an autoload singleton / global script class (xlite F3)
+#   OVN_STAGE_NAMED_TESTS      off|shadow|enforce (default enforce)  every test the item / landed step promises must exist in the final tree and pass when run by node id (iptv F2)
+#                                                    ENFORCE by default on purpose: this is a false-credit BUG fix (iptv F2: a repair round deleted the promised test and the item was still credited), it can only refuse a
+#                                                    credit whose promised test is absent, and the first review's false positives are fixed (kt/swift/java located, unreadable languages unverifiable). Set shadow to observe first
+#                                                    (findings then go to ${vlog}.shadow-named); off is the kill switch.
+#   OVN_STAGE_ITEM_VERIFY      off|shadow|enforce (default shadow)   the item's own VERIFY must be RED on the pristine tree and GREEN on the final one before the item is ticked (xlite F3 / iptv F2)
+#   OVN_STAGE_RED_BEFORE       off|shadow|enforce (default shadow)   the tests the change added must FAIL once the source change is reverted (iptv F6)
+#   OVN_STAGE_WEB_VERIFY       off|shadow|enforce (default shadow)   vue-tsc + vitest related for changed web files (iptv F6)
+_SG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SG_PY="$_SG_DIR/ovn_stage_guards.py"
+_SG_TOOLS_OK=1; type -P python3 >/dev/null 2>&1 && [ -f "$_SG_PY" ] || _SG_TOOLS_OK=0
+
+_sg_mode(){ # $1 = value, $2 = default -> off|shadow|enforce
+  case "${1:-$2}" in off|OFF|0) echo off;; shadow|SHADOW) echo shadow;; enforce|ENFORCE|on|ON|1) echo enforce;; *) echo "$2";; esac
+}
+
+# stage_step_mistarget <wt> <desc> <files(space separated)> -> rc 0 + reason on stdout when the step is mis-targeted
+stage_step_mistarget(){
+  [ "${OVN_STAGE_MISTARGET:-on}" = off ] && return 1
+  [ "$_SG_TOOLS_OK" = 1 ] || return 1
+  local wt="$1" desc="$2" files="$3" out
+  # shellcheck disable=SC2086
+  out="$(timeout 20 python3 "$_SG_PY" step-mistarget "$wt" "$desc" $files 2>/dev/null)" || return 1
+  [ -n "$out" ] || return 1
+  printf '%s' "$out"; return 0
+}
+
+# stage_item_mistarget <wt> <item> -> rc 0 + reason when the item's own VERIFY greps a non-existent file it does not create AND the guard is enforcing. In shadow mode (the default) the verdict is
+# appended to the shadow log and the function returns rc 1 (no refusal).
+stage_item_mistarget(){
+  [ "${OVN_STAGE_MISTARGET:-on}" = off ] && return 1
+  local mode; mode="$(_sg_mode "${OVN_STAGE_ITEM_MISTARGET:-}" shadow)"
+  [ "$mode" = off ] && return 1
+  [ "$_SG_TOOLS_OK" = 1 ] || return 1
+  local out slog
+  out="$(timeout 20 python3 "$_SG_PY" item-mistarget "$1" "$2" 2>/dev/null)" || return 1
+  [ -n "$out" ] || return 1
+  if [ "$mode" = shadow ]; then
+    slog="${OVN_STAGE_SHADOW_LOG:-state/stage_guards_shadow.log}"
+    mkdir -p "$(dirname "$slog")" 2>/dev/null
+    printf '%s item-mistarget(shadow) repo=%s :: %s :: %s\n' "$(date -u +%FT%TZ)" "$(basename "${OVN_STAGE_REPO:-$(basename "$1")}")" "${out:0:200}" "$(printf '%s' "$2" | cut -c1-160)" >> "$slog" 2>/dev/null
+    return 1
+  fi
+  printf '%s' "$out"; return 0
+}
+
+# stage_class_conflict <aider output file> -> rc 0 + the offending line when Godot reported a class_name / autoload conflict
+stage_class_conflict(){
+  [ "${OVN_STAGE_CLASS_CONFLICT:-on}" = off ] && return 1
+  local hit
+  hit="$(grep -aoE 'Class "[A-Za-z0-9_]+" hides (an autoload singleton|a global script class|a native class)[^"]{0,40}' "$1" 2>/dev/null | head -1)"
+  [ -n "$hit" ] || return 1
+  printf '%s' "$hit"; return 0
+}
+
+# stage_named_tests_check <wt> <vlog> <item> <step lines: "desc<TAB>verify" per landed step> <venv pytest abs path or ""> <pkg dir rel to the repo ("." ok)>
+# rc 0 = fine (or shadow / off / nothing promised), rc 1 = a promised test is missing or did not pass (enforce). Failure text is appended to <vlog> as `-- QUALITY FAIL: ...` lines
+# (the repair loop feeds those lines to the model); shadow mode writes them to <vlog>.shadow-named instead.
+stage_named_tests_check(){
+  local mode; mode="$(_sg_mode "${OVN_STAGE_NAMED_TESTS:-}" enforce)"
+  [ "$mode" = off ] && return 0
+  [ "$_SG_TOOLS_OK" = 1 ] || return 0
+  local wt="$1" vlog="$2" item="$3" steps="$4" vpt="${5:-}" pkg="${6:-.}" names="" n line d v res missing node rc out msgs="" nrun=0
+  names="$(timeout 20 python3 "$_SG_PY" named-tests-item "$item" 2>/dev/null)"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    d="${line%%$'\t'*}"; v="${line#*$'\t'}"; [ "$v" = "$line" ] && v=""
+    # a landed STEP's promise is its description only: the plan's `verify` string is the model's guess (it routinely names a test it then writes under another name), the item's own VERIFY is checked above
+    names="${names}"$'\n'"$(timeout 20 python3 "$_SG_PY" named-tests "$d" "" 2>/dev/null)"
+  done <<< "$steps"
+  names="$(printf '%s\n' "$names" | grep -E '^test_[A-Za-z0-9_]+$' | awk '!s[$0]++')"
+  [ -n "$names" ] || return 0
+  # shellcheck disable=SC2086
+  # OVN_SG_CONTEXT = the promise text (item line + landed step descriptions): a test not found whose promise points only at TS / JS / Rust ... test files (languages not read with confidence) is UNVERIFIABLE, never "missing"; Kotlin / Java / Swift are located, so a promised test of those that is defined nowhere IS missing
+  res="$(OVN_SG_CONTEXT="${item}"$'\n'"${steps}" timeout 90 python3 "$_SG_PY" resolve-tests "$wt" $names 2>/dev/null)" || return 0
+  [ -n "$res" ] || return 0
+  missing="$(printf '%s' "$res" | jq -r '.missing | join(" ")' 2>/dev/null)"
+  if [ -n "$missing" ]; then
+    msgs="${msgs}-- QUALITY FAIL: the change promised test(s) that do not exist in the final tree (never written, or deleted by a repair round): ${missing} - re-add them; a repair must not remove the test it was meant to fix --"$'\n'
+  fi
+  # run every python node by id: rc 0 = passed; rc 4 / 5 (not found / nothing collected) is a failure, never a pass
+  if [ -n "$vpt" ] && [ -x "$vpt" ] && [ -d "$wt/$pkg" ]; then
+    while IFS= read -r node; do
+      [ -n "$node" ] || continue
+      case "$pkg" in .) rel="$node";; *) case "$node" in "$pkg"/*) rel="${node#"$pkg"/}";; *) continue;; esac;; esac
+      out="$( cd "$wt/$pkg" && timeout 300 "$vpt" -q -o addopts="" -p no:cacheprovider "$rel" 2>&1 )"; rc=$?
+      nrun=$((nrun+1))
+      if [ "$rc" -ne 0 ]; then
+        msgs="${msgs}-- QUALITY FAIL: promised test ${rel} did not pass when run by node id (rc=${rc}; 4/5 = not found / not collected) --"$'\n'"FAILED ${rel} - $(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-240)"$'\n'
+      fi
+    done < <(printf '%s' "$res" | jq -r '.found[] | select(.kind=="py") | .node' 2>/dev/null | awk '!s[$0]++')
+  fi
+  [ -n "$msgs" ] || return 0
+  if [ "$mode" = shadow ]; then printf '%s' "$msgs" >> "${vlog}.shadow-named" 2>/dev/null; return 0; fi
+  printf '%s' "$msgs" >> "$vlog" 2>/dev/null
+  return 1
+}
+
+# stage_item_verify_run <dir> <item> -> prints RESULT|WHY (PASS FAIL NO_VERIFY_CLAUSE SKIPPED_DENYLIST TIMEOUT UNRUNNABLE) of the item's own VERIFY run from <dir>, via the same shadow_check every credit path uses.
+# Its probe rows go to their OWN log (OVN_STAGE_IV_SHADOW_LOG, default state/stage_item_verify_shadow.log), never into verify_gate_shadow.log: the pre-change probe is FAIL by design and would inflate the
+# daily digest's verify_shadow red counts
+stage_item_verify_run(){
+  local dir="$1" item="$2" tmp r
+  [ -f "$_SG_DIR/lib_verify_clause.sh" ] || { printf 'NO_VERIFY_CLAUSE|lib missing'; return 0; }
+  tmp="$(mktemp)"; printf '%s\n' "- [ ] ${item}" > "$tmp"
+  r="$( cd "$dir" 2>/dev/null && {
+      set +u
+      PROG="$tmp"; SHADOW_LOG="${OVN_STAGE_IV_SHADOW_LOG:-${HOME}/overnight-queue/state/stage_item_verify_shadow.log}"; _REPO_LABEL="stage-$(basename "${OVN_STAGE_REPO:-repo}")"
+      VERIFY_TIMEOUT_SECS="${OVN_STAGE_ITEM_VERIFY_TIMEOUT:-90}"; VERIFY_TIMEOUT_HEAVY_SECS="$VERIFY_TIMEOUT_SECS"; _VC_MEMO=""; _VC_MEMO_ON=0
+      mkdir -p "$(dirname "$SHADOW_LOG")" 2>/dev/null
+      # shellcheck disable=SC1091
+      . "$_SG_DIR/lib_verify_clause.sh" 2>/dev/null
+      declare -F shadow_check >/dev/null 2>&1 || { printf 'NO_VERIFY_CLAUSE|shadow_check missing'; exit 0; }
+      shadow_check 1 >/dev/null 2>&1
+      printf '%s|%s' "${_LAST_VERIFY_RESULT:-NO_VERIFY_CLAUSE}" "${_LAST_VERIFY_WHY:-}"
+    } )"
+  rm -f "$tmp"
+  [ -n "$r" ] || r="NO_VERIFY_CLAUSE|no verdict"
+  printf '%s' "$r"
+}
+
+# stage_tree_restore <wt> <snapshot of `git status --porcelain -uall` taken before a read-only probe ran> - undo whatever the probe (an item VERIFY run) left behind: untracked files that were not in the
+# snapshot are removed, modified tracked files are checked out again. NOT `git clean`: the node_modules / .godot symlinks the runner provisioned are untracked (and not ignored in every repo) and must survive.
+stage_tree_restore(){
+  local wt="$1" snap="$2" line st path
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case $'\n'"$snap"$'\n' in *$'\n'"$line"$'\n'*) continue;; esac
+    st="${line:0:2}"; path="${line:3}"
+    case "$path" in \"*) continue;; esac     # a quoted (odd) name: leave it alone
+    case "$st" in
+      '??') rm -rf -- "${wt:?}/${path%/}" 2>/dev/null ;;
+      *)    git -C "$wt" checkout -q -- "$path" 2>/dev/null ;;
+    esac
+  done < <(git -C "$wt" status --porcelain -uall 2>/dev/null)
+  return 0
+}
+
+# stage_item_verify_decision <pre RESULT> <post RESULT> -> prints OK | refuse:<reason>. Credit needs the VERIFY RED before (FAIL) and GREEN after (PASS). An indeterminate verdict
+# (TIMEOUT / UNRUNNABLE / NO_VERIFY_CLAUSE / SKIPPED_DENYLIST) on either side is "no evidence": OK, exactly as the other credit gates treat it.
+stage_item_verify_decision(){
+  local pre="${1%%|*}" post="${2%%|*}"
+  case "$post" in FAIL) echo "refuse:the item's own VERIFY is RED after the change"; return 0;; esac
+  case "$pre" in PASS) [ "$post" = PASS ] && { echo "refuse:the item's own VERIFY was already GREEN before any step ran (nothing was red, nothing was fixed)"; return 0; };; esac
+  echo OK
+}
+
+# stage_red_before_check <wt> <base-ref> <vlog> <venv pytest abs path or ""> <pkg> -> rc 0 fine / shadow, rc 1 only in enforce mode when a test the change added PASSES with the source change reverted.
+# Prints one line `RB <verdict> <detail>` on stdout for the caller to journal; verdicts: red-ok | weak | skipped-<why>.
+stage_red_before_check(){
+  local mode; mode="$(_sg_mode "${OVN_STAGE_RED_BEFORE:-}" shadow)"
+  [ "$mode" = off ] && return 0
+  [ "$_SG_TOOLS_OK" = 1 ] || return 0
+  local wt="$1" base="$2" vlog="$3" vpt="${4:-}" pkg="${5:-.}" srcs nodes tmp node rel rc out nfail=0 nrun=0 f
+  [ -n "$vpt" ] && [ -x "$vpt" ] || { echo "RB skipped-no-pytest"; return 0; }
+  srcs="$(git -C "$wt" diff --name-only "$base..HEAD" -- '*.py' 2>/dev/null | grep -vE '(^|/)(tests?|__tests__)/|(^|/)test_[^/]*$|_test\.py$|(^|/)conftest\.py$')"
+  [ -n "$srcs" ] || { echo "RB skipped-no-source-change"; return 0; }
+  nodes="$(timeout 30 python3 "$_SG_PY" new-tests "$wt" "$base" 2>/dev/null)"
+  [ -n "$nodes" ] || { echo "RB skipped-no-new-python-test"; return 0; }
+  tmp="$(mktemp -d /tmp/stage-rb.XXXXXX)"
+  if ! git -C "$wt" worktree add -q --detach "$tmp/t" HEAD >/dev/null 2>&1; then rm -rf "$tmp"; echo "RB skipped-worktree-failed"; return 0; fi
+  # revert ONLY the non-test python source files of the change to their pre-change state (new files are removed)
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if git -C "$wt" cat-file -e "$base:$f" 2>/dev/null; then git -C "$tmp/t" checkout -q "$base" -- "$f" 2>/dev/null; else rm -f "$tmp/t/$f"; fi
+  done <<< "$srcs"
+  if [ "$pkg" != "." ] && [ ! -d "$tmp/t/$pkg" ]; then git -C "$wt" worktree remove --force "$tmp/t" >/dev/null 2>&1; rm -rf "$tmp"; echo "RB skipped-no-package-dir"; return 0; fi
+  while IFS= read -r node; do
+    [ -n "$node" ] || continue
+    case "$pkg" in .) rel="$node";; *) case "$node" in "$pkg"/*) rel="${node#"$pkg"/}";; *) continue;; esac;; esac
+    out="$( cd "$tmp/t/$pkg" && timeout 180 "$vpt" -q -o addopts="" -p no:cacheprovider "$rel" 2>&1 )"; rc=$?
+    nrun=$((nrun+1))
+    [ "$rc" -eq 0 ] && { nfail=$((nfail+1)); echo "$rel" >> "$tmp/weak"; }
+  done <<< "$nodes"
+  git -C "$wt" worktree remove --force "$tmp/t" >/dev/null 2>&1
+  local weak; weak="$(tr '\n' ' ' < "$tmp/weak" 2>/dev/null | cut -c1-300)"; rm -rf "$tmp"
+  [ "$nrun" -gt 0 ] || { echo "RB skipped-nodes-outside-package"; return 0; }
+  if [ "$nfail" -eq 0 ]; then echo "RB red-ok ${nrun} new test(s) fail without the source change"; return 0; fi
+  echo "RB weak ${nfail}/${nrun} new test(s) PASS with the source change reverted: ${weak}"
+  if [ "$mode" = enforce ]; then
+    printf '%s\n' "-- QUALITY FAIL: the test(s) ${weak}pass without the source change - they prove nothing; make them fail on the old behaviour (assert the NEW behaviour) --" >> "$vlog" 2>/dev/null
+    return 1
+  fi
+  return 0
+}
+
+# stage_web_verify <wt> <base-ref> <vlog> -> rc 0 fine / shadow / nothing to check, rc 1 only in enforce mode when vue-tsc or vitest-related fails for the changed web files.
+# Prints `WEB <verdict> <detail>`; the full output goes to <vlog>.web.log (never into the verify log the repair loop greps, unless enforcing).
+stage_web_verify(){
+  local mode; mode="$(_sg_mode "${OVN_STAGE_WEB_VERIFY:-}" shadow)"
+  [ "$mode" = off ] && return 0
+  local wt="$1" base="$2" vlog="$3" changed pj wd rel files f rc_t=0 rc_v=0 ran=0 wl="${3}.web.log" msg=""
+  changed="$(git -C "$wt" diff --name-only "$base..HEAD" 2>/dev/null | grep -E '\.(vue|ts|tsx|js|jsx)$')"
+  [ -n "$changed" ] || { echo "WEB skipped-no-web-change"; return 0; }
+  : > "$wl"
+  while IFS= read -r pj; do
+    [ -n "$pj" ] || continue
+    wd="$(dirname "$pj")"; rel="${wd#"$wt"/}"; [ "$wd" = "$wt" ] && rel="."
+    [ -e "$wd/node_modules" ] || continue
+    files=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if [ "$rel" = "." ]; then files="$files $f"; else case "$f" in "$rel"/*) files="$files ${f#"$rel"/}";; esac; fi
+    done <<< "$changed"
+    files="${files# }"; [ -n "$files" ] || continue
+    ran=1
+    if grep -q '"vue-tsc"' "$pj" 2>/dev/null; then
+      echo "-- vue-tsc --noEmit in $rel --" >> "$wl"
+      ( cd "$wd" && timeout 240 npx vue-tsc --noEmit ) >> "$wl" 2>&1 || rc_t=$?
+    fi
+    if grep -q '"vitest"' "$pj" 2>/dev/null; then
+      echo "-- vitest related in $rel: $files --" >> "$wl"
+      # shellcheck disable=SC2086
+      ( cd "$wd" && CI=true timeout 240 npx vitest related --run --passWithNoTests $files ) >> "$wl" 2>&1 || rc_v=$?
+    fi
+  done < <(find "$wt" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
+  [ "$ran" = 1 ] || { echo "WEB skipped-no-provisioned-package"; return 0; }
+  if [ "$rc_t" -eq 0 ] && [ "$rc_v" -eq 0 ]; then echo "WEB ok vue-tsc and vitest related green"; return 0; fi
+  [ "$rc_t" -ne 0 ] && msg="vue-tsc rc=${rc_t}"
+  [ "$rc_v" -ne 0 ] && msg="${msg:+$msg, }vitest related rc=${rc_v}"
+  echo "WEB red ${msg} (see ${wl##*/})"
+  if [ "$mode" = enforce ]; then
+    { printf '%s\n' "-- QUALITY FAIL: web verification failed for the changed web files (${msg}) --"; tail -12 "$wl"; } >> "$vlog" 2>/dev/null
+    return 1
+  fi
+  return 0
+}
