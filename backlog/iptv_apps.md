@@ -420,3 +420,17 @@
 # --- 27B-decomposed from roadmap [2026-10-12]: Test `retry_after_seconds` and `rate_limit_exceeded_handler` — Add unit tests for `retry_a (review + tweak) [feat:iptv_apps-20261012-test-retry-after-seconds-and-rate-limit-] ---
 
 # --- 27B-decomposed from roadmap [2026-10-12]: Test `submit_feedback` endpoint — Add tests for `submit_feedback` in `iptv-backend/app/rou (review + tweak) [feat:iptv_apps-20261012-test-submit-feedback-endpoint-add-tests-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-13]: Test `list_profiles` endpoint — Add a test for `list_profiles` in `iptv-backend/app/router (review + tweak) [feat:iptv_apps-20261013-test-list-profiles-endpoint-add-a-test-f] ---
+
+# --- 27B-decomposed from roadmap [2026-10-13]: `VodView.vue` always silently shows empty — `api.get()` returns the response body directly (review + tweak) [feat:iptv_apps-20261013-vodview-vue-always-silently-shows-empty-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-13]: `recordings.ts` store calls three wrong API paths, breaking `RecordingsView.vue` — `iptv-w (review + tweak) [feat:iptv_apps-20261013-recordings-ts-store-calls-three-wrong-ap] ---
+
+# --- 27B-decomposed from roadmap [2026-10-13]: `GET /api/vod/genres` loads the entire VOD catalog (up to 100,000 rows) to derive genres i (review + tweak) [feat:iptv_apps-20261013-get-api-vod-genres-loads-the-entire-vod-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-13]: Delete the dead `ParentalControlsService` class from `parental_controls.py` — `iptv-backen (review + tweak) [feat:iptv_apps-20261013-delete-the-dead-parentalcontrolsservice-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-13]: Rate-limit `POST /api/subscription/cancel` and `GET /api/subscription/billing-history` — ` (review + tweak) [feat:iptv_apps-20261013-rate-limit-post-api-subscription-cancel-] ---
+
+# --- deterministic work supply 2026-10-13 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
