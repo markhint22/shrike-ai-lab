@@ -434,3 +434,5 @@
 # --- 27B-decomposed from roadmap [2026-10-13]: Rate-limit `POST /api/subscription/cancel` and `GET /api/subscription/billing-history` — ` (review + tweak) [feat:iptv_apps-20261013-rate-limit-post-api-subscription-cancel-] ---
 
 # --- deterministic work supply 2026-10-13 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-13 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
