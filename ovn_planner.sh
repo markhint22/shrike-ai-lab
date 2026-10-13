@@ -284,6 +284,27 @@ PROMPT_END
   feat_slug="$(printf '%s' "$feat" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40)"
   feat_id="${r}-$(date '+%Y%m%d')-${feat_slug:-item}"
   items="$(printf '%s\n' "$items" | sed -E "s/\$/ [feat:${feat_id}]/")"
+  # 2026-10-12 (package uidcredit): never append an item whose canonical identity (scripts/ovn_credit_items.py canon_item: annotation/state-tag/tier/feat-date-insensitive) already exists in the
+  # repo's progress file (open, done or parked), its done archive or the backlog itself, nor two identical items of this one decomposition (a re-decomposed stuck feature used to re-add
+  # its finished items; queue_refill then had to prune them one pull at a time). Fail-safe: any error keeps every item. OVN_PLANNER_DEDUPE=off disables.
+  _ci_py="$HOME/overnight-queue/scripts/ovn_credit_items.py"
+  if [ "${OVN_PLANNER_DEDUPE:-on}" != off ] && [ -f "$_ci_py" ]; then
+    _dd_err="$(mktemp)"
+    if _dd_out="$(printf '%s\n' "$items" | timeout 30 python3 "$_ci_py" filter-new "repos/$r/OVERNIGHT_PROGRESS.md" "repos/$r/OVERNIGHT_DONE.md" "$bl" 2>"$_dd_err")"; then
+      _dd_n_new="$(printf '%s\n' "$_dd_out" | grep -c '^- \[ \]')"
+      if [ "${_dd_n_new:-0}" -lt "${n:-0}" ]; then
+        say "$r: dedupe dropped $(( ${n:-0} - ${_dd_n_new:-0} )) of ${n:-0} decomposed item(s) already present in the queue/done archive/backlog ($(tr '\n' ' ' < "$_dd_err" | cut -c1-80))"
+        items="$_dd_out"; n="$_dd_n_new"
+      fi
+    fi
+    rm -f "$_dd_err"
+    if [ "${n:-0}" -le 0 ]; then
+      sed -i "${fln}s/\[ready\]/[decomposed]/" "$rm"
+      say "$r: every decomposed item already exists - nothing appended; marked feature [decomposed]"
+      clear_research_alert "$r"
+      continue
+    fi
+  fi
   {
     echo ""
     echo "# --- 27B-decomposed from roadmap [$(date '+%F')]: ${feat:0:90} (review + tweak) [feat:${feat_id}] ---"

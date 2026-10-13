@@ -173,6 +173,11 @@ for f in $FILES; do
       sed -i "${ln}s/^- \[ \] /- [x] (already-satisfied in code, implement-verified) /" "$PROG"
       credited=$((credited+1))
       echo "credited line ${ln} (matched ${b})"
+      # 2026-10-12 (uidcredit): identical open twins of the credited item (OVN_TWIN_CREDIT=off|shadow|on, default on) - see ovn_credit_twins in lib_auto_credit.sh
+      if [ "${OVN_TWIN_CREDIT:-on}" != off ]; then
+        _tw="$(timeout 20 python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ovn_credit_items.py" tick-twins "$PROG" "$ln" "${OVN_TWIN_CREDIT:-on}" 2>/dev/null)"
+        case "$_tw" in "TICKED "[1-9]*|"SHADOW "[1-9]*) echo "twin credit (${OVN_TWIN_CREDIT:-on}) for line ${ln}: ${_tw}";; esac
+      fi
     fi
   fi
 done

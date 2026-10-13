@@ -179,6 +179,83 @@ hyg_gate_streak() {   # <repo name> <feature branch> <gate result 0|1|2>
   return 0
 }
 
+# --- merge-conflict STREAK alert (2026-10-12, package conflict) -------------------------------------------------------------------------------------
+# iptv_apps overnight/feature -> develop CONFLICTED in 5 consecutive passes (04:02-07:02 UTC 10-12) on OVERNIGHT_PROGRESS.md and alerts.log said nothing: each pass only logged "MERGE
+# CONFLICT ... aborted, flagged" and rewrote the per-repo review flag. hyg_merge_streak counts CONSECUTIVE passes whose merge conflicted (1) per (repo, feature branch) in
+# state/hygiene_merge_streak/, resets when a merge goes through or the lane is in sync (0), and appends ONE alerts.log 'warn' at OVN_HYG_MERGE_STREAK_WARN (default 2) per streak (the
+# 'warned' flag in the streak file = dedup). A pass that never reached the merge (gate red / no gate) changes nothing. OVN_HYG_STREAK_ALERT=off disables; DRY_RUN=1 never writes.
+_MERGE_CONFLICT_FILES=""; _PM_NOTE=""
+hyg_merge_streak() {   # <repo name> <feature branch> <1 = merge conflicted | 0 = merge ok / in sync>
+  [ "${OVN_HYG_STREAK_ALERT:-on}" = off ] && return 0
+  [ "$DRY_RUN" = 1 ] && return 0
+  local nm="${1:-?}" feat="${2:-?}" c="${3:-}" sdir f n w first warn ts msg
+  sdir="$STATE_DIR/hygiene_merge_streak"; f="$sdir/${nm}__${feat//[^A-Za-z0-9._-]/_}"
+  case "$c" in
+    0) rm -f "$f" 2>/dev/null; return 0;;
+    1) ;;
+    *) return 0;;
+  esac
+  mkdir -p "$sdir" 2>/dev/null || return 0
+  n=0; w=0; first=""
+  [ -f "$f" ] && read -r n w first < "$f" 2>/dev/null
+  case "$n$w" in *[!0-9]*) n=0; w=0; first="";; esac
+  n=$((n + 1)); [ -n "$first" ] || first="$(date '+%F %H:%M:%S')"
+  warn="${OVN_HYG_MERGE_STREAK_WARN:-2}"
+  case "$warn" in ''|*[!0-9]*) warn=2;; esac
+  ts="$(date '+%Y-%m-%d %H:%M:%S')"
+  if [ "$n" -ge "$warn" ] && [ "$w" -eq 0 ]; then
+    w=1
+    msg="hygiene merge of ${feat} into ${mt:-develop} CONFLICTED ${n} consecutive passes for ${nm} (first ${first}) - nothing from this lane lands until it is resolved"
+    [ -n "${_MERGE_CONFLICT_FILES:-}" ] && msg="${msg}; conflicted: ${_MERGE_CONFLICT_FILES}"
+    [ -n "${_PM_NOTE:-}" ] && msg="${msg}; progress auto-merge: ${_PM_NOTE}"
+    echo "[$ts] warn | hygiene-merge-conflict-streak:${nm} | ${msg}" >> "$STATE_DIR/alerts.log" 2>/dev/null
+  fi
+  printf '%s %s %s\n' "$n" "$w" "$first" > "$f.$$" 2>/dev/null && mv -f "$f.$$" "$f" 2>/dev/null
+  return 0
+}
+
+# --- progress-file conflict auto-resolution (2026-10-12, package conflict) -------------------------------------------------------------------------
+# OVERNIGHT_PROGRESS.md / OVERNIGHT_DONE.md are line-oriented state edited by the fleet, claude/feature sessions and reconcile at once; a text merge conflicts on them constantly
+# (iptv_apps 10-12: 5 hygiene passes blocked, hand-resolved in c7be7d3c). scripts/ovn_progress_merge.py merges them by item identity (checked beats unchecked, union of new items, no
+# duplicates, ours' order). The FIRST merge attempt runs with OVN_PM_DEFER=1 (the per-clone merge driver steps aside = plain text merge) so a progress-file conflict surfaces HERE and is
+# resolved UNDER THE GATE: resolve from the index stages -> run_gate on the merged tree -> only then commit the merge. ANY other conflicted file, a resolver refusal (its self-check)
+# or a red gate = return 1 and the caller aborts exactly as before. OVN_PROGRESS_MERGE=off disables (also unwires the clone's driver). Every resolution is logged to state/progress_merge.log.
+PM_PY="$SCRIPT_DIR/scripts/ovn_progress_merge.py"
+hyg_pm_setup() {   # <repo>: wire the clone's merge driver + attributes (per clone, never global); never fatal
+  [ "$DRY_RUN" = 1 ] && return 0
+  [ -f "$PM_PY" ] || return 0
+  timeout 30 python3 "$PM_PY" --setup-clone "$1" >/dev/null 2>&1 || true
+  return 0
+}
+hyg_progress_autoresolve() {   # <repo> <merge worktree> <repo name> -> 0 = resolved + gate green + merge commit made | 1 = declined (nothing committed; caller aborts)
+  local repo="$1" wtm="$2" nm="$3" _pm_g _pm_files
+  _PM_NOTE=""
+  _MERGE_CONFLICT_FILES="$(git -C "$wtm" diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"
+  [ "$DRY_RUN" = 1 ] && return 1
+  if [ "${OVN_PROGRESS_MERGE:-on}" = off ]; then _PM_NOTE="off (OVN_PROGRESS_MERGE=off)"; return 1; fi
+  [ -f "$PM_PY" ] || { _PM_NOTE="resolver missing"; return 1; }
+  if ! _pm_files="$(timeout 120 python3 "$PM_PY" --resolve-index "$wtm" --log "$STATE_DIR/progress_merge.log" --tag "hygiene:${nm}:${FEAT}->${mt}" 2>/dev/null)"; then
+    _PM_NOTE="declined (a non-progress file is conflicted too, or the resolver self-check refused)"; return 1
+  fi
+  log "  PROGRESS-MERGE: ${_pm_files} - auto-resolved by ovn_progress_merge.py, running the gate on the merged tree before committing"
+  run_gate "$repo" "$wtm"; _pm_g=$?
+  if [ "$_pm_g" -eq 1 ] && [ "${_GATE_TIMEOUT_HIT:-0}" = 1 ]; then
+    log "  PROGRESS-MERGE: gate hit a known infra flake - retrying once"
+    run_gate "$repo" "$wtm"; _pm_g=$?
+  fi
+  if [ "$_pm_g" -ne 0 ]; then
+    _PM_NOTE="resolved but the gate on the merged tree was not green (g=${_pm_g})"
+    echo "[$(date '+%F %T')] ${nm}:${FEAT}->${mt} | gate on the auto-merged tree FAILED (g=${_pm_g}) - merge aborted" >> "$STATE_DIR/progress_merge.log" 2>/dev/null
+    log "  PROGRESS-MERGE: gate on the merged tree FAILED (g=${_pm_g}) - NOT committing"
+    return 1
+  fi
+  if git -C "$wtm" commit --no-edit -q -m "chore(overnight): reconcile $FEAT into $mt (branch-hygiene, gate=tests-green, progress files auto-merged)" >/dev/null 2>&1; then
+    echo "[$(date '+%F %T')] ${nm}:${FEAT}->${mt} | merge committed after gate green (${_pm_files})" >> "$STATE_DIR/progress_merge.log" 2>/dev/null
+    return 0
+  fi
+  _PM_NOTE="resolved + gate green but git commit failed"; return 1
+}
+
 # --- resolve repo list -------------------------------------------------------
 #   --repos-dir <dir>  : every git repo directly under <dir>   (server layout)
 #   --from-config      : persistent_branch repos in recurring_tasks.json
@@ -471,6 +548,7 @@ for repo in "${REPOS[@]}"; do
   # -> gate falsely fails; this stranded every python repo off main).
   repo="$(cd "$repo" 2>/dev/null && pwd || echo "$repo")"
   git -C "$repo" fetch --prune --quiet origin 2>/dev/null
+  hyg_pm_setup "$repo"   # 2026-10-12: per-clone progress-file merge driver (see hyg_progress_autoresolve)
 
   DEF="$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
   DEF="${DEF:-main}"
@@ -537,6 +615,7 @@ for repo in "${REPOS[@]}"; do
   if [ "${ahead:-0}" -eq 0 ]; then
     rm -f "$STATE_DIR/branch_hygiene_review_${name}"   # clear any stale flag now that it's synced
     hyg_gate_streak "$name" "$FEAT" 0                  # nothing ahead = nothing red to gate: a gate-failure streak is over (fixed out of band)
+    hyg_merge_streak "$name" "$FEAT" 0                 # nothing ahead = nothing left to merge: a merge-conflict streak is over
     # feature has nothing to land, but $mt (develop) may have advanced independently
     # (reconcile's main->develop back-merges, an out-of-band landing) — keep feature
     # CURRENT so it never falls BEHIND develop. ahead==0 means feature ⊆ $mt, so this
@@ -642,7 +721,12 @@ for repo in "${REPOS[@]}"; do
   # the pipeline (the primary work-landing gate), so it gets the same fix: push HEAD:"$mt"
   # explicitly, which is correct regardless of the worktree's branch/detached state.
   git -C "$tmp_main" checkout -B "$mt" "origin/$mt" --quiet 2>/dev/null
-  if git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT into $mt (branch-hygiene, gate=$([ $g -eq 0 ] && echo tests-green || echo no-tests))" origin/$FEAT >/dev/null 2>&1; then
+  # 2026-10-12: OVN_PM_DEFER=1 = the per-clone progress-file merge driver steps aside so a conflict on OVERNIGHT_PROGRESS.md/OVERNIGHT_DONE.md surfaces and is resolved by
+  # hyg_progress_autoresolve UNDER THE GATE (resolve -> gate -> commit). Any other conflicted file / refusal / red gate = abort as before (the else branch below).
+  _MERGE_CONFLICT_FILES=""; _PM_NOTE=""
+  if OVN_PM_DEFER=1 git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT into $mt (branch-hygiene, gate=$([ $g -eq 0 ] && echo tests-green || echo no-tests))" origin/$FEAT >/dev/null 2>&1 \
+     || hyg_progress_autoresolve "$repo" "$tmp_main" "$name"; then
+    hyg_merge_streak "$name" "$FEAT" 0   # the merge went through: a conflict streak is over
     # 2026-10-02 QA enforcement, pre-push (see qa_enforce_precheck above). _qe_hold=1 => do NOT push this merge (nothing landable, or the clean prefix failed its own gate).
     _qe_hold=0; _qe_holdmsg=""
     qa_enforce_precheck "$repo" "$tmp_main" "$(git -C "$repo" rev-parse "origin/$FEAT" 2>/dev/null)"
@@ -652,7 +736,7 @@ for repo in "${REPOS[@]}"; do
         # land ONLY the clean prefix: redo the merge with the last commit before the offender, then re-run the build/test gate on exactly that prefix
         # (the green gate above judged the whole branch, not this subset).
         git -C "$tmp_main" reset --hard --quiet "origin/$mt" 2>/dev/null
-        if git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT (QA-clean prefix, ${_qe_held} commit(s) held by gate $_qe_gate) into $mt (branch-hygiene)" "$_qe_clean" >/dev/null 2>&1; then
+        if OVN_PM_DEFER=1 git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT (QA-clean prefix, ${_qe_held} commit(s) held by gate $_qe_gate) into $mt (branch-hygiene)" "$_qe_clean" >/dev/null 2>&1; then
           wt3="$(mktemp -d "/tmp/hygiene-${name}-qaprefix.XXXX")"; g3=1
           if git -C "$repo" worktree add --detach --quiet "$wt3" "$_qe_clean" 2>/dev/null; then
             run_gate "$repo" "$wt3"; g3=$?
@@ -694,7 +778,7 @@ for repo in "${REPOS[@]}"; do
     pushed=0
     if [ "$_qe_hold" = 1 ]; then :
     elif git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1
-    elif git -C "$tmp_main" pull --rebase --quiet origin "$mt" >/dev/null 2>&1 && git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1; fi
+    elif OVN_PM_DEFER=1 git -C "$tmp_main" pull --rebase --quiet origin "$mt" >/dev/null 2>&1 && git -C "$tmp_main" push --quiet origin "HEAD:$mt" 2>/dev/null; then pushed=1; fi
     if [ "$_qe_hold" = 1 ]; then
       report "| $name | $_qe_holdmsg |"
     elif [ "$pushed" = 1 ]; then
@@ -717,9 +801,11 @@ for repo in "${REPOS[@]}"; do
       report "| $name | ⚠️ +$ahead, push failed |"
     fi
   else
+    [ -n "$_MERGE_CONFLICT_FILES" ] || _MERGE_CONFLICT_FILES="$(git -C "$tmp_main" diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"
     git -C "$tmp_main" merge --abort >/dev/null 2>&1
     echo "MERGE CONFLICT: $FEAT +$ahead vs $mt $(date)" > "$flag"
-    log "  MERGE CONFLICT for $name — aborted, flagged"
+    log "  MERGE CONFLICT for $name — aborted, flagged${_MERGE_CONFLICT_FILES:+ (conflicted: ${_MERGE_CONFLICT_FILES})}${_PM_NOTE:+ [progress auto-merge: ${_PM_NOTE}]}"
+    hyg_merge_streak "$name" "$FEAT" 1   # one alerts.log warn per streak of consecutive conflicting passes
     report "| $name | 🔴 +$ahead, merge CONFLICT — needs review |"
   fi
   git -C "$repo" worktree remove --force "$tmp_main" >/dev/null 2>&1

@@ -131,12 +131,48 @@ merge_sanity_ok(){
   echo "$bad"; return 1
 }
 
+# PROGRESS-FILE CONFLICT: DEFERRED TO HYGIENE (2026-10-12, package conflict; r12 fix). OVERNIGHT_PROGRESS.md / OVERNIGHT_DONE.md are edited by the fleet, claude/feature
+# sessions and this script at once; a text merge conflicts on them constantly (iptv_apps develop->overnight/feature conflicted on every 20-min pass 05:30-07:50 on 2026-10-12).
+# scripts/ovn_progress_merge.py can merge them deterministically, but a LANDING needs the repo's build/test gate, and reconcile runs inside fleet_autofix.sh's run.lock under
+# `timeout -k 30 300`: a gradle/pytest gate there can be SIGKILLed (stray /tmp/reconcile-* worktree, orphaned children, fleet lock blocked) and would re-run every 20 minutes
+# for as long as the conflict persists. So reconcile does NOT gate and does NOT merge: when EVERY conflicted path is a progress file (read-only --check-index) it only flags
+# + logs the conflict and leaves it for the hourly branch_hygiene.sh pass, which has its own time budget, resolves the same conflict under the gate (resolve -> gate -> commit)
+# when it merges feature -> develop, after which the next reconcile pass simply fast-forwards feature to develop. Anything else = the original abort + alert / LLM path.
+pm_flag_file(){  # $1=main-repo $2=tgt (branch) -> per-lane deferral flag path (line 1 = first-seen epoch, optional line 2 = 'alerted')
+  printf '%s/reconcile_progress_deferred_%s__%s' "$HOME/overnight-queue/state" "$(basename "$1")" "${2//[^A-Za-z0-9._-]/_}"
+}
+pm_flag_clear(){ rm -f "$(pm_flag_file "$1" "$2")" 2>/dev/null; true; }   # the conflict is gone (feature caught up / merged / became a different kind of conflict)
+# 2026-10-12 (review fix M1): the flag keeps its FIRST-SEEN epoch (created only when absent). A deferral that outlives OVN_PM_DEFER_ALERT_H (default 6) hours means hygiene is
+# not landing it (red gate, QA hold, tree guard, QA-clean-prefix failure): escalate ONCE per flag to the normal reconcile CONFLICT alert (return 3 = stale), then stay quiet.
+# OVN_PM_NOW overrides the clock (tests only).
+progress_conflict_deferred(){  # $1=worktree $2=main-repo $3=tgt $4=src -> 0 = deferred (flag+log) | 3 = deferred AND stale (caller alerts as a conflict, once) | 1 = not progress-only
+  local wt="$1" repo="$2" tgt="$3" src="$4" pm="$HOME/overnight-queue/scripts/ovn_progress_merge.py" nm fdir flag now first age lim
+  [ "${OVN_PROGRESS_MERGE:-on}" = off ] && return 1
+  [ -f "$pm" ] || return 1
+  nm="$(basename "$repo")"
+  timeout 60 python3 "$pm" --check-index "$wt" --log "$HOME/overnight-queue/state/progress_merge.log" --tag "reconcile:${nm}:${src}->${tgt}" >/dev/null 2>&1 || return 1
+  fdir="$HOME/overnight-queue/state"; mkdir -p "$fdir" 2>/dev/null
+  flag="$(pm_flag_file "$repo" "$tgt")"; now="${OVN_PM_NOW:-$(date +%s)}"
+  if [ ! -f "$flag" ]; then
+    printf '%s\n' "$now" > "$flag" 2>/dev/null
+    echo "$(date '+%F %T') ${nm}: reconcile ${src}->${tgt}: progress-file-only conflict DEFERRED to hygiene (no gate run in reconcile)" >> "$fdir/progress_merge.log" 2>/dev/null
+  fi
+  first="$(head -n1 "$flag" 2>/dev/null)"; case "$first" in ''|*[!0-9]*) first="$now"; printf '%s\n' "$now" > "$flag" 2>/dev/null;; esac
+  age=$(( now - first )); lim=$(( ${OVN_PM_DEFER_ALERT_H:-6} * 3600 ))
+  if [ "$age" -ge "$lim" ] && ! grep -qx alerted "$flag" 2>/dev/null; then
+    echo alerted >> "$flag" 2>/dev/null
+    echo "$(date '+%F %T') ${nm}: reconcile ${src}->${tgt}: progress-file conflict still deferred after $(( age / 3600 ))h - escalating to the conflict alert" >> "$fdir/progress_merge.log" 2>/dev/null
+    return 3
+  fi
+  return 0
+}
+
 # merge origin/<src> into <tgt> in an isolated worktree, push (rebase-retry once). $4=1 to allow
 # ONE LLM-assisted resolution attempt before giving up (see try_llm_resolve above; only passed by
 # the develop<->feature call site). echoes ok|llm_resolved|conflict|pushfail|wterror|nochange
 merge_into(){
   local repo="$1" tgt="$2" src="$3" allow_llm="${4:-0}"
-  local ahead; ahead=$(git -C "$repo" rev-list --count "origin/${tgt}..origin/${src}" 2>/dev/null || echo 0)
+  local ahead _pcd; ahead=$(git -C "$repo" rev-list --count "origin/${tgt}..origin/${src}" 2>/dev/null || echo 0)
   [ "${ahead:-0}" -eq 0 ] && { echo nochange; return; }
   local wt; wt="$(mktemp -d "/tmp/reconcile-$(basename "$repo").XXXX")"
   git -C "$repo" worktree add --quiet "$wt" "origin/${tgt}" 2>/dev/null || { echo wterror; return; }
@@ -163,7 +199,7 @@ merge_into(){
   # never the unrelated shared local ref.
   git -C "$wt" checkout -B "$tgt" "origin/${tgt}" --quiet 2>/dev/null
   local rc=conflict
-  if git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet merge --no-ff --no-edit -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard)" "origin/${src}" >/dev/null 2>&1; then
+  if OVN_PM_DEFER=1 git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet merge --no-ff --no-edit -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard)" "origin/${src}" >/dev/null 2>&1; then
     # timeout on every network call (2026-09-15): an unbounded git push/pull
     # here used to be able to hang indefinitely while holding fd 202
     # (run.lock) from the fleet_autofix.sh caller - see that script's own
@@ -172,11 +208,14 @@ merge_into(){
     if ! _sanity_why="$(merge_sanity_ok "$wt" "$tgt" "$src")"; then
       rc=sanityfail; echo "$(date '+%F %T') $(basename "$repo"): merge ${src}->${tgt} SYNTHESIZED a broken file, NOT pushed: ${_sanity_why}" >> "${SANITY_LOG:-logs/reconcile_sanity.log}" 2>/dev/null
     elif timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
-    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
+    elif OVN_PM_DEFER=1 timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=ok
     else rc=pushfail; fi
+  elif [ "$allow_llm" = 1 ] && { progress_conflict_deferred "$wt" "$repo" "$tgt" "$src"; _pcd=$?; [ "$_pcd" -ne 1 ]; }; then
+    # progress-files-only conflict: flagged + logged, left for hygiene's gated landing (see progress_conflict_deferred); abort this merge; no alert until the flag is stale (rc 3)
+    git -C "$wt" merge --abort >/dev/null 2>&1; rc=pm_deferred; [ "$_pcd" = 3 ] && rc=pm_stale
   elif [ "$allow_llm" = 1 ] && try_llm_resolve "$wt" "$repo" "$tgt" "$src"; then
     if timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=llm_resolved
-    elif timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=llm_resolved
+    elif OVN_PM_DEFER=1 timeout 30 git -C "$wt" pull -q --rebase origin "$tgt" >/dev/null 2>&1 && timeout 30 git -C "$wt" push -q origin "HEAD:$tgt" 2>/dev/null; then rc=llm_resolved
     else rc=pushfail; fi
   else git -C "$wt" merge --abort >/dev/null 2>&1; rc=conflict; fi
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
@@ -209,6 +248,7 @@ for repo in $repos; do
   [ -d "$repo/.git" ] || continue
   name="$(basename "$repo")"
   timeout 30 git -C "$repo" fetch -q origin 2>/dev/null || { log "$name: fetch failed/timed out"; continue; }
+  [ "$DRY" = 1 ] || { [ -f "$HOME/overnight-queue/scripts/ovn_progress_merge.py" ] && timeout 30 python3 "$HOME/overnight-queue/scripts/ovn_progress_merge.py" --setup-clone "$repo" >/dev/null 2>&1; true; }   # 2026-10-12: per-clone progress-file merge driver (never global config)
   git -C "$repo" rev-parse --verify -q origin/main    >/dev/null 2>&1 || { continue; }
   git -C "$repo" rev-parse --verify -q origin/develop >/dev/null 2>&1 || { continue; }
 
@@ -241,15 +281,18 @@ for repo in $repos; do
   timeout 30 git -C "$repo" fetch -q origin develop 2>/dev/null
   synced_any=0
   for feat in overnight/feature claude/feature; do
-    git -C "$repo" rev-parse --verify -q "origin/$feat" >/dev/null 2>&1 || continue
+    git -C "$repo" rev-parse --verify -q "origin/$feat" >/dev/null 2>&1 || { [ "$DRY" = 1 ] || pm_flag_clear "$repo" "$feat"; continue; }
     d_ahead=$(git -C "$repo" rev-list --count "origin/$feat..origin/develop" 2>/dev/null || echo 0)
-    [ "${d_ahead:-0}" -eq 0 ] && continue
+    [ "${d_ahead:-0}" -eq 0 ] && { [ "$DRY" = 1 ] || pm_flag_clear "$repo" "$feat"; continue; }   # feature has everything develop has (hygiene landed it): no conflict left
     if [ "$DRY" = 1 ]; then log "$name: [dry] reconcile develop->$feat (+$d_ahead)"; synced_any=1; continue; fi
     rc=$(sync_feature "$repo" "$feat")
+    case "$rc" in pm_deferred|pm_stale|pushfail) : ;; *) pm_flag_clear "$repo" "$feat";; esac   # the progress-deferral flag only lives while the progress-only conflict does
     case "$rc" in
       ff) log "$name: fast-forwarded $feat to develop (+$d_ahead)"; synced_any=1;;
       ok) log "$name: merged develop->$feat (+$d_ahead)"; synced_any=1;;
       llm_resolved) log "$name: 🤖 auto-resolved a develop->$feat CONFLICT (LLM-assisted, gate=tests-green)"; resolved="$resolved develop→$feat:${name}"; synced_any=1;;
+      pm_deferred) log "$name: develop->$feat conflicts ONLY on progress files - deferred to the hourly hygiene pass (gated deterministic merge; see state/progress_merge.log)"; synced_any=1;;
+      pm_stale) log "$name: 🔴 CONFLICT develop->$feat (progress files only; deferred to hygiene for over ${OVN_PM_DEFER_ALERT_H:-6}h and still not landed - check state/progress_merge.log, hygiene gate/QA hold/tree guard)"; conflicts="$conflicts develop→$feat(progress-deferred ${OVN_PM_DEFER_ALERT_H:-6}h+):${name}"; synced_any=1;;
       conflict) log "$name: 🔴 CONFLICT develop->$feat"; conflicts="$conflicts develop→$feat:${name}"; synced_any=1;;
       sanityfail) log "$name: 🔴 develop->$feat merge would have pushed a BROKEN file (see logs/reconcile_sanity.log) - NOT pushed"; conflicts="$conflicts develop→$feat(sanity):${name}"; synced_any=1;;
       pushfail) log "$name: develop->$feat pushfail (fleet racing; next pass retries)"; synced_any=1;;

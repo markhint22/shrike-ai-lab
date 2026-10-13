@@ -1088,7 +1088,7 @@ run_aider_fix_task() {
   fi
   # 2026-10-09: whole-file delete INTENT (leading verb + file/path object, no partial-removal noun) instead of a bare "delete ... file" regex - see ovn_is_delete_intent
   if ovn_is_delete_intent "$(printf '%s\n%s' "$prompt" "$_ovn_top_progress_item")"; then
-    prompt="IMPORTANT: this task deletes/removes a file. Do NOT try to delete it via a diff/patch (a \"--- x\" / \"+++ /dev/null\" hunk always fails here with \"'/dev/null' is not in the subpath of ...\" — that path is never valid in this environment, don't retry it or argue with the error). Instead, just end your commit message with this trailer: DELETE: <path> — that is the ONLY mechanism that works here to remove a file.
+    prompt="IMPORTANT: this task deletes/removes a file. Do NOT try to delete it via a diff/patch (a \"--- x\" / \"+++ /dev/null\" hunk always fails here with \"'/dev/null' is not in the subpath of ...\" — that path is never valid in this environment, don't retry it or argue with the error). Instead, just end your commit message with this trailer: DELETE: <path> — that is the ONLY mechanism that works here to remove a file. A Godot file (.gd/.tscn/.tres/.gdshader/imported resource) has a tracked sidecar next to it (<path>.uid, <path>.import): the runner removes that sidecar together with the file (an orphaned .uid fails tests/test_uid_hygiene.gd), so never leave it behind and never recreate it; naming it too with its own line (DELETE: <path>.uid) is harmless.
 
 ${prompt}"
   fi
@@ -1661,12 +1661,14 @@ STUB
                 _de_targets="$(printf '%s' "$_de_out" | cut -f2)"
                 echo "--- DELETE-EXECUTOR: deterministic git rm of: ${_de_targets} ---" >> "$task_log"
                 # shellcheck disable=SC2086
-                if git rm -q -- $_de_targets >>"$task_log" 2>&1 && git commit -q -m "chore: remove dead file(s) ${_de_targets} (deterministic delete executor)" >>"$task_log" 2>&1; then
+                # 2026-10-12 (uidcredit): post-delete check - a Godot sidecar (<path>.uid / <path>.import) that the target list missed is removed in the SAME commit
+                if git rm -q -- $_de_targets >>"$task_log" 2>&1 && { ! declare -F ovn_delete_sidecars >/dev/null 2>&1 || ovn_delete_sidecars "$PWD" $_de_targets >>"$task_log" 2>&1; } && git commit -q -m "chore: remove dead file(s) ${_de_targets} (deterministic delete executor)" >>"$task_log" 2>&1; then
                   _de_v="$(run_repo_verification)"
                   if [ "$_de_v" = "pass" ]; then
                     _de_ln="$(grep -nF -- "$_de_item" OVERNIGHT_PROGRESS.md | head -1 | cut -d: -f1)"
                     if [ -n "$_de_ln" ]; then
                       sed -i "${_de_ln}s/^- \[ \] /- [x] (deleted by delete-executor, verified) /" OVERNIGHT_PROGRESS.md
+                      declare -F ovn_credit_twins >/dev/null 2>&1 && ovn_credit_twins OVERNIGHT_PROGRESS.md "${_de_ln}" "$task_log"   # 2026-10-12 (uidcredit): identical open twins (OVN_TWIN_CREDIT, default on)
                       git add OVERNIGHT_PROGRESS.md
                       git commit -q -m "chore(queue): credit deterministic delete (${_de_targets})" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1
                     fi
@@ -1695,6 +1697,7 @@ STUB
                 echo "--- DELETE-EXECUTOR: ${_de_gone} is already gone (deleted earlier / VERIFY test ! -f passes) - crediting the item ---" >> "$task_log"
                 if [ -n "$_de_ln" ]; then
                   sed -i "${_de_ln}s/^- \[ \] /- [x] (already-done, target already deleted) /" OVERNIGHT_PROGRESS.md
+                  declare -F ovn_credit_twins >/dev/null 2>&1 && ovn_credit_twins OVERNIGHT_PROGRESS.md "${_de_ln}" "$task_log"   # 2026-10-12 (uidcredit): identical open twins (OVN_TWIN_CREDIT, default on)
                   git add OVERNIGHT_PROGRESS.md
                   if git commit -q -m "chore(queue): credit already-deleted item (${_de_gone})" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then
                     timeout 30 git push origin "$branch" --quiet 2>>"$task_log" || { timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; } \
@@ -2336,6 +2339,7 @@ PYEOF
               echo "--- scout ALREADY-DONE credit REFUSED at line ${_ad_ln} (item's own VERIFY failed) - left open ---" >> "$task_log"; continue
             fi
             sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, scout-verified) /" OVERNIGHT_PROGRESS.md
+            declare -F ovn_credit_twins >/dev/null 2>&1 && ovn_credit_twins OVERNIGHT_PROGRESS.md "${_ad_ln}" "$task_log"   # 2026-10-12 (uidcredit): identical open twins (OVN_TWIN_CREDIT, default on)
             git add OVERNIGHT_PROGRESS.md
             if git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then
               _credit_push
@@ -2692,8 +2696,17 @@ $(ovn_udiff_nudge_text)"
       del_did=0; _ovn_del_gone=0; _ovn_del_other=0
       while IFS= read -r dp; do
         [ -z "$dp" ] && continue
-        if [ -f "$dp" ]; then
-          git rm -q -- "$dp" 2>>"$task_log" && { echo "--- DELETE trailer: removed ${dp} ---" >> "$task_log"; del_did=1; } || _ovn_del_other=$((_ovn_del_other + 1))
+        if [ -f "$dp" ] && [ "${OVN_DELETE_TRAILER_IMPORTER_GUARD:-on}" != off ] && [ -f "${SCRIPT_DIR:-.}/scripts/ovn_delete_executor.py" ] && git ls-files --error-unmatch -- "$dp" >/dev/null 2>&1 \
+           && _ovn_dt_chk="$(timeout 60 python3 "${SCRIPT_DIR:-.}/scripts/ovn_delete_executor.py" importers "$PWD" "$dp" $(printf '%s\n' "$DEL_PATHS" | grep -vxF -- "$dp") 2>/dev/null)" \
+           && case "$_ovn_dt_chk" in "SKIP"*referenced\ by:*) true;; *) false;; esac; then
+          # 2026-10-12 (uidcredit X4): a DELETE trailer used to rm a file other tracked files still import (xlite cell_ring.gd: build red, fix-up regenerated it lossy and
+          # silently reverted a refactor). Same importer scan the deterministic executor uses; refuse, keep the file and let the cycle finish. OVN_DELETE_TRAILER_IMPORTER_GUARD=off disables.
+          echo "--- DELETE trailer REFUSED: ${dp} ${_ovn_dt_chk#SKIP$'\t'} ---" >> "$task_log"
+          _ovn_del_other=$((_ovn_del_other + 1))
+        elif [ -f "$dp" ]; then
+          git rm -q -- "$dp" 2>>"$task_log" && { echo "--- DELETE trailer: removed ${dp} ---" >> "$task_log"; del_did=1
+            # 2026-10-12 (uidcredit): the Godot sidecar (<dp>.uid / <dp>.import) goes with the file, in the same commit
+            if declare -F ovn_delete_sidecars >/dev/null 2>&1; then _ovn_del_sc="$(ovn_delete_sidecars "$PWD" "$dp" 2>>"$task_log")"; [ -n "$_ovn_del_sc" ] && echo "--- DELETE trailer: removed sidecar(s) of ${dp}: ${_ovn_del_sc//$'\n'/ } ---" >> "$task_log"; fi; true; } || _ovn_del_other=$((_ovn_del_other + 1))
         elif [ -e "$dp" ] || [ -L "$dp" ] || [ "$dp" = "." ] || [ "$dp" = ".." ] || case "/$dp/" in */../*|*//*) true;; *) false;; esac; then
           # h13 review: a directory / dangling symlink / '.' / '..' / traversal is NOT "already deleted" (git history of '.' always has a deletion)
           _ovn_del_other=$((_ovn_del_other + 1))
@@ -3324,6 +3337,19 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
         fi
       }
       _ovn_apply_baseline_subtraction
+
+      # UID-FIXUP (2026-10-12, package uidcredit): a red run after a cycle that DELETED a file is often just its orphaned Godot sidecar (`X.gd.uid`, `X.png.import`) tripping
+      # tests/test_uid_hygiene.gd::test_no_orphaned_uid_files - xlite delete-aoe-is-destructible-type was reverted 2x for that and parked NEEDS-DECISION although the delete was right.
+      # Deterministic fix-up BEFORE the model's Tier-2 attempt and before the revert decision: git rm the sidecar(s) of the cycle's own deletes, commit, re-verify once.
+      # Still red afterwards = the old path (Tier-2 / revert). OVN_UID_FIXUP=off disables.
+      if [ "$VERIFY_RESULT" = "fail" ] && declare -F ovn_uid_orphan_fixup >/dev/null 2>&1 && ovn_uid_orphan_fixup "$BEFORE_SHA" "$AFTER_SHA" "$task_log"; then
+        AFTER_SHA="$(git rev-parse HEAD)"
+        _ovn_land_sha="$AFTER_SHA"
+        _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
+        VERIFY_RESULT="$(run_repo_verification)"
+        echo "--- UID-FIXUP re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
+        _ovn_apply_baseline_subtraction
+      fi
 
       # Tier-2 grounded fix-up (2026-09-16): before reverting a real test failure, give
       # the model ONE bounded shot at fixing the SPECIFIC failure with the actual

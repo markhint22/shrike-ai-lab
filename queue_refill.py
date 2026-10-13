@@ -58,6 +58,15 @@ except Exception:  # pragma: no cover - exercised by the fallback test with the 
     _E = None
     _HAVE_E = False
 
+# 2026-10-12 (package uidcredit): the shared canonical item identity (annotation/state-tag/tier-insensitive) lives in scripts/ovn_credit_items.py. Fallback to the
+# legacy comparison below when the module is not deployed next to this file (OVN_REFILL_CANON=legacy forces it).
+try:
+    import ovn_credit_items as _C
+    _HAVE_C = os.environ.get("OVN_REFILL_CANON", "new") != "legacy"
+except Exception:  # pragma: no cover - exercised by the fallback test with the module hidden
+    _C = None
+    _HAVE_C = False
+
 if _HAVE_E:
     PARKED_CI, PARKED_CS = _E.PARKED_CI, _E.PARKED_CS
 else:
@@ -111,6 +120,30 @@ _ALWAYS_TRUE_RE = re.compile(r'\|\|\s*(echo|printf|true)\b')
 _TEST_ABSENT_RE = re.compile(r'^test\s+!\s+-([fe])\s+([A-Za-z0-9_./@-]+)\s*$')
 
 
+_NEG_SIMPLE_BAD = re.compile(r"[;&><`$(]|\|\|")
+
+
+def _already_satisfied_neg(cmd, repo_root, timeout=8):
+    """True only when an item that states an absence has its condition met: grep family exit 1 (exit 2 = error, never an absence); `test`/`[`/ls/stat/cat/find any other non-zero
+    except 124/126/127. A grep may be a pipeline of grep stages; any other tool must be one simple command (no operators / substitutions)."""
+    if not cmd or cmd.lstrip().startswith("!") or not _HAVE_E:
+        return False
+    cls = _E.verify_tool_class(cmd)
+    if cls == "grep":
+        if re.search(r"[;&><`$]|\|\|", cmd):
+            return False
+    elif cls == "exit":
+        if _NEG_SIMPLE_BAD.search(cmd) or "|" in cmd:
+            return False
+    else:
+        return False
+    try:
+        r = subprocess.run(cmd, shell=True, cwd=repo_root, timeout=timeout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        return False
+    return _E.polarity_verdict("neg", cls, r.returncode) is True
+
+
 def already_satisfied(line, repo_root, timeout=8):
     """Best-effort: True only if the item's OWN verify command already passes against the
     current repo. False (never block a pull) on any ambiguity, error, or unsupported shape.
@@ -129,6 +162,16 @@ def already_satisfied(line, repo_root, timeout=8):
         return False
     if _ALWAYS_TRUE_RE.search(cmd):
         return False
+    # R14 (xlite X1, 2026-10-12): an item that states an ABSENCE ("`grep -n X f` returns no matches", "`ls f` fails with No such file") is satisfied when the command's exit status
+    # says so, not when it is 0 - rc 0 there means the thing is STILL PRESENT (8 of 9 pre-verified credits on 2026-10-12 were false). OVN_VERIFY_POLARITY=off restores the old reading.
+    pol_cmd, pol = (cmd, "unknown")
+    if _HAVE_E and os.environ.get("OVN_VERIFY_POLARITY", "on") != "off":
+        try:
+            pol_cmd, pol = _E.verify_clause_and_polarity(line)
+        except Exception:
+            pol_cmd, pol = (cmd, "unknown")
+    if pol == "neg":
+        return _already_satisfied_neg(pol_cmd, repo_root, timeout)
     # h13 (2026-10-04): `test ! -f <path>` (a "delete X" item whose file an earlier commit already removed) is cheap and side-effect free, but
     # was never recognised, so such items were pulled into the live queue and flailed. Accept ONLY the bare single-path form (no operators), and
     # only when the path is a plain relative repo path.
@@ -246,7 +289,7 @@ def relocate_new_tests(line, repo_root):
 # A line with no fresh verdict is pulled (OVN_SPEC_GATE_UNJUDGED=pull, default) or held (=hold; only meaningful when a verdict-based rule is enforced).
 GATE_QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13")
 GATE_HOLD_RULES = ("R06", "R14")
-GATE_STATIC_RULES = ("R01", "R02", "R03", "R11")
+GATE_STATIC_RULES = ("R01", "R02", "R03", "R11", "R16")
 # 2026-10-10 (harness R10, IPTV-2): the repair-only static rules that are ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET. R01 (bare `VERIFY: cmd (cat:` -> backticked) was shadow-only
 # while the credit gate read only the backticked form: 56 of 99 live iptv items had a VERIFY the credit gate could not see ("item has no VERIFY clause" refusals, text-match credits).
 # R11 (gut_cli.gd -> gut_cmdln.gd) rewrites a GUT VERIFY that can never pass. Both are static, need no verdict, only rewrite the VERIFY text and have golden tests. R02/R03 (they
@@ -420,6 +463,10 @@ def main():
             return re.sub(r"-\d{6}-", "-", tag, count=1)
         return re.sub(r"\[feat:[^\]]+\]", _one, text)
     def _norm(line):
+        if _HAVE_C:
+            return _C.canon_item(line)   # uidcredit: see the module's canon_item - annotations, state tags, the tier tag and the feat date never make a copy look new
+        return _norm_legacy(line)
+    def _norm_legacy(line):
         # 2026-10-07: a parked line carries '[AUTO-SKIP ...]' / '[HUMAN-ONLY ...]' right after the checkbox; without stripping it the roadmap's
         # re-decomposed copy of the SAME item (identical text, no tag) looked brand new and was re-pulled as an eligible item (churn-loop guard parks
         # an item, the backlog re-adds it, the loop restarts).
@@ -488,9 +535,14 @@ def main():
     repo_label = os.path.splitext(os.path.basename(backlog))[0]
     pull, credited, scanned = [], [], 0      # pull / credited hold (original_line, line_to_use)
     held = 0
+    batch_seen = set()   # 2026-10-12 (uidcredit): two identical eligible backlog lines used to BOTH be pulled in one run (`existing` only knew the files); the 2nd is pruned as a duplicate
     for l in eligible:
         if len(pull) >= n or scanned >= SCAN_CAP:
             break
+        _bn = _norm(l)
+        if _HAVE_C and _bn in batch_seen:   # (OVN_REFILL_CANON=legacy restores the old pull-both behaviour)
+            dup.append(l)
+            continue
         action, l2, rule, note = consult_gate(l, repo_label, verdicts)
         if action == "hold":        # held / quarantined lines are free (a dict lookup): they must not eat the SCAN_CAP budget, or a long run of held lines starves the queue
             held += 1
@@ -499,6 +551,7 @@ def main():
             quarantined.append((l, rule, note))
             continue
         scanned += 1
+        batch_seen.add(_bn)
         if already_satisfied(l2, repo_root):
             credited.append((l, l2))
         else:

@@ -178,6 +178,149 @@ def extract_verify(line):
     return m.group(1).strip() if m else None
 
 
+# ---------------------------------------------------------------- R14 verify packages: VERIFY polarity (2026-10-12, xlite X1)
+# The VERIFY contract is "exit 0 = pass", but the decomposer / 27B routinely write ABSENCE checks as `cmd` + prose ("returns no matches", "fails with No such file",
+# "returns false"). Every reader that ran the command and took rc==0 as "satisfied" had the polarity inverted: unfinished work was credited (the symbol still exists, grep exits
+# 0) and finished work was refused. verify_polarity reads the sentence right after the closing backtick; credit paths then require the exit status to MATCH it.
+#   neg      the narration is exactly an absence / failure verdict of an exit-code command (grep family, test/[, ls, cat, stat, find, diff, cmp)
+#   pos      the narration is explicitly a presence / success verdict
+#   unknown  anything else: no narration, a mixed or time-qualified narration (before/currently/when/if ...), a command that already starts with `!` (already negated, e.g. by R03),
+#            or a runner whose exit code is not the narrated fact (pytest/godot/npm/gradlew/python -c). Callers then behave exactly as before.
+_POL_NEG = re.compile(
+    r"\bfails?\b|\bfailing\b"
+    r"|\b(?:returns?|prints?|outputs?|yields?|gives?|produces?|shows?|finds?|has|have|lists?)\s+(?:a\s+|an\s+)?(?:no\s+(?:results?|lines?|output|matches?|hits?|rows?|occurrences?|references?|callers?|usages?|uses)|nothing|empty|false|non-?zero|zero\s+(?:results?|lines?|matches|hits|occurrences)|none)\b"
+    r"|\bexits?\s+(?:with\s+)?(?:a\s+)?(?:non-?zero|1\b|status\s+1|code\s+1)"
+    r"|\b(?:is|are|was|were|be)\s+(?:absent|missing|removed|gone|deleted|not\s+(?:found|present|defined|exist))"
+    r"|\bdoes(?:\s+not|n'?t)\s+exist\b|\bno\s+such\s+file\b|\bnot\s+found\b"
+    r"|^\s*(?:no|zero)\s+(?:results?|lines?|output|matches?|hits?|occurrences?)\b|\b(?:with|has|gives?)\s+no\s+(?:results?|lines?|output|matches?|hits?)\b", re.I)
+_POL_POS = re.compile(
+    r"\bpass(?:es|ed|ing)?\b|\bsucceed(?:s|ed)?\b|\bexits?\s+(?:with\s+)?(?:0\b|zero|status\s+0|code\s+0)|\breturns?\s+(?:a\s+|an\s+|the\s+)?(?:match(?:es)?|results?|lines?|output|true|hits?|exit\s+(?:code\s+)?0|zero\s+exit)\b"
+    r"|\b(?:is|are)\s+(?:present|found|defined|exported)\b|\bexists?\b|\bcontains?\b|\bfinds?\s+(?:a\s+|the\s+)?(?:match|line|result)", re.I)
+# a narration describing the state BEFORE the change (red state), or conditional on something, says nothing about the post-change verdict
+_POL_QUAL = re.compile(r"\b(?:before|currently|today|initially|originally|prior|at\s+present|at\s+the\s+moment|until|pre-?change|pre-?fix|old|previously|when|whenever|if|unless|because|since|while|red|expected:|then\s+pass|but|though|although|otherwise)\b", re.I)
+_POL_EXIT_TOOLS = {"test", "[", "ls", "cat", "stat", "find", "diff", "cmp", "readlink"}
+_POL_GREP_TOOLS = {"grep", "egrep", "fgrep", "rg", "ag", "zgrep"}
+
+
+def _split_clauses(cmd):
+    """Quote-aware split of a shell command on && || ; | (operators dropped). Returns the list of clause strings, or None when quotes do not balance."""
+    out, cur, q, i = [], "", "", 0
+    while i < len(cmd):
+        ch = cmd[i]
+        if q:
+            cur += ch
+            if ch == q:
+                q = ""
+        elif ch in "'\"":
+            q = ch
+            cur += ch
+        elif cmd.startswith("&&", i) or cmd.startswith("||", i):
+            out.append(cur)
+            cur = ""
+            i += 1
+        elif ch in ";|":
+            out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+        i += 1
+    out.append(cur)
+    return None if q else [c.strip() for c in out if c.strip()]
+
+
+def verify_tool_class(cmd):
+    """'grep' | 'exit' | 'runner' | '' - the class of the command whose exit status ends the clause (the LAST clause: `a | grep x`, `cd d && grep x f`)."""
+    cl = _split_clauses(cmd or "")
+    if not cl:
+        return ""
+    toks = cl[-1].split()
+    while toks and (toks[0] == "!" or not toks[0].strip("()") or re.match(r"^[A-Za-z_]\w*=", toks[0])):
+        toks = toks[1:]
+    if not toks:
+        return ""
+    w = os.path.basename(toks[0].strip("()"))
+    if w in _POL_GREP_TOOLS:
+        return "grep"
+    if w in _POL_EXIT_TOOLS:
+        return "exit"
+    return "runner"
+
+
+def _narration_after_backtick(line, m):
+    rem = line[m.end():]
+    cuts = [i for i in (rem.find("(cat:"), rem.find(" [feat:"), rem.find("<!--")) if i >= 0]
+    if cuts:
+        rem = rem[:min(cuts)]
+    se = re.search(r"\.(?=\s|$)", rem)
+    return rem[:se.start()] if se else rem
+
+
+def _polarity_of_text(text):
+    t = re.sub(r"\s+", " ", text.strip().lstrip(",:-\u2014\u2013 ").strip())
+    if not t or "`" in t:
+        return "unknown"
+    if _POL_QUAL.search(t):
+        return "unknown"
+    neg, pos = bool(_POL_NEG.search(t)), bool(_POL_POS.search(t))
+    if neg and not pos:
+        return "neg"
+    if pos and not neg:
+        return "pos"
+    return "unknown"
+
+
+def verify_clause_and_polarity(line):
+    """(command, polarity) of an item line's VERIFY clause. Backticked: the narration is the sentence after the closing backtick. Bare (`VERIFY: grep ... returns no results. (cat:`):
+    a trailing negative phrase is split off the clause and the command is what precedes it (only when it is one of the exit-code tools). ('', 'unknown') when there is no clause."""
+    m = re.search(r"VERIFY:\s*`([^`]+)`", line)
+    if m:
+        cmd = m.group(1).strip()
+        if cmd.startswith("!") or re.match(r"^test\s+!", cmd):
+            return cmd, "unknown"
+        pol = _polarity_of_text(_narration_after_backtick(line, m))
+        if pol != "unknown" and verify_tool_class(cmd) == "runner":
+            pol = "unknown"
+        return cmd, pol
+    m = re.search(r"VERIFY:\s*(.+?)\s*\(cat:", line)
+    if not m:
+        return "", "unknown"
+    clause = m.group(1).strip()
+    if clause.startswith("!"):
+        return clause, "unknown"
+    # find the earliest negative phrase OUTSIDE quotes; everything before it is the command, everything after is narration
+    masked = re.sub(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", lambda x: "_" * len(x.group(0)), clause)
+    nm = _POL_NEG.search(masked)
+    if not nm:
+        return clause.rstrip(". "), "unknown"
+    cmd, tail = clause[:nm.start()].strip(), clause[nm.start():]
+    if not cmd or verify_tool_class(cmd) in ("", "runner"):
+        return clause.rstrip(". "), "unknown"
+    t = tail.rstrip(". ")
+    se = re.search(r"\.(?=\s|$)", tail)
+    if se:
+        t = tail[:se.start()]
+    if _polarity_of_text(t) != "neg":
+        return clause.rstrip(". "), "unknown"
+    return cmd, "neg"
+
+
+def verify_polarity(line):
+    """'pos' | 'neg' | 'unknown': the stated polarity of an item line's VERIFY (see the block comment above)."""
+    return verify_clause_and_polarity(line)[1]
+
+
+def polarity_verdict(polarity, tool_class, rc):
+    """Map a raw exit status to PASS/FAIL given the stated polarity: True = the condition the item states holds. rc 124/126/127 (timeout / not runnable) is never a verdict: None.
+    pos / unknown: rc == 0. neg: grep family rc == 1 only (rc >= 2 is an error, not an absence); other exit-code tools any rc other than 0 / 124 / 126 / 127."""
+    if rc in (124, 126, 127):
+        return None
+    if polarity != "neg":
+        return rc == 0
+    if tool_class == "grep":
+        return rc == 1
+    return rc != 0
+
+
 # ---------------------------------------------------------------- A2: hard-banned / vendored targets
 _TARGET_RE = re.compile(r"^- \[ \] \[T[1-5]\]\s+(.+?)\s+—\s")
 

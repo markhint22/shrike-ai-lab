@@ -16,6 +16,8 @@ Finding = {"rule": "R0x", "sev": "repair" | "reject" | "flag", "msg": str, "evid
               (old/current/today/initially/when/because/before/if/passes ...) leaves the line untouched and emits an R03 'flag' finding for human review
   R11 repair  a GUT VERIFY that calls addons/gut/cli/gut_cli.gd -> addons/gut/gut_cmdln.gd (gut_cli.gd `extends Node`: it is not a SceneTree script and can never be a `godot -s`
               entry point, so the clause can never pass; xlite techs_data: 20 lines, ALREADY-DONE x6 + fixup-undid-item x3, 2026-10-09)
+  R16 repair  a GUT VERIFY in a shape GUT cannot run -> `-gdir=<p>.gd` -> `-gtest=res://<p>.gd`; bare `-gtest=<name>.gd` -> the unique tracked res:// path (ambiguous / missing: untouched +
+              'flag' with ctx); `-gselect=<function>` -> `-gunit_test_name=<function>` (ovn_gut_clause.py; xlite ~64% of cycle time went to re-attempting landed work whose VERIFY could never pass)
   R12 flag    a VERIFY names a TEST path (.gd/.py) that does not exist at the ref and that neither this item nor a sibling item of the same [feat] batch creates (xlite
               roster-coerce: `godot -s tests/test_roster_coercion.gd`, a file nothing ever created); batch rule, shadow-only until armed in OVN_SPEC_GATE_ENFORCE_RULES
   R04 reject  TARGET path (text before the first ' - ') is vendored (addons/) or matches .queue-hard-banned-files at the ref
@@ -51,7 +53,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ovn_backlog_eligibility import (  # noqa: E402
-    extract_verify, item_target, is_open_item, normalize_vacuous_echo)
+    extract_verify, item_target, is_open_item, normalize_vacuous_echo, is_vacuous_cmd, repair_vacuous_cmd)
 from ovn_spec_classify import clean_bare_verify, declared_paths  # noqa: E402
 
 ITEM_RE = re.compile(r"^- \[ \] \[(T[1-5])\]\s+(?P<target>.+?)\s+—\s+(?P<body>.*)$")
@@ -177,17 +179,36 @@ def bare_verify(line):
     if not m:
         return None
     cmd = clean_bare_verify(m.group(1))
+    return (m, cmd) if _bare_cmd_ok(cmd) else None
+
+
+def _bare_cmd_ok(cmd):
     if not R01_CMDS.match(cmd) or "`" in cmd or not _balanced(cmd):
-        return None
+        return False
     try:
         toks = shlex.split(cmd)
     except ValueError:
-        return None
+        return False
     if any(t.lower() in PROSE_WORDS for t in toks[1:]):
+        return False
+    return not _prose_tail_or_vacuous(cmd)
+
+
+def bare_verify_neg(line):
+    """R14 verify package (xlite X1/X2): a bare clause that is a safe exit-code command followed by a NEGATIVE narration (`VERIFY: grep -n "x" f.gd returns no results. (cat:`)
+    -> (match, command). bare_verify rejects it (the narration words are prose) so the item read as 'no VERIFY clause' and was refused even when the work was really done. The
+    caller must read the polarity (ovn_backlog_eligibility.verify_polarity) - the command alone is the POSITIVE form. R01 deliberately does not use this (it would drop the narration)."""
+    if re.search(r"VERIFY:\s*`", line):
         return None
-    if _prose_tail_or_vacuous(cmd):
+    m = re.search(r"VERIFY:\s*(.+?)(\s*\(cat:)", line)
+    if not m:
         return None
-    return m, cmd
+    from ovn_backlog_eligibility import verify_clause_and_polarity
+    cmd, pol = verify_clause_and_polarity(line)
+    if pol != "neg" or not cmd:
+        return None
+    cmd = clean_bare_verify(cmd)
+    return (m, cmd) if _bare_cmd_ok(cmd) else None
 
 
 def _structure(cmd):
@@ -262,7 +283,21 @@ def _r01(line):
     """bare `VERIFY: cmd (cat:` -> `VERIFY: \\`cmd\\` (cat:`"""
     b = bare_verify(line)
     if b is None:
-        return line, None
+        # R14 (iptv F, 2026-10-12): the bare `VERIFY: <cmd> && echo "FAIL" || echo "PASS" (cat:` idiom is rejected by bare_verify (FAIL / PASS are prose words), so R01 never backticked it and
+        # R02 only rewrites backticked clauses: the item read as 'no VERIFY clause' forever. Repair it the way R02 does (ovn_backlog_eligibility.repair_vacuous_cmd) and backtick the result.
+        if re.search(r"VERIFY:\s*`", line):
+            return line, None
+        m = re.search(r"VERIFY:\s*(.+?)(\s*\(cat:)", line)
+        if not m:
+            return line, None
+        raw = clean_bare_verify(m.group(1))
+        if not is_vacuous_cmd(raw):
+            return line, None
+        fixed = repair_vacuous_cmd(raw)
+        if not fixed or "`" in fixed or not _balanced(fixed):
+            return line, None
+        new = line[:m.start()] + "VERIFY: `%s`" % fixed + m.group(2) + line[m.end():]
+        return new, finding("R01", "repair", "bare echo-idiom VERIFY repaired and backticked", raw)
     m, cmd = b
     new = line[:m.start()] + "VERIFY: `%s`" % cmd + m.group(2) + line[m.end():]
     return new, finding("R01", "repair", "bare VERIFY clause backticked", cmd)
@@ -275,7 +310,7 @@ def _r02(line):
     return new, finding("R02", "repair", "vacuous echo idiom (always exit 0) replaced by a real exit code", extract_verify(line))
 
 
-_R03_PHRASE = re.compile(r"fails?|returns?\s+(?:a\s+)?non-?zero|no matches|No such file", re.I)
+_R03_PHRASE = re.compile(r"fails?|returns?\s+(?:a\s+)?non-?zero|returns?\s+(?:no\s+(?:lines?|output)|nothing|empty)|no matches|No such file", re.I)
 # R03 (a narrated failure becomes `! cmd`) is a WHITELIST, never a blacklist. The sentence that follows the backticked command (up to the first period, a `(cat:`, a
 # ` [feat:` tag or an HTML comment) must be EXACTLY the verdict of the command as it stands after the change - an optional lead-in ("which", "it now must"), the verdict
 # (fails / returns non-zero [exit code] / no matches / No such file [or directory]) and an optional "after the change/fix" - and nothing else. Any other word (a temporal or
@@ -287,7 +322,8 @@ _R03_NARR = re.compile(
         (?:fails?(?:\s+with\s+["']?No\s+such\s+file\s+or\s+directory["']?)?
           |returns?\s+(?:a\s+)?non-?zero(?:\s+(?:exit\s+)?(?:code|status))?
           |no\s+matches
-          |No\s+such\s+file(?:\s+or\s+directory)?)
+          |No\s+such\s+file(?:\s+or\s+directory)?
+          |returns?\s+(?:no\s+(?:lines?|output)|nothing|empty(?:\s+output)?)(?:\s+(?:containing|that\s+contain|matching)\s+[^`]+?)?)
         (?:\s+(?:after|once|following)\s+(?:the\s+|this\s+)?(?:change|fix|edit|patch|removal|deletion|rename|refactor)(?:\s+is\s+applied)?)?
         \s*$""", re.I | re.X)
 # R03 is only safe for commands whose exit code IS the narrated verdict (grep/test/ls/cat/stat). A test runner (pytest/npm/godot/gradlew) narrating "fails"
@@ -338,6 +374,47 @@ def _r03_cmd_ok(cmd):
     return real > 0
 
 
+_R03_NOLINES = re.compile(r"^\s*[,:\u2014\u2013-]?\s*(?:(?:which|it|this|that|command)\s+)?(?:(?:now|then)\s+)?(?:(?:must|should)\s+)?returns?\s+(?:no\s+(?:lines?|output)|nothing|empty)", re.I)
+
+
+def _r03_pipeline_ok(cmd):
+    """A pure pipeline `a | b | ...` of R03-safe commands (grep family / cat / ls / stat) whose LAST stage is a grep: its exit status (0 = lines survived) is the whole pipeline's, so
+    `! ( pipeline )` is exactly 'produced no lines'. No && / || / ; / quotes-with-operators surprises: anything else is not accepted."""
+    cl = _split_clauses_for_r03(cmd)
+    if cl is None or len(cl) < 2:
+        return False
+    for st in cl:
+        toks = st.split()
+        if not toks or toks[0] not in _R03_CMDS:
+            return False
+    return cl[-1].split()[0] in ("grep", "egrep", "fgrep", "rg")
+
+
+def _split_clauses_for_r03(cmd):
+    out, cur, q, i = [], "", "", 0
+    while i < len(cmd):
+        ch = cmd[i]
+        if q:
+            cur += ch
+            if ch == q:
+                q = ""
+        elif ch in "'\"":
+            q = ch
+            cur += ch
+        elif ch in ";&":
+            return None
+        elif ch == "|":
+            if cmd.startswith("||", i):
+                return None
+            out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+        i += 1
+    out.append(cur)
+    return None if q else out
+
+
 def _r03_sentence(line, end):
     """The narration sentence after the command (line[end:]): cut at `(cat:` / ` [feat:` / `<!--`, then at the first sentence-ending period. The sentence text (may be empty)."""
     rem = line[end:]
@@ -355,16 +432,17 @@ def _r03(line):
     cmd = m.group(1).strip()
     if cmd.startswith("!") or cmd.startswith("test !"):
         return line, None
-    if not _r03_cmd_ok(cmd):
-        return line, None
     sent = _r03_sentence(line, m.end())
+    pipe_ok = bool(_R03_NOLINES.match(sent)) and _r03_pipeline_ok(cmd)    # iptv D: `grep a f | grep -v b` + 'returns no lines ...'
+    if not pipe_ok and not _r03_cmd_ok(cmd):
+        return line, None
     if not sent.strip():
         return line, None
     if "`" in sent or not _R03_NARR.match(sent):
         if _R03_PHRASE.search(sent):         # narrates a failure in a form we cannot prove is the post-change verdict: flag, never rewrite
             return line, finding("R03", "flag", "VERIFY narrates a failure in a form R03 does not recognise as the post-change verdict: left untouched for human review", sent.strip()[:120])
         return line, None
-    neg = "! ( %s )" % cmd if re.search(r"&&|\|\||;", cmd) else "! %s" % cmd
+    neg = "! ( %s )" % cmd if re.search(r"&&|\|\||;|\|", cmd) else "! %s" % cmd
     s = m.start(1) - 1                       # the opening backtick
     e = m.end() + len(sent.rstrip())         # through the narration; the sentence's period (and anything after) stays
     new = line[:s] + "`%s`" % neg + line[e:]
@@ -383,7 +461,66 @@ def _r11(line):
     return new, finding("R11", "repair", "GUT VERIFY called addons/gut/cli/gut_cli.gd (extends Node, cannot be a -s entry point): rewritten to addons/gut/gut_cmdln.gd", extract_verify(line) or "")
 
 
-STATIC_RULES = (("R01", _r01), ("R02", _r02), ("R03", _r03), ("R11", _r11))
+class _ItemFS:
+    """ovn_gut_clause fs: the repo at the ref plus the paths the item itself creates (an 'add test file' item's target is not tracked yet)."""
+    def __init__(self, base, extra):
+        self.base, self.extra = base, [e for e in extra if e]
+
+    def exists(self, rel):
+        return rel in self.extra or self.base.exists(rel)
+
+    def by_basename(self, name):
+        found = self.base.by_basename(name)
+        for e in self.extra:
+            if os.path.basename(e) == name and e not in found:
+                found = found + [e]
+        return found
+
+    def any_basename_contains(self, sub):
+        return self.base.any_basename_contains(sub) or any(sub in os.path.basename(e) for e in self.extra)
+
+    def read(self, rel):
+        return self.base.read(rel)
+
+
+def _r16(line, ctx=None):
+    """R16 (R14 verify package, xlite X2 / platform P3): a GUT VERIFY GUT cannot execute is rewritten to a runnable form (ovn_gut_clause.normalize):
+    `-gdir=<p>.gd` -> `-gtest=res://<p>.gd`; a bare `-gtest=<name>.gd` -> the unique tracked `res://.../<name>.gd` (a -gdir naming its directory is dropped); `-gselect=<function>` ->
+    `-gunit_test_name=<function>` (needs the repo at the ref). Without ctx only the context-free first rewrite applies (queue_refill / planner lint); an ambiguous or missing bare name is
+    NOT rewritten and, with ctx, flagged (the item may create that file: R12 owns missing paths)."""
+    m = re.search(r"VERIFY:\s*`([^`]+)`", line)
+    if m:
+        s0, e0, cmd = m.start(1), m.end(1), m.group(1)
+    else:
+        m = re.search(r"VERIFY:\s*(.+?)(?:\s*\(cat:|$)", line)
+        if not m:
+            return line, None
+        s0, e0, cmd = m.start(1), m.end(1), m.group(1)
+        if cmd.endswith(".") and len(cmd) > 1 and cmd[-2] not in " ./":      # a bare clause carries the sentence period glued to its last token
+            cmd, e0 = cmd[:-1], e0 - 1
+    if "gut_cmdln" not in cmd:
+        return line, None
+    try:
+        import ovn_gut_clause as G
+        fs = G.NullFS()
+        if ctx is not None:
+            p = parse(line)
+            fs = _ItemFS(G.CtxFS(ctx), [p["target"]] if p and p["target"].endswith(".gd") else [])
+        new, notes = G.normalize(cmd, fs, require_exists=False)
+    except Exception:  # noqa: BLE001 - a broken helper must never cost the line
+        return line, None
+    if new != cmd:
+        return line[:s0] + new + line[e0:], finding("R16", "repair", "GUT VERIFY used a shape GUT cannot run (%s): rewritten" % ", ".join(n for n in notes if "unresolved" not in n), cmd)
+    if ctx is not None and "gtest-bare-unresolved" in notes:
+        return line, finding("R16", "flag", "GUT VERIFY names a bare -gtest=<name>.gd that is ambiguous or missing in the repo: left untouched", cmd)
+    return line, None
+
+
+def _r16_static(line):
+    return _r16(line, None)
+
+
+STATIC_RULES = (("R01", _r01), ("R02", _r02), ("R03", _r03), ("R11", _r11), ("R16", _r16_static))
 STATIC_RULE_IDS = tuple(r for r, _ in STATIC_RULES)
 
 
@@ -850,6 +987,10 @@ def lint_batch(lines, ctx=None):
     parsed = []
     for line in lines:
         line2, fs = lint_static(line)
+        if ctx is not None:                       # R16 with the repo at the ref (bare -gtest names, -gselect functions); the static pass already did the context-free part
+            line2, f16 = _r16(line2, ctx)
+            if f16:
+                fs = list(fs) + [f16]
         lined.append((line2, fs))
         parsed.append(parse(line2) if is_open_item(line2) else None)
     adds, dels = {}, {}

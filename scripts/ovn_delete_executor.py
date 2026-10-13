@@ -10,7 +10,11 @@ the normal path exactly as before.
 usage: ovn_delete_executor.py check <repo_dir> "<item line>"
        ovn_delete_executor.py intent "<item text>"      exit 0 = the leading instruction is a whole-file delete, 1 = not (see delete_intent)
        ovn_delete_executor.py plan <repo_dir> "<roadmap feature text>"   (2026-10-11, delplan X5) the planner's deterministic bypass: see plan_feature
-stdout: "OK\t<path> [<path>...]"   (paths to git rm; the item's file + its dedicated test ONLY if the item names that test)
+       ovn_delete_executor.py importers <repo_dir> <path> [<other path deleted together>...]   (2026-10-12, uidcredit X4) "SKIP\treferenced by: ..." | "OK"
+       ovn_delete_executor.py orphans <repo_dir> <path> [<path>...]       (2026-10-12, uidcredit) one line per Godot sidecar (<path>.uid / <path>.import) that is
+                                                                         still on disk or in the index although <path> itself is gone: see sidecars_left
+stdout: "OK\t<path> [<path>...]"   (paths to git rm; the item's file + its dedicated test ONLY if the item names that test, each followed by its tracked
+                                       Godot sidecar(s) `<path>.uid` / `<path>.import` - see companions)
         "ALREADY-GONE\t<path>"        (h13: the target is absent AND was tracked then deleted in git history, or the item's own
                                        `VERIFY: test ! -f <path>` already passes - nothing left to delete; caller credits the item)
         "SKIP\t<reason>"
@@ -140,6 +144,49 @@ def git(repo, *args):
     return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
 
 
+# --- Godot sidecars (2026-10-12, package uidcredit) --------------------------------------------------------------------------------------------------
+# Godot 4.4+ writes `X.gd.uid` next to every script/shader and `X.png.import` next to every imported resource, and the repo TRACKS them. A `git rm X.gd` that leaves
+# `X.gd.uid` behind trips tests/test_uid_hygiene.gd::test_no_orphaned_uid_files (xlite 2026-10-12 04:01: `Delete tests/test_aoe_destructible.gd` was reverted twice for exactly that
+# test and parked NEEDS-DECISION - the delete is right, the half-delete was the defect). OVN_DELETE_SIDECARS=off restores the old behaviour (only the named file).
+SIDECAR_SUFFIXES = (".uid", ".import")
+
+
+def _sidecars_enabled():
+    return os.environ.get("OVN_DELETE_SIDECARS", "on") != "off"
+
+
+def companions(repo, path):
+    """Tracked Godot sidecars of `path` (`path.uid`, `path.import`), in a stable order. [] when the kill switch is off."""
+    if not _sidecars_enabled():
+        return []
+    out = []
+    for suf in SIDECAR_SUFFIXES:
+        c = path + suf
+        if git(repo, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", c).returncode == 0:
+            out.append(c)
+    return out
+
+
+def sidecars_left(repo, paths):
+    """Sidecars (`p.uid` / `p.import`) of every path in `paths` that is itself gone from disk and index but whose sidecar still lingers (tracked, staged or merely on disk).
+    This is the post-delete check: whatever removed `p` (the executor's git rm, the DELETE: trailer handler, a model's own edit) must not leave an orphan behind."""
+    left = []
+    if not _sidecars_enabled():
+        return left
+    for p in paths:
+        if ".." in p.split("/") or p.startswith("/"):
+            continue
+        if os.path.lexists(os.path.join(repo, p)):
+            continue
+        if git(repo, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", p).returncode == 0:
+            continue   # still tracked (not deleted yet): not an orphan situation
+        for suf in SIDECAR_SUFFIXES:
+            c = p + suf
+            if os.path.lexists(os.path.join(repo, c)) or git(repo, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", c).returncode == 0:
+                left.append(c)
+    return left
+
+
 def parse(item):
     t = re.sub(r"^- \[[ xX]\]\s*", "", item.strip())
     t = re.sub(r"^(\[[^\]]*\]\s*|\([^)]*\)\s*)+", "", t)
@@ -251,8 +298,28 @@ def other_path_stripper(repo, prim, stem):
     return strip
 
 
-def _importers(repo, prim, targets):
-    """Set of tracked files (other than `targets`, docs excluded) that genuinely reference `prim` - see the block comment above."""
+# review fix (r15, DELETE-trailer guard only; the deterministic executor keeps the broad word scan): for a NON-.gd file a bare word match of a generic stem (utils.py, config.py)
+# refused the trailer every cycle. In `strict` mode a line only counts when it holds an import/require/preload/load/res:// style reference to the module (`import x.utils`,
+# `from pkg import utils`, `from utils import f`, `require('./utils')`, `preload("res://a/utils.gd")`, a `/utils.py` path token) or is just the bare name inside a multi-line import
+# list (`    utils,`), and files under tests/ never count.
+_TESTS_DIR = re.compile(r"(^|/)tests?/")
+
+
+def _strict_ref(word_re, stem, text):
+    if not word_re.search(text):
+        return False
+    s = re.escape(stem)
+    return bool(
+        re.search(r"\bimport\b[^\n]*(?<![A-Za-z0-9_])" + s + r"(?![A-Za-z0-9_])", text)
+        or re.search(r"\bfrom\s+[\w.]*(?<![A-Za-z0-9_])" + s + r"(?![A-Za-z0-9_])", text)
+        or re.search(r"\b(require|require_relative|preload|load|import_module|__import__)\b[^\n]*(?<![A-Za-z0-9_])" + s + r"(?![A-Za-z0-9_])", text)
+        or re.search(r"res://[^\s\"']*" + s + r"(?![A-Za-z0-9_])", text)
+        or re.search(r"/" + s + r"\.[A-Za-z0-9]{1,8}\b", text)
+        or re.match(r"^\s*\(?\s*" + s + r"(\s+as\s+\w+)?\s*,?\s*\)?\s*$", text))
+
+
+def _importers(repo, prim, targets, strict=False):
+    """Set of tracked files (other than `targets`, docs excluded) that genuinely reference `prim` - see the block comment above. `strict`: see _strict_ref."""
     base = os.path.basename(prim)
     stem, ext = os.path.splitext(base)
     tok = _token_re(base)
@@ -286,7 +353,13 @@ def _importers(repo, prim, targets):
         strip = other_path_stripper(repo, prim, stem)
         word = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(stem) + r"(?![A-Za-z0-9_])")
         for path, text in _grep_lines(repo, stem):
-            if _live(path, text) and word.search(strip(text, path)):
+            if not _live(path, text):
+                continue
+            t2 = strip(text, path)
+            if strict:
+                if not _TESTS_DIR.search(path) and _strict_ref(word, stem, t2):
+                    refs.add(path)
+            elif word.search(t2):
                 refs.add(path)
     return refs
 
@@ -323,6 +396,10 @@ def decide(repo, item, ignore_refs=(), refs_out=None):
             _pe = re.escape(prim)
             own_verify = re.search(r"VERIFY:\s*(?:`\s*test\s+!\s+-[fe]\s+" + _pe + r"\s*`|test\s+!\s+-[fe]\s+" + _pe + r"\s*(?:\)|\.|,|\[feat:[^\]]*\]|\{[^}]*\}|$))", full)
             if hist or own_verify:
+                # uidcredit: the file is gone but a tracked Godot sidecar of it is still there (an earlier half-delete): that orphan is the remaining work, not "nothing left"
+                orphan = companions(repo, prim)
+                if orphan:
+                    return ("OK", " ".join(orphan))
                 return ("ALREADY-GONE", prim)
         return ("SKIP", "target not tracked (already gone or wrong path)")
     stem = os.path.splitext(base)[0]
@@ -338,12 +415,16 @@ def decide(repo, item, ignore_refs=(), refs_out=None):
                 git(repo, "ls-files", "--error-unmatch", "--", p).returncode == 0:
             targets.append(p)
     # importer search (2026-10-11, X6): any OTHER tracked non-doc file that REALLY references the module blocks the automatic delete - see _importers
-    raw = _importers(repo, prim, targets)
+    raw = _importers(repo, prim, targets)   # (the sidecars are added to `targets` only AFTER this scan: they are never importers and never block)
     if refs_out is not None:
         refs_out.update(raw)
     refs = {f for f in raw if f not in ignore_refs}
     if refs:
         return ("SKIP", "referenced by: " + ", ".join(sorted(refs)[:3]))
+    for t in list(targets):
+        for c in companions(repo, t):
+            if c not in targets:
+                targets.append(c)
     return ("OK", " ".join(targets))
 
 
@@ -466,6 +547,22 @@ def plan_feature(repo, feat):
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "intent":
         sys.exit(0 if len(sys.argv) >= 3 and delete_intent(sys.argv[2]) else 1)
+    if len(sys.argv) >= 4 and sys.argv[1] == "orphans":
+        for c in sidecars_left(sys.argv[2], sys.argv[3:]):
+            print(c)
+        return
+    if len(sys.argv) >= 4 and sys.argv[1] == "importers":
+        # 2026-10-12 (uidcredit X4): the DELETE: trailer's importer check. importers <repo> <path> [<other path deleted in the same trailer>...]
+        # -> "SKIP\treferenced by: a, b" when another live tracked file still references <path> (the files deleted together with it do not count), else "OK".
+        repo, prim, others = sys.argv[2], sys.argv[3], sys.argv[4:]
+        targets = [prim] + [o for o in others if o != prim]
+        targets += [c for t in list(targets) for c in companions(repo, t)]
+        try:
+            refs = sorted(_importers(repo, prim, targets, strict=True))
+        except Exception:
+            refs = []   # fail-open: the guard must never block a delete because the scan itself broke
+        print(("SKIP\treferenced by: " + ", ".join(refs[:3])) if refs else "OK")
+        return
     if len(sys.argv) >= 4 and sys.argv[1] == "plan":
         act, info = plan_feature(sys.argv[2], sys.argv[3])
         if act == "OK":

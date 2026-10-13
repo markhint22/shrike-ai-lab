@@ -193,6 +193,51 @@ ovn_is_delete_intent() {
   python3 "$_py" intent "$text" >/dev/null 2>&1
 }
 
+# ovn_delete_sidecars <repo_dir> <path>...  (2026-10-12, package uidcredit): after <path> was deleted, remove the Godot sidecars it left behind (`<path>.uid`, `<path>.import`:
+# tracked, staged or only on disk) with `git rm` + rm, and print each removed path. A deleted `X.gd` whose `X.gd.uid` stays is an orphan that trips
+# tests/test_uid_hygiene.gd::test_no_orphaned_uid_files (xlite 2026-10-12: delete-aoe-is-destructible-type reverted 2x, parked NEEDS-DECISION). Never touches a path whose base
+# file still exists. OVN_DELETE_SIDECARS=off: prints nothing, removes nothing. Always rc 0 (best effort; the caller's own verification is the safety net).
+ovn_delete_sidecars() {
+  local repo="${1:-.}" py c
+  shift || true
+  [ "${OVN_DELETE_SIDECARS:-on}" = off ] && return 0
+  [ "$#" -gt 0 ] || return 0
+  py="$_OVN_LF_DIR/ovn_delete_executor.py"; [ -f "$py" ] || return 0
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    git -C "$repo" --literal-pathspecs rm -q -f --ignore-unmatch -- "$c" >/dev/null 2>&1
+    rm -f -- "$repo/$c"
+    printf '%s\n' "$c"
+  done < <(timeout 30 python3 "$py" orphans "$repo" "$@" 2>/dev/null)
+  return 0
+}
+
+# ovn_uid_orphan_fixup <before_sha> <after_sha> [task_log]: the deterministic fix-up that runs BEFORE the red-run revert decision (and before the model's Tier-2 fix-up).
+# When the cycle's own commits (before..after) deleted a file whose Godot sidecar(s) are still around, git rm the sidecar(s) and commit that as one small commit on top.
+# rc 0 = sidecar(s) removed (OVN_UIDFX_REMOVED = the paths; the caller re-verifies), rc 1 = nothing to do. Pure bug-fix gate (a deleted file's sidecar is never wanted):
+# OVN_UID_FIXUP=off disables it (and OVN_DELETE_SIDECARS=off disables the underlying removal).
+OVN_UIDFX_REMOVED=""
+ovn_uid_orphan_fixup() {
+  local before="$1" after="$2" tl="${3:-}" f removed="" staged="" p
+  local -a deleted=() stagedarr=()
+  OVN_UIDFX_REMOVED=""
+  [ "${OVN_UID_FIXUP:-on}" = off ] && return 1
+  [ "${OVN_DELETE_SIDECARS:-on}" = off ] && return 1
+  [ -n "$before" ] && [ -n "$after" ] || return 1
+  while IFS= read -r f; do [ -n "$f" ] && deleted+=("$f"); done < <(git diff --no-renames --name-only --diff-filter=D "$before" "$after" -- . 2>/dev/null)   # --no-renames: a moved file leaves its old sidecar behind just the same
+  [ "${#deleted[@]}" -gt 0 ] || return 1
+  removed="$(ovn_delete_sidecars "$PWD" "${deleted[@]}")"
+  [ -n "$removed" ] || return 1
+  while IFS= read -r p; do [ -n "$p" ] && stagedarr+=("$p"); done < <(git diff --cached --name-only 2>/dev/null)
+  if [ "${#stagedarr[@]}" -gt 0 ]; then
+    git commit -q -m "chore: remove orphaned Godot sidecar(s) left behind by this cycle's delete (deterministic fix-up)" -- "${stagedarr[@]}" >/dev/null 2>&1 || {
+      _ovn_fxi_log "$tl" "UID-FIXUP: could not commit the sidecar removal (${removed//$'\n'/ }); leaving the tree as it is"; return 1; }
+  fi
+  OVN_UIDFX_REMOVED="${removed//$'\n'/ }"
+  _ovn_fxi_log "$tl" "UID-FIXUP: removed orphaned Godot sidecar(s) of the cycle's own delete: ${OVN_UIDFX_REMOVED}"
+  return 0
+}
+
 # ovn_fixup_nd_precondition <before_sha> <after_sha> <failing ids>: the NEEDS-DECISION guard's first test - rc 0 when every failing id is a PRE-EXISTING test (none
 # was added/filled-in by the change). Id-based (ovn_fixup_ids_old_only); OVN_OWN_TEST_IDS=off restores the old rule (no added-file basename matches a failing file).
 ovn_fixup_nd_precondition() {

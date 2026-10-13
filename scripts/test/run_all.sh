@@ -403,5 +403,18 @@ echo; echo "===== r11: stub guard ====="; bash test_stub_guard.sh || rc=1
 echo; echo "===== r11: stub guard e2e ====="; bash test_stub_guard_e2e.sh || rc=1
 echo; echo "===== r11: stub leak hygiene ====="; bash test_stub_leak_hygiene.sh || rc=1
 echo; echo "===== r11: walltime markers ====="; bash test_walltime_markers.sh || rc=1
+echo; echo "===== r16: classify fail noedit r14 ====="; bash test_classify_fail_noedit_r14.sh || rc=1
+echo; echo "===== r16: gut clause r16 ====="; bash test_gut_clause_r16.sh || rc=1
+echo; echo "===== r16: progress merge ====="; python3 test_progress_merge.py || rc=1
+echo; echo "===== r16: progress merge git ====="; bash test_progress_merge_git.sh || rc=1
+echo; echo "===== r16: progress merge hygiene ====="; bash test_progress_merge_hygiene.sh || rc=1
+echo; echo "===== r16: progress merge reconcile ====="; bash test_progress_merge_reconcile.sh || rc=1
+echo; echo "===== r16: twin credit dedupe ====="; bash test_twin_credit_dedupe.sh || rc=1
+echo; echo "===== r16: uid sidecars ====="; bash test_uid_sidecars.sh || rc=1
+echo; echo "===== r16: uidcredit r12 guards ====="; bash test_uidcredit_r12_guards.sh || rc=1
+echo; echo "===== r16: verify audit ====="; bash test_verify_audit.sh || rc=1
+echo; echo "===== r16: verify polarity ====="; bash test_verify_polarity.sh || rc=1
+echo; echo "===== r16: verify polarity shadow ====="; bash test_verify_polarity_shadow.sh || rc=1
+echo; echo "===== r16: verify safe ====="; bash test_verify_safe.sh || rc=1
 echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
 exit $rc

@@ -332,7 +332,25 @@ lines = open(f, encoding="utf-8").read().split("\n")
 orig = lines[ln-1]
 # check off the stuck item + annotate; insert the recovered sub-items right after it
 lines[ln-1] = orig.replace("- [ ] ", "- [x] ", 1) + "  <!-- superseded by recovery decomposition below -->"
-lines[ln:ln] = [""] + [hdr] + items
+# 2026-10-12 (uidcredit, iptv K): a [CLAUDE] escalation line that already exists in the file (same text once the recovered N times / cap M counters are
+# masked; digits elsewhere, e.g. in the file name, are NOT) is UPDATED in place (new count) instead of appending one more line per recovery pass (iptv referral_service.py: 3, 4, 5 times = 3 lines). OVN_CLAUDE_LINE_UPDATE=off restores appending.
+import re
+def _ck(t):
+    # review fix (r15): mask ONLY the two counters. Masking every digit made `...level1.gd... recovered 3 times` and `...level2.gd... recovered 3 times` compare equal and overwrote a
+    # DIFFERENT file's escalation line. The hard-banned-file line has no counters, so it compares verbatim.
+    return re.sub(r"(recovered/decomposed|recovered|decomposed) \d+ times \(cap \d+\)", r"\1 # times (cap #)", t.strip().lower())
+if os.environ.get("OVN_CLAUDE_LINE_UPDATE", "on") != "off":
+    keep = []
+    for it in items:
+        if it.startswith("- [ ] [CLAUDE]"):
+            k = _ck(it)
+            hit = [i for i, l in enumerate(lines) if i != ln - 1 and l.startswith("- [ ] [CLAUDE]") and _ck(l) == k]
+            if hit:
+                lines[hit[0]] = it
+                continue
+        keep.append(it)
+    items = keep
+lines[ln:ln] = ([""] + [hdr] + items) if items else []
 open(f, "w", encoding="utf-8").write("\n".join(lines))
 PY
     rm -f "$items_file" "$hdr_file"

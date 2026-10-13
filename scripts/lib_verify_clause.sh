@@ -26,6 +26,13 @@
 #      OVN_GUT_MISSING_TARGET=fail|ignore (default fail).
 #   B2 pytest `path::name` that exits rc=4 (not found; a class-based test is only addressable as path::Class::name) is resolved by collecting the file and
 #      retried ONCE as the fully qualified id (`path::Class::name`) - only on an EXACT name match (never a -k substring match). rc=5 / "no tests ran" is a FAIL with _LAST_VERIFY_WHY="no tests collected". OVN_VERIFY_NODEID_FALLBACK=off disables the retry.
+# R14 verify package (2026-10-12):
+#   X1 POLARITY: the VERIFY contract is "exit 0 = pass", but items state absence checks as `cmd` + prose ("returns no matches", "fails with No such file", "returns false"). rc==0 there
+#      means the thing is STILL PRESENT. shadow_check now reads the stated polarity (ovn_backlog_eligibility.verify_polarity via ovn_credit_items.py polarity) and, for `neg`, maps the exit
+#      status: grep-family PASS iff rc==1 (rc>=2 is an error, never an absence), ls/test/stat/cat/find PASS iff rc is non-zero (not 124/126/127). Unknown / pos polarity: unchanged.
+#      Every credit path goes through shadow_check, so one place fixes them all. OVN_VERIFY_POLARITY=off restores the old reading. Rows get ` polarity=neg`.
+#   X2 GUT: _verify_normalize_gut rewrites clauses GUT cannot execute (-gdir=<file>.gd, bare -gtest=<name>.gd, -gselect=<function>) via ovn_gut_clause.py before they run, and a run that
+#      reports "Nothing was run" is a FAIL (a nonexistent -gunit_test_name exits 0). OVN_GUT_CLAUSE_NORMALIZE=off disables both.
 
 # Substitute a nearby repo .venv's python for a bare `python`/`python3` token, so a
 # VERIFY clause that omits the .venv/ prefix (some do, some don't - an authoring
@@ -158,6 +165,15 @@ _verify_fix_gut_exit(){
   printf '%s' "$c"
 }
 _verify_is_gut(){ case "$1" in *gut_cmdln*) return 0;; esac; return 1; }
+# X2: prints the clause with GUT shapes that can never run rewritten (ovn_gut_clause.py); prints it unchanged for a non-GUT clause, when OVN_GUT_CLAUSE_NORMALIZE=off, or on any error.
+# The project root is the cwd (or the target of a leading `cd X &&`).
+_verify_normalize_gut(){
+  local c="$1" base="." out
+  if [ "${OVN_GUT_CLAUSE_NORMALIZE:-on}" = off ] || ! _verify_is_gut "$c" || [ ! -f "$_VC_DIR/ovn_gut_clause.py" ]; then printf '%s' "$c"; return 0; fi
+  case "$c" in "cd "*) base="$(printf '%s' "$c" | sed -E 's/^cd +([^ ;&]+).*/\1/')"; [ -d "$base" ] || base="." ;; esac
+  out="$(printf '%s' "$c" | timeout 20 python3 "$_VC_DIR/ovn_gut_clause.py" normalize "$base" 2>/dev/null)" || out=""
+  if [ -n "$out" ]; then printf '%s' "$out"; else printf '%s' "$c"; fi
+}
 _verify_is_narrow_gut(){ _verify_is_gut "$1" || return 1; case "$1" in *-gtest*|*-gselect*|*-gunit_test_name*) return 0;; esac; return 1; }
 _verify_is_pytest(){ case "$1" in *pytest*) return 0;; esac; return 1; }
 # B2: replace the first occurrence of the literal $2 in the command $1 by $3 (sed with `|` delimiter; bash 3.2 safe: no ${var/pat/rep} with quoted patterns). $2 is a node-id token
@@ -234,6 +250,7 @@ _verify_gut_gdir_missing(){
 # "Failing Tests  N", "---- N failing tests ----".
 _verify_gut_output_failed(){
   local esc; esc="$(printf '\033')"
+  if [ "${OVN_GUT_CLAUSE_NORMALIZE:-on}" != off ] && grep -aq 'Nothing was run' <<< "$1"; then return 0; fi   # X2: a nonexistent -gunit_test_name / empty selection exits 0 having run nothing
   printf '%s' "$1" | sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | grep -aEq 'Failing Tests[[:space:]]+[1-9][0-9]*|^[[:space:]]*Failing[[:space:]]+[1-9][0-9]*|\[Failed\]:|^[[:space:]]*\* *\[Failed\]|-+ *[1-9][0-9]* failing tests? *-+'
 }
 # the junit xml a clause asks for (-gjunit_xml_file=res://x.xml or a plain path), resolved against the cwd; empty when none exists
@@ -291,19 +308,27 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     _LAST_VERIFY_RESULT="SKIPPED_DENYLIST"
     return
   fi
+  # R14 (X1): the polarity the item states for its own command (`neg grep` / `neg exit` / `pos` / `unknown`); two items may share one command with opposite narration, so it is part of the memo key
+  local _pol="unknown" _poltool=""
+  if [ "${OVN_VERIFY_POLARITY:-on}" != off ] && [ -f "$_VC_DIR/ovn_credit_items.py" ]; then
+    _pol="$(timeout 10 python3 "$_VC_DIR/ovn_credit_items.py" polarity "$PROG" "$ln" 2>/dev/null | head -1)"
+    case "$_pol" in "neg grep") _pol=neg; _poltool=grep ;; "neg exit") _pol=neg; _poltool=exit ;; "neg "*) _pol=unknown ;; pos) _pol=pos ;; *) _pol=unknown ;; esac
+  fi
+  local _polmark=""; [ "$_pol" = neg ] && _polmark=" polarity=neg"
   # identical command already judged in THIS call (two items sharing one VERIFY): reuse the verdict, do not run it again
   local _vckey=""
   if [ "$_VC_MEMO_ON" = 1 ]; then
-    _vckey="$(printf '%s' "$vcmd" | md5sum 2>/dev/null | cut -d' ' -f1)"
+    _vckey="$(printf '%s|%s' "$vcmd" "$_pol" | md5sum 2>/dev/null | cut -d' ' -f1)"
     local _vchit; _vchit="$(printf '%s\n' "$_VC_MEMO" | grep -m1 "^${_vckey}"$'\037')"
     if [ -n "$_vckey" ] && [ -n "$_vchit" ]; then
       IFS=$'\037' read -r _ _LAST_VERIFY_RESULT _LAST_VERIFY_RC _LAST_VERIFY_TIMEOUT _LAST_VERIFY_WHY <<< "$_vchit"
-      echo "$ts repo=$_REPO_LABEL line=$ln result=$_LAST_VERIFY_RESULT cached=1 cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+      echo "$ts repo=$_REPO_LABEL line=$ln result=$_LAST_VERIFY_RESULT cached=1${_polmark} cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
       return
     fi
   fi
   vcmd="$(_resolve_tool_paths "$vcmd")"
   vcmd="$(_verify_fix_gut_exit "$vcmd")"
+  vcmd="$(_verify_normalize_gut "$vcmd")"   # X2: -gdir=<file>.gd / bare -gtest=<name>.gd / -gselect=<function> -> a form GUT can run (OVN_GUT_CLAUSE_NORMALIZE=off disables)
   tmo="${VERIFY_TIMEOUT_SECS:-60}"
   if [ -n "${VERIFY_TIMEOUT_HEAVY_SECS:-}" ] && _verify_is_heavy "$vcmd"; then tmo="$VERIFY_TIMEOUT_HEAVY_SECS"; fi
   if _verify_is_narrow_gut "$vcmd"; then tmo="${OVN_VERIFY_GUT_NARROW_SECS:-120}"; fi
@@ -350,19 +375,41 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     local _gx; _gx="$(_verify_gut_xml_path "$vcmd")"
     if _verify_gut_output_failed "$out" || { [ -n "$_gx" ] && ! gut_xml_green "$_gx"; }; then rc=1; tail_out="GUT-reported-failures $tail_out"; fi
   fi
+  # R14 (X1): an item that states an ABSENCE ("returns no matches", "fails with No such file") passes only when the command's exit status says so. grep family: rc 1 = absent (rc 2 is an
+  # error, not an absence); ls/test/stat/cat/find: any non-zero except 124/126/127. 124/126/127 stay indeterminate (handled below). _LAST_VERIFY_RC keeps the RAW status.
+  # R15: a pipeline's status is its LAST stage's: `grep X missing_dir | grep -v y` and `cd missing && grep ...` exit 1 and read as "absent". ovn_verify_safe.py neg-check re-evaluates the clause
+  # stage by stage (grep >= 2 anywhere, a failing cd): INDETERMINATE -> not credited (rc stays a FAIL, never mapped to absent); ABSENT-DELETED = a lone grep on a file the item itself deletes
+  # (rc 2 forever otherwise) -> satisfied-absent. OVN_VERIFY_NEG_STAGES=off disables.
+  local _negv="OK"
+  if [ "$_pol" = neg ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ] && [ "${OVN_VERIFY_NEG_STAGES:-on}" != off ] && [ -f "$_VC_DIR/ovn_verify_safe.py" ]; then
+    _negv="$(timeout 40 python3 "$_VC_DIR/ovn_verify_safe.py" neg-check "$PROG" "$ln" "$vcmd" 2>/dev/null | head -1)"
+    [ -n "$_negv" ] || _negv="OK"
+  fi
+  if [ "$_negv" = ABSENT-DELETED ]; then
+    rc=0; tail_out="neg-polarity-absent-deleted $tail_out"
+  elif [ "${_negv#INDETERMINATE}" != "$_negv" ]; then
+    [ "$rc" -ge 2 ] || rc=2
+    _LAST_VERIFY_WHY="VERIFY states an absence but a stage errored (${_negv#INDETERMINATE:}): not an absence"; tail_out="neg-polarity-indeterminate $tail_out"
+  elif [ "$_pol" = neg ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ]; then
+    if [ "$rc" -eq 0 ]; then
+      rc=1; _LAST_VERIFY_WHY="VERIFY states an absence (negative polarity) but the command succeeded: the thing is still present"; tail_out="neg-polarity-still-present $tail_out"
+    elif [ "$_poltool" = exit ] || { [ "$_poltool" = grep ] && [ "$rc" -eq 1 ]; }; then
+      rc=0; tail_out="neg-polarity-absent $tail_out"
+    fi
+  fi
   if [ "$rc" -eq 0 ]; then
-    echo "$ts repo=$_REPO_LABEL line=$ln result=PASS cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+    echo "$ts repo=$_REPO_LABEL line=$ln result=PASS${_polmark} cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="PASS"
   elif [ "$rc" -eq 124 ]; then
     _LAST_VERIFY_WHY="VERIFY timed out (rc=124) after ${tmo}s"
-    echo "$ts repo=$_REPO_LABEL line=$ln result=TIMEOUT rc=124 timeout=${tmo}s cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
+    echo "$ts repo=$_REPO_LABEL line=$ln result=TIMEOUT rc=124${_polmark} timeout=${tmo}s cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="TIMEOUT"
   elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
     _LAST_VERIFY_WHY="VERIFY not runnable: rc=${rc}"   # never echo the output tail: this string goes to alerts.log (wider channel than the shadow log)
     echo "$ts repo=$_REPO_LABEL line=$ln result=UNRUNNABLE rc=$rc cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="UNRUNNABLE"
   else
-    echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
+    echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc${_polmark} cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="FAIL"
   fi
   [ -n "$_vckey" ] && _VC_MEMO="${_VC_MEMO}${_vckey}"$'\037'"${_LAST_VERIFY_RESULT}"$'\037'"${_LAST_VERIFY_RC}"$'\037'"${_LAST_VERIFY_TIMEOUT}"$'\037'"${_LAST_VERIFY_WHY}"$'\n'

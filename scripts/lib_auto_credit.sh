@@ -174,6 +174,25 @@ _ovn_cr_bump() {  # <prog> <line no> <reason>
   ovn_credit_refused_note "$text" "$reason" "$prog"
 }
 
+# ovn_credit_twins <progress file> <line of the item just credited by a VERIFIED path> [task_log]   (2026-10-12, package uidcredit)
+# Credit the IDENTICAL open twins of that item too. Identity = ovn_credit_items.py canon_item (same text once the checkbox, annotations, state tags, tier tag and the feat date
+# are dropped; the VERIFY clause is part of the text), NEVER the feat tag / item hash alone: all siblings of one feature share a hash and are different work. A twin used to stay
+# open and be served again next cycle (one extra ALREADY-DONE / credit-refused cycle per copy). OVN_TWIN_CREDIT=off|shadow|on, default ON (a twin has the identical text incl. its VERIFY clause, and the
+# credit paths that call this already verified that text); `shadow` only logs 'would credit identical twin', `off` = the old one-tick behaviour.
+# Sets OVN_TWIN_N (twins found / ticked), always rc 0.
+OVN_TWIN_N=0
+ovn_credit_twins() {
+  local prog="$1" ln="$2" tl="${3:-}" mode="${OVN_TWIN_CREDIT:-on}" out
+  OVN_TWIN_N=0
+  [ "$mode" = off ] && return 0
+  out="$(timeout 20 python3 "$_AC_DIR/ovn_credit_items.py" tick-twins "$prog" "$ln" "$mode" 2>/dev/null)" || return 0
+  case "$out" in
+    "TICKED "[1-9]*) OVN_TWIN_N="${out#TICKED }"; [ -n "$tl" ] && echo "--- auto-credit: twin credit: also ticked ${OVN_TWIN_N} identical open copy(ies) of line ${ln} ---" >> "$tl" ;;
+    "SHADOW "[1-9]*) OVN_TWIN_N="$(printf '%s' "$out" | awk '{print $2}')"; [ -n "$tl" ] && echo "--- auto-credit: twin credit SHADOW: would also tick ${OVN_TWIN_N} identical open copy(ies) of line ${ln} (lines: $(printf '%s' "$out" | cut -d' ' -f3-)); OVN_TWIN_CREDIT=on enables ---" >> "$tl" ;;
+  esac
+  return 0
+}
+
 _ovn_ac_log() { [ -n "${_AC_TASK_LOG:-}" ] && echo "--- auto-credit: $* ---" >> "$_AC_TASK_LOG"; return 0; }
 _ovn_ac_alert() { if declare -F emit_alert >/dev/null 2>&1; then emit_alert warn "${id:-auto-credit}" "$1" 2>/dev/null; fi; return 0; }
 
@@ -278,7 +297,7 @@ ovn_auto_credit() {
   for ln in $ticked_lines; do
     _ac_before_text="$(sed -n "${ln}p" "$prog")"
     res="$(python3 "$_AC_DIR/ovn_credit_items.py" tick "$prog" "$ln" 2>/dev/null)"
-    if [ "$res" = "TICKED" ]; then ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; fi
+    if [ "$res" = "TICKED" ]; then ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; ovn_credit_twins "$prog" "$ln" "$_AC_TASK_LOG"; fi
   done
   [ "$OVN_AC_CREDITED" -gt 0 ] || return 0
 
@@ -329,6 +348,29 @@ ovn_landed_uncredited() {
 # only when the clause FAILED and OVN_VERIFY_GATE_MODE is enforce (the existing flag; default enforce, as in ovn_credit_already_satisfied.sh). OVN_VERIFY_GATE_MODE=shadow
 # logs 'would be REFUSED' and credits. An item with NO VERIFY clause, an unsafe clause, or an INDETERMINATE one (timeout / unrunnable: no evidence the credit is wrong)
 # keeps today's behaviour (credited).
+# SCOUT-REFUSAL COUNTER (2026-10-12, package uidcredit). The scout ALREADY-DONE credit above refuses when the item's own VERIFY FAILS, but that refusal was never counted toward the
+# credit_refused park: xlite `add-enemyfactionmap` T1/T2 had `-gdir=tests/test_x.gd` VERIFYs (GUT -gdir takes a DIRECTORY: "The path [tests/test_x.gd] does not exist. Nothing was run";
+# real run on the box 2026-10-12) that can never pass, so 4 cycles in a row the scout said ALREADY-DONE (true: faction_for exists), the gate refused, and only the 5-no-op cap ended it.
+# OVN_SCOUT_REFUSAL_PARK=off|shadow|on (default SHADOW = log what would be counted): `on` bumps the same state/credit_refused counter the auto-credit refusals use, so
+# ovn_item_guard parks the item at OVN_REFUSED_PARK_AT (default 2) with '[AUTO-SKIP after N credit refusals: VERIFY failed (...)]'. Only the scout ALREADY-DONE label counts
+# (the DONE-trailer gate runs on a commit that may be a half-done attempt that the failed-attempt counters already bill).
+_ovn_scout_refusal() {  # <prog> <line> <label> [task_log]
+  local prog="$1" ln="$2" label="$3" tl="${4:-}" mode="${OVN_SCOUT_REFUSAL_PARK:-shadow}" text n cf
+  case "$label" in "scout ALREADY-DONE credit") ;; *) return 0 ;; esac
+  [ "$mode" = off ] && return 0
+  [ "${OVN_REFUSED_PARK_AT:-2}" = 0 ] && return 0
+  text="$(sed -n "${ln}p" "$prog" 2>/dev/null)"; [ -n "$text" ] || return 0
+  if [ "$mode" = on ]; then
+    ovn_credit_refused_note "$text" "VERIFY failed${_LAST_VERIFY_WHY:+ (${_LAST_VERIFY_WHY//[\]\[]/})}" "$prog"
+    [ -n "$tl" ] && echo "--- verify-gate: scout ALREADY-DONE refusal at line ${ln} counted toward the credit-refusal park ---" >> "$tl"
+  else
+    cf="$(_ovn_cr_dir)/$(_ovn_cr_repo "$prog").$(_ovn_cr_hash "$text")"
+    n="$(sed -n 1p "$cf" 2>/dev/null)"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    [ -n "$tl" ] && echo "--- verify-gate: SHADOW scout ALREADY-DONE refusal at line ${ln} would count as refusal $((n + 1)) of ${OVN_REFUSED_PARK_AT:-2} (OVN_SCOUT_REFUSAL_PARK=on enforces) ---" >> "$tl"
+  fi
+  return 0
+}
+
 ovn_credit_verify_gate() {
   local prog="$1" ln="$2" tl="${3:-}" label="${4:-credit}" mode="${OVN_VERIFY_GATE_MODE:-enforce}"
   declare -F shadow_check >/dev/null 2>&1 || return 0
@@ -339,6 +381,7 @@ ovn_credit_verify_gate() {
     FAIL)
       if [ "$mode" = enforce ]; then
         [ -n "$tl" ] && echo "--- verify-gate: ${label} REFUSED at line ${ln} - the item's own VERIFY: clause FAILED; left open ---" >> "$tl"
+        _ovn_scout_refusal "$prog" "$ln" "$label" "$tl"
         return 1
       fi
       [ -n "$tl" ] && echo "--- verify-gate: ${label} at line ${ln} would be REFUSED (VERIFY: clause FAILED) - OVN_VERIFY_GATE_MODE=${mode}, crediting anyway ---" >> "$tl"

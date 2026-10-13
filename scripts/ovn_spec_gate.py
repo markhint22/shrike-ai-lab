@@ -44,7 +44,7 @@ except Exception as _e:  # a broken sibling module must never cost the planner i
 
 QUARANTINE_RULES = ("R04", "R05", "R07", "R10", "R12", "R13")
 HOLD_RULES = ("R06", "R14")
-STATIC_REPAIR_RULES = ("R01", "R02", "R03", "R11")
+STATIC_REPAIR_RULES = ("R01", "R02", "R03", "R11", "R16")
 # 2026-10-10 (harness R10, IPTV-2): rules ON when OVN_SPEC_GATE_ENFORCE_RULES is UNSET: the static repair-only R01 (bare VERIFY -> backticked) and R11 (gut_cli.gd -> gut_cmdln.gd). An explicitly
 # set value wins (empty / `none` = enforce nothing). Same constant and semantics as queue_refill.py's DEFAULT_ENFORCE_RULES.
 DEFAULT_ENFORCE_RULES = "R01,R11"
