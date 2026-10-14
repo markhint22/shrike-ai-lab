@@ -436,3 +436,20 @@
 # --- deterministic work supply 2026-10-13 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- deterministic work supply 2026-10-13 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-14]: Fix RecordingsView blank titles — `iptv-web/src/stores/recordings.ts:6` defines `Recording (review + tweak) [feat:iptv_apps-20261014-fix-recordingsview-blank-titles-iptv-web] ---
+
+# --- 27B-decomposed from roadmap [2026-10-14]: Fix VodView images always hidden — `iptv-web/src/types/vod.ts:5` declares `poster?: string (review + tweak) [feat:iptv_apps-20261014-fix-vodview-images-always-hidden-iptv-we] ---
+
+# --- 27B-decomposed from roadmap [2026-10-14]: Fix VodView genre filter using only first-page items — `VodView.vue:11-14` derives genres  (review + tweak) [feat:iptv_apps-20261014-fix-vodview-genre-filter-using-only-firs] ---
+
+# --- 27B-decomposed from roadmap [2026-10-14]: Fix stream ownership bypass in update_watch_progress — `watch_history.py:251` fetches `db. (review + tweak) [feat:iptv_apps-20261014-fix-stream-ownership-bypass-in-update-wa] ---
+
+# --- 27B-decomposed from roadmap [2026-10-14]: Rate-limit watch-history write endpoints — `iptv-backend/app/routers/watch_history.py` has (review + tweak) [feat:iptv_apps-20261014-rate-limit-watch-history-write-endpoints] ---
+
+# --- 27B-decomposed from roadmap [2026-10-14]: Remove orphaned denylist helpers with mismatched signature — `iptv-backend/app/services/di (review + tweak) [feat:iptv_apps-20261014-remove-orphaned-denylist-helpers-with-mi] ---
+- [ ] [T1] iptv-backend/tests/test_discover_denylist.py — Add a test asserting that `filter_streams_for_profile`, `filter_youtube_channels`, and `resolve_stream_or_none` are not present in the module namespace. VERIFY: `pytest iptv-backend/tests/test_discover_denylist.py::test_dead_functions_removed -v` (cat:test; multifile:no) [feat:iptv_apps-20261014-remove-orphaned-denylist-helpers-with-mi]
+- [ ] [T2] iptv-backend/app/services/discover_denylist.py — Delete the function definition for `filter_streams_for_profile` starting at line 262. VERIFY: grep -n "def filter_streams_for_profile" iptv-backend/app/services/discover_denylist.py | wc -l returns 0. (cat:python; multifile:no) [feat:iptv_apps-20261014-remove-orphaned-denylist-helpers-with-mi]
+- [ ] [T3] iptv-backend/app/services/discover_denylist.py — Delete the function definition for `filter_youtube_channels` starting at line 333. VERIFY: grep -n "def filter_youtube_channels" iptv-backend/app/services/discover_denylist.py | wc -l returns 0. (cat:python; multifile:no) [feat:iptv_apps-20261014-remove-orphaned-denylist-helpers-with-mi]
+- [ ] [T4] iptv-backend/app/services/discover_denylist.py — Delete the function definition for `resolve_stream_or_none` starting at line 347. VERIFY: grep -n "def resolve_stream_or_none" iptv-backend/app/services/discover_denylist.py | wc -l returns 0. (cat:python; multifile:no) [feat:iptv_apps-20261014-remove-orphaned-denylist-helpers-with-mi]
+- [ ] [T5] iptv-backend/app/services/discover_denylist.py — Add a comment `# noqa: F401 # Sole survivor: used by discover.py` immediately above the `_get_streams_by_genres` definition. VERIFY: `grep -B 1 "def _get_streams_by_genres" iptv-backend/app/services/discover_denylist.py | grep -q "Sole survivor"` (cat:python; multifile:no) [feat:iptv_apps-20261014-remove-orphaned-denylist-helpers-with-mi]
