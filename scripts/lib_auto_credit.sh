@@ -72,11 +72,12 @@ _ovn_in_lines() { case $'\n'"$1"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac; ret
 # generated artefacts (see the allowlist above; needs before_sha to know what the cycle touched - without it NOTHING is treated as benign).
 # except_path, when given, is ignored: the runner's own progress bookkeeping legitimately edits OVERNIGHT_PROGRESS.md before it commits it.
 # On refusal prints the offending paths on stdout: the first 5, then "(+N more)". OVN_TREE_IGNORED holds the benign paths that were ignored
-# (space separated, may be non-empty on success); OVN_TREE_OUT holds the same text as stdout (use it when calling without a subshell). Untracked files are ignored (aider/pytest droppings).
+# (space separated, may be non-empty on success); OVN_TREE_ALL_BAD holds EVERY offending path, one per line, untruncated (package verify-credit-runner: the lockfile settle below
+# needs the full list, OVN_TREE_OUT only the first 5); OVN_TREE_OUT holds the same text as stdout (use it when calling without a subshell). Untracked files are ignored (aider/pytest droppings).
 ovn_tree_matches_sha() {
   local sha="$1" except="${2:-}" before="${3:-}" all p n=0 bad="" total=0 touched=""
   local spec=(-- .); [ -n "$except" ] && spec=(-- . ":(exclude)$except")
-  OVN_TREE_IGNORED=""; OVN_TREE_OUT=""
+  OVN_TREE_IGNORED=""; OVN_TREE_OUT=""; OVN_TREE_ALL_BAD=""
   if [ "$(git rev-parse HEAD 2>/dev/null)" != "$sha" ]; then OVN_TREE_OUT="HEAD is not ${sha:0:12}"; echo "$OVN_TREE_OUT"; return 1; fi
   all="$( { git diff --name-only "$sha" "${spec[@]}" 2>/dev/null; git diff --cached --name-only "$sha" "${spec[@]}" 2>/dev/null; } | sort -u)"
   [ -n "$all" ] || return 0
@@ -87,7 +88,7 @@ ovn_tree_matches_sha() {
     if [ -n "$before" ] && _ovn_tree_is_benign_path "$p" && ! _ovn_in_lines "$touched" "$p"; then
       OVN_TREE_IGNORED="$OVN_TREE_IGNORED $p"; continue
     fi
-    total=$((total + 1))
+    total=$((total + 1)); OVN_TREE_ALL_BAD="${OVN_TREE_ALL_BAD}${p}"$'\n'
     if [ "$n" -lt 5 ]; then bad="$bad $p"; n=$((n + 1)); fi
   done <<< "$all"
   OVN_TREE_IGNORED="${OVN_TREE_IGNORED# }"
@@ -196,11 +197,52 @@ ovn_credit_twins() {
 _ovn_ac_log() { [ -n "${_AC_TASK_LOG:-}" ] && echo "--- auto-credit: $* ---" >> "$_AC_TASK_LOG"; return 0; }
 _ovn_ac_alert() { if declare -F emit_alert >/dev/null 2>&1; then emit_alert warn "${id:-auto-credit}" "$1" 2>/dev/null; fi; return 0; }
 
+# LOCKFILE / PROGRESS-FILE SETTLE (2026-10-13, package verify-credit-runner, night review N4 finding B). Three landed, green cycles were refused only because the tree changed AFTER the
+# cycle's verify: a build/test step (npm install/ci inside the cycle's tests or an item VERIFY) rewrote billwatch-web/package-lock.json (billwatch 122817, iptv 042516), and in the
+# post-VERIFY check OVERNIGHT_PROGRESS.md differed (gitlark 144311, code commit d2c2fdab was green). Neither is the half-restored SOURCE tree RULE 1 exists to catch (the 2026-10-02 13:14
+# incident). A package-lock.json / yarn.lock / pnpm-lock.yaml delta is RESTORED to the cycle's AFTER commit (`git checkout <after> -- <file>`: index and worktree) and the check re-run; the
+# progress file (post-VERIFY only) is kept as it is and the ticked lines are re-located BY TEXT before ticking (line numbers may have moved). ANY other differing path (source, tests, a
+# lockfile mixed with source, a lockfile that cannot be restored) keeps the refusal untouched - nothing is restored in that case. OVN_AC_LOCKFILE_RESTORE=off restores the old refusal.
+_ovn_ac_is_lockfile() { case "${1##*/}" in package-lock.json|yarn.lock|pnpm-lock.yaml) return 0 ;; esac; return 1; }
+# _ovn_ac_settle_tree <after> <before> [progress_file]: call right after ovn_tree_matches_sha REFUSED (uses OVN_TREE_ALL_BAD). rc 0 = the tree now equals AFTER (modulo the progress file,
+# when given: _AC_PROG_CHANGED=1 if it differs); rc 1 = refuse as before (nothing was touched unless a restore half-failed, which is also a refusal).
+_AC_PROG_CHANGED=0
+_ovn_ac_settle_tree() {
+  local after="$1" before="$2" prog="${3:-}" all="${OVN_TREE_ALL_BAD:-}" p locks="" seen_prog=0
+  _AC_PROG_CHANGED=0
+  [ "${OVN_AC_LOCKFILE_RESTORE:-on}" = off ] && return 1
+  [ -n "$all" ] || return 1
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    if [ -n "$prog" ] && [ "$p" = "$prog" ]; then seen_prog=1; continue; fi
+    _ovn_ac_is_lockfile "$p" || return 1
+    locks="${locks}${p}"$'\n'
+  done <<< "$all"
+  [ -n "$locks" ] || [ "$seen_prog" = 1 ] || return 1
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    git checkout -q "$after" -- "$p" 2>/dev/null || return 1
+    _ovn_ac_log "restored lockfile ${p} to ${after:0:12} (a build/test step rewrote it after the cycle's verify; lockfile-only delta, not a source change)"
+  done <<< "$locks"
+  # a differing progress file is KEPT and RULE 5 commits it whole, so it must look like bookkeeping: every line removed/changed versus AFTER has to be an item line (`- [ ]` / `- [x]`: a
+  # tick, a park annotation); a changed heading/record line, or a file we cannot diff, refuses. The diffstat is logged so a swept-in concurrent edit is visible.
+  if [ "$seen_prog" = 1 ]; then
+    local _pd _pbad
+    _pd="$(git diff -U0 "$after" -- "$prog" 2>/dev/null)" || return 1
+    _pbad="$(printf '%s\n' "$_pd" | grep -a '^-' | grep -av '^---' | grep -avE '^-[[:space:]]*[-*] \[[ xX]\] ' | head -1)"
+    if [ -n "$_pbad" ]; then _ovn_ac_log "progress file ${prog} differs from AFTER in a non-item line (${_pbad:0:120}); not bookkeeping, refusing"; return 1; fi
+    _ovn_ac_log "progress file ${prog} diffstat vs AFTER: +$(printf '%s\n' "$_pd" | grep -a '^+' | grep -avc '^+++') -$(printf '%s\n' "$_pd" | grep -a '^-' | grep -avc '^---')"
+  fi
+  ovn_tree_matches_sha "$after" "$prog" "$before" >/dev/null || return 1
+  [ "$seen_prog" = 1 ] && { _AC_PROG_CHANGED=1; _ovn_ac_log "progress file ${prog} changed since the cycle's verify (only differing path besides lockfiles); keeping it, re-locating ticked items by text"; }
+  return 0
+}
+
 ovn_auto_credit() {
   local before="$1" after="$2" prog="$3" _AC_TASK_LOG="${4:-}"
   OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"
   [ -f "$prog" ] || return 0
-  local changed items bad n ln tgt cf norm res ticked_lines="" indet_lines="" indet_msgs="" _t0=$SECONDS _budget _AC_WORKED_H=""
+  local _ac_pretext="" changed items bad n ln tgt cf norm res ticked_lines="" ticked_texts="" indet_lines="" indet_msgs="" _t0=$SECONDS _budget _AC_WORKED_H=""
   # visible to shadow_check through bash dynamic scope; every other caller of shadow_check keeps the 60s default
   local _VC_MEMO="" _VC_MEMO_ON=1   # identical VERIFY commands run once per call (lib_verify_clause.sh)
   local VERIFY_TIMEOUT_SECS="${OVN_AC_VERIFY_TIMEOUT:-300}" VERIFY_TIMEOUT_HEAVY_SECS="${OVN_AC_VERIFY_TIMEOUT_HEAVY:-900}"
@@ -212,9 +254,13 @@ ovn_auto_credit() {
   # RULE 1: the tree must equal AFTER before we do anything at all.
   if ! ovn_tree_matches_sha "$after" "" "$before" >/dev/null; then
     bad="$OVN_TREE_OUT"
-    _ovn_ac_log "REFUSED - working tree/index differ from AFTER ${after:0:12} (${bad}); nothing credited, nothing committed"
-    _ovn_ac_alert "auto-credit refused: tree differs from the cycle's commit (${bad}) - a half-restored tree must never be committed"
-    return 1
+    # lockfile-only delta (no source path): restore it to AFTER and carry on (OVN_AC_LOCKFILE_RESTORE=off = refuse as before)
+    # the progress file may differ here too (gitlark 144311: something wrote it between the cycle's verify and the credit step): settled like the post-VERIFY case
+    if ! _ovn_ac_settle_tree "$after" "$before" "$prog"; then
+      _ovn_ac_log "REFUSED - working tree/index differ from AFTER ${after:0:12} (${bad}); nothing credited, nothing committed"
+      _ovn_ac_alert "auto-credit refused: tree differs from the cycle's commit (${bad}) - a half-restored tree must never be committed"
+      return 1
+    fi
   fi
 
   [ -n "$OVN_TREE_IGNORED" ] && _ovn_ac_log "ignoring tracked generated-artefact difference(s) not touched by this cycle: ${OVN_TREE_IGNORED:0:300}"
@@ -247,6 +293,7 @@ ovn_auto_credit() {
         continue
       fi
       # RULE 4: the item's own VERIFY clause must pass
+      _ac_pretext="$(sed -n "${ln}p" "$prog")"   # the item's text BEFORE its VERIFY runs (a VERIFY may rewrite the progress file; the tick re-finds the item by this text)
       if [ $((SECONDS - _t0)) -ge "$_budget" ]; then
         _LAST_VERIFY_RESULT="TIMEOUT"; _LAST_VERIFY_WHY="VERIFY timed out (rc=124) after ${_budget}s (per-cycle verify budget exhausted; not run)"
       else
@@ -254,7 +301,7 @@ ovn_auto_credit() {
       fi
       case "${_LAST_VERIFY_RESULT:-}" in
         PASS)
-          ticked_lines="$ticked_lines $ln"
+          ticked_lines="$ticked_lines $ln"; ticked_texts="${ticked_texts}${ln}"$'\t'"${_ac_pretext}"$'\n'
           _ovn_ac_log "VERIFY passed for line ${ln} (${cf})"
           break ;;   # one item per touched file, as before
         NO_VERIFY_CLAUSE) _ovn_ac_log "REFUSED line ${ln} (${cf}) - item has no VERIFY: clause, so there is nothing to prove it is done"
@@ -285,16 +332,28 @@ ovn_auto_credit() {
   [ -n "$ticked_lines" ] || return 0
 
   # RULE 1 again: running a VERIFY command must not have changed the tree. If it did, WE dirtied it: restore AFTER and refuse.
+  _AC_PROG_CHANGED=0
   if ! ovn_tree_matches_sha "$after" "" "$before" >/dev/null; then
     bad="$OVN_TREE_OUT"
-    _ovn_ac_log "REFUSED - a VERIFY command modified the tree (${bad}); restoring ${after:0:12}, nothing credited"
-    git reset --hard -q "$after" 2>/dev/null
-    _ovn_ac_alert "auto-credit refused: an item VERIFY command modified the working tree (${bad}); reset to the cycle commit"
-    OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"
-    return 1
+    # lockfile-only delta / progress-file-only delta: settle instead of refusing (any source path still refuses and is hard-reset below)
+    if ! _ovn_ac_settle_tree "$after" "$before" "$prog"; then
+      _ovn_ac_log "REFUSED - a VERIFY command modified the tree (${bad}); restoring ${after:0:12}, nothing credited"
+      git reset --hard -q "$after" 2>/dev/null
+      _ovn_ac_alert "auto-credit refused: an item VERIFY command modified the working tree (${bad}); reset to the cycle commit"
+      OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"
+      return 1
+    fi
   fi
 
+  local _ac_row _ac_rowln _ac_rowtext
   for ln in $ticked_lines; do
+    if [ "$_AC_PROG_CHANGED" = 1 ]; then
+      # the progress file moved under us: the line number is stale, find the SAME item text again (an unchanged text that is no longer an open line is skipped)
+      _ac_rowtext="$(printf '%s' "$ticked_texts" | awk -F'\t' -v n="$ln" '$1==n{print substr($0,length(n)+2); exit}')"
+      _ac_rowln=""; [ -n "$_ac_rowtext" ] && _ac_rowln="$(grep -nxF -m1 -- "$_ac_rowtext" "$prog" 2>/dev/null | cut -d: -f1)"
+      if [ -z "$_ac_rowln" ]; then _ovn_ac_log "SKIPPED tick of line ${ln}: its item text is not an open line of the changed progress file any more"; continue; fi
+      ln="$_ac_rowln"
+    fi
     _ac_before_text="$(sed -n "${ln}p" "$prog")"
     res="$(python3 "$_AC_DIR/ovn_credit_items.py" tick "$prog" "$ln" 2>/dev/null)"
     if [ "$res" = "TICKED" ]; then ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; ovn_credit_twins "$prog" "$ln" "$_AC_TASK_LOG"; fi

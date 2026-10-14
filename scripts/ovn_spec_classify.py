@@ -86,13 +86,49 @@ def clean_bare_verify(cmd):
     return c
 
 
+# 2026-10-13 (spec-intake-5-lanes): `VERIFY: Run `pytest x -v`.` - the 27B writes a verb in front of the backticked command, so the clause reads as prose to every parser that wants the
+# backtick right after `VERIFY:` (TAA line 1485: 4 credit refusals 'item has no VERIFY clause'). R01 rewrites it to the plain backticked form; this is the same reading for a line the
+# repair has not reached yet. Only a leading Run / Execute / Check and exactly one backticked command (optionally followed by a period) count; the command must start with a tool word R01 knows.
+R01_CMDS = re.compile(r"^(grep|test|ls|python3?|pytest|cd|godot|npm|npx|\./gradlew)\b")
+_VERB_BACKTICKED = re.compile(r"^(?:Run|Execute|Check)\s+`([^`]+)`\s*\.?\s*$", re.I)
+_VERB_BARE = re.compile(r"^(?:Run|Execute|Check)\s+([^`]+?)\s*$", re.I)
+
+
+def strip_verify_verb(clause, check=True):
+    """'Run `cmd`.' | 'Execute `cmd`' | 'Check `cmd`.' -> 'cmd'; 'Run cmd.' -> 'cmd' (bare form, sentence period dropped); None for anything else (no verb, a second backtick span, trailing narration). check=True (readers: verify_of) also
+    requires the inner text to be a command and not prose; R01x passes check=False because it applies its own, stricter tests to the inner text before it rewrites anything."""
+    c = (clause or "").strip()
+    m = _VERB_BACKTICKED.match(c)
+    if m:
+        inner = m.group(1).strip()
+    else:
+        m = _VERB_BARE.match(c)
+        if not m:
+            return None
+        inner = clean_bare_verify(m.group(1))
+    if not inner or not R01_CMDS.match(inner):
+        return None
+    if not check:
+        return inner
+    # the SAME 'is this a command and not prose' test R01 applies (known tool word, balanced quotes, no prose word): 'Run npm test and ensure it passes' is a sentence, not a command.
+    # Lazy import (ovn_spec_rules imports this module); when it cannot be imported only the explicit backticked form is trusted.
+    try:
+        from ovn_spec_rules import _bare_cmd_ok
+    except Exception:
+        return inner if _VERB_BACKTICKED.match(c) else None
+    return inner if _bare_cmd_ok(inner) else None
+
+
 def verify_of(line):
-    """The VERIFY command the way queue_refill._extract_verify reads it (a bare clause gets its sentence period cleaned)."""
+    """The VERIFY command the way queue_refill._extract_verify reads it (a bare clause gets its sentence period cleaned; a Run/Execute/Check verb in front of it is dropped)."""
     m = re.search(r"VERIFY:\s*`([^`]+)`", line)
     if m:
         return m.group(1).strip()
     c = extract_verify(line)
-    return clean_bare_verify(c) if c else None
+    if not c:
+        return None
+    v = strip_verify_verb(c)
+    return v if v else clean_bare_verify(c)
 
 
 def declared_paths(line):

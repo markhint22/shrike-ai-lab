@@ -252,7 +252,9 @@ printf "def nop():\n    pass\n" > backend/app/nop.py
 : > backend/app/empty.py
 printf "def test_zz():\n    assert True\n" > backend/tests/test_zz.py
 mkdir -p game; printf "static func gg() -> void:\n\tpass\n" > game/g.gd'
-osr_run "$OSR_REPO" "$ITEM_PY"; vl
+# 2026-10-13 (N4 Part 1): a 0-byte NEW file at an undeclared path is now reaped at the STEP (OVN_STAGE_EMPTY_FILE, test_stage_empty_file.sh), so it never reaches this final
+# gate; the switch is off here to keep exercising the final gate's own 0-byte check (still the backstop for e.g. a repair round that empties a file).
+OVN_STAGE_EMPTY_FILE=off osr_run "$OSR_REPO" "$ITEM_PY"; vl
 t "stub keyword on an added line -> QUALITY FAIL stub/placeholder" V "QUALITY FAIL: backend/app/stubby.py is a stub/placeholder"
 t "added function with bare pass body (.py) -> QUALITY FAIL" V "QUALITY FAIL: backend/app/nop.py has a bare pass/no-op body"
 t "added function with bare pass body (.gd) -> QUALITY FAIL" V "QUALITY FAIL: game/g.gd has a bare pass/no-op body"

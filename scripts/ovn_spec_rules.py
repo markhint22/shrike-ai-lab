@@ -10,6 +10,15 @@ Finding = {"rule": "R0x", "sev": "repair" | "reject" | "flag", "msg": str, "evid
 
   R01 repair  bare `VERIFY: <cmd> (cat:` -> backticked, when <cmd> starts with grep|test|ls|python|pytest|cd|godot|npm|npx|./gradlew, its quotes balance and it
               carries no prose word (passes/should/...); a trailing sentence period glued to the last token is dropped
+              2026-10-13 (spec-intake-5-lanes) two more repairs of a VERIFY no reader could parse or run (pure repairs, ENFORCED like the rest of R01; OVN_SPEC_R01X=off turns them off, any case):
+              (a) a leading Run|Execute|Check verb (`VERIFY: Run `pytest x -v`.` -> `pytest x -v`); (c) `<grep ...> | wc -l >= N` (an unquoted `>=` is a redirect: bash writes a file named `=` and hands wc a
+              file named N, so the clause can never pass, and the shadow check denylists any `>`) -> `[ "$(<cmd> | wc -l)" -ge N ]`, ONLY for a comparison an empty or errored pipeline cannot satisfy
+              (-ge/-gt/-eq with a bound that needs at least one line); `== 0` / `<= N` / `< N` would PASS on a typo'd path (wc swallows grep's error), so those get an R01 'flag' and are left alone.
+              Never when the command is not R01-allowed, has a redirect or a denylisted token (rm -rf / sudo / git push / git reset / curl / wget).
+              (b) a bare `<grep> returns no results|no matches|nothing` is NOT repaired by default (fixer round 2026-10-13): the deployed credit gate already reads that form with strict polarity
+              (lib_verify_clause X1: rc 1 = absent, rc 2 = error = FAIL) and `! grep ...` would credit a wrong path. OVN_SPEC_R01X_NEG=off|shadow|on (default shadow = an R01 'flag' carrying the proposal, line
+              untouched); `on` repairs a lone grep to the rc-strict `grep ... ; [ $? -eq 1 ]` (rc 2 stays a failure). ls / test / cat / stat / chains / pipelines are never rewritten ('has no output' is not
+              the exit code `! ls` negates)
   R02 repair  vacuous echo idiom `cmd && echo FAIL || echo PASS` (always exit 0) -> `! ( cmd )` / `cmd`   (ovn_backlog_eligibility.normalize_vacuous_echo)
   R03 repair  backticked grep/test/ls/cat/stat cmd whose WHOLE following sentence is exactly a whitelisted post-change verdict ([which|it] [must] fails [with "No such file or
               directory"] | returns non-zero [exit code] | no matches | No such file [or directory], optionally 'after the change/fix') -> `! cmd`; any other wording
@@ -41,6 +50,12 @@ Finding = {"rule": "R0x", "sev": "repair" | "reject" | "flag", "msg": str, "evid
               function(s) are defined in the target file but have ZERO production callers (no non-comment reference outside tests; a call from inside the same file counts) is work on dead
               code - convert it to a delete item (with its tests) or drop it (xlite aim_modifiers.calc_suppression_aim_penalty: 3 retype commits on a function nothing calls, 2026-10-11).
               Only .gd / .py targets; engine callbacks (_ready, _process, ...), dunders and decorated python functions are never judged dead
+  R18 repair  (spec-intake-5-lanes, 2026-10-13; SHADOW by default, OVN_SPEC_R18=off|shadow|repair) an item that CREATES a test file (its target / Create path is a test path not tracked at the
+              ref) whose VERIFY only greps the CONTENT of that file (`grep -q 'assert_eq("Raider"' tests/test_x.gd`, `grep -c 'def test_' f`): a brittle literal on correct code (xlite 1b2478ce: the
+              real test is assert_eq(u.display_name(), "Raider") and passes). Proposed repair: RUN the file (`pytest <file> -q`, or the GUT form through ovn_gut_clause), which proves the test exists AND passes
+  R19 flag    (spec-intake-5-lanes; SHADOW by default, OVN_SPEC_R19=off|shadow|repair) a VERIFY names `pytest <file>::<name>` / `-k <name>` where <name> is not defined in <file> at the ref and this item does not
+              touch <file>: (hold) a LATER sibling of the same [feat] batch creates it (shrike-monitor T1 `_safe_tick_monitor` names a test a later item adds): reorder, same machinery as R14 (evidence.action
+              = hold); (rewrite) nothing creates it: `pytest <file> -q` is the PROPOSAL only (evidence.proposed) - never applied, even with OVN_SPEC_R19=repair: the file exists and passes today, so the item would be green before any work (vacuous: false credits / quarantines). An item that edits <file> itself is never judged (it defines the name)
   R10 reject  model-written "send N requests and assert 429" test items; the deterministic rate-limit collector (ovn_work_supply, supply:rate-limit; limiter.enabled
               + reset fixture) is the only sanctioned form and is never flagged
 
@@ -56,11 +71,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ovn_backlog_eligibility import (  # noqa: E402
     extract_verify, item_target, is_open_item, normalize_vacuous_echo, is_vacuous_cmd, repair_vacuous_cmd, unrunnable_verify_reason)
-from ovn_spec_classify import clean_bare_verify, declared_paths  # noqa: E402
+from ovn_spec_classify import clean_bare_verify, declared_paths, strip_verify_verb, R01_CMDS  # noqa: E402
 
 ITEM_RE = re.compile(r"^- \[ \] \[(T[1-5])\]\s+(?P<target>.+?)\s+—\s+(?P<body>.*)$")
 FEAT_RE = re.compile(r"\[feat:([^\]]+)\]")
-R01_CMDS = re.compile(r"^(grep|test|ls|python3?|pytest|cd|godot|npm|npx|\./gradlew)\b")
 PROSE_WORDS = {"passes", "pass", "succeeds", "should", "must", "returns", "exits", "fails", "works", "verifies", "ensure", "ensures", "is", "are", "with", "then",
                # 2026-10-10 (reviewer): narration glued after a real command ("grep -n X f shows a match near line 41") ran through bash -c, grep took the words as files and exited 2
                "shows", "show", "shown", "near", "contains", "contain", "appears", "appear", "matches", "matched", "exists", "exist", "has", "have", "does", "outputs", "prints", "reports"}
@@ -281,6 +295,108 @@ def _prose_tail_or_vacuous(cmd):
     return False
 
 
+# ---- R01 extensions (spec-intake-5-lanes, 2026-10-13): a VERIFY written in a form no reader could parse or run
+_R01X_DENY = ("rm -rf", "sudo ", "git push", "git reset", "curl ", "wget ")      # lib_verify_clause.shadow_check's denylist
+_NEG_NARR = re.compile(
+    r"^(?P<cmd>.+?)\s+(?:(?:now|then)\s+)?(?:(?:must|should)\s+)?(?:returns?|has|yields?|produces?|prints?|outputs?)\s+(?:no\s+(?:results?|matches|lines?|output|hits)|nothing)"
+    r"(?:\s+(?:after|once)\s+(?:the\s+|this\s+)?(?:change|fix|edit|patch|removal|deletion|rename|refactor)(?:\s+is\s+applied)?)?\s*\.?$", re.I)
+_WC_CMP = re.compile(r"^(?P<pre>.+?)\s*\|\s*wc\s+-l\s*(?P<op>>=|<=|==|>|<)\s*(?P<n>\d+)\s*\.?$")
+_WC_OPS = {">=": "-ge", "<=": "-le", "==": "-eq", ">": "-gt", "<": "-lt"}
+_WC_STAGES = {"grep", "egrep", "fgrep", "rg", "ls", "cat", "stat"}
+
+
+def _mode(name):
+    """off | shadow | repair for the spec-intake rules (R18 / R19); unset or anything else = shadow."""
+    m = os.environ.get(name, "shadow").strip().lower()
+    return m if m in ("off", "shadow", "repair") else "shadow"
+
+
+def _has_redirect(cmd):
+    """True when the command has an unquoted < or > other than the harmless `>/dev/null`, `2>/dev/null`, `2>&1` forms (the shape lib_verify_clause._has_real_redirect refuses)."""
+    c = re.sub(r"\d?>\s*/dev/null|\d?>&\d", " ", _QUOTED.sub("''", cmd))
+    return "<" in c or ">" in c
+
+
+def _new_form_safe(cmd):
+    return bool(cmd) and "`" not in cmd and not any(d in cmd for d in _R01X_DENY) and not _has_redirect(cmd) and bool(R01_CMDS.match(cmd)) and _balanced(cmd)
+
+
+def _r01_neg_mode():
+    """off | shadow | on for the bare 'returns no results' form (default shadow)."""
+    m = os.environ.get("OVN_SPEC_R01X_NEG", "shadow").strip().lower()
+    return m if m in ("off", "shadow", "on") else "shadow"
+
+
+def _r01_neg(cand):
+    """`grep ... returns no results|no matches|nothing [after the change]` -> the rc-strict `grep ... ; [ $? -eq 1 ]`, or None. ONLY a lone grep (no chain, no pipe, no `!`): grep's rc 1 is the
+    absence, rc 2 (typo'd / missing path) stays a failure. NOT `! grep` (a missing path would pass) and never ls / test / cat / stat: `ls d has no output` is true for an EMPTY dir, `! ls d` is true
+    only for a MISSING one. The deployed credit gate already reads the bare narration with strict polarity, so this is an optional intake repair, never the default."""
+    m = _NEG_NARR.match(cand.strip())
+    if not m:
+        return None
+    cmd = m.group("cmd").strip()
+    if cmd.startswith("!") or re.search(r"&&|\|\||;|\|", _QUOTED.sub("''", cmd)) or not re.match(r"^grep\s", cmd):
+        return None
+    if not _new_form_safe(cmd) or not _bare_cmd_ok(cmd) or not _r03_cmd_ok(cmd):
+        return None
+    return "%s ; [ $? -eq 1 ]" % cmd
+
+
+# a wc comparison an EMPTY count satisfies (a typo'd path makes grep print an error that wc swallows: count 0) must not be rewritten into a numeric test
+def _wc_zero_passes(op, n):
+    n = int(n)
+    return op in ("<", "<=") or (op == "==" and n == 0) or (op == ">=" and n == 0)
+
+
+def _r01_wc(cand):
+    """`<grep ...> | wc -l >= N` -> `[ "$(<grep ...> | wc -l)" -ge N ]`, or None. Only a pure pipeline of grep / ls / cat / stat stages (no `;` `&&` `||`) that starts with an R01-allowed tool,
+    and only a comparison that FAILS on count 0 (see _wc_zero_passes; those get an R01 flag from _r01x)."""
+    m = _WC_CMP.match(cand.strip())
+    if not m:
+        return None
+    pre = m.group("pre").strip()
+    stages = _split_clauses_for_r03(pre)
+    if not stages or any(not st.split() or st.split()[0] not in _WC_STAGES for st in stages) or not _new_form_safe(pre):
+        return None
+    if _wc_zero_passes(m.group("op"), m.group("n")):
+        return None
+    return '[ "$(%s | wc -l)" %s %s ]' % (pre, _WC_OPS[m.group("op")], m.group("n"))
+
+
+def _r01_wc_zero_flag(cand):
+    """True for a `<pure grep pipeline> | wc -l <op> N` that _r01_wc refuses ONLY because an empty count would satisfy it."""
+    m = _WC_CMP.match(cand.strip())
+    if not m or not _wc_zero_passes(m.group("op"), m.group("n")):
+        return False
+    pre = m.group("pre").strip()
+    stages = _split_clauses_for_r03(pre)
+    return bool(stages) and all(st.split() and st.split()[0] in _WC_STAGES for st in stages) and _new_form_safe(pre)
+
+
+def _r01x(raw):
+    """(command|None, message, sev) for a clause R01 proper did not accept, or None. raw is the clause up to ` (cat:` with its sentence period already dropped. sev 'repair' = command replaces
+    the clause; sev 'flag' = nothing is rewritten, command (or None) is only the proposal."""
+    if os.environ.get("OVN_SPEC_R01X", "on").strip().lower() == "off":
+        return None
+    inner = strip_verify_verb(raw, check=False)
+    if inner is not None and _new_form_safe(inner) and _bare_cmd_ok(inner):
+        return inner, "VERIFY led by a Run/Execute/Check verb: verb dropped, command backticked", "repair"
+    cand = inner if inner is not None else raw
+    nm = _r01_neg_mode()
+    if nm != "off":
+        fixed = _r01_neg(cand)
+        if fixed:
+            if nm == "on":
+                return fixed, "bare VERIFY narrates absence ('returns no results'): rewritten to an rc-strict grep (rc 1 = absent, rc 2 = still a failure)", "repair"
+            return fixed, "bare VERIFY narrates absence ('returns no results'): shadow, line untouched (the credit gate already reads this form with strict polarity); proposed rc-strict form", "flag"
+    fixed = _r01_wc(cand)
+    if fixed:
+        return fixed, "unquoted `| wc -l >= N` is a shell redirect (wc is handed a file named N: the clause can never pass): rewritten as a numeric test", "repair"
+    if _r01_wc_zero_flag(cand):
+        return None, "`| wc -l` comparison an empty count satisfies (a typo'd path would pass): not rewritten, needs a human or an explicit file-exists check", "flag"
+    return None
+
+
 def _r01(line):
     """bare `VERIFY: cmd (cat:` -> `VERIFY: \\`cmd\\` (cat:`"""
     b = bare_verify(line)
@@ -294,7 +410,12 @@ def _r01(line):
             return line, None
         raw = clean_bare_verify(m.group(1))
         if not is_vacuous_cmd(raw):
-            return line, None
+            x = _r01x(raw)                  # spec-intake-5-lanes: Run-verb / `| wc -l >= N` repairs; bare 'returns no results' + zero-passing wc are flags
+            if not x:
+                return line, None
+            if x[2] == "flag":
+                return line, finding("R01", "flag", x[1], {"clause": raw, "proposed": x[0]})
+            return line[:m.start()] + "VERIFY: `%s`" % x[0] + m.group(2) + line[m.end():], finding("R01", "repair", x[1], raw)
         fixed = repair_vacuous_cmd(raw)
         if not fixed or "`" in fixed or not _balanced(fixed):
             return line, None
@@ -737,6 +858,221 @@ def _r12(line, p, sibling_lines, ctx):
     return None
 
 
+# ---------------------------------------------------------------- R18 / R19 (spec-intake-5-lanes, 2026-10-13)
+_VERIFY_BT = re.compile(r"VERIFY:\s*`([^`]+)`")
+_GREP_FAMILY = {"grep", "egrep", "fgrep", "rg"}
+_GREP_FLAGS_OK = re.compile(r"^-[qcnFEGPiwxHhsoIaz]+$")           # flags that take no value: anything else (-e PAT, -m N, -A N, --, --include=...) is not judged
+
+
+def _norm_op(o):
+    o = o[len("res://"):] if o.startswith("res://") else o
+    return o[2:] if o.startswith("./") else o
+
+
+def _grep_only_on(v, targets):
+    """(cd words as written, operand as written) when VERIFY `v` is made ONLY of relative `cd <dir>` clauses and plain grep-family clauses joined by `&&`, and EVERY file operand of every grep
+    resolves (through the cd's) to one of `targets`; else None. A pipe, `;`, `||`, a redirect, `!`, a value-taking grep flag, or any other command means the clause checks more than that file's text."""
+    st = _structure(v)
+    if st is None or _has_redirect(v) or "$(" in v or "`" in v:
+        return None
+    pipelines, cmp_redir = st
+    if cmp_redir or not pipelines:
+        return None
+    cwd, cds, operand, greps = "", [], None, 0
+    for op, pipe in pipelines:
+        if op not in (None, "&&") or len(pipe) != 1 or not pipe[0]:
+            return None
+        words = pipe[0]
+        if words[0] == "cd":
+            if len(words) != 2 or words[1].startswith(("/", "~", "$", "-")):
+                return None
+            d = os.path.normpath(words[1])
+            if d.startswith(".."):
+                return None
+            cwd = os.path.normpath(os.path.join(cwd, d)) if cwd else d
+            cds.append(words[1])
+            continue
+        if words[0] not in _GREP_FAMILY:
+            return None
+        flags = [a for a in words[1:] if a.startswith("-") and len(a) > 1]
+        if any(not _GREP_FLAGS_OK.match(a) for a in flags):
+            return None
+        rest = [a for a in words[1:] if not (a.startswith("-") and len(a) > 1)]
+        if len(rest) < 2:                                  # pattern + at least one file
+            return None
+        for o in rest[1:]:
+            o2 = _norm_op(o)
+            full = os.path.normpath(os.path.join(cwd, o2)) if cwd else os.path.normpath(o2)
+            if full not in targets:
+                return None
+            operand = operand or o2
+        greps += 1
+    return (cds, operand) if greps and operand else None
+
+
+def _r18(line, ctx):
+    """R18: -> (line2, finding|None). See the module docstring. Modes OVN_SPEC_R18: off | shadow (default: a 'flag' finding that carries the proposed VERIFY, the line is NOT touched) | repair (the
+    line is rewritten, sev 'repair')."""
+    mode = _mode("OVN_SPEC_R18")
+    if mode == "off" or ctx is None:
+        return line, None
+    m = _VERIFY_BT.search(line)
+    if not m:
+        return line, None
+    v = m.group(1).strip()
+    tree = ctx.tree()
+    if not tree or v.startswith("!"):
+        return line, None
+    created = {d for d in declared_paths(line) if _is_test_path(d) and d not in tree and d.endswith((".py", ".gd"))}
+    if not created:
+        return line, None
+    g = _grep_only_on(v, created)
+    if g is None:
+        return line, None
+    cds, operand = g
+    if operand.endswith(".py"):
+        new = " && ".join(["cd %s" % shlex.quote(c) for c in cds] + ["pytest %s -q" % shlex.quote(operand)])
+    else:
+        try:
+            import ovn_gut_clause as G
+            base = " && ".join(["cd %s" % shlex.quote(c) for c in cds] + ["godot --headless -s %s" % shlex.quote(operand)])
+            new, notes = G.normalize(base, _ItemFS(G.CtxFS(ctx), sorted(created)), require_exists=False, repair_script=True)
+            if "godot-script->gut" not in notes or "gut_cmdln" not in new:
+                return line, None
+        except Exception:  # noqa: BLE001 - a broken helper must never cost the line
+            return line, None
+    msg = "VERIFY greps the CONTENT of the test file this item creates (brittle literal on correct code): run the file instead, which proves the test exists and passes"
+    if mode == "repair":
+        return line[:m.start(1)] + new + line[m.end(1):], finding("R18", "repair", msg, {"verify": v, "proposed": new})
+    return line, finding("R18", "flag", msg + " [shadow: line not rewritten]", {"verify": v, "proposed": new, "action": "rewrite"})
+
+
+_PYTEST_INV = re.compile(r"(?:^|[;&|(]\s*)(?:\S*python[\w.]*\s+-m\s+)?(?:\S*/)?pytest\b(?P<args>[^;&|)]*)")
+
+
+def _py_defs(src):
+    """(names of every def / async def / class, lowercase source) of a python file, or None when it does not parse."""
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return None
+    return {n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+
+
+def _pytest_targets(v):
+    """[(invocation match, [(path as written, [node components])], [-k idents])] of every pytest call in a VERIFY."""
+    out = []
+    for im in _PYTEST_INV.finditer(v):
+        try:
+            toks = shlex.split(im.group("args"))
+        except ValueError:
+            continue
+        nodes, kids, i = [], [], 0
+        while i < len(toks):
+            t = toks[i]
+            expr = None
+            if t == "-k" and i + 1 < len(toks):
+                expr, i = toks[i + 1], i + 1
+            elif t.startswith("-k=") or (t.startswith("-k") and len(t) > 2 and not t.startswith("--")):
+                expr = t[3:] if t.startswith("-k=") else t[2:]
+            elif not t.startswith("-") and re.search(r"\.py(?:::|$)", t):
+                parts = t.split("::")
+                nodes.append((parts[0], parts[1:]))
+            if expr is not None:
+                kids += [w for w in re.findall(r"[A-Za-z_]\w*", expr) if w.lower() not in ("and", "or", "not")]
+            i += 1
+        out.append((im, nodes, kids))
+    return out
+
+
+def _r19(idx, parsed, lines, ctx):
+    """R19: -> (finding|None, new_verify|None). See the module docstring; new_verify is always None (the whole-file proposal is evidence only: it would be green before the work)."""
+    mode = _mode("OVN_SPEC_R19")
+    p = parsed[idx]
+    if mode == "off" or p is None or ctx is None:
+        return None, None
+    line = lines[idx]
+    m = _VERIFY_BT.search(line)
+    if not m:
+        return None, None
+    v = m.group(1)
+    tree = ctx.tree()
+    invs = _pytest_targets(v)
+    if not tree or not invs:
+        return None, None
+    cds = _r12_cd_dirs(v)
+    declared = declared_paths(line)
+    dnames = {os.path.basename(d) for d in declared}
+    missing = []                                            # (resolved file, name as written, name core)
+    files_written = []
+    for im, nodes, kids in invs:
+        in_files = []
+        for f, comps in nodes:
+            f2 = _norm_op(f)
+            res = next((c for c in [f2] + [os.path.normpath(d + "/" + f2) for d in cds] if c in tree), None)
+            if res is None or res in declared or os.path.basename(res) in dnames or f2 in declared:
+                continue                                   # absent (R12's) or a file this item itself writes: it defines the name
+            in_files.append(res)
+            if f2 not in files_written:
+                files_written.append(f2)
+            if not comps:
+                continue
+            body = ctx.show(res)
+            defs = _py_defs(body) if body is not None else None
+            if defs is None:                               # unreadable / not python: say nothing
+                continue
+            for c in comps:
+                core = re.sub(r"\[.*\]$", "", c)
+                if core and core not in defs:
+                    missing.append((res, "%s::%s" % (f2, "::".join(comps)), core))
+                    break
+        for k in kids:
+            hit = False
+            for res in in_files:
+                body = ctx.show(res)
+                if body is None or k.lower() in body.lower() or k.lower() in res.lower():      # an unreadable file is never evidence of a missing name
+                    hit = True
+                    break
+            if in_files and not hit:
+                missing.append((in_files[0], "-k %s" % k, k))
+    if not missing:
+        return None, None
+    # a sibling that lands the name EARLIER makes the item fine (queue order); one that lands it LATER is a hold
+    later_by, earlier = {}, set()
+    for res, shown, core in missing:
+        for j in range(len(parsed)):
+            q = parsed[j]
+            if j == idx or q is None or not p.get("feat") or q.get("feat") != p["feat"]:
+                continue
+            qd = declared_paths(lines[j])
+            if not (res in qd or os.path.basename(res) in {os.path.basename(d) for d in qd}):
+                continue
+            if not re.search(r"(?<!\w)%s(?!\w)" % re.escape(core), q["text"] + " " + (extract_verify(lines[j]) or "")):
+                continue
+            if j < idx:
+                earlier.add((res, shown))
+            else:
+                later_by.setdefault((res, shown), []).append(j + 1)
+    missing = [x for x in missing if (x[0], x[1]) not in earlier]
+    if not missing:
+        return None, None
+    held = [x for x in missing if (x[0], x[1]) in later_by]
+    if held:
+        items = sorted({n for x in held for n in later_by[(x[0], x[1])]})
+        return finding("R19", "flag", "VERIFY names %s which is not defined yet; a LATER item of the same batch creates it (item %s): move this item after it" % (", ".join(sorted({x[1] for x in held})), ",".join(map(str, items))),
+                       {"action": "hold", "missing": [x[1] for x in missing], "creator_items": items}), None
+    new = None
+    if len(invs) == 1 and len(set(files_written)) == 1:
+        im = invs[0][0]
+        new = v[:im.start("args")] + " %s -q" % shlex.quote(files_written[0]) + v[im.end("args"):]
+    shown = [x[1] for x in missing][:4]
+    msg = "VERIFY names %s which the test file does not define and no item of the batch creates: it can only fail" % ", ".join(shown)
+    # The whole-file run is a PROPOSAL only, in every mode: the test file exists and passes today and this item does not touch it, so `pytest <file> -q` is green BEFORE the work - a vacuous
+    # VERIFY that would feed the credit gate / PB a false 'already satisfied' (fixer round, 2026-10-13). OVN_SPEC_R19=repair therefore still returns no rewrite.
+    return finding("R19", "flag", msg + ((" [proposal only, never applied: `%s` is green before the work]" % new) if new else ""), {"action": "rewrite" if new else "flag", "missing": shown, "proposed": new,
+                   "vacuous": bool(new)}), None
+
+
 def _py_names(src):
     try:
         tree = ast.parse(src)
@@ -1010,6 +1346,9 @@ def lint_batch(lines, ctx=None):
             line2, f16 = _r16(line2, ctx)
             if f16:
                 fs = list(fs) + [f16]
+            line2, f18 = _r18(line2, ctx)          # spec-intake-5-lanes: shadow by default (flag only); OVN_SPEC_R18=repair rewrites
+            if f18:
+                fs = list(fs) + [f18]
         lined.append((line2, fs))
         parsed.append(parse(line2) if is_open_item(line2) else None)
     adds, dels = {}, {}
@@ -1029,6 +1368,13 @@ def lint_batch(lines, ctx=None):
                       _r13(line2, ctx), _r14(i, parsed, [l for l, _ in lined], ctx), _r15(p, ctx), _r17(line2)):
                 if f:
                     fs.append(f)
+            f19, new19 = _r19(i, parsed, [l for l, _ in lined], ctx)
+            if f19:
+                fs.append(f19)
+            if new19:                               # never today: R19's rewrite is a proposal only (vacuous)
+                mm = _VERIFY_BT.search(line2)
+                if mm:
+                    line2 = line2[:mm.start(1)] + new19 + line2[mm.end(1):]
             for key in dels:
                 if key in adds and (i in dels[key] or i in adds[key]):
                     fs.append(finding("R07", "flag", "one open item adds and another deletes the same symbol in the same file", {"file": key[0], "symbol": key[1]}))

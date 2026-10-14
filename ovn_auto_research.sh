@@ -25,8 +25,12 @@ SRV="${OVN_SSH:-mhintermeister@192.168.68.145}"
 REMOTE="${OVN_REMOTE_DIR:-overnight-queue}"
 CLONES="${OVN_CLONES_DIR:-$HOME/LocalProjects}"
 STATE="${OVN_AUTO_RESEARCH_STATE:-$HOME/.ovn_auto_research}"
-MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-2}"
-MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-2}"   # 2026-10-07: Claude capacity is scarce (it hit its usage limit for days); the local Qwen refuel (ovn_local_research.py) is the engine, this is a quality bonus
+# 2026-10-13: this Claude pass is a BONUS now, not the engine. The engine is the box-side exploratory researcher (scripts/ovn_qwen_explore.py: local Qwen, no Mac, no Claude, no cap that
+# matters), so the lanes no longer starve when Claude is unavailable. The old 2/day cap (set 2026-10-07 after Claude hit its usage limit for days) protected little and cost a lot;
+# defaults are now 8/day and 3/run. A Claude failure (usage limit, rc != 0, empty reply) is harmless: the pass is skipped without a cooldown, nothing is appended, and the
+# explorer keeps feeding the lanes. OVN_AR_MAX_PER_DAY / OVN_AR_MAX_PER_RUN still override.
+MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-3}"
+MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-8}"
 MIN_STARVE_H="${OVN_AR_MIN_STARVE_H:-0.5}"
 # Cooldown depends on the LAST pass's result (2026-10-03). A pass that accepted ZERO items means the repo may be genuinely complete -> wait long
 # (COOLDOWN_EMPTY_H) so it is not re-researched every run. A PRODUCTIVE pass only needs a short pause (COOLDOWN_PRODUCTIVE_H, ~one launchd interval):
@@ -148,7 +152,41 @@ fi
 trap 'rm -rf "${WORK:-}"; drop_guard; release_lock' EXIT
 
 TODAY="$(date +%F)"; CNT_FILE="$STATE/count_$TODAY"; used="$(cat "$CNT_FILE" 2>/dev/null || echo 0)"
-[ "$used" -ge "$MAX_PER_DAY" ] && { log "daily cap reached ($used/$MAX_PER_DAY) - skip"; exit 0; }
+# 2026-10-13 (package supply-ledger): STARVATION ESCALATION above the daily cap. xlite starved 15h while this log said "daily cap reached (2/2)" every hour for ~22h.
+# ovn_supply_ledger.py (box cron) writes state/supply_escalate_<repo> (JSON, once per local day) when a priority lane's 24h duty is under the floor with nothing
+# pullable. When the cap is reached, markers of TODAY for repos on the research allowlist allow up to OVN_AR_ESCALATE_MAX (default 2) EXTRA passes above MAX_PER_DAY, for those
+# repos only and only while they have been starving >= OVN_AR_ESCALATE_MIN_H (default 3) hours (the candidate filter below enforces both: allowlist = the escalated repos,
+# MIN_STARVE_H raised). Per-repo cooldown and the $ cap still apply. OVN_AUTO_RESEARCH_ESCALATE=shadow (DEFAULT) only logs what it would allow; =on applies it; =off skips
+# even the box read.
+if [ "$used" -ge "$MAX_PER_DAY" ]; then
+  ESC_MODE="${OVN_AUTO_RESEARCH_ESCALATE:-shadow}"; ESC_MAX="${OVN_AR_ESCALATE_MAX:-2}"; ESC_MIN_H="${OVN_AR_ESCALATE_MIN_H:-3}"; esc_repos=""
+  case "$ESC_MODE" in on|shadow) ;; *) ESC_MODE=off;; esac
+  if [ "$ESC_MODE" != off ] && [ "$used" -lt $(( MAX_PER_DAY + ESC_MAX )) ] 2>/dev/null; then
+    if [ "${OVN_AR_REPOS+set}" = set ]; then ESC_ALLOW="$OVN_AR_REPOS"; else ESC_ALLOW="iptv_apps xlite"; fi   # same default as the candidate allowlist below (an explicitly empty value = no allowlist)
+    esc_repos="$(ssh -o ConnectTimeout=20 -o BatchMode=yes "$SRV" "cat ~/$REMOTE/state/supply_escalate_* 2>/dev/null" 2>/dev/null | python3 -c '
+import json, sys
+today, allow = sys.argv[1], sys.argv[2].split()
+seen = []
+for ln in sys.stdin:
+    try:
+        d = json.loads(ln)
+    except ValueError:
+        continue
+    r = d.get("repo") if isinstance(d, dict) else None
+    if isinstance(r, str) and d.get("day") == today and r not in seen and (not allow or "all" in allow or r in allow):
+        seen.append(r)
+print(" ".join(seen))' "$TODAY" "$ESC_ALLOW" 2>/dev/null)"
+  fi
+  if [ -z "$esc_repos" ]; then log "daily cap reached ($used/$MAX_PER_DAY) - skip"; exit 0; fi
+  if [ "$ESC_MODE" = on ]; then
+    log "daily cap reached ($used/$MAX_PER_DAY) but supply-floor escalation allows up to $(( MAX_PER_DAY + ESC_MAX - used )) extra pass(es) for: $esc_repos (only while starving >= ${ESC_MIN_H}h)"
+    MAX_PER_DAY=$(( MAX_PER_DAY + ESC_MAX )); OVN_AR_REPOS="$esc_repos"
+    case "$MIN_STARVE_H" in *[!0-9.]*|"") MIN_STARVE_H="$ESC_MIN_H";; *) [ "$(awk -v a="$MIN_STARVE_H" -v b="$ESC_MIN_H" 'BEGIN{print (a<b)?1:0}')" = 1 ] && MIN_STARVE_H="$ESC_MIN_H";; esac
+  else
+    log "ESCALATE (shadow, OVN_AUTO_RESEARCH_ESCALATE=on to apply): supply-floor marker today for: $esc_repos - would allow up to $(( MAX_PER_DAY + ESC_MAX - used )) extra pass(es) above the cap ($used/$MAX_PER_DAY)"
+    log "daily cap reached ($used/$MAX_PER_DAY) - skip"; exit 0
+  fi
+fi
 
 WORK="$(mktemp -d)"
 FORCE="${OVN_AR_FORCE_REPOS:-}"   # testing only: space-separated repos; bypasses starving/ready/cooldown checks (caps still apply)

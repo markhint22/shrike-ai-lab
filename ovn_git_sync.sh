@@ -84,6 +84,24 @@ if [ "$rc" -ne 0 ]; then
   alert "git add failed (rc=$rc): $(tr '\n' ' ' < "$ERR" | cut -c1-200)"
   exit 1
 fi
+
+# 2026-10-14 size guard: GitHub rejects any push containing a blob > 100 MB (a 133 MB logs/branch_hygiene.log reached history via junk test commits and every push failed for ~20 h
+# with a pre-receive hook error that only landed in logs/ovn_git_sync.log). Refuse BEFORE committing/pushing when a blob that is staged now, or already in a local commit
+# origin/overnight-live does not have, exceeds OVN_GIT_SYNC_MAX_MB (default 90): alert, unstage (index only, nothing on disk is touched), exit 1, marker left alone.
+big_blobs(){
+  local lim=$(( ${OVN_GIT_SYNC_MAX_MB:-90} * 1024 * 1024 ))
+  {
+    git diff --cached --raw --no-abbrev --diff-filter=AMCR 2>/dev/null | awk '{print $4" "$6}'
+    if git rev-parse -q --verify refs/remotes/origin/overnight-live >/dev/null 2>&1; then git rev-list --objects HEAD --not refs/remotes/origin/overnight-live 2>/dev/null
+    else git rev-list --objects HEAD 2>/dev/null; fi
+  } | git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' 2>/dev/null | awk -v l="$lim" '$1=="blob" && $2+0>l {printf "%s (%d MB); ", $3, $2/1048576}' | sort -u
+}
+big="$(big_blobs)"
+if [ -n "$big" ]; then
+  git reset -q 2>/dev/null || true   # drop only the staged state; the working tree is never touched
+  alert "REFUSING to commit/push: file(s) over ${OVN_GIT_SYNC_MAX_MB:-90} MB would be mirrored (GitHub limit 100 MB): ${big:0:300} - untrack/ignore them (git rm --cached) and drop the offending commit(s)"
+  exit 1
+fi
 # the marker means "origin/overnight-live == HEAD": it is touched ONLY when nothing is left unpushed. A commit whose push failed stays local, and the NEXT
 # idle cycle (nothing staged) must retry that push and keep alerting - not take the "nothing to commit" branch and write a fresh marker (which silenced
 # the 24 h stale-sync alert while the mirror was stale).

@@ -36,7 +36,11 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import qa_common as qc  # noqa: E402
+import qa_common as qc
+
+# serialised through scripts/railway_serial.sh when present (concurrent Railway CLI writers corrupt ~/.railway/config.json); plain `railway` otherwise (the box)
+_SERIAL = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "railway_serial.sh")
+_RAILWAY = _SERIAL if os.path.isfile(_SERIAL) else "railway"  # noqa: E402
 
 GATE = "staging_check"
 
@@ -156,12 +160,14 @@ def railway_fetch(repo, env="staging"):
     cwd = os.path.join(root, "%s-%s" % (re.sub(r"[^A-Za-z0-9_.-]", "_", repo), re.sub(r"[^A-Za-z0-9_.-]", "_", env)))
     try:
         os.makedirs(cwd, mode=0o700, exist_ok=True)
-        rc, out, err = qc.run(["railway", "link", "--project", cfg["project"], "--environment", env, "--service", cfg["service"]],
-                              cwd=cwd, timeout=60, polite=False)
-        if rc != 0:
-            return None, "railway link failed (rc=%s; login expired?)" % rc
-        rc, out, err = qc.run(["railway", "deployment", "list", "--json", "--environment", env, "--service", cfg["service"], "--limit", "8"],
-                              cwd=cwd, timeout=60, polite=False)
+        # 2026-10-14: the Mac exporter hit 60 s timeouts on `railway link` and `railway deployment list` (staging snapshots 40-60 min old). Two fixes:
+        #  - a link already cached for this cwd (the CLI writes .railway/config.json there) is reused: the link step is skipped, no network call;
+        #  - a call that TIMES OUT (rc 124) is retried ONCE with a 120 s budget. Any other failure is returned as before (no retry: a bad login does not get better).
+        if not _railway_link_cached(cwd, cfg):
+            rc, out, err = _railway_call([_RAILWAY, "link", "--project", cfg["project"], "--environment", env, "--service", cfg["service"]], cwd)
+            if rc != 0:
+                return None, "railway link failed (rc=%s; login expired?)" % rc
+        rc, out, err = _railway_call([_RAILWAY, "deployment", "list", "--json", "--environment", env, "--service", cfg["service"], "--limit", "8"], cwd)
         if rc != 0 or "[" not in out:
             return None, "railway deployment list failed (rc=%s)" % rc
         try:
@@ -170,6 +176,39 @@ def railway_fetch(repo, env="staging"):
             return None, "railway output not JSON"
     finally:
         pass  # the stable cwd is intentionally kept (see above)
+
+
+RAILWAY_TIMEOUT_SECS = 60        # first attempt
+RAILWAY_RETRY_TIMEOUT_SECS = 120  # the single retry after a timeout (OVN/QA env override: QA_RAILWAY_RETRY_SECS)
+
+
+def _railway_call(cmd, cwd):
+    """One railway CLI call. rc 124 (timeout) is retried ONCE at RAILWAY_RETRY_TIMEOUT_SECS; every other result is returned as-is."""
+    rc, out, err = qc.run(cmd, cwd=cwd, timeout=RAILWAY_TIMEOUT_SECS, polite=False)
+    if rc == 124:
+        rc, out, err = qc.run(cmd, cwd=cwd, timeout=_railway_retry_secs(), polite=False)
+    return rc, out, err
+
+
+def _railway_retry_secs():
+    """The retry budget. QA_RAILWAY_RETRY_SECS is an operator override; a non-numeric or non-positive value falls back to the default
+    (a bare int() here raised ValueError out of railway_fetch, which has no except, so the exporter crashed instead of returning UNVERIFIED)."""
+    try:
+        v = int(os.environ.get("QA_RAILWAY_RETRY_SECS") or RAILWAY_RETRY_TIMEOUT_SECS)
+    except ValueError:
+        return RAILWAY_RETRY_TIMEOUT_SECS
+    return v if v > 0 else RAILWAY_RETRY_TIMEOUT_SECS
+
+
+def _railway_link_cached(cwd, cfg):
+    """True when `railway link` already recorded this project+service for this cwd (.railway/config.json), so the link step can be skipped."""
+    p = os.path.join(cwd, ".railway", "config.json")
+    try:
+        with open(p, encoding="utf-8") as fh:
+            txt = fh.read()
+    except OSError:
+        return False
+    return bool(cfg.get("project")) and bool(cfg.get("service")) and cfg["project"] in txt and cfg["service"] in txt
 
 
 def deploys_file(repo, kind="staging_deploys"):

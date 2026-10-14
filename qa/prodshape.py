@@ -265,7 +265,7 @@ def build_load_sql(schema, stats, scale=1.0, max_rows=None):
             if name in fkcols:
                 rt, rc, cte = fkcols[name]
                 if rt not in st_tables or rt not in seen or rt == t:
-                    ex = "NULL" if col["nullable"] else None
+                    ex = "NULL::%s" % _q(col["udt"]) if col["nullable"] else None
                     if ex is None:
                         report["notes"].append("%s.%s is NOT NULL FK to %s which has no loaded rows" % (t, name, rt))
                         ex = _col_expr(col, cs, v, schema["enums"], MAX_TEXT)
@@ -280,7 +280,7 @@ def build_load_sql(schema, stats, scale=1.0, max_rows=None):
                 ex = _col_expr(col, cs, v, schema["enums"], MAX_TEXT)
             if ex is None:
                 if col["nullable"]:
-                    ex = "NULL"
+                    ex = "NULL::%s" % _q(col["udt"])
                 else:
                     report["notes"].append("%s.%s: unsupported type %s/%s, NOT NULL - table may fail to load" % (t, name, col["type"], col["udt"]))
                     continue

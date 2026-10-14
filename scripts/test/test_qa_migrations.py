@@ -182,6 +182,12 @@ def part1():
     psql_ = dict((t, s) for t, s, _ in plans)["posts"]
     ok("prodshape FK column samples parent keys (array_agg CTE)", "array_agg" in psql_ and "cardinality" in psql_, psql_[:300])
     ok("prodshape caps huge row counts", ps.build_load_sql(schema, {"tables": {"users": {"rows": 10 ** 9, "columns": {}}}}, max_rows=77)[0][0][2] == 77)
+    selfref = {"tables": {"node": [
+        {"name": "id", "type": "uuid", "udt": "uuid", "nullable": False, "has_default": True, "maxlen": None, "default": "gen_random_uuid()", "identity": "", "generated": False},
+        {"name": "parent", "type": "uuid", "udt": "uuid", "nullable": True, "has_default": False, "maxlen": None, "default": "", "identity": "", "generated": False}]},
+        "unique": {"node": [["id"]]}, "pk": {"node": ["id"]}, "fks": {"node": [(["parent"], "node", ["id"])]}, "enums": {}}
+    pl, _ = ps.build_load_sql(selfref, {"tables": {"node": {"rows": 10, "columns": {"parent": {"null_frac": 0.3, "distinct": 3, "max_len": None}}}}})
+    ok("prodshape types the NULL for a self-referencing nullable FK (CASE WHEN .. NULL ELSE NULL would be text)", "NULL::\"uuid\"" in pl[0][1], pl[0][1])
     bad = False
     try:
         import tempfile as _t

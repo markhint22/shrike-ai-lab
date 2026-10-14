@@ -143,7 +143,7 @@ mkdir -p "$T/ovn/repos"; ln -s "$REPO" "$T/ovn/repos/iptv_apps"
 printf 'CHICK_EMAIL=free@example.test\nCHICK_PASSWORD=%s\nCHICK_PREMIUM_EMAIL=prem@example.test\nCHICK_PREMIUM_PASSWORD=%s\n' "$SECRET" "$SECRET" >"$T/creds.env"
 chmod 600 "$T/creds.env"; echo "$SECRET" >"$T/secret"
 
-set_spec() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$REPO/iptv-android/e2e/tests/$1.test.mjs"; (cd "$REPO" && git add -A >/dev/null 2>&1; git commit -qm "spec $1" --allow-empty >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD); }
+set_spec() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$REPO/iptv-android/e2e/tests/$1.test.mjs"; (cd "$REPO" || exit 1; git add -A >/dev/null 2>&1; git commit -qm "spec $1" --allow-empty >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD); }
 reset_specs() { for s in alpha beta gamma; do set_spec "$s" "echo running $s; exit 0"; done; rm -f "$T/emu.starts" "$T/crash" "$T/install_fail" "$T/emu_noboot" "$T/emu_up" "$T/emu.pid" "$T/appium.pid" "$T/appium.starts" "$T/flaky.marker"; rm -rf "$T/ovn/state/qa_devicelane" "$T/ovn/state/qa_shadow"; }
 
 # run the lane exactly as cron would: env -i, minimal PATH, cwd = $HOME-like dir, NTFY_SERVER set
@@ -353,7 +353,7 @@ j4="$(ba --repo-dir "$REPO" --ref nope --api-base http://x.test --out "$T/bout";
 ok "bad ref -> rc 3 + ok:false JSON" "$(echo "$j4" | grep -q '"ok":false' && echo "$j4" | grep -q 'rc=3' && echo 1 || echo 0)"
 # gradle layout without the prod URL -> must refuse (a build that silently hits prod is the dangerous failure)
 set_spec alpha 'exit 0'
-(cd "$REPO" && echo 'android {}' >iptv-android/app/build.gradle.kts && git add -A && git commit -qm nopatch && git update-ref refs/remotes/origin/develop HEAD)
+(cd "$REPO" || exit 1; echo 'android {}' >iptv-android/app/build.gradle.kts && git add -A && git commit -qm nopatch && git update-ref refs/remotes/origin/develop HEAD)
 j5="$(ba --repo-dir "$REPO" --ref origin/develop --api-base http://x.test --out "$T/bout2"; echo "rc=$?")"
 ok "unpatchable API_BASE_URL -> refuses to build (never silently tests prod)" "$(echo "$j5" | grep -q '"ok":false' && echo "$j5" | grep -q 'rc=4' && echo 1 || echo 0)"
 
@@ -394,7 +394,7 @@ ok "unreadable results -> UNVERIFIED, exit 0" "$([ "$v" = UNVERIFIED ] && echo 1
 cat >"$REPO/iptv-android/app/build.gradle.kts" <<'KTS'
 android { defaultConfig { buildConfigField("String", "API_BASE_URL", "\"https://api.chickadeestream.com\"") } }
 KTS
-(cd "$REPO" && git add -A >/dev/null 2>&1; git commit -qm "restore gradle" >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD)
+(cd "$REPO" || exit 1; git add -A >/dev/null 2>&1; git commit -qm "restore gradle" >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD)
 echo "== 17. known-issues quarantine: expected failures never FLAG, recoveries are reported, fixture env un-quarantines"
 cat >"$T/res_q.json" <<'JSON'
 {"counts":{},"seconds":1,"specs":[
@@ -524,7 +524,7 @@ cat >"$REPO/scripts/e2e_janitor.py" <<EOF
 import os, sys
 open("$T/janitor.calls", "a").write(" ".join(sys.argv[1:]) + " pw_set=%s api=%s\n" % (bool(os.environ.get("E2E_STAGING_PREMIUM_PASSWORD")), os.environ.get("E2E_STAGING_API", "")))
 EOF
-(cd "$REPO" && git add -A >/dev/null && git commit -qm janitor && git update-ref refs/remotes/origin/develop HEAD)
+(cd "$REPO" || exit 1; git add -A >/dev/null && git commit -qm janitor && git update-ref refs/remotes/origin/develop HEAD)
 reset_specs; rm -f "$T/janitor.calls"; set_spec beta 'echo "boom"; exit 1'
 out="$(lane "$RN" -- )"
 ok "janitor ran before AND after the specs, staging only" "$([ "$(grep -c -- '--env staging' "$T/janitor.calls" 2>/dev/null)" = 2 ] && echo 1 || echo 0)"

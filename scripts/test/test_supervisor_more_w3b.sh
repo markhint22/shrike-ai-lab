@@ -80,7 +80,7 @@ ok "A: hygiene review flagged" "grep -q 'branch-hygiene flagged: gitlark' '$R'"
 # ---- B: drift + commit sanity ----
 reset_dir
 mkrepo rb
-( cd "$tmp/s_rb" && git checkout -q overnight/feature && for i in $(seq 1 44); do echo "l$i" >> filler.txt; git add -A; git commit -q -m "chore: filler $i"; done
+( cd "$tmp/s_rb" || exit 1; git checkout -q overnight/feature && for i in $(seq 1 44); do echo "l$i" >> filler.txt; git add -A; git commit -q -m "chore: filler $i"; done
   git commit -q --allow-empty -m "feat: add widget (claims work)"
   git commit -q --allow-empty -m "chore(sync): reconcile develop -> overnight/feature (branch guard)"
   for i in $(seq 1 10); do echo "dup$i" >> dup.txt; done; git add -A; git commit -q -m "refactor: remove duplicate helper"

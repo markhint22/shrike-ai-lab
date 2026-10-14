@@ -42,7 +42,7 @@ setup(){
 mkrepo(){  # $1=name  [$2=with-alembic: ok | norev (a docstring-only 0011) ]
   local n="$1" al="${2:-}" o="$T/origin/$1.git" s="$T/seed/$1"
   git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
-  ( cd "$s" && echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
+  ( cd "$s" || exit 1; echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
     git checkout -q -b develop && git checkout -q -b feat1 && echo f1 > feat1.txt && git add feat1.txt && git commit -q -m "feat: one"
     if [ -n "$al" ]; then mkdir -p alembic/versions
       printf 'revision = "0009"\ndown_revision = None\n' > alembic/versions/0009_a.py

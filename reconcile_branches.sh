@@ -34,6 +34,38 @@ conflicts=""; directs=""; resolved=""
 # ORIGINAL abort+alert behavior on any uncertainty (still conflicted after the attempt, gate
 # fails, or the gate has nothing it can even check) - this never lowers the safety bar, it
 # only adds a chance to clear the easy cases before bothering a human with them.
+# 2026-10-13 (package reconcile-llm-resolve-gate): the gate is run as branch_hygiene.sh's own gate-only entry (HYGIENE_GATE_ONLY=1, see the hook above its repo loop) in a SEPARATE
+# process. The old text-extract (`sed -n '/^run_gate() {/,/^}/p'` + source under `set -uo pipefail`) died at the first dependency reconcile never defines ($SCRIPT_DIR, $STATE_DIR, acquire_lock,
+# hyg_gate_run, ...): "SCRIPT_DIR: unbound variable", an EMPTY merge_into result, 142 aider attempts since 09-21 with 0 resolved, no alert, one orphaned /tmp worktree per attempt.
+# Exit codes (unchanged): 0 green, 1 red, 2 nothing to check (no gate = no trust). NOTE: this runs inside rc=$(sync_feature ...), so stdout is the caller's result channel - messages go to stderr.
+reconcile_gate_run(){  # $1=abs main clone $2=worktree dir -> the gate's exit code (stdout/stderr are the caller's to redirect)
+  HYGIENE_GATE_ONLY=1 HYGIENE_GATE_REPO="$1" HYGIENE_GATE_WT="$2" TEST_TIMEOUT="${TEST_TIMEOUT:-600}" timeout "${TEST_TIMEOUT:-600}" bash "$HOME/overnight-queue/branch_hygiene.sh"
+}
+# The gate-only entry ends its stdout with "HYGIENE_GATE_ONLY done rc=<n>". A pre-gate-only branch_hygiene.sh (partial deploy) ignores HYGIENE_GATE_ONLY, finds no repos and exits 0 WITHOUT it,
+# which must never read as a green gate. $1=captured output file $2=expected rc -> 0 = the marker is there with that rc.
+reconcile_gate_ran(){ grep -qxF "HYGIENE_GATE_ONLY done rc=$2" "$1" 2>/dev/null; }
+# PREFLIGHT, BEFORE any aider tokens are spent: the same gate-only call against an EMPTY dir must answer rc 2 ("nothing to check"). Anything else (a crash, an unbound variable, a missing
+# script, rc 1/124) means the harness is broken and an LLM resolution could never be verified: skip the attempt, say so on stderr, and write ONE alerts.log warn per day.
+# OVN_LLM_RESOLVE_PREFLIGHT=off skips the check. Returns 0 = healthy, 1 = broken.
+llm_gate_preflight(){  # $1=main-repo (only names the scratch dir)
+  [ "${OVN_LLM_RESOLVE_PREFLIGHT:-on}" = off ] && return 0
+  local d prc="mktemp-failed" st="$HOME/overnight-queue/state" day
+  d="$(mktemp -d "/tmp/reconcile-gatepre-$(basename "${1:-repo}").XXXXXX" 2>/dev/null)" || d=""
+  if [ -n "$d" ]; then
+    reconcile_gate_run "$d" "$d" > "$HOME/overnight-queue/logs/reconcile_gate_preflight.log" 2>&1; prc=$?
+    rm -rf "$d"
+    # an rc 2 only counts WITH the gate-only completion marker (see reconcile_gate_ran): anything else is not the harness we expect
+    if [ "$prc" = 2 ] && ! reconcile_gate_ran "$HOME/overnight-queue/logs/reconcile_gate_preflight.log" 2; then prc="2-without-marker"; fi
+  fi
+  [ "$prc" = 2 ] && return 0
+  echo "$(date '+%F %T') llm-resolve disabled: gate harness broken (empty-dir preflight rc=${prc}, expected 2; see logs/reconcile_gate_preflight.log) - not spending tokens, falling back to abort+alert" >&2
+  day="$(date +%F)"
+  if [ "$(cat "$st/reconcile_llm_gate_alerted" 2>/dev/null)" != "$day" ]; then
+    mkdir -p "$st" 2>/dev/null; echo "$day" > "$st/reconcile_llm_gate_alerted" 2>/dev/null
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] warn | reconcile-llm-gate | reconcile's LLM-assisted conflict resolve is DISABLED: the gate-only harness (branch_hygiene.sh HYGIENE_GATE_ONLY=1) failed its empty-dir preflight (rc=${prc}, expected 2). Conflicts fall back to abort+alert until it is fixed; see logs/reconcile_gate_preflight.log" >> "$st/alerts.log" 2>/dev/null
+  fi
+  return 1
+}
 try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=resolved+verified+committed, 1=give up
   local wt="$1" repo="$2" tgt="$3" src="$4"
   # 2026-09-21: respect a manual/GPU-testing pause. Only this LLM-assist path touches the
@@ -45,6 +77,7 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
   [ -z "$files" ] && return 1
   local nfiles; nfiles="$(printf '%s\n' "$files" | grep -c .)"
   [ "$nfiles" -gt 3 ] && return 1
+  llm_gate_preflight "$repo" || return 1   # harness broken -> no aider call, no token spend
   local fileargs=(); while IFS= read -r fl; do fileargs+=(--file "$fl"); done <<< "$files"
   local _llm_out; _llm_out="$( cd "$wt" && timeout 400 "$HOME/aider-venv/bin/aider" --yes-always --no-check-update --no-auto-commits \
       --model openai/qwen-dflash-27B --openai-api-base http://localhost:4000/v1 --openai-api-key sk-shrike-local \
@@ -74,12 +107,7 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
   git -C "$wt" diff --name-only --diff-filter=U | grep -q . && return 1   # belt-and-suspenders
   # independently re-verify with the SAME gate branch_hygiene.sh trusts elsewhere - looking
   # "unmarked" is not the same as actually building/passing.
-  local gate_src; gate_src="$(mktemp)"
-  sed -n '/^run_gate() {/,/^}/p' "$HOME/overnight-queue/branch_hygiene.sh" > "$gate_src"
-  log(){ :; }
-  # shellcheck disable=SC1090
-  source "$gate_src"; rm -f "$gate_src"
-  TEST_TIMEOUT="${TEST_TIMEOUT:-600}"
+  # (2026-10-13: runs branch_hygiene.sh's own gate-only entry in a separate process - see reconcile_gate_run above; the old sed-extract + source died on unbound variables.)
   # run_gate's own callers (branch_hygiene.sh) always absolutize $repo before calling it -
   # every path it builds internally (e.g. venv_pytest, mainfile for the docker touched-check)
   # assumes that. reconcile_branches.sh's $repo is relative ("repos/<name>", valid only from
@@ -92,8 +120,10 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
   # for branch_hygiene.sh's own log) - here that flooded reconcile.log with a full vitest/pytest
   # transcript, found live while diagnosing the bug above. Keep just the most recent attempt for
   # debugging instead of either polluting the shared log or discarding it entirely.
-  run_gate "$abs_repo" "$wt" > "$HOME/overnight-queue/logs/reconcile_gate_last.log" 2>&1; local grc=$?
+  reconcile_gate_run "$abs_repo" "$wt" > "$HOME/overnight-queue/logs/reconcile_gate_last.log" 2>&1; local grc=$?
   [ "$grc" -ne 0 ] && return 1   # reject on FAIL(1) and on NOTHING-TO-CHECK(2) alike - no gate, no trust
+  # rc 0 only counts when the gate-only entry itself said it ran (an old branch_hygiene.sh that ignores HYGIENE_GATE_ONLY exits 0 having checked nothing)
+  reconcile_gate_ran "$HOME/overnight-queue/logs/reconcile_gate_last.log" 0 || { echo "$(date '+%F %T') llm-resolve rejected: gate rc 0 without the HYGIENE_GATE_ONLY completion marker (old branch_hygiene.sh?) - not trusting it" >&2; return 1; }
   git -C "$wt" add -A
   git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q \
     -m "chore(sync): reconcile ${src} -> ${tgt} (branch guard, LLM-assisted conflict resolution, gate=tests-green)" >/dev/null 2>&1
@@ -175,7 +205,12 @@ merge_into(){
   local ahead _pcd; ahead=$(git -C "$repo" rev-list --count "origin/${tgt}..origin/${src}" 2>/dev/null || echo 0)
   [ "${ahead:-0}" -eq 0 ] && { echo nochange; return; }
   local wt; wt="$(mktemp -d "/tmp/reconcile-$(basename "$repo").XXXX")"
-  git -C "$repo" worktree add --quiet "$wt" "origin/${tgt}" 2>/dev/null || { echo wterror; return; }
+  git -C "$repo" worktree add --quiet "$wt" "origin/${tgt}" 2>/dev/null || { rm -rf "$wt"; echo wterror; return; }   # 2026-10-13: the mktemp dir leaked here (an inode per failed pass while /tmp was full)
+  # 2026-10-13: merge_into always runs inside a $(...) subshell; if anything below kills that subshell (set -u, a signal, a failing helper) the `worktree remove` at the end never ran and
+  # the worktree (~800 inodes) leaked: 11 orphaned /tmp/reconcile-test-automation-agent.* on 10-13 helped exhaust the box's /tmp inodes. The EXIT trap removes it on ANY exit; it is cleared
+  # again on the normal path. The path/repo are baked into the trap text now (locals are gone by the time a subshell's EXIT trap fires).
+  # shellcheck disable=SC2064
+  trap "$(printf 'git -C %q worktree remove --force %q >/dev/null 2>&1; rm -rf %q' "$repo" "$wt" "$wt")" EXIT
   # 2026-09-16 CRITICAL FIX: this `checkout -B "$tgt" ...` almost ALWAYS fails silently
   # ("'$tgt' is already used by worktree at <main clone>" - git refuses to check out the
   # same branch in two worktrees at once, and the main clone always has $tgt checked out).
@@ -219,6 +254,7 @@ merge_into(){
     else rc=pushfail; fi
   else git -C "$wt" merge --abort >/dev/null 2>&1; rc=conflict; fi
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
+  rm -rf "$wt"; trap - EXIT
   echo "$rc"
 }
 
@@ -269,7 +305,9 @@ for repo in $repos; do
         ok) log "$name: back-merged main->develop (+$m_ahead)"; [ "${direct:-0}" -gt 0 ] && directs="$directs ${name}(${direct})";;
         conflict) log "$name: 🔴 CONFLICT main->develop"; conflicts="$conflicts main→develop:${name}";;
         sanityfail) log "$name: 🔴 main->develop merge would have pushed a BROKEN file (see logs/reconcile_sanity.log) - NOT pushed"; conflicts="$conflicts main→develop(sanity):${name}";;
-        *) log "$name: main->develop $rc";;
+        nochange|pushfail|wterror) log "$name: main->develop $rc";;
+        *) _rcs="$(printf '%s' "$rc" | tr '\n' ' ' | cut -c1-60)"; _rcs="${_rcs:-<empty>}"   # 2026-10-13: an EMPTY/unknown result (merge_into died) used to be logged blank and never alert
+           log "$name: 🔴 main->develop rc=${_rcs} (unknown/empty result - merge_into died before reporting; treated as a CONFLICT so it alerts)"; conflicts="$conflicts main→develop(rc=${_rcs}):${name}";;
       esac
     fi
   fi
@@ -297,7 +335,9 @@ for repo in $repos; do
       sanityfail) log "$name: 🔴 develop->$feat merge would have pushed a BROKEN file (see logs/reconcile_sanity.log) - NOT pushed"; conflicts="$conflicts develop→$feat(sanity):${name}"; synced_any=1;;
       pushfail) log "$name: develop->$feat pushfail (fleet racing; next pass retries)"; synced_any=1;;
       nobranch|nochange) : ;;
-      *) log "$name: develop->$feat $rc";;
+      wterror) log "$name: develop->$feat $rc";;
+      *) _rcs="$(printf '%s' "$rc" | tr '\n' ' ' | cut -c1-60)"; _rcs="${_rcs:-<empty>}"   # 2026-10-13: an EMPTY/unknown result (sync_feature/merge_into died: 7 blank lines on 10-13, no alert) now alerts like a conflict
+         log "$name: 🔴 develop->$feat rc=${_rcs} (unknown/empty result - sync_feature/merge_into died before reporting; treated as a CONFLICT so it alerts)"; conflicts="$conflicts develop→$feat(rc=${_rcs}):${name}"; synced_any=1;;
     esac
   done
   [ "$synced_any" = 0 ] && log "$name: in sync (main ⊆ develop ⊆ features)"
