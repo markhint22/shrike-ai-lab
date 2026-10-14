@@ -1,1 +1,16 @@
 !qa/device_lane/known_issues.json
+
+# runtime / generated paths - never mirrored (2026-10-14: logs/branch_hygiene.log 133 MB made GitHub reject every push)
+/logs/
+/state/
+/repos/
+/worktrees/
+/prework/
+/provision-logs/
+/.venv/
+__pycache__/
+*.pyc
+._*
+# scratch fixtures that scripts/test/*.sh leak into the live dir when a subshell cd fails
+/scripts/test/app/
+/scripts/test/tests/
