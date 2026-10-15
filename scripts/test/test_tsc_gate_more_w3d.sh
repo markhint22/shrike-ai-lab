@@ -23,7 +23,7 @@ export PATH="$tmp/bin:$PATH"
 
 mkrepo(){ # $1=name  -> repo with web/src/a.ts committed twice (a TS-touching diff)
   local r="$tmp/$1"; mkdir -p "$r/web/src"; echo '{}' > "$r/web/tsconfig.json"
-  ( cd "$r" || exit 1; git init -q && git config user.email t@t && git config user.name t
+  ( cd "$r" && git init -q && git config user.email t@t && git config user.name t
     echo "export const a = 1;" > web/src/a.ts; git add -A; git commit -q -m one; echo "export const a = 2;" > web/src/a.ts; git add -A; git commit -q -m two )
   echo "$r"
 }

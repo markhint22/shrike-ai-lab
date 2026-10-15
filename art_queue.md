@@ -11,7 +11,6 @@ game automatically (art is gated: review, then apply).
 - **prompt** follows the art canon: post-apocalyptic wasteland, worn/scavenged/rusted, vibrant accents, bold readable silhouette, humanoid-bodied units.
 
 **Format examples** (illustrative only — copy into an `art.sh add`, don't leave here as `- [ ]`):
-> `art.sh add unit player_engineer "a wasteland combat engineer in patched armor with a tool-rig and a nailgun, full body, front view" 8123`
 > `art.sh add sprite boss_warlord "a towering scrap-armored wasteland warlord boss with a huge cleaver, full body, front view" 9100`
 
 ## Queue

@@ -477,8 +477,7 @@ envp_cw = envp + ["QA_RAILWAY_CWD_ROOT=%s" % CW_ROOT]
 for _ in range(3):
     gate("staging_check.py", "check", "--repo", "billwatch", "--release-plan", "--no-record", env_extra=envp_cw)
 _cwds = sorted(set(open(CW_LOG).read().split())) if os.path.exists(CW_LOG) else []
-# macOS: tempfile gives /var/folders/... but the CLI's pwd is /private/var/... (realpath); compare resolved paths (pre-existing false FAIL on the Mac, 2026-10-14)
-ok("railway fetch: 3 runs (link + list each) all ran in ONE stable cwd, not a new temp dir per run", len(_cwds) == 1 and _cwds[0].startswith(os.path.realpath(CW_ROOT)), _cwds)
+ok("railway fetch: 3 runs (link + list each) all ran in ONE stable cwd, not a new temp dir per run", len(_cwds) == 1 and _cwds[0].startswith(CW_ROOT), _cwds)
 ok("railway fetch: that cwd still exists after the run (kept on purpose so the config entry is reused)", len(_cwds) == 1 and os.path.isdir(_cwds[0]))
 rc, j, _, _ = gate("staging_check.py", "check", "--repo", "billwatch", "--sha", cand_full, "--no-record", rel=True, env_extra=envp)
 ok("staging_check relative-path entry, explicit --sha", j and j["verdict"] == "PASS")

@@ -81,9 +81,7 @@ NOW_EPOCH="$(date +%s)"
 # just briefly busy" signal nothing surfaced before.
 source "$SCRIPT_DIR/scripts/lib_lock.sh"
 HYGIENE_LOCK_FILE="$STATE_DIR/hygiene.lock"
-# 2026-10-13 (package reconcile-llm-resolve-gate): HYGIENE_GATE_ONLY=1 is the gate-only entry reconcile_branches.sh's LLM-assisted resolve calls (see the hook above the repo loop):
-# it runs ONE run_gate and exits, never merges/pushes/prunes, so it must not take (or wait on) the hygiene pass lock either. Flag unset = byte-identical behaviour.
-if [ "${HYGIENE_GATE_ONLY:-0}" != 1 ] && ! acquire_lock "$HYGIENE_LOCK_FILE" 201 "${HYGIENE_LOCK_WAIT:-0}" branch-hygiene; then
+if ! acquire_lock "$HYGIENE_LOCK_FILE" 201 "${HYGIENE_LOCK_WAIT:-0}" branch-hygiene; then
   exit 0
 fi
 
@@ -140,7 +138,6 @@ hyg_gate_run() {
   if [ -z "$tmp" ]; then ( cd "$dir" && "$@" 2>&1 ); return $?; fi
   ( cd "$dir" && "$@" ) > "$tmp" 2>&1; rc=$?
   hyg_gate_cap "$kind" < "$tmp"
-  if [ "$rc" -ne 0 ] && declare -F hyg_infra_text >/dev/null 2>&1 && hyg_infra_text "$tmp"; then _GATE_INFRA_HIT=1; fi   # host storage exhaustion, not a red test (hyg_infra_decide; guarded like hyg_fail_detail)
   if [ "$rc" -ne 0 ] && declare -F hyg_fail_detail >/dev/null 2>&1; then _GATE_FAIL_DETAIL="$(hyg_fail_detail "$tmp")"; fi   # the failing test for the streak alert (before the file is removed; guarded: test_hygiene_gate_cap extracts this function alone)
   rm -f "$tmp"
   return $rc
@@ -176,51 +173,6 @@ _GATE_FAIL_DETAIL=""
 hyg_fail_detail() {   # <file with gate output or GUT-FAIL-ID lines> -> one line, never fails
   [ -s "${1:-}" ] && [ -x "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" ] || return 0
   bash "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" "$1" 2>/dev/null | cut -c1-300
-  return 0
-}
-# --- host-INFRA failure classification (2026-10-13, package reconcile-llm-resolve-gate, part B; OVN_HYG_INFRA_SKIP=off restores the old scoring) ----------------------------------
-# The 10-13 15:00 pass ran while two concurrent full run_all.sh runs had exhausted the box's 1M-inode /tmp tmpfs: gitlark's `npm build` died in 1 s, shrike-notify's pytest gate showed
-# 38 "OSError: could not create numbered dir with prefix ... in /tmp/pytest-of-<user>/pytest-523 after 10 tries" (pytest's tmp_path; the literal ENOSPC text never reaches the output),
-# test-automation-agent and xlite logged "could not create worktree" - every one scored as a RED gate / stuck flag / repo blame although no code was at fault. A gate that failed on
-# host storage exhaustion is now SKIPPED: log 'gate-infra-skip', no hyg_gate_streak increment (and no reset), no branch_hygiene_review_<repo> flag, a neutral report line, retried
-# next pass. Detection (a failed gate only): the gate output (pytest / gradle / GUT, via _GATE_INFRA_HIT) matches the signatures below, OR /tmp cannot even create a directory right
-# now (catches the gates whose output is discarded: npm, docker). A skip budget (OVN_HYG_INFRA_SKIP_MAX, default 3 CONSECUTIVE skips per repo+lane, state/hygiene_infra_skip/) stops
-# a real red whose output merely contains such a phrase from being hidden for good: the next failure after the budget is scored normally. DRY_RUN=1 never writes the counter.
-_GATE_INFRA_HIT=0
-_HYG_INFRA_RE='No space left on device|\[Errno 28\]|Disk quota exceeded|could not create numbered dir with prefix'   # NO bare 'ENOSPC' token: a repo test merely named/printing it (or node's inotify 'ENOSPC: System limit for number of file watchers') is not storage exhaustion; node's real one carries 'no space left on device'
-hyg_infra_text() {   # <file with gate output> -> 0 = carries a storage-exhaustion signature (never fails the caller; off = 1)
-  [ "${OVN_HYG_INFRA_SKIP:-on}" = off ] && return 1
-  [ -s "${1:-}" ] || return 1
-  grep -aqiE "$_HYG_INFRA_RE" "$1" 2>/dev/null
-}
-hyg_infra_str() {   # <string, e.g. git's stderr> -> 0 = carries the signature (no temp file / pipe: it runs while /tmp is exhausted)
-  [ "${OVN_HYG_INFRA_SKIP:-on}" = off ] && return 1
-  local _nc=0 _r; shopt -q nocasematch && _nc=1; shopt -s nocasematch
-  [[ "${1:-}" =~ $_HYG_INFRA_RE ]]; _r=$?
-  [ "$_nc" = 1 ] || shopt -u nocasematch
-  return $_r
-}
-hyg_infra_probe() {   # 0 = /tmp cannot create a directory right now (the exhaustion class this guards)
-  local d; d="$(mktemp -d "${TMPDIR:-/tmp}/hyg-infra-probe.XXXXXX" 2>/dev/null)" || return 0
-  rmdir "$d" 2>/dev/null; return 1
-}
-hyg_infra_skip_reset() {   # <repo name> <feature branch>: a pass that was NOT an infra skip ends the consecutive-skip count
-  [ "$DRY_RUN" = 1 ] && return 0
-  local feat="${2:-?}"
-  rm -f "$STATE_DIR/hygiene_infra_skip/${1:-?}__${feat//[^A-Za-z0-9._-]/_}" 2>/dev/null
-  return 0
-}
-hyg_infra_decide() {   # <repo name> <feature branch> <1 = the failure output already matched | 0> -> 0 = infra: skip this pass unscored | 1 = score it normally
-  [ "${OVN_HYG_INFRA_SKIP:-on}" = off ] && return 1
-  local nm="${1:-?}" feat="${2:-?}" hit="${3:-0}" sdir f n max
-  if [ "$hit" != 1 ] && ! hyg_infra_probe; then hyg_infra_skip_reset "$nm" "$feat"; return 1; fi
-  max="${OVN_HYG_INFRA_SKIP_MAX:-3}"; case "$max" in ''|*[!0-9]*) max=3;; esac
-  [ "$DRY_RUN" = 1 ] && return 0
-  sdir="$STATE_DIR/hygiene_infra_skip"; f="$sdir/${nm}__${feat//[^A-Za-z0-9._-]/_}"
-  n=0; [ -f "$f" ] && read -r n < "$f" 2>/dev/null
-  case "$n" in ''|*[!0-9]*) n=0;; esac
-  if [ "$n" -ge "$max" ]; then log "  gate-infra-skip budget exhausted ($n consecutive skips for $nm $feat) - scoring this failure normally"; return 1; fi
-  mkdir -p "$sdir" 2>/dev/null && { printf '%s\n' $((n + 1)) > "$f.$$" 2>/dev/null && mv -f "$f.$$" "$f" 2>/dev/null; }
   return 0
 }
 hyg_gate_streak() {   # <repo name> <feature branch> <gate result 0|1|2>
@@ -347,7 +299,7 @@ elif [ "${1:-}" = "--from-config" ]; then
 else
   for a in "$@"; do REPOS+=("$a"); done
 fi
-if [ "${#REPOS[@]}" -eq 0 ] && [ "${HYGIENE_GATE_ONLY:-0}" != 1 ]; then
+if [ "${#REPOS[@]}" -eq 0 ]; then
   echo "no repos to process (use --repos-dir <dir>, --from-config, or pass paths)"; exit 0
 fi
 
@@ -362,7 +314,7 @@ fi
 # a GUT gate for Godot repos.
 run_gate() {
   local repo="$1" dir="$2" ran=0 rc=0
-  _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""; _GATE_INFRA_HIT=0   # (_GATE_GUT_KEEP is NOT reset here: hyg_gut_keep replaces/removes the previous attempt's copy itself)
+  _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""   # (_GATE_GUT_KEEP is NOT reset here: hyg_gut_keep replaces/removes the previous attempt's copy itself)
   # migration safety gate: multi-head + String-FK-to-uuid crash-loop prod (2026-09-03)
   if [ -f "$HOME/overnight-queue/scripts/check_migrations.py" ] && \
      ! python3 "$HOME/overnight-queue/scripts/check_migrations.py" "$dir" >/dev/null 2>&1; then
@@ -381,10 +333,7 @@ run_gate() {
   if [ "${OVN_STUB_LEAK:-shadow}" != "off" ] && [ -f "$SCRIPT_DIR/scripts/ovn_stub_guard.py" ]; then
     _sl_all="$(timeout 60 python3 "$SCRIPT_DIR/scripts/ovn_stub_guard.py" scan "$dir" 2>/dev/null || true)"
     _sl_src="$(printf '%s\n' "$_sl_all" | grep '^SOURCE' | cut -f2 | head -20 | tr '\n' ' ')"
-    # HYGIENE_GATE_ONLY=1 (reconcile's LLM-resolve probe) is READ-ONLY here: it must not overwrite/remove the hygiene lane's state file or reset its streak counter (_sl_ro).
-    _sl_ro=0; [ "${HYGIENE_GATE_ONLY:-0}" = 1 ] && _sl_ro=1
-    if [ "$_sl_ro" = 1 ]; then :
-    elif [ -n "$_sl_all" ] && [ -d "$STATE_DIR" ]; then printf '%s\n' "$_sl_all" > "$STATE_DIR/stub_leak_$(basename "$repo").txt" 2>/dev/null || true
+    if [ -n "$_sl_all" ] && [ -d "$STATE_DIR" ]; then printf '%s\n' "$_sl_all" > "$STATE_DIR/stub_leak_$(basename "$repo").txt" 2>/dev/null || true
     else rm -f "$STATE_DIR/stub_leak_$(basename "$repo").txt" 2>/dev/null || true; fi
     # 2026-10-13 (platform-night P11): the same flag (same file set) repeated on every pass from 02:00 to 11:00 and nothing alerted - the shadow flag lived only in the log.
     # A counter in state/stub_leak_streak/<repo>__<feature branch> ("<cksum of the file list> <passes> <alerted>") appends ONE alerts.log warn when the SAME set is seen on
@@ -393,8 +342,7 @@ run_gate() {
     # other lane's clean/different pass reset the count so the alert never fired. OVN_STUB_LEAK_ALERT=off disables; DRY_RUN=1 never writes.
     _sl_feat="${FEAT:-unknown}"   # always set in the real script; the default only keeps an extracted copy of this block (tests, set -u) alive
     _sl_f="$STATE_DIR/stub_leak_streak/$(basename "$repo")__${_sl_feat//[^A-Za-z0-9._-]/_}"
-    if [ "$_sl_ro" = 1 ]; then :
-    elif [ -z "$_sl_src" ]; then rm -f "$_sl_f" 2>/dev/null || true
+    if [ -z "$_sl_src" ]; then rm -f "$_sl_f" 2>/dev/null || true
     elif [ "${OVN_STUB_LEAK_ALERT:-on}" != "off" ] && [ "${DRY_RUN:-0}" != 1 ] && [ -d "$STATE_DIR" ] && mkdir -p "$STATE_DIR/stub_leak_streak" 2>/dev/null; then
       _sl_k="$(printf '%s' "$_sl_src" | cksum | cut -d' ' -f1)"; _sl_n=0; _sl_a=0; _sl_ok=""
       [ -f "$_sl_f" ] && read -r _sl_ok _sl_n _sl_a < "$_sl_f" 2>/dev/null
@@ -537,7 +485,6 @@ run_gate() {
         timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) 2>&1 | tee "$gradle_out" | hyg_gate_cap gradle; rc=${PIPESTATUS[0]}
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       grep -qE "daemon (has disappeared|unexpectedly exit)|Gradle build daemon disappeared unexpectedly" "$gradle_out" && _GATE_TIMEOUT_HIT=1
-      [ "$rc" -ne 0 ] && hyg_infra_text "$gradle_out" && _GATE_INFRA_HIT=1   # host storage exhaustion, not a red test (hyg_infra_decide)
       rm -f "$gradle_out"
       [ "$rc" -ne 0 ] && return 1
       ran=1
@@ -576,7 +523,6 @@ run_gate() {
         log "  GUT RED: $(gut_xml_summary "$xml")"
         _ftmp="$(mktemp 2>/dev/null)" && { { echo "--- GUT RED"; gut_xml_emit_fail_ids "$xml"; } > "$_ftmp" 2>/dev/null; _GATE_FAIL_DETAIL="$(hyg_fail_detail "$_ftmp")"; rm -f "$_ftmp"; }
         [ -n "$_GATE_FAIL_DETAIL" ] || _GATE_FAIL_DETAIL="GUT red (no failing test id in the junit report)"
-        hyg_infra_text "$gout" && _GATE_INFRA_HIT=1   # host storage exhaustion, not a red test (hyg_infra_decide)
         rm -f "$xml" "$gout"; return 1
       fi
       # shadow: warn about silently skipped GUT scripts (names ALL of them, and the ones NEW vs the merge target). Blocks only with OVN_GUT_SKIPS_NEW=enforce (default shadow) and a NEW one.
@@ -647,23 +593,6 @@ qa_enforce_precheck() {
   _qe_finding="$(printf '%s' "$out" | jq -r '.finding // ""')"; _qe_held="$(printf '%s' "$out" | jq -r '.held // 0')"
   return 0
 }
-
-# --- gate-only entry (2026-10-13, package reconcile-llm-resolve-gate) ----------------------------------------------------------------------------
-# reconcile_branches.sh's LLM-assisted conflict resolve used to text-extract run_gate with sed, source it under `set -uo pipefail` and call it - but run_gate has since grown
-# dependencies reconcile never defines ($SCRIPT_DIR, $STATE_DIR, acquire_lock, hyg_gate_run, ...), so the first unbound variable killed the shell ("SCRIPT_DIR: unbound variable"):
-# 142 aider attempts since 09-21, 0 resolved, an empty result that never alerted, and an orphaned /tmp worktree per attempt. HYGIENE_GATE_ONLY=1 HYGIENE_GATE_REPO=<abs main clone>
-# HYGIENE_GATE_WT=<worktree> runs the REAL run_gate in its own process (every helper defined, no set -u hazard) and exits with its code: 0 green, 1 red, 2 nothing to check, 3 bad usage.
-# OVN_STUB_LEAK_ALERT=off + run_gate's HYGIENE_GATE_ONLY read-only stub block keep this probe from advancing OR resetting the stub-leak state of the hygiene lanes. Nothing below this block runs in this mode.
-if [ "${HYGIENE_GATE_ONLY:-0}" = 1 ]; then
-  if [ -z "${HYGIENE_GATE_REPO:-}" ] || [ -z "${HYGIENE_GATE_WT:-}" ]; then
-    echo "HYGIENE_GATE_ONLY=1 needs HYGIENE_GATE_REPO and HYGIENE_GATE_WT" >&2; exit 3
-  fi
-  OVN_STUB_LEAK_ALERT=off
-  run_gate "$HYGIENE_GATE_REPO" "$HYGIENE_GATE_WT"; _go_rc=$?
-  # completion marker (last stdout line): reconcile_branches.sh only trusts an rc 0 that comes WITH this line, so an older branch_hygiene.sh that ignores HYGIENE_GATE_ONLY
-  # (partial deploy; its empty-repo-list exit is rc 0) can never read as a green gate - even with OVN_LLM_RESOLVE_PREFLIGHT=off.
-  echo "HYGIENE_GATE_ONLY done rc=${_go_rc}"; exit "$_go_rc"
-fi
 
 # --- per repo ----------------------------------------------------------------
 for repo in "${REPOS[@]}"; do
@@ -743,7 +672,6 @@ for repo in "${REPOS[@]}"; do
     rm -f "$STATE_DIR/branch_hygiene_review_${name}"   # clear any stale flag now that it's synced
     hyg_gate_streak "$name" "$FEAT" 0                  # nothing ahead = nothing red to gate: a gate-failure streak is over (fixed out of band)
     hyg_merge_streak "$name" "$FEAT" 0                 # nothing ahead = nothing left to merge: a merge-conflict streak is over
-    hyg_infra_skip_reset "$name" "$FEAT"               # nothing ahead = nothing skipped: the consecutive infra-skip count is over
     [ "${DRY_RUN:-0}" = 1 ] || rm -f "$STATE_DIR/stub_leak_streak/${name}__${FEAT//[^A-Za-z0-9._-]/_}" 2>/dev/null   # nothing ahead = nothing flagged: a stub-leak streak (and its alerted=1 dedup) is over (P11 reviewer fix)
     # feature has nothing to land, but $mt (develop) may have advanced independently
     # (reconcile's main->develop back-merges, an out-of-band landing) — keep feature
@@ -774,14 +702,9 @@ for repo in "${REPOS[@]}"; do
 
   # isolated worktree at $FEAT so the live checkout is untouched
   wt="$(mktemp -d "/tmp/hygiene-${name}.XXXX")"
-  if ! _wt_err="$(git -C "$repo" worktree add --detach --quiet "$wt" origin/$FEAT 2>&1)"; then
+  if ! git -C "$repo" worktree add --detach --quiet "$wt" origin/$FEAT 2>/dev/null; then
     rm -rf "$wt"   # 2026-09-30: the mktemp dir leaked on every failed worktree add
-    # 2026-10-13: a worktree that cannot be created because /tmp is full is host infra, not this repo's fault (see hyg_infra_decide): no review flag, no blame, retry next pass.
-    _wt_hit=0; hyg_infra_str "$_wt_err" && _wt_hit=1
-    if hyg_infra_decide "$name" "$FEAT" "$_wt_hit"; then
-      log "  gate-infra-skip: could not create worktree (host storage exhaustion: ${_wt_err:0:160}) - not flagging, retrying next pass"
-      report "| $name | ⏭ +$ahead, gate skipped (host infra: could not create worktree) - retry next pass |"; continue
-    fi
+    rm -rf "$wt"   # 2026-09-30: the mktemp dir leaked on every failed worktree add
     log "  could not create worktree — flagging"; echo "worktree add failed $(date)" > "$flag"
     report "| $name | ⚠️ +$ahead, worktree failed |"; continue
   fi
@@ -816,18 +739,7 @@ for repo in "${REPOS[@]}"; do
     if git -C "$repo" worktree add --detach --quiet "$wt2" origin/$FEAT 2>/dev/null; then
       run_gate "$repo" "$wt2"; g=$?
       git -C "$repo" worktree remove --force "$wt2" >/dev/null 2>&1
-    else
-      rm -rf "$wt2"   # 2026-10-13: the mktemp dir leaked whenever this retry worktree add failed (60 empty /tmp/hygiene-*-retry.* dirs on the box)
     fi
-  fi
-
-  # 2026-10-13 (part B, see hyg_infra_decide): a failed gate whose output is host storage exhaustion (or whose /tmp cannot create a dir now) is neither red nor blamed on this repo.
-  # g=3 = infra skip: no hyg_gate_streak call (neither increment nor reset), no review flag, retried next pass. OVN_HYG_INFRA_SKIP=off = old behaviour.
-  if [ "$g" -ne 1 ]; then hyg_infra_skip_reset "$name" "$FEAT"
-  elif hyg_infra_decide "$name" "$FEAT" "${_GATE_INFRA_HIT:-0}"; then g=3; fi
-  if [ "$g" -eq 3 ]; then
-    log "  gate-infra-skip: $name $FEAT +$ahead - the gate failed on host storage exhaustion (/tmp), not on code; no red streak, no review flag, retrying next pass"
-    report "| $name | ⏭ +$ahead, gate skipped (host infra: storage exhausted) - retry next pass |"; continue
   fi
 
   # Auto-merge ONLY when tests actually ran and passed (g==0). A failed gate (1)
@@ -850,7 +762,6 @@ for repo in "${REPOS[@]}"; do
   fi
   tmp_main="$(mktemp -d "/tmp/hygiene-main-${name}.XXXX")"
   if ! git -C "$repo" worktree add --quiet "$tmp_main" "origin/$mt" 2>/dev/null; then
-    rm -rf "$tmp_main"   # 2026-10-13: the mktemp dir leaked on a failed main-worktree add (same as the feature worktree above)
     log "  could not create main worktree — flagging"; echo "main worktree failed $(date)" > "$flag"
     report "| $name | ⚠️ +$ahead, main worktree failed |"; continue
   fi

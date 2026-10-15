@@ -450,3 +450,11 @@
 # --- 27B-decomposed from roadmap [2026-10-14]: Remove orphaned denylist helpers with mismatched signature — `iptv-backend/app/services/di (review + tweak) [feat:iptv_apps-20261014-remove-orphaned-denylist-helpers-with-mi] ---
 
 # --- deterministic work supply 2026-10-14 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-15]: Rate-limit `GET /subscription/status` and `GET /subscription/paywall` — both handlers in ` (review + tweak) [feat:iptv_apps-20261015-rate-limit-get-subscription-status-and-g] ---
+
+# --- 27B-decomposed from roadmap [2026-10-15]: Fix `update_continue_watching` exposing stream URL without ownership check — `iptv-backend (review + tweak) [feat:iptv_apps-20261015-fix-update-continue-watching-exposing-st] ---
+
+# --- 27B-decomposed from roadmap [2026-10-15]: `GET /streams/series` bypasses the per-kid-profile parental rating ceiling — `iptv-backend (review + tweak) [feat:iptv_apps-20261015-get-streams-series-bypasses-the-per-kid-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-15]: Series-view `favorite_show()` writes `Stream.is_favorite` (account-wide), not per-profile  (review + tweak) [feat:iptv_apps-20261015-series-view-favorite-show-writes-stream-] ---

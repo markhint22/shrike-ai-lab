@@ -110,18 +110,11 @@ lock_checks(){
   [ "$(log_has "another run active - skip (lock holder pid=? unknown(no holder file)")" = 1 ] && [ "$(log_has "stale run lock removed")" = 0 ] && echo "1|empty lock dir 5 min old -> respected (negative control)" || echo "0|empty lock dir 5 min old -> respected (negative control)"
 
   # E. the daily-cap exit releases the lock (the leak behind the cap/active/active alternation)
-  fresh; echo 2 > "$STATE/count_$(date +%F)"; ar_run OVN_AR_MAX_PER_DAY=2   # explicit cap: this test is about the lock, not about the default (8 since 2026-10-13)
+  fresh; echo 2 > "$STATE/count_$(date +%F)"; ar_run
   [ "$(log_has "daily cap reached (2/2) - skip")" = 1 ] && [ ! -d "$STATE/run.lock.d" ] && echo "1|daily-cap exit releases the lock (no leak)" || echo "0|daily-cap exit releases the lock (no leak) [lock dir present: $([ -d "$STATE/run.lock.d" ] && echo yes || echo no)]"
   # E2. back-to-back runs: after a cap exit the NEXT run is not blocked
-  ar_run OVN_AR_MAX_PER_DAY=2
+  ar_run
   [ "$(log_has "daily cap reached (2/2) - skip")" = 1 ] && [ "$(log_has "another run active")" = 0 ] && echo "1|second run after a cap exit is not 'another run active'" || echo "0|second run after a cap exit is not 'another run active'"
-
-  # E3. 2026-10-13: the Claude pass is a BONUS now (the box explorer ovn_qwen_explore.py is the engine): defaults 8 passes/day and 3 repos/run (were 2 and 2)
-  fresh; echo 7 > "$STATE/count_$(date +%F)"; ar_run
-  [ "$(log_has "daily cap reached")" = 0 ] && echo "1|default daily cap is 8: 7 passes today is NOT capped" || echo "0|default daily cap is 8: 7 passes today is NOT capped"
-  fresh; echo 8 > "$STATE/count_$(date +%F)"; ar_run
-  [ "$(log_has "daily cap reached (8/8) - skip")" = 1 ] && echo "1|default daily cap is 8: 8 passes today IS capped" || echo "0|default daily cap is 8: 8 passes today IS capped"
-  [ "$(grep -c 'MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-3}"' "$AR_SCRIPT")" = 1 ] && [ "$(grep -c 'MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-8}"' "$AR_SCRIPT")" = 1 ] && echo "1|defaults in the script: OVN_AR_MAX_PER_RUN 3, OVN_AR_MAX_PER_DAY 8" || echo "0|defaults in the script: OVN_AR_MAX_PER_RUN 3, OVN_AR_MAX_PER_DAY 8"
 
   # F. a normal run records "<pid> <epoch>" while it holds the lock and releases it afterwards
   fresh; ar_run LOCK_PEEK="$STATE/run.lock.d/holder"

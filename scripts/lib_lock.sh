@@ -72,8 +72,7 @@ acquire_lock() {
   local lock_file="$1" fd="$2" wait_seconds="${3:-0}" label="${4:-lock}" notify="${5:-ntfy}"
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null
   eval "exec ${fd}>\"\$lock_file\""
-  # wait 0 -> flock -n: the macOS flock port rejects "-w 0" ("timeout must be greater than 0"), which made every zero-wait acquire fail on the Mac
-  if { [ "$wait_seconds" -eq 0 ] 2>/dev/null && flock -n "$fd"; } || { [ "$wait_seconds" -ne 0 ] 2>/dev/null && flock -w "$wait_seconds" "$fd"; }; then :; else
+  if ! flock -w "$wait_seconds" "$fd"; then
     echo "[$label $(date '+%F %H:%M:%S')] another pass is already running — skipping this tick (waited ${wait_seconds}s)."
     if [ "$wait_seconds" -gt 0 ] 2>/dev/null; then
       local _lock_dir; _lock_dir="$(dirname "$lock_file")"

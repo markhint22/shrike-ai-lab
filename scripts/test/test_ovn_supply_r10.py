@@ -20,9 +20,6 @@ import sys
 import tempfile
 import time
 
-import tmp_track
-tmp_track.install()   # 2026-10-13: removes every mkdtemp dir at exit (this module leaked dirs/inodes per run onto the inode-limited /tmp tmpfs)
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.abspath(os.path.join(HERE, ".."))
 ROOT = os.path.abspath(os.path.join(SCRIPTS, ".."))

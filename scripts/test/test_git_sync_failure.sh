@@ -16,7 +16,7 @@ P=0; F=0
 # assertions are evaluated with pipefail OFF (no `x | grep -q` flakiness); conditions use grep -c / [ ] only
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $SUITE: $1"; fi; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-REALGIT="$(type -P git)"
+REALGIT="$(command -v git)"
 
 build(){  # $1=script under test -> fresh live-dir repo with a bare origin
   W="$T/w.$RANDOM"; HOME_="$W/home"; R="$HOME_/overnight-queue"; BARE="$W/origin.git"; CTL="$W/ctl"; BIN="$W/bin"

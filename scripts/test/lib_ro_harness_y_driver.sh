@@ -29,7 +29,7 @@ STUB
 chmod +x "$HOME/aider-venv/bin/aider"; export Y_SCN="$SC"
 git init -q --bare "$O"; git -C "$O" symbolic-ref HEAD refs/heads/main
 git clone -q "$O" "$R" 2>/dev/null
-( cd "$R" || exit 1; git checkout -q -b main 2>/dev/null
+( cd "$R" && git checkout -q -b main 2>/dev/null
   printf 'claude rules\n' > CLAUDE.md
   [ -n "${Y_SETUP:-}" ] && bash "$Y_SETUP"
   cp "$Y_PROGRESS" OVERNIGHT_PROGRESS.md

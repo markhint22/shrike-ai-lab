@@ -13,7 +13,7 @@ ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  F
 kb(){ if [ "$2" = 1 ]; then pass=$((pass+1)); else echo "  WARN KNOWN-BUG: $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
 T="$(mktemp -d)"; export T; trap 'rm -rf "$T"' EXIT
-REALGIT="$(type -P git)"; export REALGIT
+REALGIT="$(command -v git)"; export REALGIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
 export HOME="$T/home"; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
 BIN="$T/bin"; mkdir -p "$BIN"
@@ -189,7 +189,7 @@ for gm in ok:1 benign:1 parse_err:0 red:0 noasserts:0 compile:0 empty:0; do
 done
 setup; mk app godot 1; echo x > /dev/null; rm -rf "$HOME/godot"; run "$T/repos/app"
 ok "godot repo without installed godot -> nothing to gate (flagged)" "$([ "$(has "$(flag app)" 'no build/test gate available')" = 1 ] && echo 1 || echo 0)"
-setup; mk app godot 1; mkgodot; rm -rf "$T/seed/app/addons"; ( cd "$T/seed/app" || exit 1; git checkout -q overnight/feature && git rm -rqf addons && git commit -qm "drop gut" && git push -q origin overnight/feature ); git -C "$T/repos/app" fetch -q; run "$T/repos/app"
+setup; mk app godot 1; mkgodot; rm -rf "$T/seed/app/addons"; ( cd "$T/seed/app" && git checkout -q overnight/feature && git rm -rqf addons && git commit -qm "drop gut" && git push -q origin overnight/feature ); git -C "$T/repos/app" fetch -q; run "$T/repos/app"
 ok "godot without vendored gut still passes import-only gate" "$([ "$(merged app develop)" = 1 ] && echo 1 || echo 0)"
 
 # ===== shell + docker gates =====
@@ -207,7 +207,7 @@ setup; mk app dockerchg 1; flagfile app docker_slow.flag svc; export TEST_TIMEOU
 
 # ===== branch/env handling =====
 setup; mk app py 2; export OVN_XDIST_REPOS=none HYGIENE_FEATURE_BRANCH=claude/feature
-( cd "$T/seed/app" || exit 1; git checkout -q claude/feature && echo c > claude.txt && git add -A && git commit -qm "claude work" && git push -q origin claude/feature ); git -C "$T/repos/app" fetch -q
+( cd "$T/seed/app" && git checkout -q claude/feature && echo c > claude.txt && git add -A && git commit -qm "claude work" && git push -q origin claude/feature ); git -C "$T/repos/app" fetch -q
 run "$T/repos/app"
 ok "HYGIENE_FEATURE_BRANCH=claude/feature lands the claude branch" "$([ "$(merged app develop claude/feature)" = 1 ] && [ "$(merged app develop overnight/feature)" = 0 ] && [ "$(has $OUT 'MERGED app claude/feature (+1) -> develop')" = 1 ] && echo 1 || echo 0)"
 setup; mk app py 1; export OVN_XDIST_REPOS=none HYGIENE_MERGE_TARGET=main; m0="$(sha app main)"; run "$T/repos/app"
@@ -223,12 +223,12 @@ ok "AUTO_MERGE_DEFAULT=false -> flag-only, not merged" "$([ "$(has $OUT 'FLAG-ON
 setup; mk billwatch py 1; export OVN_XDIST_REPOS=none AUTO_MERGE_DEFAULT=false; run "$T/repos/billwatch"
 ok "AUTO_MERGE_OVERRIDE[billwatch]=true overrides the default-off" "$([ "$(merged billwatch develop)" = 1 ] && echo 1 || echo 0)"
 # feature behind develop, ahead 0
-setup; mk app py 1; ( cd "$T/seed/app" || exit 1; git checkout -q develop && git merge -q --no-ff overnight/feature -m "land" && echo dv > dv.txt && git add -A && git commit -qm "develop moves" && git push -q origin develop ); git -C "$T/repos/app" fetch -q; run "$T/repos/app"
+setup; mk app py 1; ( cd "$T/seed/app" && git checkout -q develop && git merge -q --no-ff overnight/feature -m "land" && echo dv > dv.txt && git add -A && git commit -qm "develop moves" && git push -q origin develop ); git -C "$T/repos/app" fetch -q; run "$T/repos/app"
 ok "feature fully in develop but behind -> reconcile note, nothing to land" "$([ "$(has $OUT 'behind develop')" = 1 ] && [ "$(has $OUT 'nothing to land')" = 1 ] && echo 1 || echo 0)"
 
 # ===== conflict / push failure / worktree failure =====
 setup; mk app py 1; export OVN_XDIST_REPOS=none
-( cd "$T/seed/app" || exit 1; git checkout -q overnight/feature && echo F > clash.txt && git add -A && git commit -qm "feat clash" && git push -q origin overnight/feature && git checkout -q develop && echo D > clash.txt && git add -A && git commit -qm "dev clash" && git push -q origin develop ); git -C "$T/repos/app" fetch -q
+( cd "$T/seed/app" && git checkout -q overnight/feature && echo F > clash.txt && git add -A && git commit -qm "feat clash" && git push -q origin overnight/feature && git checkout -q develop && echo D > clash.txt && git add -A && git commit -qm "dev clash" && git push -q origin develop ); git -C "$T/repos/app" fetch -q
 d0="$(sha app develop)"; run "$T/repos/app"
 ok "merge conflict: aborted, develop untouched, flagged" "$([ "$(has $OUT 'MERGE CONFLICT for app')" = 1 ] && [ "$(sha app develop)" = "$d0" ] && [ "$(has "$(flag app)" 'MERGE CONFLICT')" = 1 ] && [ "$(has $REPORT_FILE 'merge CONFLICT')" = 1 ] && echo 1 || echo 0)"
 ok "conflict leaves no stray worktrees" "$([ "$(git -C $T/repos/app worktree list | wc -l)" = 1 ] && echo 1 || echo 0)"
@@ -243,7 +243,7 @@ ok "develop worktree creation failure -> flagged, not merged" "$([ "$(has $OUT '
 
 # ===== dry run + pruning =====
 setup; mk app py 1; export OVN_XDIST_REPOS=none DRY_RUN=1 KEEP_DAYS=3
-( cd "$T/seed/app" || exit 1; git branch old-merged main && git push -q origin old-merged && git branch keep-open develop && git checkout -q keep-open && echo k > k.txt && git add -A && git commit -qm k && git push -q origin keep-open && git checkout -q develop && git branch dependabot/npm/x main && git push -q origin dependabot/npm/x && for b in overnight/2020-01-01/old "overnight/$(date +%F)/fresh"; do git checkout -q -b "$b" main && echo x > "dated_$(echo $b | tr / _).txt" && git add -A && git commit -qm dated && git push -q origin "$b"; git checkout -q develop; done; git branch -q -D overnight/2020-01-01/old )
+( cd "$T/seed/app" && git branch old-merged main && git push -q origin old-merged && git branch keep-open develop && git checkout -q keep-open && echo k > k.txt && git add -A && git commit -qm k && git push -q origin keep-open && git checkout -q develop && git branch dependabot/npm/x main && git push -q origin dependabot/npm/x && for b in overnight/2020-01-01/old "overnight/$(date +%F)/fresh"; do git checkout -q -b "$b" main && echo x > "dated_$(echo $b | tr / _).txt" && git add -A && git commit -qm dated && git push -q origin "$b"; git checkout -q develop; done; git branch -q -D overnight/2020-01-01/old )
 git -C "$T/repos/app" fetch -q; git -C "$T/repos/app" branch -q old-merged origin/old-merged; git -C "$T/repos/app" branch -q loc-merged origin/main
 d0="$(sha app develop)"; run "$T/repos/app"
 ok "dry-run: gate green message, develop untouched" "$([ "$(has $OUT '[dry-run] gate green')" = 1 ] && [ "$(sha app develop)" = "$d0" ] && [ "$(has $REPORT_FILE '[dry-run] would merge')" = 1 ] && echo 1 || echo 0)"

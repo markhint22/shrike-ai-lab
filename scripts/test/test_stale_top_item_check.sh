@@ -31,7 +31,7 @@ mkdir -p "$QUEUE_ROOT/state" "$QUEUE_ROOT/repos/repoA" "$QUEUE_ROOT/repos/repoB"
 # $1=repo dir  $2=roadmap item text  $3=optional git author/committer date (approxidate)
 mk_repo(){
   local dir="$1" text="$2" gdate="${3:-}"
-  ( cd "$dir" || exit 1; git init -q && git config user.email t@t && git config user.name t
+  ( cd "$dir" && git init -q && git config user.email t@t && git config user.name t
     printf '# Roadmap\n\n%s\n' "$text" > OVERNIGHT_PROGRESS.md
     git add -A
     if [ -n "$gdate" ]; then

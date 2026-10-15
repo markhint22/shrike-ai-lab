@@ -39,9 +39,6 @@ ro_stub(){ # ro_stub NAME <<'EOF' ... EOF   (body from stdin) -> $HOME/aider-ven
   { echo '#!/bin/bash'; cat; } > "$T/home/aider-venv/bin/$1"; chmod +x "$T/home/aider-venv/bin/$1"
 }
 
-# never let a test mutate the live repo that contains this suite (2026-10-14: a failed `cd` in a test subshell + bare `git add -A; git commit` swept logs/ into live history)
-. "$RO_HERE/lib_live_repo_guard.sh"
-
 ro_init(){
   T="$(mktemp -d)"; export T
   trap 'rm -rf "$T"' EXIT
@@ -156,7 +153,7 @@ ro_mkrepo(){
   rm -rf "$r" "$T/origin/$name.git"
   git init -q --bare "$T/origin/$name.git"
   git clone -q "$T/origin/$name.git" "$r" 2>/dev/null
-  ( cd "$r" || exit 1; git checkout -q -b main 2>/dev/null
+  ( cd "$r" && git checkout -q -b main 2>/dev/null
     mkdir -p app
     printf 'def foo():\n    return 1\n' > app/foo.py
     printf 'def old():\n    return 0\n' > app/old.py

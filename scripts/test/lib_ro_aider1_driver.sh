@@ -66,7 +66,7 @@ git_init_origin(){ git init -q --bare "$O"; git -C "$O" symbolic-ref HEAD refs/h
 base_repo(){  # clone with app/foo.py app/bar.py CLAUDE.md OVERNIGHT_PROGRESS.md on main, pushed
   git_init_origin
   git clone -q "$O" "$R" 2>/dev/null
-  ( cd "$R" || exit 1; git checkout -q -b main 2>/dev/null
+  ( cd "$R" && git checkout -q -b main 2>/dev/null
     mkdir -p app
     printf 'def foo():\n    return 1\n' > app/foo.py
     printf 'def bar():\n    return 2\n' > app/bar.py
@@ -80,7 +80,7 @@ base_repo(){  # clone with app/foo.py app/bar.py CLAUDE.md OVERNIGHT_PROGRESS.md
 other(){  # fresh second clone at $D/c2 (used to advance origin from "someone else")
   rm -rf "$D/c2"; git clone -q "$O" "$D/c2" 2>/dev/null
 }
-progress(){ printf '%s' "$1" > "$R/OVERNIGHT_PROGRESS.md"; ( cd "$R" || exit 1; git add -A && git commit -q -m "prog" && git push -q origin main 2>/dev/null ); }
+progress(){ printf '%s' "$1" > "$R/OVERNIGHT_PROGRESS.md"; ( cd "$R" && git add -A && git commit -q -m "prog" && git push -q origin main 2>/dev/null ); }
 scout(){ printf '%s\n' "$1" > "$SC/scout.out"; }
 proceed(){ scout "VERDICT: PROCEED
 PLAN: $1
@@ -129,7 +129,7 @@ case "$SCN_NAME" in
   br_default) call ;;
   br_persist_local)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && echo x >> README.md && git commit -qam localwork && git push -q origin claude/feature 2>/dev/null && git checkout -q main )
+    ( cd "$R" && git checkout -q -b claude/feature && echo x >> README.md && git commit -qam localwork && git push -q origin claude/feature 2>/dev/null && git checkout -q main )
     call ;;
   br_persist_remote)
     BR="claude/feature"; PERSIST=true
@@ -138,53 +138,53 @@ case "$SCN_NAME" in
   br_fallback)
     # origin has no main at all -> `checkout -B branch origin/main` fails, falls back to the LOCAL main
     git -C "$O" update-ref -d refs/heads/main; git -C "$O" symbolic-ref HEAD refs/heads/nothere
-    ( cd "$R" || exit 1; git update-ref -d refs/remotes/origin/main; git remote set-head origin -d >/dev/null 2>&1 )
+    ( cd "$R" && git update-ref -d refs/remotes/origin/main; git remote set-head origin -d >/dev/null 2>&1 )
     call ;;
   sync_equal)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null )
+    ( cd "$R" && git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null )
     call ;;
   sync_behind)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null )
+    ( cd "$R" && git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null )
     other; ( cd "$D/c2" && git checkout -q claude/feature && echo adv > adv.txt && git add -A && git commit -q -m adv && git push -q origin claude/feature 2>/dev/null )
     call ;;
   sync_ahead)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && echo a > ahead.txt && git add -A && git commit -q -m ahead )
+    ( cd "$R" && git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && echo a > ahead.txt && git add -A && git commit -q -m ahead )
     call ;;
   sync_div_main)
     BR="claude/feature"; PERSIST=true
     git -C "$O" branch claude/feature main
-    ( cd "$R" || exit 1; git fetch -q origin && git checkout -q -b claude/feature origin/claude/feature && echo l > straggler.txt && git add -A && git commit -q -m straggler )
+    ( cd "$R" && git fetch -q origin && git checkout -q -b claude/feature origin/claude/feature && echo l > straggler.txt && git add -A && git commit -q -m straggler )
     # origin/claude/feature AND origin/main advance together (hygiene merged + reset the branch): local straggler is on a dead base
     other; ( cd "$D/c2" && echo merged >> README.md && git commit -qam merged && git push -q origin main 2>/dev/null && git push -q origin main:claude/feature -f 2>/dev/null )
     call ;;
   sync_div_recover)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && printf -- '- [ ] [T1] app/bar.py — local queue note\n' >> OVERNIGHT_PROGRESS.md && git commit -qam "local queue-only" )
+    ( cd "$R" && git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && printf -- '- [ ] [T1] app/bar.py — local queue note\n' >> OVERNIGHT_PROGRESS.md && git commit -qam "local queue-only" )
     other; ( cd "$D/c2" && git checkout -q claude/feature && echo remote >> README.md && git commit -qam remote-readme && git push -q origin claude/feature 2>/dev/null )
     call ;;
   sync_div_conflict)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && sed -i.bak 's/tidy bar/LOCAL edit of bar/' OVERNIGHT_PROGRESS.md && rm -f OVERNIGHT_PROGRESS.md.bak && git commit -qam "local prog edit" )
+    ( cd "$R" && git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && sed -i.bak 's/tidy bar/LOCAL edit of bar/' OVERNIGHT_PROGRESS.md && rm -f OVERNIGHT_PROGRESS.md.bak && git commit -qam "local prog edit" )
     other; ( cd "$D/c2" && git checkout -q claude/feature && sed -i.bak 's/tidy bar/REMOTE edit of bar/' OVERNIGHT_PROGRESS.md && rm -f OVERNIGHT_PROGRESS.md.bak && git commit -qam "remote prog edit" && git push -q origin claude/feature 2>/dev/null )
     call ;;
   sync_div_pushfail)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && printf -- '- [ ] [T1] app/bar.py — local queue note\n' >> OVERNIGHT_PROGRESS.md && git commit -qam "local queue-only" )
+    ( cd "$R" && git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && printf -- '- [ ] [T1] app/bar.py — local queue note\n' >> OVERNIGHT_PROGRESS.md && git commit -qam "local queue-only" )
     other; ( cd "$D/c2" && git checkout -q claude/feature && echo remote >> README.md && git commit -qam remote-readme && git push -q origin claude/feature 2>/dev/null )
     reject_hook
     call ;;
   sync_div_other)
     BR="claude/feature"; PERSIST=true
-    ( cd "$R" || exit 1; git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && echo '# local' >> app/foo.py && git commit -qam "local code edit" )
+    ( cd "$R" && git checkout -q -b claude/feature && git push -q origin claude/feature 2>/dev/null && echo '# local' >> app/foo.py && git commit -qam "local code edit" )
     other; ( cd "$D/c2" && git checkout -q claude/feature && echo remote >> README.md && git commit -qam remote-readme && git push -q origin claude/feature 2>/dev/null )
     call ;;
   # ---------- placeholder / new-file stubs ----------
   stub_progress)
     PROMPT="Review OVERNIGHT_PROGRESS.md and pick the next item."
-    ( cd "$R" || exit 1; git rm -q OVERNIGHT_PROGRESS.md && git commit -q -m rmprog && git push -q origin main 2>/dev/null )
+    ( cd "$R" && git rm -q OVERNIGHT_PROGRESS.md && git commit -q -m rmprog && git push -q origin main 2>/dev/null )
     call ;;
   stub_alembic) PROMPT="Add backend/alembic/versions/0007_sessions.py for the new table."; call ;;
   stub_py)      PROMPT="Create app/brand_new.py with a helper."; call ;;
@@ -197,7 +197,7 @@ case "$SCN_NAME" in
   stub_vue)     PROMPT="Create web/src/BrandNew.vue component."; call ;;
   stub_existing) PROMPT="Edit app/foo.py to be better."; call ;;
   selfheal)
-    ( cd "$R" || exit 1; mkdir -p web
+    ( cd "$R" && mkdir -p web
       printf '// Placeholder - the implement step fills this in.\n' > web/a.test.ts
       printf '// just a comment, not ours\n' > web/b.test.ts
       printf "import { it } from 'vitest'\nit('real', () => {})\n" > web/c.test.ts
@@ -218,7 +218,7 @@ case "$SCN_NAME" in
 '
     call ;;
   selfgen)
-    ( cd "$R" || exit 1; printf 'def risky():\n    try:\n        return 1\n    except:\n        pass\n' > app/risky.py && git add -A && git commit -q -m risky && git push -q origin main 2>/dev/null )
+    ( cd "$R" && printf 'def risky():\n    try:\n        return 1\n    except:\n        pass\n' > app/risky.py && git add -A && git commit -q -m risky && git push -q origin main 2>/dev/null )
     call ;;
   exhausted)
     progress '# Overnight Progress
@@ -266,7 +266,7 @@ RSTUB
   # ---------- delete executor ----------
   de_*)
     ID="ongoing-ro_aider1_repo"; BR="main"; PROMPT="Work the single top not-yet-done item in the overnight progress log."
-    ( cd "$R" || exit 1; printf 'def dead():\n    return 0\n' > app/dead_mod.py && git add -A && git commit -q -m dead && git push -q origin main 2>/dev/null )
+    ( cd "$R" && printf 'def dead():\n    return 0\n' > app/dead_mod.py && git add -A && git commit -q -m dead && git push -q origin main 2>/dev/null )
     DITEM='- [ ] [T1] app/dead_mod.py — Delete this file, nothing imports it. (cat:python)'
     progress "# Overnight Progress
 
@@ -399,7 +399,7 @@ app/foo.py"
     PROMPT="$PROMPT multifile:no"
     proceed "change app/bar.py and app/foo.py" "NONE"; call ;;
   sc_ident_fallback)
-    ( cd "$R" || exit 1; mkdir -p tests && printf 'def compute_total(x):\n    return x\n\ndef other_helper():\n    return 0\n' > app/calc.py
+    ( cd "$R" && mkdir -p tests && printf 'def compute_total(x):\n    return x\n\ndef other_helper():\n    return 0\n' > app/calc.py
       printf 'def guarded_fn():\n    return 1\n' > app/guard.py
       printf 'def only_in_tests():\n    return 1\n' > tests/test_zzz.py
       git add -A && git commit -q -m calc && git push -q origin main 2>/dev/null )
@@ -409,7 +409,7 @@ app/foo.py"
     call ;;
   # ---------- scout file guard (2026-10-02) ----------
   sg_*)
-    ( cd "$R" || exit 1; mkdir -p tests && python3 -c "open('app/huge.py','w').write('x = 1\n' * 60000)"
+    ( cd "$R" && mkdir -p tests && python3 -c "open('app/huge.py','w').write('x = 1\n' * 60000)"
       printf 'def b():\n    return 1\n' > app/banned.py; printf 'app/banned.py\n' > .queue-hard-banned-files
       git add -A && git commit -q -m sgfix && git push -q origin main 2>/dev/null )
     SG_ITEM='- [ ] [T2] tests/test_persist.py — add a test that the autosave persists (cat:test)'
@@ -458,7 +458,7 @@ FILES: NONE"
     printf '#!/bin/bash\necho junk > scout_junk.txt\necho dirty >> app/foo.py\ngit add -A; git commit -q -m "scout committed anyway"\necho more >> app/bar.py\necho unt > untracked_scout.txt\n' > "$SC/scout.hook"
     call ;;
   sc_autotest)
-    ( cd "$R" || exit 1; echo '{}' > package.json && git add -A && git commit -q -m pkg && git push -q origin main 2>/dev/null )
+    ( cd "$R" && echo '{}' > package.json && git add -A && git commit -q -m pkg && git push -q origin main 2>/dev/null )
     call ;;
   sc_progress_tail)
     export OVN_PROGRESS_MAX_BYTES=200
@@ -468,7 +468,7 @@ FILES: NONE"
     call ;;
   sc_no_progress)
     PROMPT="Fix things in app/foo.py."
-    ( cd "$R" || exit 1; git rm -q OVERNIGHT_PROGRESS.md && git commit -q -m noprog && git push -q origin main 2>/dev/null )
+    ( cd "$R" && git rm -q OVERNIGHT_PROGRESS.md && git commit -q -m noprog && git push -q origin main 2>/dev/null )
     call ;;
   sc_nolib)
     # the shared lib_item_select helpers are optional (`command -v` guards): exercise the inline fallbacks

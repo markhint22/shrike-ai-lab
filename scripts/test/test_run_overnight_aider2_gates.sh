@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_ro_aider2_fixture.sh"
 
 seed_add(){ # <path> <content> [mode]  : add a file to origin/main and pull it into the clone
-  ( cd "$OTHER" || exit 1; mkdir -p "$(dirname "$1")" && printf '%b' "$2" > "$1" && [ -n "${3:-}" ] && chmod "$3" "$1"
+  ( cd "$OTHER" && mkdir -p "$(dirname "$1")" && printf '%b' "$2" > "$1" && [ -n "${3:-}" ] && chmod "$3" "$1"
     git add -A && git commit -q -m "seed $1" && git push -q origin main ) >/dev/null 2>&1
   ( cd "$REPO" && git pull -q origin main ) >/dev/null 2>&1
 }

@@ -12,7 +12,7 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 # shellcheck disable=SC1090
 source "$LIB"
 R="$tmp/repo"; mkdir -p "$R/app/deep" "$R/web"
-( cd "$R" || exit 1; git init -q && git config user.email t@t && git config user.name t
+( cd "$R" && git init -q && git config user.email t@t && git config user.name t
   echo 1 > top.py; echo 1 > app/deep/mod.py; echo 1 > web/page.vue; git add -A; git commit -q -m i )
 ok "empty extracted path -> empty line" "[ \"\$(ovn_normalize_path '$R' '')\" = '' ] && [ \"\$(ovn_normalize_path '$R' '' | wc -l | tr -d ' ')\" = 1 ]"
 ok "exact tracked path is returned as is" "[ \"\$(ovn_normalize_path '$R' 'top.py')\" = top.py ]"

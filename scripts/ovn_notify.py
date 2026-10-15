@@ -19,8 +19,6 @@ usage:  ovn_notify.py serve [--port 8099]
         ovn_notify.py check  [--dry-run]
 env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIFY_DAILY_CAP (default 40), OVN_NOTIFY_DISABLE=1 (drop all pushes)
         OVN_IDLE_LINE=0 (no "Lane idle" lines in the hourly update), OVN_IDLE_ALERT=0 (no "Fleet starved" emergency), OVN_IDLE_ALERT_H (default 6)
-        OVN_STARVED_PRIORITY=off ("Fleet starved" only when EVERY lane is idle, not when the priority lanes are), OVN_PRIORITY_LANES (default iptv_apps,xlite),
-        OVN_DUTY_LINE=0 (no "Lane duty 24h" line in the hourly update)
 """
 import base64
 import email.header
@@ -470,31 +468,6 @@ def boot_notes(at=None):
         return []
 
 
-def duty_line(t):
-    """'Lane duty 24h: iptv 16% (9 items/d in), xlite 5% (8/d in)' for the priority lanes, or None. Never raises."""
-    try:
-        _d = os.path.dirname(os.path.abspath(__file__))
-        if _d not in sys.path:
-            sys.path.insert(0, _d)
-        import ovn_supply_ledger as led
-        rep = None
-        try:
-            with open(_p("supply_ledger.json")) as f:
-                cand = json.load(f)
-            if isinstance(cand, dict) and 0 <= t - float(cand.get("ts", 0)) < 2 * 3600:
-                rep = cand
-        except (OSError, ValueError, TypeError):
-            pass
-        if rep is None:
-            rows = led.read_rows(STATE, t - 24 * 3600 - 3 * 3600)
-            if not rows:
-                return None
-            rep = led.compute_report(rows, t, lanes=led.priority_lanes(), windows=(24,))
-        return led.digest_line(rep)
-    except Exception:
-        return None
-
-
 def compose_update(window=3600, at=None):
     """Return (title, body, needs_count). Pure function of state + the clock (`at` for tests)."""
     t = at or now()
@@ -546,12 +519,6 @@ def compose_update(window=3600, at=None):
     if os.environ.get("OVN_IDLE_LINE", "1") != "0":
         for repo, age in idle_lanes(depths, t):
             lines.append("Lane idle %s: %s" % (_hours(age), repo))
-    # 2026-10-13: duty of the product lanes next to their input rate, so a lane that "ran" 5% of the day is visible in the one hourly update (no push of its own).
-    # OVN_DUTY_LINE=0 turns it off. Read from state/supply_ledger.json when fresh (<2 h), else computed in-process by ovn_supply_ledger; any failure = no line.
-    if os.environ.get("OVN_DUTY_LINE", "1") != "0":
-        dl = duty_line(t)
-        if dl:
-            lines.append(dl)
     if recovered:
         lines.append("Back up: " + ", ".join(re.sub(r"^.*?:\s*", "", t) for t in recovered[:4]))
     # 2026-10-08: an EMPTY active queue is the most important thing to know (the lane is idle) and used to hide under an "all good" title.
@@ -614,27 +581,16 @@ def http_ok(url, timeout=5):
         return False
 
 
-def _priority_lanes():
-    """Lanes whose starvation must never be masked by the others: OVN_PRIORITY_LANES (comma list, default iptv_apps,xlite; same variable as ovn_supply_ledger)."""
-    return [x.strip() for x in os.environ.get("OVN_PRIORITY_LANES", "iptv_apps,xlite").split(",") if x.strip()]
-
-
 def starved_check(depths, paused, dry=False):
-    """'Fleet starved <N>h': nothing pullable and idle longer than OVN_IDLE_ALERT_H (default 6) for EITHER (a) every active lane (the original rule) OR (b) every
-    PRIORITY lane that is active (OVN_PRIORITY_LANES, default iptv_apps,xlite; OVN_STARVED_PRIORITY=off drops (b)), not paused (a pause is deliberate idleness).
-    2026-10-13: (a) alone could never fire with seven lanes and two of them starving (the five secondary lanes always had work: iptv idle 11 h, xlite 15 h, no alert),
-    the secondary lanes masked the product lanes. Deduped to once per 12 h through state/notify_starved_last, which do_check() writes only after the push was 'sent'
+    """'Fleet starved <N>h': ALL active lanes idle longer than OVN_IDLE_ALERT_H (default 6) AND nothing pullable anywhere, not paused (a pause is
+    deliberate idleness). Deduped to once per 12 h through state/notify_starved_last, which do_check() writes only after the push was 'sent'
     (a dry run, a capped or a failed push never consume the window). OVN_IDLE_ALERT=0 = off."""
     if paused or os.environ.get("OVN_IDLE_ALERT", "1") == "0" or not depths:
         return []
     # idle_lanes() only lists lanes with nothing pullable, so "every active lane is idle" already means "the queue is empty"
     idle = idle_lanes(depths)
     thr = float(os.environ.get("OVN_IDLE_ALERT_H", "6")) * 3600
-    all_idle = len(idle) == len(depths) and all(age > thr for _, age in idle)
-    prio = [l for l in _priority_lanes() if l in depths] if os.environ.get("OVN_STARVED_PRIORITY", "on") != "off" else []
-    ages = dict(idle)
-    prio_idle = bool(prio) and all(ages.get(l, 0) > thr for l in prio)
-    if not (all_idle or prio_idle):
+    if len(idle) != len(depths) or not all(age > thr for _, age in idle):
         return []
     try:
         if now() - float(open(_p("notify_starved_last")).read().strip()) < STARVED_DEDUP_S:
@@ -643,13 +599,8 @@ def starved_check(depths, paused, dry=False):
         pass
     # the dedupe marker is NOT written here: do_check() writes it only after forward() returned 'sent' (a capped / failed push must not
     # consume the 12 h window, the emergency would be lost until it expires)
-    if all_idle:
-        return [("🚨 Fleet starved %s" % _hours(min(age for _, age in idle)),
-                 "Every active lane (%s) has been idle for more than %g h and nothing is queued. The fleet needs new work, it will not recover on its own." % (", ".join(sorted(depths)), thr / 3600))]
-    others = sorted(k for k in depths if k not in prio and depths[k] > 0)
-    return [("🚨 Fleet starved %s" % _hours(min(ages[l] for l in prio)),
-             "The priority lane(s) %s have been idle for more than %g h with nothing queued%s. The fleet needs new work for them, it will not recover on its own." % (
-                 ", ".join(sorted(prio)), thr / 3600, (" (%s still have work, which is why 'every lane idle' never tripped)" % ", ".join(others)) if others else ""))]
+    return [("🚨 Fleet starved %s" % _hours(min(age for _, age in idle)),
+             "Every active lane (%s) has been idle for more than %g h and nothing is queued. The fleet needs new work, it will not recover on its own." % (", ".join(sorted(depths)), thr / 3600))]
 
 
 def emergency_checks(dry=False):

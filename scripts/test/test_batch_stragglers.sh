@@ -16,7 +16,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT; export HOME="$tmp"
+tmp="$(mktemp -d)"; export HOME="$tmp"
 mkdir -p "$HOME/overnight-queue/state" "$HOME/overnight-queue/repos/fakerepo"
 OUTF="$HOME/overnight-queue/state/outcomes.jsonl"
 PROG="$HOME/overnight-queue/repos/fakerepo/OVERNIGHT_PROGRESS.md"

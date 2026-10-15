@@ -77,7 +77,7 @@ if [ -f "$ROOT/lib_worktree.sh" ] && [ -f "$ROOT/lib_path_normalize.sh" ] && [ -
   printf '#!/usr/bin/env bash\nexit 0\n' > "$Q/scripts/ovn_log_tokens.sh"; chmod +x "$Q/queue.sh" "$Q/scripts/"*.sh
   mkk(){  # $1 name
     local o="$T/origin_$1.git" w; git init -q --bare "$o"; w="$(mktemp -d)"
-    ( cd "$w" || exit 1; git init -q -b overnight/feature && mkdir -p src && printf 'def real():\n    return 1\n' > src/real.py && printf '# Progress\n\n- [ ] [CLAUDE] src/real.py has been recovered/decomposed 4 times (cap 0) without ever landing - the fleet keeps re-guessing at this same file with no real diagnosis; needs a human/Claude session to understand the actual blast radius (recovery:escalated)\n- [ ] [AUTO-SKIP after 5 no-op cycles — review] [T4] src/real.py — a stuck item needing escalation. VERIFY: pytest -q\n' > OVERNIGHT_PROGRESS.md \
+    ( cd "$w" && git init -q -b overnight/feature && mkdir -p src && printf 'def real():\n    return 1\n' > src/real.py && printf '# Progress\n\n- [ ] [CLAUDE] src/real.py has been recovered/decomposed 4 times (cap 0) without ever landing - the fleet keeps re-guessing at this same file with no real diagnosis; needs a human/Claude session to understand the actual blast radius (recovery:escalated)\n- [ ] [AUTO-SKIP after 5 no-op cycles — review] [T4] src/real.py — a stuck item needing escalation. VERIFY: pytest -q\n' > OVERNIGHT_PROGRESS.md \
         && git add -A && git commit -q -m init && git remote add origin "$o" && git push -q origin overnight/feature )
     git --git-dir="$o" symbolic-ref HEAD refs/heads/overnight/feature; rm -rf "$w"
     rm -rf "$Q/repos/$1"; git clone -q "$o" "$Q/repos/$1" && ( cd "$Q/repos/$1" && git checkout -q overnight/feature )

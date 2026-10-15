@@ -121,7 +121,7 @@ chmod +x "$BIN/curl"
 export PATH="$BIN:$PATH"
 new_repo(){ # <name> lines...
   local r="$tmp/$1"; shift; mkdir -p "$r"
-  ( cd "$r" || exit 1; git init -q && git config user.email t@t.com && git config user.name t \
+  ( cd "$r" && git init -q && git config user.email t@t.com && git config user.name t \
     && { echo '# Progress'; echo; echo '## Next Steps'; printf '%s\n' "$@"; } > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m init )
   echo "$r"
 }

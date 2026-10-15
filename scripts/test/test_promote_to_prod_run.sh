@@ -36,7 +36,7 @@ PY
 mkrepo(){  # $1=name  $2=mode: ahead | same | nodevelop | conflict
   local n="$1" mode="${2:-ahead}" o="$T/origin/$1.git" s="$T/seed/$1"
   git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
-  ( cd "$s" || exit 1; echo base > f.txt && git add -A && git commit -q -m base && git branch -M main && git push -q origin main
+  ( cd "$s" && echo base > f.txt && git add -A && git commit -q -m base && git branch -M main && git push -q origin main
     if [ "$mode" != nodevelop ]; then git checkout -q -b develop && echo dev > d.txt && git add -A && git commit -q -m "feat: dev work" && git push -q origin develop
       [ "$mode" = same ] && git push -q origin develop:main -f
       if [ "$mode" = conflict ]; then git checkout -q main && echo mainchange > d.txt && git add -A && git commit -q -m "hotfix on main" && git push -q origin main; fi

@@ -29,7 +29,7 @@ mkdir -p "$T/gates2"; QA_GATES_DIR="$T/gates2" QA_STATE_DIR="$T/state" OVN_DIR="
 ok "NEGATIVE: without gate_antigaming.py installed the sub-key cannot be enforced" "[ $rc = 2 ]"
 
 # ---- end to end with the REAL gate
-R="$T/repos/demo"; ( cd "$R" || exit 1; git init -q && git config user.email t@t && git config user.name t
+R="$T/repos/demo"; ( cd "$R" && git init -q && git config user.email t@t && git config user.name t
   printf 'extends GutTest\n\nfunc test_a():\n\tassert_eq(f(), 1)\n' > tests/test_a.gd && git add -A && git commit -q -m a
   printf '\n' > tests/test_a.gd && git add -A && git commit -q -m b )
 gate(){ ( cd "$T" && env -i PATH="$PATH" HOME="$T" OVN_DIR="$T" QA_STATE_DIR="$T/state" GIT_CONFIG_GLOBAL=/dev/null python3 "$Q/qa/gate_antigaming.py" check --repo "$R" --base HEAD~1 --head HEAD --no-record | tail -1 ); }

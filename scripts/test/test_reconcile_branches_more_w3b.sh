@@ -16,7 +16,7 @@ cleanup(){ rm -rf "$tmp" /tmp/reconcile-w3b-* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-REALGIT="$(type -P git)"
+REALGIT="$(command -v git)"
 
 export HOME="$tmp/home"
 OQ="$HOME/overnight-queue"
@@ -26,14 +26,11 @@ sed 's|^export PATH="/usr/local/bin:/usr/bin:/bin:\${PATH:-}"|export PATH="${PAT
 grep -q '^export PATH="${PATH:-}"' "$OQ/reconcile_branches.sh" || { echo "FATAL: PATH line sed failed"; exit 1; }
 cp "$LIBTG" "$OQ/scripts/lib_tree_guard.sh"
 printf '#!/usr/bin/env bash\necho "$*" >> "%s/tok.log"\n' "$tmp" > "$OQ/scripts/ovn_log_tokens.sh"
-# 2026-10-13: reconcile now runs branch_hygiene.sh's gate-only entry (HYGIENE_GATE_ONLY=1) as a SEPARATE process instead of sed-extracting + sourcing run_gate, so the stub is a script.
-# A healthy harness answers rc 2 ("nothing to check") for the empty-dir preflight; otherwise it returns $GATE_RC.
 cat > "$OQ/branch_hygiene.sh" <<'EOF2'
-#!/usr/bin/env bash
-echo "gate called for ${HYGIENE_GATE_REPO:-} ${HYGIENE_GATE_WT:-}"
-rc="${GATE_RC:-0}"; [ -z "$(ls -A "${HYGIENE_GATE_WT:-/nonexistent}" 2>/dev/null)" ] && rc=2
-echo "HYGIENE_GATE_ONLY done rc=$rc"   # the real gate-only entry's completion marker (reconcile only trusts an rc 0 that carries it)
-exit "$rc"
+run_gate() {
+  log "gate ran"; echo "gate called for $1 $2"
+  return "${GATE_RC:-0}"
+}
 EOF2
 cat > "$HOME/aider-venv/bin/aider" <<'EOF2'
 #!/usr/bin/env bash
@@ -82,7 +79,7 @@ sc(){ # $1=name $2=branch $3=msg ; rest: shell commands run in seed on that bran
 }
 ohead(){ git -C "$tmp/o_$1.git" rev-parse "$2"; }
 orun(){ # $1=name, env assignments via exported vars ; output -> $OUT
-  OUT="$( cd "$OQ" || exit 1; PATH="$tmp/shim:$PATH" bash ./reconcile_branches.sh "repos/$1" 2>&1 )"
+  OUT="$( cd "$OQ" && PATH="$tmp/shim:$PATH" bash ./reconcile_branches.sh "repos/$1" 2>&1 )"
 }
 curls(){ cat "$tmp/curl.log" 2>/dev/null; }
 reset_logs(){ : > "$tmp/curl.log"; : > "$AIDER_LOG"; rm -f "$tmp/tok.log"; }
@@ -211,7 +208,7 @@ ok "I4: marker line in .md exempt -> back-merged" "printf '%s' \"\$OUT\" | grep 
 ok "I4: direct-to-main alert sent" "grep -q 'direct-to-main' '$tmp/curl.log'"
 # big + both-deleted files: 200-file cap and the missing-file skip
 newrepo n "develop"
-( cd "$tmp/s_n" || exit 1; git checkout -q main && echo gone > a_gone.txt && mkdir -p big && for i in $(seq -w 1 205); do printf 'mid\n' > "big/f$i.txt"; done && git add -A && git commit -q -m files && git push -q origin main && git push -q -f origin main:develop )
+( cd "$tmp/s_n" && git checkout -q main && echo gone > a_gone.txt && mkdir -p big && for i in $(seq -w 1 205); do printf 'mid\n' > "big/f$i.txt"; done && git add -A && git commit -q -m files && git push -q origin main && git push -q -f origin main:develop )
 sc n main m "git rm -q a_gone.txt; for i in \$(seq -w 1 205); do printf 'top\nmid\n' > big/f\$i.txt; done"
 sc n develop d "git rm -q a_gone.txt; for i in \$(seq -w 1 205); do printf 'mid\nbottom\n' > big/f\$i.txt; done"
 reset_logs; orun n
@@ -253,17 +250,17 @@ ok "J4: non-git dir skipped" "printf '%s' \"\$OUT\" | grep -q 'reconcile complet
 newrepo s "develop overnight/feature"
 sc s main direct "echo hot > hot.txt"
 sc s develop d "echo dev > dev.txt"
-OUT="$( cd "$OQ" || exit 1; DRY_RUN=1 PATH="$tmp/shim:$PATH" bash ./reconcile_branches.sh repos/s 2>&1 )"
+OUT="$( cd "$OQ" && DRY_RUN=1 PATH="$tmp/shim:$PATH" bash ./reconcile_branches.sh repos/s 2>&1 )"
 ok "J5: DRY back-merge reported" "printf '%s' \"\$OUT\" | grep -q '\[dry\] back-merge main->develop'"
 ok "J5: DRY feature sync reported" "printf '%s' \"\$OUT\" | grep -q '\[dry\] reconcile develop->overnight/feature'"
 ok "J5: DRY pushed nothing" "[ \"\$(ohead s main)\" != \"\$(ohead s develop)\" ]"
 
 # default repo list (no args): none of the default repos exist in the fixture
-OUT="$( cd "$OQ" || exit 1; PATH="$tmp/shim:$PATH" bash ./reconcile_branches.sh 2>&1 )"
+OUT="$( cd "$OQ" && PATH="$tmp/shim:$PATH" bash ./reconcile_branches.sh 2>&1 )"
 ok "J6: default repo list with absent repos is a clean no-op" "printf '%s' \"\$OUT\" | grep -q 'reconcile complete'"
 
 # ====================== K: merge_sanity_ok called directly ======================
-( cd "$OQ" || exit 1; source ./reconcile_branches.sh >/dev/null 2>&1
+( cd "$OQ" && source ./reconcile_branches.sh >/dev/null 2>&1
   R="$OQ/repos/q"
   # unrelated origin/develop vs origin/main -> merge-base fails -> tolerated
   git -C "$R" fetch -q origin

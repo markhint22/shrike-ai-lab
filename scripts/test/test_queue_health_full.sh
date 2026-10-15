@@ -51,7 +51,7 @@ mkrepo(){ # $1 name $2 "doable count" ; creates repos/<n> with OVERNIGHT_PROGRES
 mkgit(){ # $1 name $2 ahead-count ; adds git + origin
   local n="$1" ahead="$2" r="$Q/repos/$1" o="$T/origin_$1.git"
   git init -q --bare "$o"
-  ( cd "$r" || exit 1; git init -q -b develop && git config user.email t@t && git config user.name t && git add -A && git commit -q -m base \
+  ( cd "$r" && git init -q -b develop && git config user.email t@t && git config user.name t && git add -A && git commit -q -m base \
       && git remote add origin "$o" && git push -q origin develop \
       && git checkout -q -b overnight/feature && i=0 && while [ "$i" -lt "$ahead" ]; do git commit -q --allow-empty -m "c$i"; i=$((i+1)); done \
       && git push -q origin overnight/feature )

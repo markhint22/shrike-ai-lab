@@ -186,7 +186,7 @@ mkloop(){ # mkloop <name> <nlines>
 
 ## Next Steps
 - [ ] [T1] `app/big.py` — add a function (cat:python)' >/dev/null
-  ( cd "$R/$1" || { echo "FATAL mkloop: cd $R/$1 failed - refusing to run git in $PWD" >&2; kill -TERM $$; exit 1; }; python3 - "$2" <<'PY'
+  ( cd "$R/$1" && python3 - "$2" <<'PY'
 import sys
 open("app/big.py", "w").write("".join("def f_%d(): return %d\n" % (i, i) for i in range(1, int(sys.argv[1]) + 1)))
 PY

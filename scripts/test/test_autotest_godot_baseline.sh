@@ -45,7 +45,7 @@ chmod +x "$H/godot/godot4" "$H/aider-venv/bin/"*
 # project repo with one tracked .gd (clean) and one tracked .gd that ALREADY has an engine error (PREBAD)
 mkrepo(){ # $1 name; leaves R set. Import cache present unless $2 = nocache
   R="$T/$1"; rm -rf "$R"; mkdir -p "$R/scripts"
-  ( cd "$R" || exit 1; git init -q && git config user.email t@t && git config user.name t
+  ( cd "$R" && git init -q && git config user.email t@t && git config user.name t
     echo 'config_version=5' > project.godot
     printf 'extends Node\nfunc a():\n\tpass\n' > scripts/clean.gd
     printf 'extends Node\nvar PREBAD = 1\nfunc a():\n\tpass\n' > scripts/prebad.gd

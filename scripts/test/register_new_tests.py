@@ -5,7 +5,7 @@ import os, re, sys
 here = os.path.dirname(os.path.abspath(__file__))
 p = os.path.join(here, "run_all.sh")
 txt = open(p).read()
-reg = set(re.findall(r"(?:bash|run_or_notrun) (test_[A-Za-z0-9_.-]+\.sh)", txt))  # run_or_notrun = wrapper for suites that may exit 77
+reg = set(re.findall(r"bash (test_[A-Za-z0-9_.-]+\.sh)", txt))
 missing = sorted(f for f in os.listdir(here) if f.startswith("test_") and f.endswith(".sh") and f not in reg)
 if "--check" in sys.argv:
     print("unregistered:", " ".join(missing) or "none"); sys.exit(1 if missing else 0)

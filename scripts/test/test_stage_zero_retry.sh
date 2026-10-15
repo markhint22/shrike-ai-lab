@@ -9,15 +9,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 if ! sed --version >/dev/null 2>&1; then echo "  SKIP: needs GNU sed; run on the box"; exit 0; fi
 unset OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP NTFY_SERVER NTFY_TOPIC
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"; osr_cleanup' EXIT
-PLAN_STUCK2='[{"desc":"only one sub","files":["backend/app/foo.py"],"verify":"pytest"}]'
-# 2026-10-13 (N4 Part 2): a retry that fails IDENTICALLY (same blocked step on the same files) is now stopped by the same-signature check (test_stage_retry_signature.sh). This file tests the
-# retry BUDGET itself, so each stuck run plans a different target file => a different failure signature => the budget (not the signature stop) decides.
-STUCK_N=0
 PLAN_STUCK1='[{"desc":"big step","files":["backend/app/foo.py"],"verify":"pytest"}]'
+PLAN_STUCK2='[{"desc":"only one sub","files":["backend/app/foo.py"],"verify":"pytest"}]'
 J(){ osr_jsonl | grep -F -- "$1" >/dev/null; }
 prog(){ osr_origin_file OVERNIGHT_PROGRESS.md; }
 zc(){ cat "$Q"/state/item_fails/stage-"$OSR_REPO".*.zerocount 2>/dev/null; }
-stuck_run(){ STUCK_N=$((STUCK_N+1)); rm -f "$T/llm/n" "$T/scn/aider.n"; osr_plan 1 "[{\"desc\":\"big step\",\"files\":[\"backend/app/foo${STUCK_N}.py\"],\"verify\":\"pytest\"}]"; osr_plan 2 "$PLAN_STUCK2"; osr_run "$OSR_REPO"; }
+stuck_run(){ rm -f "$T/llm/n" "$T/scn/aider.n"; osr_plan 1 "$PLAN_STUCK1"; osr_plan 2 "$PLAN_STUCK2"; osr_run "$OSR_REPO"; }
 
 echo "=== Z1: default budget (3): attempts 1 and 2 keep the item open, attempt 3 routes it ==="
 osr_new; osr_venv backend

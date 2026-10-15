@@ -15,7 +15,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
+tmp="$(mktemp -d)"; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
 OUTF="$HOME/overnight-queue/state/outcomes.jsonl"
 now="$(date +%s)"
 ts_of(){ python3 -c "import time,sys; print(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(int(sys.argv[1]))))" "$1"; }
