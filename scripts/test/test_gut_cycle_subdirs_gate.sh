@@ -157,7 +157,7 @@ echo "=== PART B: branch_hygiene.sh gate ==="
 [ -f "$BH" ] || { echo "  SKIP: branch_hygiene.sh not found"; ro_summary; exit $?; }
 for t in flock timeout jq; do command -v $t >/dev/null || { echo "  SKIP part B: no $t"; ro_summary; exit $?; }; done
 cd "$T" || exit 1
-REALGIT="$(command -v git)"; export REALGIT
+REALGIT="$(type -P git)"; export REALGIT
 export HOME="$T/home"; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
 BIN="$T/bin"; mkdir -p "$BIN"
 mkstub(){ printf '#!/usr/bin/env bash\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }

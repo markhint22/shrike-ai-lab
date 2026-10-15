@@ -11,6 +11,9 @@ cd "$HERE_RA"
 # 2026-10-14 (N4 tmp-isolation): single-flight (a 2nd concurrent run exits 75), a private disk-backed TMPDIR ($HOME/qtmp/run.<pid>, NOT the 1M-inode tmpfs /tmp) removed on EXIT/INT/TERM, a
 # tmp-leak report + alerts.log WARN, stale-root sweep. `&&` + 2>/dev/null: a sandbox without the lib (test_run_all_meta.sh copies this header) just skips it. OVN_TEST_ISOLATE=off disables.
 . "$HERE_RA/lib_tmp_isolation.sh" 2>/dev/null && ovn_tmp_isolate
+# 2026-10-14: a signal reaching run_all (whatever sent it) must end with a verdict line, never a silent exit (the box run died with no banner). EXIT
+# cleanup from lib_tmp_isolation still runs because `exit` fires the EXIT trap.
+trap 'echo; echo "❌ SOME QUEUE TESTS FAILED (run_all.sh was signalled mid-run; not green)"; exit 1' TERM INT
 # the suite must NEVER launch the real QA shadow gates (branch_hygiene.sh tests run the REAL script from the real tree; the hygiene hook would spawn
 # gates that write fake-repo rows into production state/qa_shadow) - 2026-10-01
 export OVN_QA_SHADOW=off
@@ -201,6 +204,7 @@ echo; echo "===== run_overnight_aider2_push ====="; bash test_run_overnight_aide
 echo; echo "===== run_overnight_core_funcs ====="; bash test_run_overnight_core_funcs.sh || rc=1
 echo; echo "===== run_overnight_core_loop2 ====="; bash test_run_overnight_core_loop2.sh || rc=1
 echo; echo "===== run_overnight_core_main ====="; bash test_run_overnight_core_main.sh || rc=1
+echo; echo "===== paused restart storm (OVN_PAUSE_WAIT stays up, resumes on flag removal) ====="; bash test_pause_wait_restart_storm.sh || rc=1
 echo; echo "===== run_overnight_core_verify ====="; bash test_run_overnight_core_verify.sh || rc=1
 echo; echo "===== shrike_notify_lib ====="; bash test_shrike_notify_lib.sh || rc=1
 echo; echo "===== staging_smoke ====="; bash test_staging_smoke.sh || rc=1

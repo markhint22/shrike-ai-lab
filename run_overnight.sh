@@ -536,6 +536,18 @@ error_status() {
 # behavior for this caller). Sourced via $SCRIPT_DIR (not a bare relative path like the day 2/3
 # callers) because this script is exec'd directly by overnight-queue.service with no
 # WorkingDirectory set, so cwd is not guaranteed to be the repo root.
+# 2026-10-14 restart storm: overnight-queue.service has Restart=always, so every clean exit while paused was restarted ~3 s later (NRestarts 6554 and
+# climbing). With OVN_PAUSE_WAIT=1 (set by the unit, see the proposal in the commit) a paused start waits here and re-checks the pause flag, so the unit
+# stays up and resumes by itself when the flag is removed. Without it (cron / manual runs) the old exit-0 behaviour is kept.
+_PAUSE_WAITED=0
+while [ -f "$PAUSE_FLAG" ] && [ "${OVN_PAUSE_WAIT:-0}" = "1" ]; do
+  if [ "$_PAUSE_WAITED" = 0 ]; then
+    log "Queue is paused (${PAUSE_FLAG} exists). Waiting for resume, re-checking every ${OVN_PAUSE_POLL_SEC:-60}s (OVN_PAUSE_WAIT=1)."
+    _PAUSE_WAITED=1
+  fi
+  sleep "${OVN_PAUSE_POLL_SEC:-60}"
+done
+if [ "$_PAUSE_WAITED" = 1 ]; then log "Queue resumed (${PAUSE_FLAG} removed)."; fi
 source "$SCRIPT_DIR/scripts/lib_lock.sh"
 LOCK_FILE="$STATE_DIR/run.lock"
 if ! acquire_lock "$LOCK_FILE" 200 0 run-overnight; then

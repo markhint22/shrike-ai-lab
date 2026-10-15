@@ -114,7 +114,7 @@ if ! flock -w 0 "$T/probe.lock" true >/dev/null 2>&1 || ! command -v timeout >/d
   echo "  SKIP part 2: this host's flock rejects -w 0 (macOS) or timeout/jq is missing - runs on the box"
   echo "  $P passed, $F failed"; [ "$F" = 0 ]; exit $?
 fi
-REALGIT="$(command -v git)"
+REALGIT="$(type -P git)"
 export HOME="$T/home"; export STATE_DIR="$T/state"; export OVN_QA_SHADOW=off OVN_XDIST_REPOS=none
 BIN="$T/bin"; mkdir -p "$BIN"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/curl"; chmod +x "$BIN/curl"

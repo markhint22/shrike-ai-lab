@@ -16,7 +16,7 @@ cleanup(){ rm -rf "$tmp" /tmp/reconcile-w3b-* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-REALGIT="$(command -v git)"
+REALGIT="$(type -P git)"
 
 export HOME="$tmp/home"
 OQ="$HOME/overnight-queue"

@@ -2,7 +2,7 @@
 # 2026-10-14 (n5): a test subshell that lost its `cd` ran a bare `git add -A; git commit` in the LIVE ~/overnight-queue repo (logs/ 133 MB + state/ swept into
 # 't <t@t>' commits, GitHub rejected every ovn_git_sync push for ~20 h).  Three layers, each proven by mutation here:
 #   L1 the tests: every `( cd X && a; git add -A ...)` subshell is `( cd X || exit 1; ...)` (static lint: lib_subshell_cd_lint.py) and mkloop() aborts on a failed cd
-#   L2 lib_live_repo_guard.sh: an exported `git` function refusing mutating subcommands in the repo that contains the suite (aborts the owner shell)
+#   L2 lib_live_repo_guard.sh: a `git` function (not exported) refusing mutating subcommands in the repo that contains the suite (aborts the owner shell)
 #   L3 ovn_git_sync.sh refuses to push when a tracked file is > 90 MB (see test_git_sync_size_guard.sh)
 # The scenario runs the REAL mkloop() text from test_udiff_unanchored.sh + the REAL lib_ro_core.sh in a throwaway "live" repo, with repo creation failing
 # (mkdir and `git clone` stubbed to fail) and asserts the throwaway live repo's HEAD never moves.
@@ -12,7 +12,7 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 G(){ command git -c user.name=t -c user.email=t@t "$@"; }
-REALGIT="$(command -v git)"
+REALGIT="$(type -P git)"
 
 echo "== L1 static lint (lib_subshell_cd_lint.py; this file is skipped: its fixtures contain the bad pattern as text) =="
 ok "no scripts/test/*.sh has a '( cd X && first; git add/commit ...)' subshell (the cd only guards the first statement)" "$(python3 "$HERE/lib_subshell_cd_lint.py" $(ls "$HERE"/*.sh | grep -v '/test_live_repo_guard.sh$') >/dev/null 2>&1 && echo 1 || echo 0)"
@@ -93,8 +93,36 @@ ok "read-only git in the protected repo (log/status/branch list) still works" "$
 ok "git commit in the protected repo is refused and aborts the owner shell" "$(printf '%s' "$out" | grep -q 'LIVE-REPO-GUARD: refused .git commit' && ! printf '%s' "$out" | grep -q after-junk-commit && echo 1 || echo 0)"
 ok "the protected repo has no junk commit" "$([ "$(command git -C "$T/u/live" log -1 --format=%s)" = base ] && echo 1 || echo 0)"
 ok "the refusal is logged to OVN_LIVE_GUARD_LOG" "$(grep -q 'refused .git commit' "$T/u/g.log" && echo 1 || echo 0)"
+# 2026-10-14 box regression: a guard hit in a CHILD test must abort only that child; the parent run (run_all.sh) must keep going to its banner.
+# The old lib exported its owner pid, so the child SIGTERMed the parent and the whole run ended silently.
+mkdir -p "$T/p/live/t"; cp "$HERE/lib_live_repo_guard.sh" "$T/p/live/t/"; G -C "$T/p/live" init -q .; G -C "$T/p/live" commit -q --allow-empty -m base
+printf '%s\n' '. "$1/lib_live_repo_guard.sh"' 'cd "$2" || exit 2' 'git commit -q --allow-empty -m child-junk' 'echo child-after-commit' > "$T/p/child.sh"
+printf '%s\n' '. "$1/lib_live_repo_guard.sh"' 'bash "$3" "$1" "$2"; echo "parent-alive rc=$?"' > "$T/p/parent.sh"
+pout="$(bash "$T/p/parent.sh" "$T/p/live/t" "$T/p/live" "$T/p/child.sh" 2>&1)"
+ok "the child script under test exists" "$([ -f "$T/p/child.sh" ] && echo 1 || echo 0)"
+ok "a guard hit in a child shell does not kill the parent (parent reaches its end)" "$(printf '%s' "$pout" | grep -q 'parent-alive' && echo 1 || echo 0)"
+ok "the child's refused commit is still refused (no child-after-commit, live repo has no junk commit)" "$(! printf '%s' "$pout" | grep -q child-after-commit && [ "$(command git -C "$T/p/live" log -1 --format=%s)" = base ] && echo 1 || echo 0)"
+
+echo "== L3 shim real-git resolution (regression 2026-10-14: command -v returned the guard function name 'git'; the shim exec'd itself forever) =="
+SB="$T/sb"; mkdir -p "$SB"
+# not a subshell: ok() counters must reach the summary
+OVN_LIVE_GUARD_TOP="$T/u/live"; . "$HERE/lib_live_repo_guard.sh"
+  L_CMD="$(bash -c 'command -v git' 2>/dev/null)"   # the old shim lookup, in a child bash
+  L_SHIM="$(bash -c 'type -P git' 2>/dev/null)"     # the fixed shim lookup, in a child bash
+  ok "a child shell's 'command -v git' resolves to an absolute path (not the function name 'git')" "$([ "${L_CMD:0:1}" = / ] && echo 1 || echo 0)"
+  ok "shim lookup 'type -P git' returns an executable real git path" "$([ -x "$L_SHIM" ] && echo 1 || echo 0)"
+  # stub-first PATH; the stub embeds the lookup a shim captured before the stub dir was prepended (the pre-fix pattern: command -v git)
+  printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$L_CMD" > "$SB/git"; chmod +x "$SB/git"
+  out="$(PATH="$SB:$PATH" timeout 5 git -C "$T/u/scratch" rev-parse --is-inside-work-tree 2>&1)"; rc=$?
+  ok "stub shim execs real git and terminates within 5s (rc=$rc)" "$([ "$rc" = 0 ] && [ "$out" = true ] && echo 1 || echo 0)"
+  out="$(PATH="$SB:$PATH" timeout 5 git --version 2>&1)"; rc=$?
+  ok "shim captured by 'type -P' runs real git through the stub (sanity)" "$(PATH="$SB:$PATH" timeout 5 bash -c "\"$L_SHIM\" --version" 2>&1 | grep -q '^git version' && echo 1 || echo 0)"
+  ok "real git version via the stub: '$out' rc=$rc" "$([ "$rc" = 0 ] && printf '%s' "$out" | grep -q '^git version' && echo 1 || echo 0)"
+  ok "guard does not export a function named git to children" "$(bash -c 'declare -F git >/dev/null' 2>/dev/null && echo 0 || echo 1)"
+unset -f git; unset OVN_LIVE_GUARD_TOP
 
 echo "== wiring =="
 ok "run_all.sh sources the guard" "$(grep -q 'lib_live_repo_guard.sh' "$HERE/run_all.sh" && echo 1 || echo 0)"
 ok "lib_ro_core.sh sources the guard (every ro_init test is covered when run alone)" "$(grep -q 'lib_live_repo_guard.sh' "$HERE/lib_ro_core.sh" && echo 1 || echo 0)"
+ok "run_all.sh prints a verdict line when signalled (no silent end of the run)" "$(grep -q 'run_all.sh was signalled mid-run' "$HERE/run_all.sh" && echo 1 || echo 0)"
 echo; echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

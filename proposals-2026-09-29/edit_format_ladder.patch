@@ -1,0 +1,83 @@
+--- a/run_overnight.sh	2026-09-29 21:10:25.068569123 -0500
++++ b/run_overnight.sh	2026-09-29 21:11:14.030014273 -0500
+@@ -1854,10 +1854,44 @@
+       ARCH_ARGS=(--architect --auto-accept-architect)
+       echo "--- architect mode ON for this hard item ---" >> "$task_log"
+     fi
++    # Edit-format ladder (proposed 2026-09-29, kill switch OVN_EDIT_LADDER=0).
++    # When an implement attempt fails to APPLY its edit (aider UnifiedDiffNoMatch /
++    # SearchReplaceNoExactMatch: the model's hunk context does not match the file's real
++    # text - invisible trailing whitespace on "blank" lines, hallucinated context, half-
++    # applied hunk), repeating the same format just reproduces the same failure (aider's
++    # own 3 in-run reflections already did that). Step down instead:
++    #   udiff -> diff (SEARCH/REPLACE, tolerant: tiny anchored blocks) -> whole (small files)
++    # --edit-format is appended AFTER AIDER_BASE_ARGS; argparse keeps the last value.
++    EDIT_FMT_CUR="${OVN_EDIT_FORMAT:-udiff}"
++    LADDER_ARGS=()
++    # ovn_edit_ladder_next <cur-format>: prints the next format, or nothing if the ladder
++    # is exhausted / not applicable. "whole" only when every non-infra file in the chat
++    # is <= OVN_LADDER_WHOLE_MAX_LINES (default 250) - a whole-file rewrite of a big file
++    # is slow (8.5k output tokens for a 650-line file even under diff) and risks silent
++    # drops.
++    ovn_edit_ladder_next() {
++      case "$1" in
++        udiff) echo diff ;;
++        diff)
++          local _i _f _n _ok=1 _seen=0
++          for ((_i = 0; _i < ${#FILE_ARGS[@]}; _i++)); do
++            _f="${FILE_ARGS[$_i]}"
++            [ "$_f" = "--file" ] && continue
++            case "$_f" in *.ovn-verify.sh|pytest.ini) continue ;; esac
++            [ -f "$_f" ] || continue
++            _seen=1
++            _n="$(wc -l < "$_f" 2>/dev/null || echo 99999)"
++            [ "$_n" -le "${OVN_LADDER_WHOLE_MAX_LINES:-250}" ] || _ok=0
++          done
++          [ "$_ok" = 1 ] && [ "$_seen" = 1 ] && echo whole
++          ;;
++      esac
++    }
+     ATTEMPT=1
+     while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
+-      echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
+-      timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" \
++      echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded; edit-format=${EDIT_FMT_CUR}) ---" >> "$task_log"
++      _ATTEMPT_LOG_OFF="$(wc -c < "$task_log" 2>/dev/null || echo 0)"
++      timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" --edit-format "$EDIT_FMT_CUR" \
+         ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} \
+         ${TEST_ARGS[@]+"${TEST_ARGS[@]}"} \
+         ${READ_ARGS[@]+"${READ_ARGS[@]}"} \
+@@ -1876,6 +1910,33 @@
+       fi
+ 
+       NOW_SHA="$(git rev-parse HEAD)"
++
++      # Edit-format ladder trigger (see block above). ONLY when THIS attempt's output shows
++      # the edit failed to apply AND nothing landed. Deliberately NOT triggered by:
++      #   - an attempt that applied and then failed tests/build (different problem),
++      #   - a lone "'/dev/null' is not in the subpath" (a delete/stub-removal request; no
++      #     edit format can express it - the DELETE: trailer path owns that),
++      #   - an attempt whose aider run recovered on a later reflection (a commit exists).
++      if [ "${OVN_EDIT_LADDER:-1}" = 1 ] && [ "$NOW_SHA" = "$BEFORE_SHA" ] && [ "$ATTEMPT" -lt "$MAX_IMPLEMENT_ATTEMPTS" ] \
++         && [ "${prompt#IMPORTANT: this task deletes/removes}" = "$prompt" ]; then   # delete-shaped item: no edit format can delete a file
++        _seg="$(tail -c +"$((_ATTEMPT_LOG_OFF + 1))" "$task_log" 2>/dev/null)"
++        if printf '%s' "$_seg" | grep -qE 'UnifiedDiffNoMatch|SearchReplaceNoExactMatch|hunk failed to apply|did not conform to the edit format|Unable to apply' \
++           && ! { printf '%s' "$_seg" | grep -q "/dev/null' is not in the subpath" \
++                  && ! printf '%s' "$_seg" | grep -qE 'UnifiedDiffNoMatch|SearchReplaceNoExactMatch|hunk failed to apply'; }; then
++          _next_fmt="$(ovn_edit_ladder_next "$EDIT_FMT_CUR")"
++          if [ -n "$_next_fmt" ]; then
++            echo "--- edit-format ladder: attempt ${ATTEMPT} FAILED TO APPLY under '${EDIT_FMT_CUR}'; retrying with '${_next_fmt}' ---" >> "$task_log"
++            git checkout -- . 2>/dev/null   # drop any half-written (uncommitted) hunk before re-sending
++            EDIT_FMT_CUR="$_next_fmt"
++            ATTEMPT=$((ATTEMPT + 1))
++            continue
++          else
++            echo "--- edit-format ladder: apply failure under '${EDIT_FMT_CUR}' but no eligible next format (file too large or ladder exhausted); not repeating the same format ---" >> "$task_log"
++            break
++          fi
++        fi
++      fi
++
+       if [ "$NOW_SHA" != "$BEFORE_SHA" ]; then
+         # Junk-only-commit guard (2026-08-16 hardening): aider auto-commits
+         # whatever it wrote, including a junk file - naively breaking here
