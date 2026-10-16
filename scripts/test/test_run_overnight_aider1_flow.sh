@@ -240,6 +240,13 @@ ok "progress item credited on origin" "$(has "$(git -C "$(og de_pass)" show main
 ok "executor path never calls aider" "$([ ! -d "$T/de_pass/scn/calls" ] && echo 1 || echo 0)"
 run de_push_retry
 ok "direct push rejected -> pull --rebase + push succeeds" "$([ "$(res de_push_retry)" = 'pushed(tests:pass) delete-executor' ] && git -C "$(og de_push_retry)" log main --format=%s | grep -q '^adv$' && git -C "$(og de_push_retry)" log main --format=%s | grep -q 'credit deterministic delete' && echo 1 || echo 0)"
+# 2026-10-15: diagnostics for the one-in-many red seen only inside the full run_all (box): when this check fails, show what the scenario did
+# (result, the task log tail, origin main history) instead of only the boolean. Assertions are unchanged.
+if [ "$(res de_push_retry)" != "pushed(tests:pass) delete-executor" ]; then
+  echo "  diag: de_push_retry result=[$(res de_push_retry)]"
+  tail -25 "$T/de_push_retry/task.log" 2>/dev/null | sed "s/^/  diag|task| /"
+  git -C "$(og de_push_retry)" log main --format="  diag|origin| %h %s" 2>/dev/null | head -8
+fi
 run de_fail
 ok "red verification: reverted, file back, falls through to the normal scout path" "$([ -f "$(rd de_fail)/app/dead_mod.py" ] && [ -f "$T/de_fail/scn/calls/1.scout" ] && echo 1 || echo 0)"
 ok "red verification: failure remembered once per item" "$([ -n "$(ls "$T/de_fail/sd/state/delete_exec_failed" 2>/dev/null)" ] && echo 1 || echo 0)"

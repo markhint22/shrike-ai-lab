@@ -166,6 +166,9 @@ def split_row(state_dir, logs_dir, rec, idx=None):
         "status": rec.get("status") or "", "duration_s": round(dur), "gen_s": round(gen),
         "verify_s": round(verify), "other_s": round(other), "nongen_frac": frac, "basis": basis,
         "fixup_s": round(min(dur, ph["fixup"])), "verify_basis": vbasis,
+        # 2026-10-14: the timeout share of verify_s, on its own. verify_s also holds PASSING suite runs ("verify done" markers), so the alert
+        # used to call a 134s green backend suite "logged verify timeouts" (billwatch: 408s over 3 cycles, zero timeouts in the logs).
+        "timeout_s": round(min(dur, ph["timeouts"])),
     }
 
 
@@ -216,9 +219,14 @@ def check_alerts(state_dir, repos, now):
         tot = sum(_num(r["duration_s"]) for r in last) or 1.0
         gen = sum(_num(r["gen_s"]) for r in last)
         ver = sum(_num(r["verify_s"]) for r in last)
+        # verify_s = VERIFY timeouts + passing verify runs; say which part is which (rows written before timeout_s existed: no split shown)
+        if all("timeout_s" in r for r in last):
+            ver_txt = "verify %ds of which logged VERIFY timeouts %ds" % (ver, sum(_num(r["timeout_s"]) for r in last))
+        else:
+            ver_txt = "verify %ds" % ver
         msg = ("cycle-walltime: %s spent %d%% of its last %d cycles outside model generation "
-               "(gen %ds, logged verify timeouts %ds, other %ds of %ds) - the GPU is idle for that time"
-               % (repo, round(100 * (tot - gen) / tot), ALERT_STREAK, gen, ver, tot - gen - ver, tot))
+               "(gen %ds, %s, other %ds of %ds) - the GPU is idle for that time"
+               % (repo, round(100 * (tot - gen) / tot), ALERT_STREAK, gen, ver_txt, tot - gen - ver, tot))
         line = "[%s] warn | ongoing-%s | %s" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), repo, msg)
         try:
             with open(os.path.join(state_dir, "alerts.log"), "a") as f:

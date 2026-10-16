@@ -121,6 +121,8 @@ STATE_DIR="$SCRIPT_DIR/state"
 # this instead of its own independent top-of-file re-grep.
 # shellcheck source=scripts/lib_item_select.sh
 source "$SCRIPT_DIR/scripts/lib_item_select.sh" 2>/dev/null || true
+# shellcheck source=scripts/lib_stage_credit.sh
+source "$SCRIPT_DIR/scripts/lib_stage_credit.sh" 2>/dev/null || true
 # 2026-10-02 (bugs-first): the selectors below pipe through ovn_bug_first_order; if the lib failed to source these must degrade to the OLD behaviour
 # (identity filter, no bug ever detected) instead of "command not found" emptying every selector.
 command -v ovn_bug_first_order >/dev/null 2>&1 || ovn_bug_first_order() { cat; }
@@ -536,6 +538,18 @@ error_status() {
 # behavior for this caller). Sourced via $SCRIPT_DIR (not a bare relative path like the day 2/3
 # callers) because this script is exec'd directly by overnight-queue.service with no
 # WorkingDirectory set, so cwd is not guaranteed to be the repo root.
+# 2026-10-14 restart storm: overnight-queue.service has Restart=always, so every clean exit while paused was restarted ~3 s later (NRestarts 6554 and
+# climbing). With OVN_PAUSE_WAIT=1 (set by the unit, see the proposal in the commit) a paused start waits here and re-checks the pause flag, so the unit
+# stays up and resumes by itself when the flag is removed. Without it (cron / manual runs) the old exit-0 behaviour is kept.
+_PAUSE_WAITED=0
+while [ -f "$PAUSE_FLAG" ] && [ "${OVN_PAUSE_WAIT:-0}" = "1" ]; do
+  if [ "$_PAUSE_WAITED" = 0 ]; then
+    log "Queue is paused (${PAUSE_FLAG} exists). Waiting for resume, re-checking every ${OVN_PAUSE_POLL_SEC:-60}s (OVN_PAUSE_WAIT=1)."
+    _PAUSE_WAITED=1
+  fi
+  sleep "${OVN_PAUSE_POLL_SEC:-60}"
+done
+if [ "$_PAUSE_WAITED" = 1 ]; then log "Queue resumed (${PAUSE_FLAG} removed)."; fi
 source "$SCRIPT_DIR/scripts/lib_lock.sh"
 LOCK_FILE="$STATE_DIR/run.lock"
 if ! acquire_lock "$LOCK_FILE" 200 0 run-overnight; then
@@ -1485,6 +1499,8 @@ STUB
         MIN_DOABLE=15 timeout 90 bash "$SCRIPT_DIR/queue_refill.sh" "$(basename "$PWD")" >> "$SCRIPT_DIR/logs/queue_refill.log" 2>&1 || true
         _DOABLE_NOW="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|\(retired-|\[CLAUDE\]' | wc -l | tr -d ' ')"
         echo "--- inline refill done: ${_DOABLE_NOW} doable ---" >> "$task_log"
+        # 2026-10-13 (n3-qwen-research): still <= 3 doable after the refill => the backlog is empty too: start the exploratory researcher before the lane actually runs dry ('low' mode re-checks the backlog)
+        if [ "${_DOABLE_NOW:-1}" -le 3 ] && declare -F ovn_qwen_explore_kick >/dev/null 2>&1; then ovn_qwen_explore_kick "$(basename "$PWD")" "$STATE_DIR" "$SCRIPT_DIR" low || true; fi
       fi
       _DX_RR=""; _DX_RR_DONE=""   # per-cycle cache of the exhausted check's re-route lookup (keyed by this cycle's task_log, so a stale value from an earlier cycle is never reused)
       if [ "${_DOABLE_NOW:-1}" -eq 0 ]; then
@@ -1632,7 +1648,8 @@ STUB
         fi
         mkdir -p "$SCRIPT_DIR/state" 2>/dev/null
         printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(basename "$repo")" "$_stage_oc" "$_stage_tag" "${_stage_file:-?}" >> "$SCRIPT_DIR/state/task_stats.log"
-        if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
+        # 2026-10-15: each stage run is credited once (lib_stage_credit.sh). A re-read of an already-credited run is a no-op, not a second landing.
+        if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ] && ovn_stage_credit_claim "$_STAGE_JSONL" "$SCRIPT_DIR/state/stage_credited.ledger"; then
           echo "pushed(tests:pass) stage(higher-tier)"
         else
           # 2026-10-02 (bugs-first review fix): when the runner itself counted/escalated a manual bug this cycle (bug_attempt journal event), tag the
@@ -4176,6 +4193,9 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
     case "$STATUS" in
       skip*exhausted*)
         _ovn_lanes_idle=$(( ${_ovn_lanes_idle:-0} + 1 ))
+        # 2026-10-13 (n3-qwen-research): the exploratory researcher (scripts/ovn_qwen_explore.py) is kicked here too, on EVERY exhausted pass but behind cheap gates (cooldown stamp, locks, fuel
+        # check) so an idle lane forks nothing most passes; background, never blocks the pass (lib_fixup.sh ovn_qwen_explore_kick).
+        declare -F ovn_qwen_explore_kick >/dev/null 2>&1 && ovn_qwen_explore_kick "${REPO_BASENAME:-}" "$STATE_DIR" "$SCRIPT_DIR" exhausted || true
         declare -F ovn_exhausted_supply_kick >/dev/null 2>&1 && ovn_exhausted_supply_kick "${REPO_BASENAME:-}" "$STATE_DIR" "$SCRIPT_DIR" ;;
       *) declare -F ovn_exhausted_clear >/dev/null 2>&1 && ovn_exhausted_clear "${REPO_BASENAME:-}" "$STATE_DIR" ;;
     esac
@@ -4227,6 +4247,12 @@ if [ "${_ovn_lanes_seen:-0}" -gt 0 ] && [ "${_ovn_lanes_idle:-0}" -eq "${_ovn_la
   log "idle wait over (${_ovn_idle_res})"
 elif [ "${_ovn_lanes_seen:-0}" -gt 0 ] && declare -F ovn_idle_clear >/dev/null 2>&1; then
   ovn_idle_clear "$STATE_DIR"   # a pass with work ends the all-idle streak: the next idle pass starts at the base wait again
+fi
+# 2026-10-13 (n3-qwen-research): the unit is KillMode=control-group and this script exits after every pass, so an explorer still running in the background would be killed with it.
+# Let it finish first (bounded, OVN_QE_WAIT_S default 600; returns at once when none runs). run.lock is already released on the idle path; on the busy path the pass is over anyway.
+if declare -F ovn_qwen_explore_wait >/dev/null 2>&1; then
+    exec 200>&-   # nothing after this point needs run.lock: never hold it while waiting (same bare-exec form as the idle block above, no stderr redirect)
+    ovn_qwen_explore_wait "$STATE_DIR" "" "${_ovn_lanes_seen:-0}" "${_ovn_lanes_idle:-0}" || true   # busy lanes (idle < seen): a short wait (OVN_QE_WAIT_BUSY_S 90), all idle: the long one (OVN_QE_WAIT_S 600)
 fi
 
 # --- daily branch hygiene: REMOVED 2026-09-20 ---

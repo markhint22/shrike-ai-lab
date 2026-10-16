@@ -482,8 +482,8 @@ to 1-2 files.' ;;
   # zero-landing retry budget below); a blind re-decomposition just repeats the same failing plan.
   local _prior="" _pf; _pf="state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
   [ -s "$_pf" ] && _prior="
-PREVIOUS ATTEMPT(S) AT THIS TASK LANDED NOTHING. Last failure: $(head -c 600 "$_pf" | tr '\n' ' ')
-Do NOT repeat the same plan: choose a different, SMALLER decomposition. If the failure shows an EXISTING test that asserts the opposite of what this task wants, make updating that test an explicit step in the same step as the source change."
+PREVIOUS ATTEMPT(S) AT THIS TASK LANDED NOTHING. Last failure: $(head -c 1800 "$_pf")
+Do NOT repeat the same plan: choose a different, SMALLER decomposition. If the failure shows an EXISTING test that asserts the opposite of what this task wants, make updating that test an explicit step in the same step as the source change. If the SAME test id or check failed before, change WHICH files and tests the steps touch instead of re-planning the same edit."
   cat > "$pf" <<PROMPT
 Break this coding task into an ORDERED list of the SMALLEST safe sub-steps, each independently
 committable and testable by an autonomous 27B model driving aider. Output ONLY a JSON array, no prose.
@@ -569,6 +569,319 @@ _armed=$(( _dynamic_budget < _ceiling ? _dynamic_budget : _ceiling ))
 _arm_watchdog "$_armed"
 say "watchdog rearmed for ${_armed}s (NSTEPS=$NSTEPS, dynamic budget was ${_dynamic_budget}s, ceiling ${_ceiling}s)"
 
+# >>> n4-stage-waste helpers: empty-file (Part 1)
+# 2026-10-13 (N4 stage-runner-waste, Part 1) EMPTY-FILE: a step whose aider run left a 0-byte NEW (or truncated declared) file used to pass the per-step gate - an empty test file collects 0
+# tests and ovn_autotest passes it, and `git diff --shortstat` ignores untracked files (hence 'nostat') - and then died on the final full_verify '-- QUALITY FAIL: <file> is a 0-byte file'
+# 15-25 minutes later (8 staged runs in 48h, 481k step tokens: billwatch test_auth_register_audit.py x2, gitlark test_memory_rekey.py x2, iptv junk paths app/jobs/test_*.py x3, TAA x1).
+# That final check fails EVERY run with a 0-byte changed file, so converting it into a step failure here only moves a guaranteed final failure to where the existing retry can re-prompt it.
+#   declared empty file (in the step FILES, or named by the item) -> fa=empty-file, rc=1, the retry prompt is told to write the full content
+#   undeclared empty NEW file (junk path) -> removed ('reaped empty undeclared file') and the step carries on; if that leaves the tree unchanged the step is a no-edit
+# `__init__.py` / `.gitkeep` / `.keep` / `py.typed` / `.gdignore` (marker files that are empty by design) are left alone (never reaped, never a failure here): behaviour for them is exactly what it was. OVN_STAGE_EMPTY_FILE=off disables.
+STAGE_EF_DECLARED=""; STAGE_EF_NOEDIT=0
+stage_empty_files_scan(){   # $1=worktree $2=step files (space-sep) $3=item text. rc 0 = act on it (STAGE_EF_DECLARED non-empty -> empty-file; STAGE_EF_NOEDIT=1 -> tree emptied by the reap -> no-edit)
+  local w="$1" files="$2" itm="$3" p cand decl="" t hit
+  STAGE_EF_DECLARED=""; STAGE_EF_NOEDIT=0
+  cand="$( { git -C "$w" ls-files --others --exclude-standard 2>/dev/null; git -C "$w" diff --cached --name-only --diff-filter=A 2>/dev/null; git -C "$w" diff --name-only --diff-filter=M 2>/dev/null; } | sort -u )"
+  decl="$(printf '%s' "$itm" | sed -E 's/VERIFY:.*$//' | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | sort -u)"
+  while IFS= read -r p; do
+    [ -n "$p" ] && [ -f "$w/$p" ] && [ ! -L "$w/$p" ] && [ ! -s "$w/$p" ] || continue
+    case "${p##*/}" in __init__.py|.gitkeep|.keep|py.typed|.gdignore) continue;; esac   # empty by design (package / directory markers): never reaped, never an empty-file failure
+    hit=0
+    for t in $files; do [ "$t" = "$p" ] && hit=1; done
+    if [ "$hit" = 0 ]; then
+      while IFS= read -r t; do
+        [ -n "$t" ] || continue
+        if [ "$t" = "$p" ]; then hit=1; break; fi
+        case "$t" in */*) case "$p" in */"$t") hit=1; break;; esac;; esac   # a path token with a directory part may be repo-relative to a sub-package; a bare basename must match exactly
+      done <<< "$decl"
+    fi
+    if [ "$hit" = 1 ]; then STAGE_EF_DECLARED="$STAGE_EF_DECLARED $p"; continue; fi
+    # undeclared: only a NEW file (not in HEAD) is ever reaped - never touch a tracked file the step truncated
+    if ! git -C "$w" cat-file -e "HEAD:$p" 2>/dev/null; then
+      git -C "$w" rm -qf --cached -- "$p" >/dev/null 2>&1; rm -f "$w/$p"
+      say "  reaped empty undeclared file: $p"
+      jlog "$(jq -nc --arg r "$RUNID" --arg f "$p" '{run:$r,event:"empty_file_reaped",file:$f}')"
+    fi
+  done <<< "$cand"
+  STAGE_EF_DECLARED="${STAGE_EF_DECLARED# }"
+  [ -n "$STAGE_EF_DECLARED" ] && return 0
+  if [ -z "$(git -C "$w" status --porcelain -uall 2>/dev/null)" ]; then STAGE_EF_NOEDIT=1; return 0; fi
+  return 1
+}
+# <<< n4-stage-waste helpers: empty-file (Part 1)
+
+# >>> n4-stage-waste helpers: retry signature (Part 2)
+# 2026-10-13 (N4 stage-runner-waste, Part 2) SAME-SIGNATURE STOP + STRUCTURED PRIORFAIL.
+# 48-72h: 47 distinct staged items, attempt 1 verified 24/47, the 2nd attempt 2/23, the 3rd 3/20; the failed retries of never-landing items were 34% of all stage tokens, and the failure was often
+# IDENTICAL run to run (iptv test_content_history_returns_429_after_120_requests_per_minute x3, TAA the same 4 failing ids x2, shrike-notify x2, iptv ModuleNotFoundError app.core.rate_limit x2,
+# billwatch 0-byte+SEMANTIC x3). A retry that fails exactly like the last one is pure waste: the signature below is persisted per item and a repeat goes straight to the escalate branch.
+# stage_fail_facts <sig|block> <verify.log> <stage jsonl> prints (all scrubbed of credentials):
+#   sig   : a 16-hex hash of the failure's identity, or NOTHING when there is no recognisable evidence (an empty signature never stops a retry).
+#           evidence = the sorted failing test ids + the `-- QUALITY/SEMANTIC/MIGRATION/DEP-IMPORT FAIL` lines + ModuleNotFoundError texts + kotlin `e:` lines of the verify log; when the verify
+#           log has none (the run never reached / never failed the final verify), the BLOCKED steps' fail_reason+files list and the undeclared-file set of their scope violations.
+#   block : the human/LLM-readable version of the same evidence: up to 6 failing test ids with their first assertion line, the QUALITY/SEMANTIC lines, undeclared files, blocked-step reasons.
+stage_fail_facts(){
+  local _to=(); type -P timeout >/dev/null 2>&1 && _to=(timeout 20)
+  ${_to[@]+"${_to[@]}"} python3 - "$1" "${2:-}" "${3:-}" <<'PY'
+import sys, re, json, hashlib
+mode, vlog, slog = sys.argv[1], sys.argv[2], sys.argv[3]
+def rd(p):
+    try:
+        return open(p, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+SCRUB = [
+    (re.compile(r"://[^/\s@]*@"), "://***@"),
+    (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer ***"),
+    (re.compile(r"(?i)((?:password|passwd|secret|token|api[_-]?key|authorization)\w{0,6}\s*[=:]\s*[\"']?)[A-Za-z0-9+/=_.~-]{6,}"), r"\1***"),
+    (re.compile(r"\b(?:sk|pk|ghp|gho|ghs|xox[abp])[-_][A-Za-z0-9_-]{16,}"), "***"),
+]
+def scrub(t):
+    for rx, rep in SCRUB:
+        t = rx.sub(rep, t)
+    return t
+lines = rd(vlog).splitlines()
+ids = {}
+for ln in lines:
+    m = re.match(r"^ERROR collecting (\S+)", ln)
+    if m:
+        ids.setdefault(m.group(1), "collection error"); continue
+    m = re.match(r"^(?:FAILED|ERROR) (\S+)(?: - (.*))?$", ln)
+    if m:
+        ids.setdefault(m.group(1), (m.group(2) or "").strip()); continue
+    m = re.match(r"^(\S+ > \S.*?) FAILED$", ln)          # gradle
+    if m:
+        ids.setdefault(m.group(1), ""); continue
+    m = re.match(r"^\s*(?:FAIL|×)\s+(\S.*?)\s*$", ln)  # vitest
+    if m:
+        ids.setdefault(m.group(1), "")
+quality = sorted({re.sub(r"\s+", " ", ln).strip(" -")[:220] for ln in lines
+                  if re.match(r"^-- (QUALITY FAIL|SEMANTIC FAIL|MIGRATION SAFETY FAIL|DEP-IMPORT FAIL|GUT RED|python tests exist but no venv)", ln)})
+mods = sorted({m for ln in lines for m in re.findall(r"ModuleNotFoundError: No module named '[^']+'", ln)})
+kts = sorted({re.sub(r"file://\S*/", "", ln)[:200] for ln in lines if ln.startswith("e: ")})
+rows = []
+for ln in rd(slog).splitlines():
+    try:
+        r = json.loads(ln)
+        if isinstance(r, dict):
+            rows.append(r)
+    except ValueError:
+        pass
+blocked = {str(r.get("step")) for r in rows if r.get("verdict") == "blocked"}
+sfail = sorted({"%s|%s" % (r.get("fail_reason") or "", r.get("files") or "") for r in rows
+                if r.get("verdict") == "fail" and (str(r.get("step")) in blocked or r.get("fail_reason") == "mistargeted")})
+undecl = set()
+for r in rows:
+    if r.get("verdict") == "fail" and r.get("fail_reason") == "scope-violation":
+        m = re.search(r"touched undeclared file\(s\):(.*?) \(declared:", r.get("excerpt") or "")
+        if m:
+            undecl.update(m.group(1).split())
+undecl = sorted(undecl)
+vev = ["T:" + i for i in sorted(ids)] + ["Q:" + q for q in quality] + ["M:" + m for m in mods] + ["K:" + k for k in kts]
+sev = ["S:" + x for x in sfail] + (["U:" + " ".join(undecl)] if undecl else [])
+if mode == "sig":
+    ev = vev or sev
+    if ev:
+        print(hashlib.sha1("\n".join(ev).encode("utf-8", "replace")).hexdigest()[:16])
+    sys.exit(0)
+def first_e(tid):
+    name = re.escape(tid.split("::")[-1])
+    for i, ln in enumerate(lines):
+        if re.match(r"^_{2,} .*" + name + r".* _{2,}$", ln):
+            for nx in lines[i + 1:i + 80]:
+                if re.match(r"^_{2,} .* _{2,}$", nx):
+                    break
+                if nx.startswith("E "):
+                    return nx[1:].strip()
+    return ""
+out = []
+if ids:
+    items = list(ids.items())
+    out.append("failing tests (%d, showing up to 6):" % len(items))
+    for tid, msg in items[:6]:
+        a = msg or first_e(tid)
+        out.append("- %s%s" % (tid, (": " + a) if a else ""))
+for q in quality[:4]:
+    out.append("check: " + q)
+for m in mods[:2]:
+    out.append("import error: " + m)
+for k in kts[:3]:
+    out.append("compile: " + k)
+if not vev:
+    for x in sfail[:4]:
+        rs, _, fl = x.partition("|")
+        out.append("blocked step: %s%s" % (rs or "failed", (" on " + fl) if fl else ""))
+if undecl:
+    out.append("a step touched files it did not declare (multifile:no): " + " ".join(undecl[:6]))
+txt = "\n".join(l[:240] for l in out)
+print(scrub(txt)[:1400])
+PY
+}
+stage_fail_signature(){ stage_fail_facts sig "${1:-}" "${2:-}"; }      # $1=verify.log $2=stage jsonl -> 16-hex or nothing
+stage_priorfail_block(){ stage_fail_facts block "${1:-}" "${2:-}"; }   # $1=verify.log $2=stage jsonl -> structured text or nothing
+# <<< n4-stage-waste helpers: retry signature (Part 2)
+
+# >>> n4-stage-waste helpers: scope-learn (Part 3)
+# 2026-10-13 (N4 stage-runner-waste, Part 3) SCOPE-LEARN. The multifile:no scope guard in run_step rejects a step whose (already green) diff touches a file outside its declared set. 15 such rejections
+# over 6 items in 48h, the SAME undeclared set recurring 8 times: an iptv RecordingsView.vue item whose text says 'ensuring type compatibility with the new store signature' needs
+# iptv-web/src/stores/recordings.ts + __tests__/recordings.test.ts every time; RevenueCatManagerTest.kt needs RevenueCatManager.kt (4x). The guard can never be satisfied, so the item deadlocks.
+# OVN_STAGE_SCOPE_LEARN=off|shadow|on (default SHADOW, flip to on only after the shadow log has been read):
+#   the undeclared set U of every rejection is remembered per item (state/item_fails/stage-<repo>.<hash>.scopeseen). When the SAME U recurs (a 2nd attempt, in this run or a later one):
+#     U eligible (<=3 files, every one an existing TRACKED file, none denylisted / hard-banned / under addons|vendor|node_modules, no native iOS/Android/tvOS) -> ON: U is added to the item's declared
+#       scope for the NEXT attempt ('scope extended', state/item_fails/...scopeext); SHADOW: logs what it would extend.
+#     U ineligible (junk/new file, banned, vendored, native, >3 files) -> ON: the step is abandoned at once (no more attempts, no re-decomposition: it can never be satisfied); SHADOW: logs it.
+#   A first sighting never changes anything (the model may simply not touch the file next time). The guard only runs AFTER the step's own gate was green, so an extension never accepts a red tree.
+STAGE_SL_DECISION=""; STAGE_SCOPE_EXTENDED=0
+stage_path_denied(){   # $1=worktree $2=repo-relative path -> rc 0 + reason on stdout when the path must never be learned/fed (denylist, hard-banned list, vendored dirs, native mobile code)
+  local w="$1" f="$2" b bf
+  case "$f" in
+    addons/*|*/addons/*|vendor/*|*/vendor/*|node_modules/*|*/node_modules/*|.godot/*|*/.godot/*|.venv/*|*/.venv/*|*/__pycache__/*|build/*|*/build/*|dist/*|*/dist/*|.github/*|.git/*) echo "vendored/generated path"; return 0;;
+    .env|.env.*|*/.env|*/.env.*|*.pem|*.key|*.p12|*.jks|*.keystore|*secret*|*credential*) echo "secret-like path"; return 0;;
+    OVERNIGHT_PROGRESS.md|OVERNIGHT_DONE.md|AGENTS.md|CLAUDE.md|*/AGENTS.md|*.lock|package-lock.json|*/package-lock.json|*.min.js) echo "queue/lock/generated file"; return 0;;
+    iptv-ios/*|iptv-android/*|iptv-tvos/*|ios/*|android/*|*.swift|*.pbxproj|*.xcodeproj/*) echo "native mobile code"; return 0;;
+  esac
+  for bf in "$w/.queue-hard-banned-files" "${rd:-/nonexistent}/.queue-hard-banned-files"; do
+    [ -f "$bf" ] || continue
+    while IFS= read -r b; do
+      b="${b%%#*}"; b="${b// /}"; [ -n "$b" ] || continue
+      if [ "$f" = "$b" ]; then echo "hard-banned file"; return 0; fi
+      case "$f" in "$b"*) echo "hard-banned file"; return 0;; esac
+    done < "$bf"
+  done
+  return 1
+}
+stage_scope_ext_list(){   # $1=item hash -> the files the item's scope was extended by (ON mode only), one per line
+  [ "${OVN_STAGE_SCOPE_LEARN:-shadow}" = on ] || return 0
+  cat "state/item_fails/stage-${repo}.${1}.scopeext" 2>/dev/null
+  return 0
+}
+stage_scope_learn(){   # $1=worktree $2=undeclared files (space-sep) $3=step idx -> sets STAGE_SL_DECISION = first|extend|escalate|shadow-extend|shadow-escalate|off
+  local w="$1" extra="$2" idx="$3" mode="${OVN_STAGE_SCOPE_LEARN:-shadow}" h key f n=0 why="" seenf extf
+  STAGE_SL_DECISION=off
+  case "$mode" in off|OFF|0) return 0;; on|ON|1) mode=on;; *) mode=shadow;; esac
+  extra="$(printf '%s\n' $extra | grep -v '^$' | sort -u | tr '\n' ' ')"; extra="${extra% }"
+  [ -n "$extra" ] || return 0
+  h="$(ovn_item_hash "$item" 2>/dev/null)"; key="${extra// /|}"
+  mkdir -p state/item_fails 2>/dev/null
+  seenf="state/item_fails/stage-${repo}.${h}.scopeseen"; extf="state/item_fails/stage-${repo}.${h}.scopeext"
+  if ! grep -qxF -- "$key" "$seenf" 2>/dev/null; then
+    printf '%s\n' "$key" >> "$seenf"
+    STAGE_SL_DECISION=first
+    jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg m "$mode" --arg f "$extra" '{run:$r,step:$i,event:"scope_learn",mode:$m,decision:"first",files:$f}')"
+    return 0
+  fi
+  for f in $extra; do
+    n=$((n+1))
+    git -C "$w" cat-file -e "HEAD:$f" 2>/dev/null || { why="$f is not an existing tracked file"; break; }
+    why="$(stage_path_denied "$w" "$f")" && { why="$f: $why"; break; }
+    why=""
+  done
+  [ -z "$why" ] && [ "$n" -gt 3 ] && why="${n} files (limit 3)"
+  if [ -z "$why" ]; then
+    if [ "$mode" = on ]; then
+      for f in $extra; do grep -qxF -- "$f" "$extf" 2>/dev/null || printf '%s\n' "$f" >> "$extf"; done
+      STAGE_SL_DECISION=extend; STAGE_SCOPE_EXTENDED=1
+      say "  step $idx scope extended: the same undeclared set recurred (${extra}) - declared for the next attempt"
+    else
+      STAGE_SL_DECISION=shadow-extend
+      say "  step $idx scope-learn (shadow): would extend the declared scope by ${extra}"
+    fi
+  else
+    if [ "$mode" = on ]; then
+      STAGE_SL_DECISION=escalate
+      say "  step $idx scope-learn: the same undeclared set recurred and cannot be learned (${why}) - escalating now, no more attempts"
+    else
+      STAGE_SL_DECISION=shadow-escalate
+      say "  step $idx scope-learn (shadow): would escalate immediately (${why})"
+    fi
+  fi
+  jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg m "$mode" --arg d "$STAGE_SL_DECISION" --arg f "$extra" --arg w "$why" '{run:$r,step:$i,event:"scope_learn",mode:$m,decision:$d,files:$f,why:$w}')"
+  return 0
+}
+# <<< n4-stage-waste helpers: scope-learn (Part 3)
+
+# >>> n4-stage-waste helpers: file-feed (Part 4)
+# 2026-10-13 (N4 stage-runner-waste, Part 4) FILE-FEED for the staged path. 26 of 130 step attempts in 48h ended with NO edit because the architect answered 'Please add the following files to the chat'
+# (iptv_apps-20261013-082239-1305878-s0.log needs routers/subscription.py + conftest.py while the step FILES lists only tests/test_subscription.py). aider's single-shot --message mode never loops back
+# for them. The non-staged path already has 'Iterative file-feeding' (run_overnight.sh scan_for_new_files: path-token regex, existence check, max files); the staged path had none.
+# On a no-edit attempt whose architect reply asks for files, the repo paths it names are validated (tracked, text, not denylisted / hard-banned / vendored / native / .md, <= OVN_STAGE_FILE_FEED_MAX_BYTES
+# (default 60000) each, not already loaded) and at most 3 per step are added to the RETRY: `--read` for a multifile:no item (read-only context cannot trip the scope guard), `--file` otherwise.
+# OVN_STAGE_FILE_FEED=off disables. Needs stage_path_denied (scope-learn block); without it nothing is fed (fail closed).
+stage_feed_files(){   # $1=aider log of the attempt $2=worktree $3=files already loaded (space-sep, may include --file/--read words) $4=max -> up to $4 repo-relative paths, one per line
+  local log="$1" w="$2" loaded="$3" max="${4:-3}" tok r n=0 cap="${OVN_STAGE_FILE_FEED_MAX_BYTES:-60000}" lst
+  declare -F stage_path_denied >/dev/null 2>&1 || return 0
+  case "$cap" in ''|*[!0-9]*) cap=60000;; esac
+  lst="$(git -C "$w" ls-files 2>/dev/null)"
+  while IFS= read -r tok; do
+    [ -n "$tok" ] || continue
+    [ "$n" -lt "$max" ] || break
+    case "$tok" in *.md|*.MD) continue;; esac
+    r=""
+    # here-string, NOT a pipe: under `set -o pipefail` printf | grep -q returns 141 (SIGPIPE) when the listing exceeds the 64 KB pipe buffer (iptv_apps ~70 KB, xlite ~75 KB) and grep exits at the first match
+    if grep -qxF -- "$tok" <<< "$lst"; then r="$tok"
+    else
+      case "$tok" in
+        */*) r="$(printf '%s\n' "$lst" | awk -v t="/$tok" 'length($0)>length(t) && substr($0,length($0)-length(t)+1)==t')";;
+        *)   r="$(printf '%s\n' "$lst" | awk -F/ -v b="$tok" '$NF==b')";;
+      esac
+      [ "$(printf '%s\n' "$r" | grep -c .)" = 1 ] || r=""
+    fi
+    [ -n "$r" ] && [ -f "$w/$r" ] && [ ! -L "$w/$r" ] || continue
+    case " $loaded " in *" $r "*) continue;; esac
+    stage_path_denied "$w" "$r" >/dev/null && continue
+    [ "$(wc -c < "$w/$r" 2>/dev/null | tr -d ' ')" -le "$cap" ] 2>/dev/null || continue
+    grep -Iq . "$w/$r" 2>/dev/null || continue
+    printf '%s\n' "$r"; n=$((n+1))
+  done < <(python3 - "$log" <<'PY'
+import sys, re
+try:
+    lines = open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines()
+except OSError:
+    lines = []
+out = []
+for i, ln in enumerate(lines):
+    if re.search(r"(?i)add the following files?\b", ln):
+        for nx in lines[i + 1:i + 25]:
+            if nx.startswith("Tokens:"):
+                break
+            for tok in re.findall(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}", nx):
+                tok = tok.lstrip("./") if tok.startswith("./") else tok
+                if tok not in out:
+                    out.append(tok)
+print("\n".join(out))
+PY
+)
+  return 0
+}
+# <<< n4-stage-waste helpers: file-feed (Part 4)
+
+# >>> n4-stage-waste helpers: verify-only preflight (Part 5)
+# 2026-10-13 (N4 stage-runner-waste, Part 5, SHADOW ONLY) VERIFY-ONLY PREFLIGHT. shrike-monitor bf654f65 '[T3] ... Verify existing test suite passes without modification' (VERIFY `pytest backend/tests/test_monitors_api.py -v`
+# = 34 passed on overnight/feature, nothing to edit) burned 9 no-edit attempts / 330k tokens: the 27B has nothing to change and the item is already satisfied on the pristine tree. The runner already runs the item's
+# own VERIFY on the pristine tree (stage_item_verify_run, OVN_STAGE_ITEM_VERIFY shadow); when that verdict is PASS for an item whose description only asks to verify/ensure/confirm something, the verdict is LOGGED here
+# (event verify_only_pristine_pass + state/stage_verifyonly_shadow.log) so the lead can see how many items a deterministic credit would settle. NOTHING changes: no enforcement, no credit, no skipped steps.
+# OVN_STAGE_VERIFYONLY_PREFLIGHT=off|shadow (default shadow; any other value = shadow: there is deliberately no enforcing mode in this package).
+stage_item_is_verify_only(){   # $1=item text -> rc 0 when the description (before VERIFY:) only asks to verify / confirm / ensure / check and names no change to make
+  local d
+  d="$(printf '%s' "$1" | sed -E 's/VERIFY:.*$//')"
+  grep -qiE '(^|[]—-] *|\. )(verify|confirm|ensure|check|validate)\b' <<< "$d" || return 1
+  # a change verb anywhere in the description (the reviewer found 'Modify the ... path to call X' and 'Ensure _f returns Y instead of falling back' misread as verify-only: these are edit requests)
+  grep -qiE '\b(add|adds|adding|create|implement|write|fix|wire|refactor|replace|remove|change|update|rename|migrate|delete|extend|introduce|modify|modifies|set|sets|use|uses|call|calls|handle|handles|swap|swaps|move|moves|route|routes|return|returns|raise|raises|emit|emits|make|makes|reject|rejects|accept|accepts|contain|contains|include|includes|define|defines|expose|exposes|has an?)\b' <<< "$d" && return 1
+  grep -qiE '\b(instead of|rather than)\b' <<< "$d" && return 1
+  return 0
+}
+# the shadow log is append-only by design; keep it bounded (default 256 KiB -> newest 500 lines survive)
+stage_shadow_log_cap(){   # $1=file  [$2=max bytes]
+  local f="$1" max="${2:-${OVN_STAGE_SHADOW_LOG_MAX:-262144}}" sz
+  case "$max" in ''|*[!0-9]*) max=262144;; esac
+  [ -f "$f" ] || return 0
+  sz="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"; case "$sz" in ''|*[!0-9]*) return 0;; esac
+  [ "$sz" -gt "$max" ] || return 0
+  tail -n 500 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+  return 0
+}
+# <<< n4-stage-waste helpers: verify-only preflight (Part 5)
+
 # ---- run ONE sub-step: returns 0 pass / 1 fail. logs the attempt. ----
 run_step(){ # $1=idx $2=desc $3=files(space-sep) $4=verify $5=redecomp-left
   local idx="$1" desc="$2" files="$3" verify="$4" rd_left="$5" att fa rc
@@ -628,8 +941,16 @@ ${_tgtctx}
   local _gd4="$HOME/overnight-queue/assets/GODOT4.md"; local _is_godot=0
   case "$item$files$desc" in *.gd*|*[Gg][Dd][Ss]cript*|*[Gg]odot*) [ -f "$_gd4" ] && { rdargs+=(--read "$_gd4"); _is_godot=1; } ;; esac
   local _cc="" _abandon=0
+  local _fb_static=""   # N4 Part 2: the structured failure of the previous staged run at THIS item (state/item_fails/...priorfail) rides along in every step prompt; OVN_STAGE_PRIORFAIL_STEP=off drops it
+  if [ "${OVN_STAGE_PRIORFAIL_STEP:-on}" != off ]; then
+    local _pfs; _pfs="state/item_fails/stage-${repo}.$(ovn_item_hash "$item" 2>/dev/null).priorfail"
+    [ -s "$_pfs" ] && _fb_static=$'\n\n'"A PREVIOUS STAGED RUN AT THIS TASK FAILED - do not repeat it. $(head -c 900 "$_pfs")"
+  fi
+  local _fed_n=0   # N4 Part 4: files fed to this step's retries (max 3 per step)
+  local _fb="" _fb_next=""   # N4: per-attempt retry feedback appended to the step prompt (reset each attempt; the failing branch sets _fb_next for the NEXT attempt)
   for att in $(seq 1 "$MAX_ATT"); do
     local base t0 atmp; base="$(git -C "$wt" rev-parse HEAD)"; t0=$(date +%s); atmp="$(mktemp)"
+    _fb="${_fb_static}${_fb_next}"; _fb_next=""
     { echo "===== step $idx attempt $att @ $(date '+%F %T') (map=$mt arch=${#archargs[@]} read=${#rdargs[@]}) ====="; echo "DESC: $desc"; echo "FILES: $files"; echo "VERIFY: $verify"; } >> "$slog"
     local msg="Execute THIS one sub-step now and produce the diff. Do NOT do other steps.
 STEP: $desc
@@ -639,7 +960,7 @@ Make the minimal change to the named file(s), keep it compiling + all tests gree
 STEP: $desc
 VERIFY: $verify
 Make the minimal change to the named .gd file(s), valid Godot 4 that parses clean.${_tgtctx}"; fi
-    msg="${msg}${_bgctx}${_bgre}"
+    msg="${msg}${_bgctx}${_bgre}${_fb}"
     # --no-auto-commits is CRITICAL: aider used to auto-commit each step, so by the time the post-gate
     # ran, git-diff was empty and ovn_autotest exited 0 WITHOUT testing anything (a T4 test with an
     # ImportError slipped through). Keeping the change uncommitted lets the scoped gate actually run the
@@ -688,6 +1009,13 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       # when the worktree is genuinely unchanged. ($base == HEAD always holds here since nothing is
       # committed mid-attempt, so the old "$base" HEAD comparison was also always a no-op.)
       fa="no-edit"; rc=1
+    elif [ "${OVN_STAGE_EMPTY_FILE:-on}" != off ] && stage_empty_files_scan "$wt" "$files" "$item"; then
+      # 2026-10-13 (N4 Part 1): see stage_empty_files_scan. After an undeclared junk file was reaped the tree may be unchanged = a plain no-edit.
+      if [ -n "$STAGE_EF_DECLARED" ]; then
+        fa="empty-file"; rc=1
+        excerpt="declared file is empty - write the full content: ${STAGE_EF_DECLARED}"
+        _fb_next=$'\n\n'"YOUR PREVIOUS ATTEMPT FAILED: you left ${STAGE_EF_DECLARED} EMPTY (0 bytes). Write the COMPLETE content of that file this time (every import, function and test), not just its name."
+      else fa="no-edit"; rc=1; fi
     elif [ "$_bg_on" = 1 ] && _bgdup="$(python3 "$_bg_py" dupes --wt "$wt" 2>/dev/null)" && [ -n "$_bgdup" ]; then
       # 2026-10-03 (A8): a NEW .kt file re-declaring a type that already exists (GroupedCategories.kt vs CategoryModels.kt, DiscoverModels.kt vs ChickadeeApi.kt)
       # only surfaced as 'Redeclaration' at the final verify (a 15-25 min cycle). Reject it NOW and re-prompt with the real definition.
@@ -707,6 +1035,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
           _declared="$(
             { printf '%s\n' "$files" | tr ' ' '\n'
               printf '%s' "$item" | sed -E 's/^\[T[0-9]\] //' | grep -oE '^[A-Za-z0-9_./-]+\.[A-Za-z0-9]+'
+              stage_scope_ext_list "$(ovn_item_hash "$item" 2>/dev/null)"   # N4 Part 3: files this item's scope was extended by (OVN_STAGE_SCOPE_LEARN=on only)
             } | grep -vE '^$' | sort -u)"
           _touched="$(git -C "$wt" status --porcelain -uall 2>/dev/null | awk '{print $2}' | sort -u)"
           _extra=""
@@ -728,11 +1057,28 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
             fa="scope-violation"; rc=1
             excerpt="multifile:no step touched undeclared file(s):${_extra} (declared: $(printf '%s' "$_declared" | tr '\n' ' '))"
             say "  step $idx REJECTED (scope): touched undeclared file(s):${_extra}"
+            stage_scope_learn "$wt" "$_extra" "$idx"   # N4 Part 3 (shadow by default): remember U; a recurrence extends the scope (on) or is only logged (shadow)
+            [ "$STAGE_SL_DECISION" = escalate ] && _abandon=1
           fi
         fi
       else
         fa="$(bash "$HOME/overnight-queue/ovn_classify_fail.sh" "$atmp" reverted 2>/dev/null)"; rc=1
         excerpt="$(grep -iE 'error|fail|assert|expected|traceback|<failure|cannot|not found|no attribute|no such' "$atmp" 2>/dev/null | tail -4 | tr '\n' ' ' | cut -c1-320)"
+      fi
+    fi
+    # 2026-10-13 (N4 Part 4): a no-edit attempt whose architect reply asked for files ('Please add the following files to the chat') - add the repo paths it named to the retry (see stage_feed_files)
+    if [ "$fa" = "no-edit" ] && [ "${OVN_STAGE_FILE_FEED:-on}" != off ] && [ "$att" -lt "$MAX_ATT" ] && [ "$_fed_n" -lt 3 ]; then
+      local _feed _fp _fl=""
+      _feed="$(stage_feed_files "$atmp" "$wt" "$files ${fargs[*]}" $((3 - _fed_n)))"
+      if [ -n "$_feed" ]; then
+        while IFS= read -r _fp; do
+          [ -n "$_fp" ] || continue
+          if grep -qiE 'multifile:no' <<< "$item"; then fargs+=(--read "$_fp"); else fargs+=(--file "$_fp"); fi
+          _fed_n=$((_fed_n+1)); _fl="$_fl $_fp"
+        done <<< "$_feed"
+        say "  step $idx file-feed: the architect asked for files - adding${_fl} to the retry"
+        jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg f "${_fl# }" '{run:$r,step:$i,event:"file_feed",files:$f}')"
+        _fb_next="${_fb_next}"$'\n\n'"THE FILES YOU ASKED FOR ARE NOW IN THE CHAT:${_fl}. Do NOT ask for files again: make the edit now."
       fi
     fi
     rm -f "$atmp"
@@ -810,6 +1156,13 @@ if [ "$STAGE_MISTARGET_ITEM" = 0 ] && [ "$_iv_mode" != off ]; then
   STAGE_IV_PRE="$(OVN_STAGE_REPO="$repo" stage_item_verify_run "$wt" "$item")"
   stage_tree_restore "$wt" "$_iv_snap"   # a VERIFY run must leave nothing behind that the per-step no-edit check (git status) would read as an edit (the provisioned node_modules / .godot symlinks stay)
   say "item VERIFY on the pristine tree: ${STAGE_IV_PRE%%|*}"
+  # 2026-10-13 (N4 Part 5, SHADOW ONLY): see stage_item_is_verify_only. Logs only - never changes enforcement, credit or the steps that run.
+  if [ "${OVN_STAGE_VERIFYONLY_PREFLIGHT:-shadow}" != off ] && [ "${STAGE_IV_PRE%%|*}" = PASS ] && stage_item_is_verify_only "$item"; then
+    say "verify-only item whose own VERIFY already PASSES on the pristine tree (shadow: logged only, the steps still run): ${item:0:100}"
+    jlog "$(jq -nc --arg r "$RUNID" --arg why "${STAGE_IV_PRE#*|}" '{run:$r,event:"verify_only_pristine_pass",mode:"shadow",pre:"PASS",why:$why}')"
+    stage_shadow_log_cap "${OVN_STAGE_VERIFYONLY_LOG:-state/stage_verifyonly_shadow.log}"
+    echo "$(date '+%F %T') [$repo] verify_only_pristine_pass run=$RUNID item=${item:0:160}" >> "${OVN_STAGE_VERIFYONLY_LOG:-state/stage_verifyonly_shadow.log}" 2>/dev/null
+  fi
 fi
 if [ "$STAGE_MISTARGET_ITEM" = 0 ]; then
 for i in $(seq 0 $((NSTEPS-1))); do
@@ -1332,7 +1685,7 @@ for i,ln in enumerate(lines):
             else: lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) blocked; recover/review] ".format(p,n,n-p),1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
-  [ "${passed:-0}" -gt 0 ] && rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").zerocount" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
+  [ "${passed:-0}" -gt 0 ] && rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").zerocount" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").lastsig" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").scopeseen" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").scopeext"
   if [ "$_is_bug" = 1 ]; then
     if [ "$passed" -ge "$NSTEPS" ] && [ "${STAGE_PARTIAL:-0}" = 0 ] && [ "${STAGE_NOCREDIT:-0}" = 0 ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
     else stage_bug_attempt "staged ${passed} of ${NSTEPS} landed"; fi
@@ -1371,16 +1724,39 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   [ "${STAGE_MISTARGET_ITEM:-0}" = 1 ] && _zcap=1   # 2026-10-13 (xlite F3): a mis-targeted item can never land; retrying only re-plans the same wrong path - escalate at once
   _zc=$(( $(cat "$_zf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$_zc" > "$_zf"
   jlog "$(jq -nc --arg r "$RUNID" --argjson c "$_zc" --argjson m "$_zcap" '{run:$r,event:"zero_landing_attempt",attempt:$c,cap:$m}')"
-  if [ "$_zc" -lt "$_zcap" ]; then
-    _zvl="${SLOG%.jsonl}.verify.log"
+  # 2026-10-13 (N4 Part 2) SAME-SIGNATURE STOP: this run's failure identity (stage_fail_signature) is compared with the previous zero-landing run's (state/item_fails/...lastsig). An identical
+  # failure means the retry would burn another ~200k tokens to fail exactly the same way: treat the budget as spent and take the existing escalate branch below.
+  # An empty signature (no recognisable evidence) never stops anything AND clears the recorded one (a stale signature must not match a later, non-adjacent run).
+  # OVN_STAGE_SAME_SIG_STOP=on|shadow|off (default SHADOW: replaying 932 zero-landing box runs, 7 of the 67 same-signature repeats landed on the very next run (~10%), so this is an enforcement
+  # change, not a pure bug fix - read the same_signature_stop mode:shadow events for a cycle, then flip to on; shadow logs the would-stop and retries as before; off disables; the signature is always recorded).
+  _zssm="${OVN_STAGE_SAME_SIG_STOP:-shadow}"
+  _zssm="$(printf '%s' "$_zssm" | tr 'A-Z' 'a-z')"; case "$_zssm" in 0|false|no) _zssm=off;; esac   # the kill switch is case-insensitive and accepts 0/false/no (previously OFF/0/false silently ENFORCED)
+  _zvl="${SLOG%.jsonl}.verify.log"
+  _zsf="state/item_fails/stage-${repo}.${_zh}.lastsig"; _zsig="$(stage_fail_signature "$_zvl" "$SLOG" 2>/dev/null)"; _zsame=0
+  if [ -n "$_zsig" ] && [ -s "$_zsf" ] && [ "$(cat "$_zsf" 2>/dev/null)" = "$_zsig" ]; then
+    # a scope extension granted during THIS run (Part 3, OVN_STAGE_SCOPE_LEARN=on) changes what the next attempt can do, so the next failure is not "the same" yet
+    if [ "$_zssm" = shadow ] && [ "${STAGE_SCOPE_EXTENDED:-0}" != 1 ]; then
+      say "same failure signature as the previous staged run (${_zsig}) - SHADOW: would escalate now instead of attempt $((_zc+1))/${_zcap}; retrying as before"
+      jlog "$(jq -nc --arg r "$RUNID" --arg s "$_zsig" --argjson c "$_zc" '{run:$r,event:"same_signature_stop",mode:"shadow",signature:$s,attempt:$c}')"
+    elif [ "$_zssm" != off ] && [ "$_zssm" != shadow ] && [ "${STAGE_SCOPE_EXTENDED:-0}" != 1 ]; then
+      _zsame=1
+      say "same failure signature as the previous staged run (${_zsig}): another retry would repeat it - escalating now instead of attempt $((_zc+1))/${_zcap}"
+      jlog "$(jq -nc --arg r "$RUNID" --arg s "$_zsig" --argjson c "$_zc" '{run:$r,event:"same_signature_stop",mode:"on",signature:$s,attempt:$c}')"
+    fi
+  fi
+  if [ -n "$_zsig" ]; then printf '%s' "$_zsig" > "$_zsf"; else rm -f "$_zsf"; fi
+  if [ "$_zc" -lt "$_zcap" ] && [ "$_zsame" = 0 ]; then
     _zerr="$(grep -m1 -E '^e: |Redeclaration|Unresolved reference|FAILED |QUALITY FAIL|SEMANTIC FAIL|error:|Error:' "$_zvl" 2>/dev/null | sed -E 's#file://[^ ]*/##; s#://[^/ ]*@#://***@#g' | cut -c1-200)"
     [ -n "$_zerr" ] || _zerr="$(jq -r 'select(.verdict=="fail") | .excerpt // empty' "$SLOG" 2>/dev/null | tail -1 | cut -c1-200)"
     [ -n "$_zerr" ] || _zerr="the staged run landed 0 of ${NSTEPS} steps (no error line captured)"
-    printf 'attempt %s of %s: %s' "$_zc" "$_zcap" "$_zerr" > "state/item_fails/stage-${repo}.${_zh}.priorfail"
+    # 2026-10-13 (N4 Part 2): the first error line stays the header (older readers/tests grep it); the structured evidence (failing test ids + first assertion, QUALITY/SEMANTIC lines,
+    # undeclared files, blocked-step reasons) follows and is what the next decomposition AND every step prompt of the retry are told.
+    _zblk="$(stage_priorfail_block "$_zvl" "$SLOG" 2>/dev/null)"
+    printf 'attempt %s of %s: %s%s' "$_zc" "$_zcap" "$_zerr" "${_zblk:+$'\n'$_zblk}" > "state/item_fails/stage-${repo}.${_zh}.priorfail"
     ./queue.sh release "$repo" >/dev/null 2>&1
     say "staged pipeline landed 0/$NSTEPS - attempt ${_zc}/${_zcap}: item stays OPEN for another try (NOT routed to Claude yet)"
   else
-  rm -f "$_zf" "state/item_fails/stage-${repo}.${_zh}.priorfail"
+  rm -f "$_zf" "state/item_fails/stage-${repo}.${_zh}.priorfail" "state/item_fails/stage-${repo}.${_zh}.lastsig" "state/item_fails/stage-${repo}.${_zh}.scopeseen" "state/item_fails/stage-${repo}.${_zh}.scopeext"
   OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" python3 - <<'PY'
 import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; key=item[:55]
@@ -1395,7 +1771,8 @@ PY
       git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): escalate staged T$tier item to Claude (27B couldn't land it)"
       git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
-  say "escalated to Claude (staged pipeline landed 0/$NSTEPS - ${_zcap} attempts, beyond the 27B)"
+  if [ "${_zsame:-0}" = 1 ]; then say "escalated to Claude (staged pipeline landed 0/$NSTEPS - the same failure twice in a row (attempt ${_zc}/${_zcap}), beyond the 27B)"
+  else say "escalated to Claude (staged pipeline landed 0/$NSTEPS - ${_zcap} attempts, beyond the 27B)"; fi
   fi
   fi
 fi

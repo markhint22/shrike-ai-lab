@@ -42,7 +42,7 @@ setup(){
 mkrepo(){  # $1=name  [$2=with-alembic: ok | norev (a docstring-only 0011) ]
   local n="$1" al="${2:-}" o="$T/origin/$1.git" s="$T/seed/$1"
   git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
-  ( cd "$s" && echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
+  ( cd "$s" || exit 1; echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
     git checkout -q -b develop && git checkout -q -b feat1 && echo f1 > feat1.txt && git add feat1.txt && git commit -q -m "feat: one"
     if [ -n "$al" ]; then mkdir -p alembic/versions
       printf 'revision = "0009"\ndown_revision = None\n' > alembic/versions/0009_a.py
@@ -72,6 +72,14 @@ cronenv(){ env -i HOME="$HOME" PATH="$ENVPATH" NTFY_SERVER=http://127.0.0.1:9 FA
     ${EXTRA[@]+"${EXTRA[@]}"} "$@"; }
 runp(){ cronenv bash "$Q/promote_to_prod.sh" "$@" > "$OUT" 2>&1 < /dev/null; echo $? > "$T/rc"; }
 rund(){ cronenv OVN_PROMOTE_REPOS="$1" bash "$Q/daily_promote.sh" > "$OUT" 2>&1 < /dev/null; }
+# retry_later (OVN_PROMOTE_RETRY_S=3 in the callers): a PATH sleep shim whose 3 s retry-wait instantly installs the billwatch staging state
+# captured NOW (the caught-up state). The first pass therefore always sees the held state and the retry always sees the cleared one, with no timing race.
+retry_later(){ cp "$Q/state/staging_deploys/billwatch.json" "$T/later.json"; cat > "$T/shim/sleep" <<STUB
+#!/bin/sh
+if [ "\$1" = "3" ] && [ -f "$T/later.json" ]; then cp "$T/later.json" "$Q/state/staging_deploys/billwatch.json"; rm -f "$T/later.json"; exit 0; fi
+exec /bin/sleep "\$@"
+STUB
+chmod +x "$T/shim/sleep"; }
 has(){ grep -qF -- "$1" "$OUT"; }
 nalerts(){ local n=0; [ -f "$Q/state/alerts.log" ] && n="$(grep -c "$1" "$Q/state/alerts.log")"; echo "$n"; }
 nnotes(){ grep -c "CURL_CALL.*Title: Promote HELD: $1" "$T/curl.log" || true; }
@@ -126,9 +134,10 @@ ck "A-neg: --dry-run on a held repo: still reports the BLOCK, but no alerts.log 
 runp --yes "$Q/repos/iptv_apps"
 ck "A-benign: the real run after the dry run still writes the WARN and the note (not burned)" "[ \"\$(nalerts SKIPPED)\" = 1 ] && [ \"\$(nnotes iptv_apps)\" = 1 ]"
 # daily_promote retry: transient hold clears while it sleeps => promoted, NO WARN, NO relay note
-setup; mkrepo billwatch; snap billwatch "BUILDING:$(sha billwatch develop)" "SUCCESS:$(sha billwatch main)"; EXTRA=(OVN_POSTCHECK=off OVN_PROMOTE_RETRY_S=3)
-( sleep 1; snap billwatch "SUCCESS:$(sha billwatch develop)" ) &
-rund billwatch; wait
+# (retry_later makes the retry's sleep install the caught-up staging state instead of racing a background sleep against the first pass; 2026-10-15)
+setup; mkrepo billwatch; snap billwatch "SUCCESS:$(sha billwatch develop)"; retry_later
+snap billwatch "BUILDING:$(sha billwatch develop)" "SUCCESS:$(sha billwatch main)"; EXTRA=(OVN_POSTCHECK=off OVN_PROMOTE_RETRY_S=3)
+rund billwatch; rm -f "$T/shim/sleep"
 ck "A-benign: transient BUILDING hold clears during the retry window => promoted on the retry, retry line logged" "grep -q 'retry in 3s' $OUT && grep -q 'Promoted: billwatch' $OUT && ! grep -q 'HELD' $OUT"
 ck "A-benign: the cleared transient hold left no alerts.log WARN and no relay note" "[ \"\$(nalerts SKIPPED)\" = 0 ] && [ \"\$(nnotes billwatch)\" = 0 ]"
 setup; mkrepo billwatch; snap billwatch "BUILDING:$(sha billwatch develop)" "SUCCESS:$(sha billwatch main)"; EXTRA=(OVN_POSTCHECK=off OVN_PROMOTE_RETRY_S=1); rund billwatch
@@ -136,9 +145,9 @@ ck "A-neg: a hold that persists past the retry => HELD in the summary, ONE WARN,
 setup; mkrepo iptv_apps; snap iptv_apps "FAILED:$(sha iptv_apps develop)" "SUCCESS:$(sha iptv_apps main)"; EXTRA=(OVN_POSTCHECK=off OVN_PROMOTE_RETRY_S=600); t0="$(date +%s)"; rund iptv_apps; t1="$(date +%s)"
 ck "A-neg: a NON-transient hold (deploy FAILED) is never retried/slept on and reports at once" "[ $((t1-t0)) -lt 20 ] && ! grep -q 'retry in' $OUT && grep -q 'HELD.*iptv_apps' $OUT && [ \"\$(nalerts 'iptv_apps promote SKIPPED')\" = 1 ]"
 # BEHIND (staging serves an ancestor of the candidate, e.g. hygiene merged at :00 and staging has not deployed it yet) is the same transient class
-setup; mkrepo billwatch; snap billwatch "SUCCESS:$(sha billwatch main)"; EXTRA=(OVN_POSTCHECK=off OVN_PROMOTE_RETRY_S=3)
-( sleep 1; snap billwatch "SUCCESS:$(sha billwatch develop)" ) &
-rund billwatch; wait
+setup; mkrepo billwatch; snap billwatch "SUCCESS:$(sha billwatch develop)"; retry_later
+snap billwatch "SUCCESS:$(sha billwatch main)"; EXTRA=(OVN_POSTCHECK=off OVN_PROMOTE_RETRY_S=3)
+rund billwatch; rm -f "$T/shim/sleep"
 ck "A-benign: BEHIND (not deployed yet) is retried once and promotes when staging catches up; no WARN" "grep -q 'FAIL:MISMATCH_BEHIND' $OUT && grep -q 'Promoted: billwatch' $OUT && [ \"\$(nalerts SKIPPED)\" = 0 ]"
 
 # rollback paths
@@ -453,16 +462,36 @@ ck "E: the 3 Railway STAGING services are in SURFACES (alert-only, fleet=0)" "[ 
 dwsetup(){ rm -rf "$T/dwhome" "$FX"; mkdir -p "$T/dwhome" "$FX"; unset RW_ST_STAGING RW_ST_PROD RW_SHA_STAGING RW_SHA_PROD RW_ID_STAGING RW_ID_PROD; }
 curl(){ echo "curl $*" >> "$FX/curl.log"; [ -e "$FX/curl_fail" ] && return 22; case "$*" in *ntfy.sh*|*127.0.0.1*) return 0;; *"%{http_code}"*) printf 200;; esac; return 0; }
 ssh(){ echo "ssh $*" >> "$FX/ssh.log"; cat > /dev/null 2>&1 < /dev/null; local a; for a in "$@"; do case "$a" in ITEM_B64=*) printf '%s' "${a#ITEM_B64=}" | base64 -d >> "$FX/items.log"; echo >> "$FX/items.log";; esac; done; echo enqueued; return 0; }
-railway(){ echo "railway $*" >> "$FX/rw.log"
-  local env="" a prev="" which=PROD sid=""
-  for a in "$@"; do [ "$prev" = "--environment" ] && env="$a"; [ "$prev" = "--service" ] && sid="$a"; prev="$a"; done
-  [ "$env" = staging ] && which=STAGING
-  case "$1" in link) return 0;; deployment)
-    local vs="RW_ST_$which" vsha="RW_SHA_$which" vid="RW_ID_$which"
-    printf '[{"id":"%s","status":"%s","meta":{"commitHash":"%s"}}]\n' "${!vid:-dep1}" "${!vs:-SUCCESS}" "${!vsha:-aaaaaaaaaaaa}";; logs) echo "boom";; esac; }
+# railway: deploy_watch.sh never calls a `railway` function of ours. Its own railway() wrapper runs scripts/railway_serial.sh, which executes
+# "${RAILWAY_BIN:-railway}" and deploy_watch prepends /opt/homebrew/bin to PATH, so a PATH or function shim was silently shadowed by the REAL
+# authenticated CLI (the Mac pass was reaching Railway for real; the box has no CLI and returned UNKNOWN). RAILWAY_BIN points at a logging stub
+# (set in dw and in the DRYRUN call); the exported function only satisfies deploy_watch's startup `command -v railway` check and delegates to the stub.
+mkdir -p "$T/rwbin"; cat > "$T/rwbin/railway" <<'STUB'
+#!/bin/bash
+echo "railway $*" >> "$FX/rw.log"
+prev=""; env=""; for a in "$@"; do [ "$prev" = "--environment" ] && env="$a"; prev="$a"; done
+which=PROD; [ "$env" = staging ] && which=STAGING
+case "$1" in link) exit 0;; deployment)
+  vs="RW_ST_$which"; vsha="RW_SHA_$which"; vid="RW_ID_$which"
+  printf '[{"id":"%s","status":"%s","meta":{"commitHash":"%s"}}]\n' "${!vid:-dep1}" "${!vs:-SUCCESS}" "${!vsha:-aaaaaaaaaaaa}";; logs) echo "boom";; esac
+exit 0
+STUB
+chmod +x "$T/rwbin/railway"
+railway(){ "$T/rwbin/railway" "$@"; }
 vercel(){ echo "vercel $*" >> "$FX/vc.log"; case "$1" in ls) echo "  https://${2}-x1.vercel.app Ready";; inspect) echo "    status      ● Ready";; esac; }
-export -f curl ssh railway vercel; export FX
-dw(){ HOME="$T/dwhome" NTFY_TOPIC=selftest bash "$DW" > "$FX/out.log" 2>&1; echo $? > "$FX/rc"; }
+export -f curl ssh railway vercel; export FX RAILWAY_BIN="$T/rwbin/railway"
+# the live environment must not leak in: a real SHRIKE_NOTIFY_URL / NTFY_SERVER / DRYRUN / OVN_SERVER / RAILWAY_SERIAL_LOCK (box systemd env) changes what deploy_watch does
+# deploy_watch.sh resolves ../railway_serial.sh and ../railway_config_guard.py from its own dir (the shared scripts/ dir, which is NOT in the box's
+# overnight-queue tree: on the box the wrapper hit a missing file and every railway check came back UNKNOWN). So the suite runs a COPY laid out as
+# <T>/dwlayout/scripts/overnight-queue/ (the real deploy_watch.sh + its sibling libs) with a passthrough railway_serial.sh and a no-op config guard.
+# The real railway_serial.sh is a lock wrapper around the same exec, and its lock is not what these checks cover.
+DWL="$T/dwlayout/scripts/overnight-queue"; mkdir -p "$DWL"
+cp "$DW" "$OQ/shrike_notify_lib.sh" "$DWL/"; [ -f "$OQ/alert_suppress.txt" ] && cp "$OQ/alert_suppress.txt" "$DWL/"
+printf '#!/bin/bash\nexec "${RAILWAY_BIN:-railway}" "$@"\n' > "$T/dwlayout/scripts/railway_serial.sh"; chmod +x "$T/dwlayout/scripts/railway_serial.sh"; : > "$T/dwlayout/scripts/railway_config_guard.py"
+DWRUN="$DWL/deploy_watch.sh"
+dwenv(){ env -u SHRIKE_NOTIFY_URL -u SHRIKE_NOTIFY_TOKEN -u NTFY_SERVER -u OVN_SERVER -u DRYRUN -u SHRIKE_MONITOR_URL -u SHRIKE_MONITOR_TOKEN -u LOCAL_PROJECTS \
+  HOME="$T/dwhome" NTFY_TOPIC=selftest RAILWAY_BIN="$T/rwbin/railway" RAILWAY_SERIAL_LOCK="$T/dwhome/.railway/.cli.lock.d" "$@"; }
+dw(){ dwenv bash "$DWRUN" > "$FX/out.log" 2>&1; echo $? > "$FX/rc"; }
 urg(){ local n; n="$(grep -c "Priority: urgent" "$FX/curl.log" 2>/dev/null)"; echo "${n:-0}"; }
 hi(){ local n; n="$(grep -c "Priority: high" "$FX/curl.log" 2>/dev/null)"; echo "${n:-0}"; }
 al(){ local n; n="$(grep -c "$1" "$T/dwhome/.deploy_watch/alerts.log" 2>/dev/null)"; echo "${n:-0}"; }
@@ -497,7 +526,7 @@ ck "E-neg: prod FAILED => urgent emergency per backend + alerts.log line with 'p
 ck "E: prod FAILED still enqueues the fix item for the fleet repos (existing behaviour kept)" "[ \"\$(grep -c 'EMERGENCY DEPLOY FIX' $FX/items.log)\" = 3 ]"
 dw
 ck "E: prod same sha again => no second emergency" "[ \"\$(grep 'Priority: urgent' $FX/curl.log | grep -c 'prod deploy FAILED')\" = 3 ]"
-dwsetup; DRYRUN=1 HOME="$T/dwhome" bash -c 'export RW_ST_PROD=FAILED RW_SHA_PROD=cafebabecafebabe RW_ID_PROD=p9; bash '"$DW" > "$FX/out.log" 2>&1
+dwsetup; export RW_ST_PROD=FAILED RW_SHA_PROD=cafebabecafebabe RW_ID_PROD=p9; dwenv DRYRUN=1 bash "$DWRUN" > "$FX/out.log" 2>&1; unset RW_ST_PROD RW_SHA_PROD RW_ID_PROD
 ck "E: DRYRUN prints the would-be alerts.log line and sends/writes nothing" "grep -q '\\[alerts.log\\] .*prod deploy FAILED' $FX/out.log && [ ! -e $T/dwhome/.deploy_watch/alerts.log ] && ! grep -q 'Priority' $FX/curl.log 2>/dev/null"
 /bin/bash -n "$DW" && ck "E: deploy_watch.sh parses under /bin/bash (the Mac runs it with 3.2 or 5)" "true" || ck "E: bash -n" "false"
 unset -f curl ssh railway vercel

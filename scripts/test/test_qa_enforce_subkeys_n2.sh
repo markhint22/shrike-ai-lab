@@ -26,7 +26,7 @@ QE antigaming_newpaths enforce >/dev/null 2>&1; rc=$?
 ok "NEGATIVE: a typo'd sub-key name is still refused" "[ $rc = 2 ]"
 
 # ---- end to end with the REAL gate
-R="$T/repos/demo"; mkdir -p "$R"; ( cd "$R" && git init -q && git config user.email t@t && git config user.name t
+R="$T/repos/demo"; mkdir -p "$R"; ( cd "$R" || exit 1; git init -q && git config user.email t@t && git config user.name t
   mkdir -p app/routers tests
   printf 'def f():\n    return 1\n' > app/routers/billing.py
   printf 'from app.routers.billing import f\n\n\ndef test_f():\n    assert f() == 1\n' > tests/test_billing.py

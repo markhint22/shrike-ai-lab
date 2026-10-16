@@ -58,6 +58,11 @@ except Exception:  # pragma: no cover - exercised by the fallback test with the 
     _E = None
     _HAVE_E = False
 
+try:
+    import ovn_verify_malformed as _VM
+except Exception:  # pragma: no cover - a deployment without the module simply has no shadow lint
+    _VM = None
+
 # 2026-10-12 (package uidcredit): the shared canonical item identity (annotation/state-tag/tier-insensitive) lives in scripts/ovn_credit_items.py. Fallback to the
 # legacy comparison below when the module is not deployed next to this file (OVN_REFILL_CANON=legacy forces it).
 try:
@@ -114,6 +119,21 @@ def _extract_verify(line):
     if not m:
         m = re.search(r'VERIFY:\s*(.+?)\s*\(cat:', line)
     return m.group(1).strip() if m else None
+
+
+# 2026-10-15 (P2): VERIFY malformation lint, SHADOW ONLY. Every pulled item's VERIFY is linted and one JSON line per item is appended to
+# state/verify_lint_shadow.log. Findings never change what is queued or how it is run. OVN_VERIFY_LINT=off disables it. OVN_VERIFY_LINT_LOG overrides the path.
+def _verify_lint_shadow(pulled_lines, repo_root):
+    mode = os.environ.get("OVN_VERIFY_LINT", "shadow")
+    if mode.lower() == "off" or _VM is None:
+        return 0
+    log_path = os.environ.get("OVN_VERIFY_LINT_LOG") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "verify_lint_shadow.log")
+    written = 0
+    for line in pulled_lines:
+        v = _extract_verify(line)
+        if v and _VM.shadow_log_verify(v, repo_root, line, log_path, mode) is not None:
+            written += 1
+    return written
 
 
 _ALWAYS_TRUE_RE = re.compile(r'\|\|\s*(echo|printf|true)\b')
@@ -584,6 +604,7 @@ def main():
             pull[i] = l2
             relocated += 1
 
+    _verify_lint_shadow(pull, repo_root)   # P2: shadow-only, never blocks
     extra = (f"  QUARANTINED={len(quarantined)}" if quarantined else "") + (f"  HELD={held}" if held else "") \
         + (f"  VACUOUS_ECHO={vacuous}" if vacuous else "") + (f"  REPAIRED={repaired}" if repaired else "")
     if not pull and not credited and not dup and not quarantined:

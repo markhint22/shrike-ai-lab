@@ -95,7 +95,7 @@ osr_cleanup
 echo "=== G: the real guard ==="
 G="$REALQ/scripts/ovn_item_guard.sh"
 new_repo(){ local r="$tmp/$1"; shift; mkdir -p "$r"
-  ( cd "$r" && git init -q && git config user.email t@t.com && git config user.name t \
+  ( cd "$r" || exit 1; git init -q && git config user.email t@t.com && git config user.name t \
     && { echo '# Progress'; echo; echo '## Next Steps'; printf '%s\n' "$@"; } > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m init ); echo "$r"; }
 guard(){ ( cd "$tmp" && env -i PATH="$PATH" bash "$G" "$1" "$2" "$3" "$4" "" ) >/dev/null 2>&1; }
 guard_oldbill(){ ( cd "$tmp" && env -i PATH="$PATH" OVN_STAGE_BILLING=off bash "$G" "$1" "$2" "$3" "$4" "" ) >/dev/null 2>&1; }

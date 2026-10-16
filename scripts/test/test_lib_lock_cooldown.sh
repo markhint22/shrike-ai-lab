@@ -99,5 +99,12 @@ run_acquire 5 selftest-A "$log5"
 ok "lock free: acquire_lock returns success (no contention line)" "! grep -q 'another pass is already running' '$log5'"
 ok "lock free: clears the stale cooldown marker on a clean acquire" "[ ! -f '$marker' ]"
 
+# --- 6: wait=0 on a FREE lock acquires (2026-10-14 review: the old `flock -w 0` path returned 1 on macOS flock 0.4.0 even with no holder) ---
+log6="$tmp/l6.log"; : > "$log6"
+( source "$LIB"; acquire_lock "$tmp/free.lock" 203 0 selftest-zerofree log; echo "RC=$?" ) >> "$log6" 2>&1
+ok "wait=0 free lock: acquire_lock returns 0" "grep -q '^RC=0$' '$log6'"
+ok "wait=0 free lock: no 'another pass is already running' line" "! grep -q 'another pass is already running' '$log6'"
+ok "wait=0 free lock: no 'timeout must be greater than 0' flock error" "! grep -q 'timeout must be greater than 0' '$log6'"
+
 echo "lib_lock.sh cooldown: $P passed, $F failed"
 [ "$F" -eq 0 ]

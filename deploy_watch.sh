@@ -22,6 +22,8 @@
 # CLI (authed) live. Cron (Mac): */20 * * * * .../deploy_watch.sh >> /tmp/deploy_watch.log 2>&1
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+# self-heal a corrupted ~/.railway/config.json (concurrent railway CLI writers interleave) before any railway call
+python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../railway_config_guard.py" >/dev/null 2>&1 || true
 
 LOCAL="${LOCAL_PROJECTS:-/Users/mhintermeister/LocalProjects}"
 SRV="${OVN_SERVER:-mhintermeister@100.79.64.64}"
@@ -103,6 +105,9 @@ gitlark-staging|gitlark|gitlark STAGING backend|railway|a6a9ae6b-8df9-4d05-8169-
 "
 
 command -v railway >/dev/null 2>&1 || { log "FATAL: railway CLI not on PATH"; exit 1; }
+# every railway call goes through the cross-process lock (concurrent CLI writers corrupt ~/.railway/config.json and log the CLI out)
+# OVN_RAILWAY_SERIAL overrides the wrapper path: the suite uses it when the sibling scripts/railway_serial.sh is absent from a checkout layout (the box), 2026-10-15.
+railway(){ "${OVN_RAILWAY_SERIAL:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../railway_serial.sh}" "$@"; }
 command -v vercel  >/dev/null 2>&1 || log "WARN: vercel CLI not on PATH — frontend checks will skip"
 
 # All railway CLI calls run from a dedicated, isolated cwd (not a project checkout) so

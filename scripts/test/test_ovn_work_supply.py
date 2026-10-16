@@ -8,6 +8,9 @@ import subprocess
 import sys
 import tempfile
 
+import tmp_track  # noqa: E402  (2026-10-15: sweep every mkdtemp dir this test makes)
+tmp_track.install()
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SUPPLY = os.path.join(ROOT, "scripts", "ovn_work_supply.py")

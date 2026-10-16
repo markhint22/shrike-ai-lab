@@ -102,6 +102,9 @@ class PgContainer:
         self.name = "qa-pg-%d" % os.getpid()
         self.port = None
         self.started = False
+        # 2026-10-15: an optional run label (QA_RUN_LABEL) is stamped on the container as a label, so a caller that runs gates on a SHARED box
+        # (the live queue and cron jobs run QA gates too) can count only the containers it started. Unset -> no extra label (production runs unchanged).
+        self.run_label = os.environ.get("QA_RUN_LABEL", "").strip()
 
     @staticmethod
     def docker_ok():
@@ -128,7 +131,8 @@ class PgContainer:
     def start(self, timeout=120):
         self.reap_stale()
         self.started = True  # set first: even a half-started container must be removed
-        rc, _, err = qc.run(["docker", "run", "-d", "--rm", "--name", self.name, "--label", "qa-gate=migrations",
+        extra_labels = ["--label", "qa-run=" + self.run_label] if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", self.run_label) else []
+        rc, _, err = qc.run(["docker", "run", "-d", "--rm", "--name", self.name, "--label", "qa-gate=migrations"] + extra_labels + [
                              "-e", "POSTGRES_PASSWORD=qa", "-p", "127.0.0.1::5432", "--tmpfs", "/var/lib/postgresql/data:rw",
                              "--memory", "2g", "--cpus", "2", IMAGE, "-c", "fsync=off", "-c", "synchronous_commit=off",
                              "-c", "full_page_writes=off", "-c", "max_connections=50"], timeout=timeout, polite=False)

@@ -33,6 +33,28 @@
 #      Every credit path goes through shadow_check, so one place fixes them all. OVN_VERIFY_POLARITY=off restores the old reading. Rows get ` polarity=neg`.
 #   X2 GUT: _verify_normalize_gut rewrites clauses GUT cannot execute (-gdir=<file>.gd, bare -gtest=<name>.gd, -gselect=<function>) via ovn_gut_clause.py before they run, and a run that
 #      reports "Nothing was run" is a FAIL (a nonexistent -gunit_test_name exits 0). OVN_GUT_CLAUSE_NORMALIZE=off disables both.
+# 2026-10-13 (package verify-credit-runner, night review N4): credit-time VERIFY refused landed green work for ENVIRONMENT reasons, not item reasons.
+#   A  _verify_py_root: a python/pytest clause ran with the venv python from the repo root and no PYTHONPATH, so `from backend.app.services.auth import x` (auth.py itself does
+#      `from app.persistence import ...`) and a billwatch `pytest tests/test_x.py::t` (file lives in billwatch-backend/tests; the legacy ROOT tests/conftest.py does `from app.database import Base`)
+#      died with ModuleNotFoundError: No module named 'app' - while the cycle's own .ovn-verify.sh (which sets the right root) was green. The project root is derived from the venv path the
+#      runner already resolves (<root>/.venv/bin/python -> <root>; else the first of backend/ billwatch-backend/ iptv-backend/ that exists): the clause is run EXACTLY as before first; only a FAIL whose output is an import / missing-path error
+#      (ModuleNotFoundError, ImportError, 'file or directory not found') is re-run ONCE with PYTHONPATH <root>:<repo> APPENDED to any existing value, and a relative tests/ path that is missing at
+#      the cwd but present under <root> runs from <root>; that result is adopted (note=py-root-retry row). A retry, not a default, so no clause that passes today can flip (a root package
+#      like billwatch-backend/alembic/ shadows the installed library on PYTHONPATH). ON; OVN_VERIFY_PY_ROOT=off restores the old run.
+#   C  pytest `path::name` where `name` is only a PREFIX of the real test names (test_find_stale_run_ids vs test_find_stale_run_ids_returns_old_running_runs): exact node ids never match a
+#      superstring (rc 4 'not found'). OVN_VERIFY_PYTEST_K_FALLBACK=shadow (DEFAULT) runs ONE `path -k name` retry only when the file exists and logs a `note=pytest-k-fallback` row
+#      (never credits); =on adopts the retry result (label _LAST_VERIFY_WHY=name-substring, ` why=name-substring` on the PASS/FAIL row); =off disables. It loosens credit, hence shadow.
+
+# AUDIT for the py-root retry (see above): one alerts.log line per FAIL->PASS adoption. item = progress line number + a cksum of the item's line text (the credit path has no item id).
+_verify_py_root_audit(){   # <line> <root> <clause> <prog> <orig_rc>
+  local _al _item _ts
+  _al="${OVN_VERIFY_ALERTS_LOG:-$(dirname "${SHADOW_LOG:-$HOME/overnight-queue/state/verify_gate_shadow.log}")/alerts.log}"
+  _item="$1:$(sed -n "$1p" "$4" 2>/dev/null | cksum | cut -d' ' -f1)"
+  _ts="$(date '+%F %T')"
+  mkdir -p "$(dirname "$_al")" 2>/dev/null
+  echo "$_ts info | py-root-retry | ${_REPO_LABEL:-repo} item=${_item} FAIL->PASS under project root $2 (orig_rc=$5; OVN_VERIFY_PY_ROOT=off refuses it) clause=$(printf '%s' "$3" | head -c 200)" >> "$_al" 2>/dev/null
+  return 0
+}
 
 # Substitute a nearby repo .venv's python for a bare `python`/`python3` token, so a
 # VERIFY clause that omits the .venv/ prefix (some do, some don't - an authoring
@@ -203,7 +225,7 @@ _verify_nodeid_fallback_cmd(){
   [ -n "$name" ] || return 0
   # the collection command: same command, node id -> its file, verbosity flags dropped, `--collect-only -q` (one `file::Class::name[param]` id per line)
   ccmd="$(_verify_replace_first "$c" "$tok" "$path" | sed -E 's/ -(q+|v+)( |$)/ /g; s/ -(q+|v+)( |$)/ /g')"
-  cout="$(CI=true timeout "$tmo" bash -c "$ccmd --collect-only -q" 2>&1 </dev/null)" || true
+  cout="$(_verify_run "$tmo" "$ccmd --collect-only -q")" || true
   while IFS= read -r line; do
     first="${line%% *}"
     case "$first" in
@@ -269,7 +291,80 @@ _verify_gut_xml_path(){
   [ -f "$p" ] && printf '%s' "$p"
 }
 
-_VC_MEMO=""; _VC_MEMO_ON=0   # per-call memo of identical VERIFY commands (newline separated, fields split by \037: key RESULT RC TMO WHY)
+# ---- A: project root for python/pytest clauses (package verify-credit-runner) ----
+# CREDIT DECISION (2026-10-14, review finding): unlike the -k fallback (C, shadow by default), this retry is ADOPTED by default (OVN_VERIFY_PY_ROOT=on). It can turn a FAIL into a PASS, but only
+# for a clause that failed with an import/missing-path error and passes under the project root - the same tree the repo's own gates import from. Kept on deliberately: shadowing it would
+# bring back the false REFUSED credits it was written to fix (billwatch/iptv ModuleNotFoundError). Set OVN_VERIFY_PY_ROOT=off to refuse such clauses again.
+# _verify_py_root <cmd>: prints the absolute project root a python/pytest clause should import from, or nothing (not a python clause, kill switch, no candidate). The cwd is the repo root.
+_verify_py_root(){
+  local c="$1" repo vpath root="" cand
+  [ "${OVN_VERIFY_PY_ROOT:-on}" = off ] && return 0
+  case "$c" in *python*|*pytest*) ;; *) return 0 ;; esac
+  repo="$(pwd)"
+  vpath="$(printf '%s' "$c" | grep -oE '[^ "'"'"'=]*/\.venv/bin/(python3?|pytest)' | head -1)"
+  if [ -n "$vpath" ]; then
+    root="${vpath%/.venv/bin/*}"
+    case "$root" in /*) ;; *) root="$repo/$root" ;; esac
+    [ -d "$root" ] || root=""
+    [ "$root" = "$repo" ] && root=""   # a repo-root venv says nothing about the package root
+  fi
+  if [ -z "$root" ]; then
+    for cand in backend billwatch-backend iptv-backend; do
+      if [ -d "$repo/$cand" ]; then root="$repo/$cand"; break; fi
+    done
+  fi
+  [ -n "$root" ] && printf '%s' "$root"
+  return 0
+}
+# _verify_py_cwd <cmd> <root>: prints <root> when the clause names a relative tests/ path that does NOT exist at the cwd but DOES under <root> (and the clause does not cd by itself)
+_verify_py_cwd(){
+  local c="$1" root="$2" p
+  [ -n "$root" ] || return 0
+  case "$c" in "cd "*) return 0 ;; esac
+  p="$(printf '%s' "$c" | grep -oE '(^|[ =])tests/[A-Za-z0-9_./-]*' | head -1 | sed -E 's/^[ =]//')"
+  [ -n "$p" ] || return 0
+  if [ ! -e "$p" ] && [ -e "$root/$p" ]; then printf '%s' "$root"; fi
+  return 0
+}
+# _verify_py_import_failure <output>: rc 0 when a failed clause's output says an import or a path could not be resolved (the only failures the project-root retry can change)
+_verify_py_import_failure(){
+  printf '%s' "$1" | grep -aEq 'ModuleNotFoundError|ImportError|No module named|ERROR: file or directory not found|file or directory not found'
+}
+# the root/PYTHONPATH decided for the clause being judged (set by shadow_check, read by _verify_run)
+_VPY_PP=""; _VPY_CD=""
+# _verify_run <timeout> <cmd>: the one place a VERIFY clause is executed (stdout+stderr, stdin from /dev/null, CI=true). Without a python root it is byte-for-byte the old call.
+_verify_run(){
+  local tmo="$1" c="$2"
+  if [ -n "$_VPY_PP" ] || [ -n "$_VPY_CD" ]; then
+    (
+      if [ -n "$_VPY_CD" ]; then cd "$_VPY_CD" || exit 127; fi
+      if [ -n "$_VPY_PP" ]; then export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$_VPY_PP"; fi
+      CI=true timeout "$tmo" bash -c "$c" 2>&1 </dev/null
+    )
+  else
+    CI=true timeout "$tmo" bash -c "$c" 2>&1 </dev/null
+  fi
+}
+# ---- C: `path::name` where name is a prefix/substring of the real test names ----
+# _verify_k_fallback_cmd <cmd>: prints the clause with the first `file.py::name` node id replaced by `file.py -k name`, only for a plain name (no Class:: part), when the file exists
+# (at the cwd or under the python root) and the clause has no -k of its own. Prints nothing otherwise.
+_verify_k_fallback_cmd(){
+  local c="$1" tok path name
+  _verify_is_pytest "$c" || return 0
+  case "$c" in *" -k "*|*" -k="*) return 0 ;; esac
+  # a clause that cds first resolves its file against a directory this helper does not know: no fallback (documented, not guessed)
+  case "$c" in "cd "*|*"&& cd "*|*"; cd "*|*"|| cd "*) return 0 ;; esac
+  # `-k` applies to EVERY file argument: with two node ids `a.py -k t1 b.py::t2` would match t1 in both files and could credit a partial match - no fallback
+  [ "$(printf '%s' "$c" | grep -oE '[A-Za-z0-9_./-]+\.py::' | wc -l | tr -d ' ')" -le 1 ] || return 0
+  tok="$(printf '%s' "$c" | grep -oE '[A-Za-z0-9_./-]+\.py::[A-Za-z0-9_:.-]+' | head -1)"
+  [ -n "$tok" ] || return 0
+  path="${tok%%::*}"; name="${tok#*::}"
+  case "$name" in ''|*:*) return 0 ;; esac
+  if [ ! -f "$path" ] && ! { [ -n "$_VPY_CD" ] && [ -f "$_VPY_CD/$path" ]; }; then return 0; fi
+  _verify_replace_first "$c" "$tok" "$path -k $name"
+}
+
+_VC_MEMO=""; _VC_MEMO_ON=0   # per-call memo of identical VERIFY commands (newline separated, fields split by \037: key RESULT RC TMO WHY ADOPT_ROOT ADOPT_ORIG_RC)
 _LAST_VERIFY_RESULT=""
 _LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""; _LAST_VERIFY_BARE=""
 shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_VERIFY_RESULT.
@@ -328,14 +423,24 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     _vckey="$(printf '%s|%s' "$vcmd" "$_pol" | md5sum 2>/dev/null | cut -d' ' -f1)"
     local _vchit; _vchit="$(printf '%s\n' "$_VC_MEMO" | grep -m1 "^${_vckey}"$'\037')"
     if [ -n "$_vckey" ] && [ -n "$_vchit" ]; then
-      IFS=$'\037' read -r _ _LAST_VERIFY_RESULT _LAST_VERIFY_RC _LAST_VERIFY_TIMEOUT _LAST_VERIFY_WHY <<< "$_vchit"
+      local _vmr="" _vmo=""   # root + original rc of a py-root-retry adoption, when the cached verdict came from one (2026-10-14 audit fix)
+      IFS=$'\037' read -r _ _LAST_VERIFY_RESULT _LAST_VERIFY_RC _LAST_VERIFY_TIMEOUT _LAST_VERIFY_WHY _vmr _vmo <<< "$_vchit"
       echo "$ts repo=$_REPO_LABEL line=$ln result=$_LAST_VERIFY_RESULT cached=1${_polmark} cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+      # AUDIT (2026-10-14, review finding): a replayed PASS that the first run adopted via the py-root retry is a credit too - audit it, so the false-green trail is complete
+      if [ "$_LAST_VERIFY_RESULT" = PASS ] && [ -n "$_vmr" ]; then _verify_py_root_audit "$ln" "$_vmr" "$vcmd" "$PROG" "$_vmo"; fi
       return
     fi
   fi
   vcmd="$(_resolve_tool_paths "$vcmd")"
   vcmd="$(_verify_fix_gut_exit "$vcmd")"
   vcmd="$(_verify_normalize_gut "$vcmd")"   # X2: -gdir=<file>.gd / bare -gtest=<name>.gd / -gselect=<function> -> a form GUT can run (OVN_GUT_CLAUSE_NORMALIZE=off disables)
+  # A (verify-credit-runner): the python project root / PYTHONPATH this clause is judged under (see _verify_py_root); empty = run exactly as before
+  # RETRY, not default (reviewer finding, major): the clause FIRST runs exactly as before (so every clause that already passes keeps its result by construction - a root package such as
+  # billwatch-backend/alembic/ with an __init__.py would otherwise shadow the installed alembic on PYTHONPATH and break `alembic ...` / migration-drift clauses). Only a FAIL that looks like
+  # a missing-import / missing-path problem is re-run ONCE under the project root and that result is adopted (see the retry below).
+  _VPY_PP=""; _VPY_CD=""; _VADOPT_ROOT=""; _VADOPT_ORIG=""
+  local _vroot _vpp_cand="" _vcd_cand=""; _vroot="$(_verify_py_root "$vcmd")"
+  if [ -n "$_vroot" ]; then _vpp_cand="$_vroot:$(pwd)"; _vcd_cand="$(_verify_py_cwd "$vcmd" "$_vroot")"; fi
   tmo="${VERIFY_TIMEOUT_SECS:-60}"
   if [ -n "${VERIFY_TIMEOUT_HEAVY_SECS:-}" ] && _verify_is_heavy "$vcmd"; then tmo="$VERIFY_TIMEOUT_HEAVY_SECS"; fi
   if _verify_is_narrow_gut "$vcmd"; then tmo="${OVN_VERIFY_GUT_NARROW_SECS:-120}"; fi
@@ -353,15 +458,47 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   # lines of the caller's here-string loop.
   # 2026-10-02 (follow-up 3): CI=true so watch-mode runners (vitest/jest: `npm run test -- X` printed "Waiting for file changes" after passing in 1.4s and then sat
   # until the timeout: 48 of the 50 rc=124 rows in the shadow log) run once and exit.
-  out="$(CI=true timeout "$tmo" bash -c "$vcmd" 2>&1 </dev/null)"; rc=$?
+  out="$(_verify_run "$tmo" "$vcmd")"; rc=$?
+  # A (verify-credit-runner) retry: a FAIL (not a timeout / not-runnable) whose output is an import or missing-path error is re-run ONCE under the project root; that result is adopted
+  # (and the root stays in force for the B2/C retries below). A PASS never reaches this branch. The note row carries no result= token (readers count result= rows).
+  if [ -n "$_vpp_cand" ] && [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ] && _verify_py_import_failure "$out"; then
+    local _rout _rrc _rwould
+    _VPY_PP="$_vpp_cand"; _VPY_CD="$_vcd_cand"
+    _rout="$(_verify_run "$tmo" "$vcmd")"; _rrc=$?
+    if [ "$_rrc" -eq 0 ]; then _rwould=PASS; else _rwould=FAIL; fi
+    echo "$ts repo=$_REPO_LABEL line=$ln note=py-root-retry would=$_rwould orig_rc=$rc rc=$_rrc root=$_vroot cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+    # AUDIT (2026-10-14, review finding): the retry is adopted by default, so every FAIL it turns into a PASS is written to state/alerts.log (same dir as the shadow log;
+    # OVN_VERIFY_ALERTS_LOG overrides) with the item and the clause. A false green is then visible without reading the shadow log. Kill switch OVN_VERIFY_PY_ROOT=off.
+    if [ "$_rrc" -eq 0 ]; then
+      _verify_py_root_audit "$ln" "$_vroot" "$vcmd" "$PROG" "$rc"
+      _VADOPT_ROOT="$_vroot"; _VADOPT_ORIG="$rc"   # carried in the memo so a replayed credit is audited too
+    fi
+    out="$_rout"; rc="$_rrc"
+  fi
   # B2: a pytest node id that does not resolve (rc=4) is retried once as `path -k name` (class-based tests are only addressable as path::Class::name)
+  local _exact_retry=0 _whymark=""
   if [ "$rc" -eq 4 ] && [ "${OVN_VERIFY_NODEID_FALLBACK:-on}" != off ]; then
     local _v2; _v2="$(_verify_nodeid_fallback_cmd "$vcmd" "$tmo")"
     if [ -n "$_v2" ]; then
-      out="$(CI=true timeout "$tmo" bash -c "$_v2" 2>&1 </dev/null)"; rc=$?
-      vcmd="$_v2"
+      out="$(_verify_run "$tmo" "$_v2")"; rc=$?
+      vcmd="$_v2"; _exact_retry=1
     elif _verify_is_pytest "$vcmd" && printf '%s' "$vcmd" | grep -qE '\.py::'; then
       _LAST_VERIFY_WHY="no tests collected"   # the node id names no collected test (no exact match): stays rc=4 / FAIL
+    fi
+  fi
+  # C (verify-credit-runner): `path::name` that names only a PREFIX of the real tests (rc 4/5, 'not found' / 'no tests ran' / 'deselected'): ONE `path -k name` retry, file must exist.
+  # shadow (default) runs it for the record and keeps the original verdict; on adopts it (label name-substring); off = old behaviour.
+  local _kmode="${OVN_VERIFY_PYTEST_K_FALLBACK:-shadow}"
+  if [ "$_kmode" != off ] && [ "$_exact_retry" = 0 ] && { [ "$rc" -eq 4 ] || [ "$rc" -eq 5 ]; } && _verify_is_pytest "$vcmd" && grep -aEqi 'not found|no tests ran|deselected' <<< "$out"; then
+    local _kcmd _kout _krc _kwould
+    _kcmd="$(_verify_k_fallback_cmd "$vcmd")"
+    if [ -n "$_kcmd" ]; then
+      _kout="$(_verify_run "$tmo" "$_kcmd")"; _krc=$?
+      if [ "$_krc" -eq 0 ] && ! grep -aq 'no tests ran' <<< "$_kout"; then _kwould=PASS; else _kwould=FAIL; fi
+      echo "$ts repo=$_REPO_LABEL line=$ln note=pytest-k-fallback mode=$_kmode would=$_kwould krc=$_krc orig_rc=$rc cmd=$(printf '%s' "$_kcmd" | head -c 200)" >> "$SHADOW_LOG"
+      if [ "$_kmode" = on ]; then
+        out="$_kout"; rc="$_krc"; vcmd="$_kcmd"; _LAST_VERIFY_WHY="name-substring"; _whymark=" why=name-substring"
+      fi
     fi
   fi
   _LAST_VERIFY_RC="$rc"
@@ -416,7 +553,7 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     fi
   fi
   if [ "$rc" -eq 0 ]; then
-    echo "$ts repo=$_REPO_LABEL line=$ln result=PASS${_polmark} cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+    echo "$ts repo=$_REPO_LABEL line=$ln result=PASS${_polmark}${_whymark} cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="PASS"
   elif [ "$rc" -eq 124 ]; then
     _LAST_VERIFY_WHY="VERIFY timed out (rc=124) after ${tmo}s"
@@ -427,9 +564,9 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     echo "$ts repo=$_REPO_LABEL line=$ln result=UNRUNNABLE rc=$rc cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="UNRUNNABLE"
   else
-    echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc${_polmark} cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
+    echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc${_polmark}${_whymark} cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="FAIL"
   fi
-  [ -n "$_vckey" ] && _VC_MEMO="${_VC_MEMO}${_vckey}"$'\037'"${_LAST_VERIFY_RESULT}"$'\037'"${_LAST_VERIFY_RC}"$'\037'"${_LAST_VERIFY_TIMEOUT}"$'\037'"${_LAST_VERIFY_WHY}"$'\n'
+  [ -n "$_vckey" ] && _VC_MEMO="${_VC_MEMO}${_vckey}"$'\037'"${_LAST_VERIFY_RESULT}"$'\037'"${_LAST_VERIFY_RC}"$'\037'"${_LAST_VERIFY_TIMEOUT}"$'\037'"${_LAST_VERIFY_WHY}"$'\037'"${_VADOPT_ROOT}"$'\037'"${_VADOPT_ORIG}"$'\n'
   return 0
 }

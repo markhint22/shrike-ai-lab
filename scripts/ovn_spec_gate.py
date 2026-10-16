@@ -2,6 +2,7 @@
 """scripts/ovn_spec_gate.py - the spec gate between backlog and queue (spec-compiler-v2 part C3, 2026-10-09). Shadow-first.
 
   scan <repo>             judge the open T-lines of backlog/<repo>.md into state/spec_gate.jsonl (cron */10; skipped while state/PAUSED exists). NEVER writes the backlog.
+  scan                    (no repo) / scan-all: scan every repo of OVN_SPEC_GATE_REPOS in turn; `repos` prints that list (one per line) for a cron `for r in $(... repos)` loop
   lint [<repo_dir>]       stdin item lines -> stdout, static repairs R01-R03 + R11 (ovn_planner.sh, before feat tagging). Any error echoes stdin unchanged.
   recover-lint <repo_dir> [repair|enforce|off]   stdin sub-item lines -> stdout with their VERIFY repaired (ovn_recover_parked.sh; see recover_lint); exit 3 = everything dropped (enforce)
   report                  summary of state/spec_gate.jsonl: verdict mix, findings per rule, and how each repair rule performed
@@ -15,6 +16,14 @@ Env
                                      what is ENFORCED is decided only by OVN_SPEC_GATE_ENFORCE_RULES.
   OVN_SPEC_GATE_ENFORCE_RULES        comma list; UNSET = R01,R11 (the static repair-only rules, 2026-10-10), set-but-empty or `none` = nothing enforced. R01 R02 R03 R11 (repairs), R04 R05 R07 R10 R12 R13 R17 (quarantine), R06 R14 (hold), PB (quarantine a
                                      VERIFY that already passes). Rollout order: R01,R02,R03 -> R04,R06 -> R05,R07,R10 (see docs/PIPELINE_REWORK_2026-10-08.md).
+  OVN_SPEC_GATE_REPOS                the repos `scan-all` / `repos` cover, space or comma separated (default: iptv_apps xlite - UNCHANGED; the cron line decides what is actually scanned)
+  OVN_SPEC_R18 / OVN_SPEC_R19        off | shadow (default) | repair: the intake rules for a VERIFY that greps the content of the test file the item creates (R18) and one that names a pytest node
+                                     nothing defines (R19). Shadow = a 'flag' finding that carries the proposed VERIFY, nothing rewritten. Neither id is in OVN_SPEC_GATE_ENFORCE_RULES' default.
+                                     R19 `repair` is REFUSED (flag only): its proposal `pytest <file> -q` is green before the work, i.e. a vacuous VERIFY - read R19 shadow rows as 'not safe to arm'
+  OVN_SPEC_R01X                      on (default) | off (any case): the R01 extensions - Run/Execute/Check verb and `| wc -l >= N` (pure repairs of a VERIFY nothing could parse; a wc comparison an empty count
+                                     satisfies is flagged, not rewritten)
+  OVN_SPEC_R01X_NEG                  shadow (default) | on | off: bare '<grep> returns no results'. shadow = an R01 'flag' with the proposed rc-strict `grep ... ; [ $? -eq 1 ]`, line untouched (the credit
+                                     gate already reads the bare form with strict polarity; `! grep` would credit a typo'd path); on = apply it for a lone grep only; OVN_SPEC_R01X=off wins
   OVN_SPEC_BASE                      the ref everything is judged at (default origin/overnight/feature); OVN_DIR the live dir (default: the parent of this scripts/ dir)
   OVN_SPEC_GATE_MAX_EXEC             VERIFY executions per scan (default 12); OVN_SPEC_GATE_TTL_S verdict lifetime (default 21600)
   OVN_SPEC_GATE_RETAIN_S             spec_gate.jsonl retention (default 604800 = 7 days) and OVN_SPEC_GATE_MAX_ROWS (default 5000, newest kept); restored markers are never dropped
@@ -56,6 +65,21 @@ def enforce_rules():
     if raw is None:
         raw = DEFAULT_ENFORCE_RULES
     return {r.strip().upper() for r in raw.split(",") if r.strip() and r.strip().lower() != "none"}
+
+
+DEFAULT_SCAN_REPOS = ("iptv_apps", "xlite")
+
+
+def scan_repos():
+    """The repos a `scan-all` covers: OVN_SPEC_GATE_REPOS (space or comma separated; names are validated, anything odd is dropped) or the default (iptv_apps xlite). Order kept, no duplicates."""
+    raw = os.environ.get("OVN_SPEC_GATE_REPOS")
+    if raw is None or not raw.strip():
+        return list(DEFAULT_SCAN_REPOS)
+    out = []
+    for r in re.split(r"[\s,]+", raw.strip()):
+        if r and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", r) and r not in out:
+            out.append(r)
+    return out or list(DEFAULT_SCAN_REPOS)
 
 
 def ovn_dir():
@@ -195,6 +219,9 @@ def would_do(findings, exec_):
     for r in HOLD_RULES:
         if r in rules:
             return "hold:%s" % r
+    for f in findings:                       # R19 is a hold only when a LATER sibling creates the node it names (its other form is a rewrite proposal)
+        if f.get("rule") == "R19" and isinstance(f.get("evidence"), dict) and f["evidence"].get("action") == "hold":
+            return "hold:R19"
     if exec_ and exec_.get("verdict") == "passes-before":
         return "quarantine:PB"
     rep = [f["rule"] for f in findings if f["sev"] == "repair"]
@@ -369,6 +396,17 @@ def scan(repo):
     return 0
 
 
+def scan_all():
+    rc = 0
+    for r in scan_repos():
+        try:
+            rc = scan(r) or rc
+        except Exception as e:  # noqa: BLE001 - one broken repo must not starve the others
+            sys.stderr.write("spec_gate scan %s failed: %s\n" % (r, e))
+            rc = 1
+    return rc
+
+
 # ---------------------------------------------------------------- lint (stdin -> stdout)
 def lint_stream():
     data = sys.stdin.read()
@@ -526,6 +564,11 @@ def main(argv):
         return 1
     if len(argv) >= 3 and argv[1] == "scan":
         return scan(argv[2])
+    if (len(argv) == 2 and argv[1] == "scan") or (len(argv) >= 2 and argv[1] == "scan-all"):
+        return scan_all()
+    if len(argv) >= 2 and argv[1] == "repos":
+        print("\n".join(scan_repos()))
+        return 0
     if len(argv) >= 2 and argv[1] == "lint":
         return lint_stream()
     if len(argv) >= 3 and argv[1] == "recover-lint":
@@ -534,7 +577,7 @@ def main(argv):
         return report()
     if len(argv) >= 4 and argv[1] == "restore":
         return restore(argv[2], argv[3])
-    sys.stderr.write("usage: ovn_spec_gate.py scan <repo> | lint [<repo_dir>] | recover-lint <repo_dir> [mode] | report | restore <repo> <item_key>\n")
+    sys.stderr.write("usage: ovn_spec_gate.py scan [<repo>] | scan-all | repos | lint [<repo_dir>] | recover-lint <repo_dir> [mode] | report | restore <repo> <item_key>\n")
     return 2
 
 

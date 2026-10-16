@@ -12,6 +12,8 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
 cnt(){ grep -cF -- "$2" "$1" 2>/dev/null || true; }
+# line count without wc: BSD wc pads its output with spaces, which broke the numeric compares on macOS
+nlines(){ grep -c "" "$1" 2>/dev/null || echo 0; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 FX="$T/fx"; mkdir -p "$FX"; export FX
 
@@ -27,17 +29,42 @@ curl(){ echo "curl $*" >> "$FX/curl.log"
 ssh(){ echo "ssh $*" >> "$FX/ssh.log"; cat > /dev/null
   local a; for a in "$@"; do case "$a" in ITEM_B64=*) printf '%s' "${a#ITEM_B64=}" | base64 -d >> "$FX/items.log"; echo >> "$FX/items.log";; REPO=*) echo "${a#REPO=}" >> "$FX/repos.log";; esac; done
   echo enqueued; return "${SSH_RC:-0}"; }
-railway(){ echo "railway $*" >> "$FX/rw.log"
-  local sid="" a prev=""
-  for a in "$@"; do [ "$prev" = "--service" ] && sid="$a"; prev="$a"; done
-  case "$1" in
-    link) [ "${RW_LINK_FAIL:-0}" = 1 ] && return 1; return 0;;
-    deployment)
-      local v="RWS_${sid:0:8}" st; st="${!v:-${RW_STATUS:-SUCCESS}}"
-      echo "setup agent: noise line"
-      case "$st" in EMPTY) echo '[]';; GARBAGE) echo 'not json';; *) printf '[{"id":"%s","status":"%s"}]\n' "${RW_ID:-d1}" "$st";; esac;;
-    logs) echo "Tip: something"; printf '%s\n' "${RW_LOG:-}";;
-  esac; }
+# railway is NOT a function stub: deploy_watch.sh (2026-10-08) redefines railway() as a wrapper around
+# scripts/railway_serial.sh, which runs "${RAILWAY_BIN:-railway}" as a child process. A child bash does not
+# see an exported function that its parent has redefined, so an exported stub never reached the CLI call and
+# the real binary (absent on CI boxes, possibly logged-in on a Mac) answered instead. The stub is therefore an
+# executable on a fixture PATH, selected through RAILWAY_BIN. Same behaviour as the old function stub.
+mkdir -p "$T/bin"
+cat > "$T/bin/railway" <<'RWSTUB'
+#!/usr/bin/env bash
+echo "railway $*" >> "$FX/rw.log"
+sid=""; prev=""
+for a in "$@"; do [ "$prev" = "--service" ] && sid="$a"; prev="$a"; done
+case "$1" in
+  link) [ "${RW_LINK_FAIL:-0}" = 1 ] && exit 1; exit 0;;
+  deployment)
+    v="RWS_${sid:0:8}"; st="${!v:-${RW_STATUS:-SUCCESS}}"
+    echo "setup agent: noise line"
+    case "$st" in EMPTY) echo '[]';; GARBAGE) echo 'not json';; *) printf '[{"id":"%s","status":"%s"}]\n' "${RW_ID:-d1}" "$st";; esac;;
+  logs) echo "Tip: something"; printf '%s\n' "${RW_LOG:-}";;
+esac
+exit 0
+RWSTUB
+chmod +x "$T/bin/railway"
+export RAILWAY_BIN="$T/bin/railway"
+# 2026-10-15: deploy_watch.sh runs its railway calls through the sibling scripts/railway_serial.sh (the shared checkout has it; the box's overnight-queue
+# layout does not, and every railway call then failed before reaching the stub: 30 of 67 checks red in run_all only on that host). When the sibling is absent,
+# point the wrapper at a fixture that runs the same stub with no lock. When present, the real wrapper (and its lock) is exercised unchanged.
+_RS_REAL="$(cd "$(dirname "$DW")" && pwd)/../railway_serial.sh"
+if [ ! -f "$_RS_REAL" ]; then
+  cat > "$T/bin/railway_serial" <<'RSFIX'
+#!/usr/bin/env bash
+exec "${RAILWAY_BIN:-railway}" "$@"
+RSFIX
+  chmod +x "$T/bin/railway_serial"
+  export OVN_RAILWAY_SERIAL="$T/bin/railway_serial"
+fi
+export PATH="$T/bin:$PATH"
 vercel(){ echo "vercel $*" >> "$FX/vc.log"
   case "$1" in
     ls) [ "${VC_LS_EMPTY:-0}" = 1 ] && return 0; echo "  https://${2}-x1.vercel.app   Ready   Production";;
@@ -46,7 +73,7 @@ vercel(){ echo "vercel $*" >> "$FX/vc.log"
       st="${!v:-${VC_STATUS:-Ready}}"
       if [ "${3:-}" = "--logs" ]; then printf '%s\n' "${VC_LOG:-}"; else echo "    status      ● $st"; fi;;
   esac; }
-export -f curl ssh railway vercel
+export -f curl ssh vercel
 
 newhome(){ rm -rf "$T/home" "$FX"/*; mkdir -p "$T/home"; unset RW_STATUS RW_ID RW_LOG RW_LINK_FAIL HC_CODE MON_JSON MON_FAIL SSH_RC VC_STATUS VC_LOG VC_LS_EMPTY DRYRUN SHRIKE_MONITOR_URL SHRIKE_MONITOR_TOKEN SHRIKE_NOTIFY_URL SHRIKE_NOTIFY_TOKEN; unset RWS_31f8e4dd RWS_58dcc554 RWS_de12ff53 VCS_billwatch VCS_chickadee VCS_gitlark VCS_social_media_manager VCS_shrike_labs_website; }
 run(){ HOME="$T/home" NTFY_TOPIC=selftest bash "$DW" > "$FX/out.log" 2>&1; echo $? > "$FX/rc"; }
@@ -65,13 +92,13 @@ newhome; export RW_STATUS=FAILED RW_ID=d1 RW_LOG='Traceback (most recent call la
   File "/app/.venv/lib/site-packages/x.py", line 3, in f
 ModuleNotFoundError: No module named psycopg'
 run
-ok "failed: 3 railway repos enqueued" "$([ "$(wc -l < $FX/repos.log)" = 3 ] && echo 1 || echo 0)"
+ok "failed: 3 railway repos enqueued" "$([ "$(nlines $FX/repos.log)" = 3 ] && echo 1 || echo 0)"
 ok "failed: item names TARGET FILE app/main.py" "$(has $FX/items.log 'TARGET FILE: app/main.py')"
 ok "failed: item has error excerpt" "$(has $FX/items.log 'No module named psycopg')"
 ok "failed: urgent-ish high alert sent" "$(has $FX/curl.log 'Priority: high')"
 ok "failed: attempts=1 state" "$([ "$(cat $ST/billwatch-backend.attempts)" = 1 ] && echo 1 || echo 0)"
-n1=$(wc -l < $FX/repos.log); run
-ok "dedupe: same deploy id not re-enqueued" "$([ "$(wc -l < $FX/repos.log)" = "$n1" ] && has $FX/out.log 'already handled d1' | grep -q 1 && echo 1 || echo 0)"
+n1=$(nlines $FX/repos.log); run
+ok "dedupe: same deploy id not re-enqueued" "$([ "$(nlines $FX/repos.log)" = "$n1" ] && has $FX/out.log 'already handled d1' | grep -q 1 && echo 1 || echo 0)"
 RW_ID=d2 run
 ok "attempt 2 enqueues again" "$([ "$(cat $ST/billwatch-backend.attempts)" = 2 ] && echo 1 || echo 0)"
 RW_ID=d3 run
@@ -160,7 +187,7 @@ unset DRYRUN
 newhome
 real_rw="$(PATH=/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin bash -c 'unset -f railway; command -v railway')"
 if [ -z "$real_rw" ]; then
-  HOME="$T/home" NTFY_TOPIC=x env -u BASH_FUNC_railway%% bash "$DW" > "$FX/out.log" 2>&1; rc=$?
+  HOME="$T/home" NTFY_TOPIC=x env -u BASH_FUNC_railway%% -u RAILWAY_BIN PATH=/usr/bin:/bin bash "$DW" > "$FX/out.log" 2>&1; rc=$?
   ok "no railway CLI -> FATAL exit 1" "$([ "$rc" = 1 ] && has $FX/out.log 'FATAL: railway CLI not on PATH' | grep -q 1 && echo 1 || echo 0)"
 else ok "no railway CLI (skipped: real railway installed)" 1; fi
 real_vc="$(PATH=/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin bash -c 'command -v vercel')"

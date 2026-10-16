@@ -36,7 +36,7 @@ mk(){ # $1 = name
 }
 mkrepo(){ # $1=name $2=doable $3=burn(recent feat commits) [$4 extra recent non-burn commits]
   local d="$R/repos/$1"; mkdir -p "$d"
-  ( cd "$d" && git init -q && git config user.email t@t && git config user.name t
+  ( cd "$d" || exit 1; git init -q && git config user.email t@t && git config user.name t
     { echo "## Next Steps"; i=0; while [ "$i" -lt "$2" ]; do echo "- [ ] item $i"; i=$((i+1)); done
       echo "- [ ] HUMAN-ONLY x"; echo "- [x] done"; } > OVERNIGHT_PROGRESS.md
     git add -A; git commit -q -m "chore: base"

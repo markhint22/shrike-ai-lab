@@ -146,7 +146,7 @@ eqv "missing dir -> []" "[]" "$(OVN_REPOS_DIR="$T/nope" rw | tail -1)"
 R="$T/repos"; mkdir -p "$R"
 mkrepo(){ # name open_items [recent_commits...]
   local n="$1" open="$2"; shift 2
-  mkdir -p "$R/$n"; ( cd "$R/$n" && git init -q . && : > OVERNIGHT_PROGRESS.md
+  mkdir -p "$R/$n"; ( cd "$R/$n" || exit 1; git init -q . && : > OVERNIGHT_PROGRESS.md
     for i in $(seq 1 "$open"); do echo "- [ ] item $i" >> OVERNIGHT_PROGRESS.md; done
     echo "- [ ] HUMAN-ONLY thing" >> OVERNIGHT_PROGRESS.md; echo "- [x] done" >> OVERNIGHT_PROGRESS.md
     git add -A && git commit -qm "chore: init"

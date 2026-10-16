@@ -187,7 +187,7 @@ eq "K: no change + already-done phrase -> no-op(ALREADY-DONE)" "$OUT" "no-op(ALR
 mk_case banned
 scout_ok
 printf '# comment\n\nsecrets/.*\n' > "$OTHER/.queue-hard-banned-files"
-( cd "$OTHER" && git add -A && git commit -q -m banlist && git push -q origin main ) >/dev/null 2>&1
+( cd "$OTHER" || exit 1; git add -A && git commit -q -m banlist && git push -q origin main ) >/dev/null 2>&1
 ( cd "$REPO" && git pull -q origin main ) >/dev/null 2>&1
 printf '#!/bin/sh\nexit 0\n' > "$HOME/godot/godot4"; chmod +x "$HOME/godot/godot4"
 aplan 2 'gc secrets/key.txt "hunter2" "feat: touch banned"'
@@ -199,7 +199,7 @@ rm -f "$HOME/godot/godot4"
 mk_case banned_empty
 scout_ok
 printf '# only comments\n' > "$OTHER/.queue-hard-banned-files"
-( cd "$OTHER" && git add -A && git commit -q -m banlist && git push -q origin main ) >/dev/null 2>&1
+( cd "$OTHER" || exit 1; git add -A && git commit -q -m banlist && git push -q origin main ) >/dev/null 2>&1
 ( cd "$REPO" && git pull -q origin main ) >/dev/null 2>&1
 aplan 2 'gc app.py "def ok(): return 1" "feat: fine"'
 run_case
@@ -229,7 +229,7 @@ ok "N: only one def dup remains" '[ "$(grep -c "def dup" "$REPO/dupmod.py")" = 1
 
 # ---------- O: openapi regen + alembic autogen hook ----------
 add_backend(){ # $1 = value committed in docs/openapi.json
-( cd "$OTHER" && mkdir -p backend/scripts backend/.venv/bin docs && ln -s "$(command -v python3)" backend/.venv/bin/python3
+( cd "$OTHER" || exit 1; mkdir -p backend/scripts backend/.venv/bin docs && ln -s "$(command -v python3)" backend/.venv/bin/python3
   printf 'import pathlib\npathlib.Path("../docs/openapi.json").write_text("{\\"v\\": 2}\\n")\n' > backend/scripts/export_openapi.py
   echo "{\"v\": $1}" > docs/openapi.json
   git add -A && git commit -q -m "add backend" && git push -q origin main ) >/dev/null 2>&1

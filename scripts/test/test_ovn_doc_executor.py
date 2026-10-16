@@ -17,6 +17,9 @@ import sys
 import tempfile
 import threading
 
+import tmp_track
+tmp_track.install()   # 2026-10-13: every mkdtemp below is removed (battery end + atexit); only some sites had an rmtree -> 120 dirs / 5,881 inodes leaked per run
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 TOOL = os.path.join(ROOT, "scripts", "ovn_doc_executor.py")
@@ -170,6 +173,7 @@ def verify_rc(repo, verify_cmd):
 def battery(tool, stub, tag):
     """Every behaviour assertion against the given tool script. Returns the number of failed assertions (printed only for tag == 'real')."""
     bad = 0
+    _mk = tmp_track.mark()
 
     def chk(name, cond, extra=""):
         nonlocal bad
@@ -413,6 +417,7 @@ def battery(tool, stub, tag):
         chk("collector produced a spec for the fixture", False)
     for d_ in (rd, rd2, rd3, rd5, rd6, gh, home):
         shutil.rmtree(d_, ignore_errors=True)
+    tmp_track.sweep(_mk)   # every make_repo()/mkdtemp of this battery (rd4/rd7/... had no rmtree); keeps the footprint bounded across the mutant batteries
     return bad
 
 

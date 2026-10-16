@@ -25,11 +25,16 @@ mutate "idle threshold 30 min -> 30000 min" "IDLE_LANE_S = 30 * 60 " "IDLE_LANE_
 mutate "skip rows counted as real attempts" 'if d.get("class") == "skipped" or str(d.get("status", "")).startswith("skip"):' 'if False:'
 mutate "12 h dedupe removed" "< STARVED_DEDUP_S" "< -1"
 mutate "a lane with pullable work counted as idle" "if n == 0 and t - last.get(repo, first)" "if t - last.get(repo, first)"
-mutate "starved needs only ONE idle lane" "len(idle) != len(depths)" "len(idle) == 0"
+# 2026-10-15: anchors follow the current starved_check (the every-lane rule is all_idle; the priority-lane rule is prio_idle). The old anchors
+# were removed by ba3fbe8 and the suite then reported "could not be applied" in every full run.
+mutate "every-lane rule: ONE idle lane is enough" "all_idle = len(idle) == len(depths) and" "all_idle = len(idle) >= 1 and"
+mutate "priority rule dropped entirely" 'prio = [l for l in _priority_lanes() if l in depths] if os.environ.get("OVN_STARVED_PRIORITY", "on") != "off" else []' 'prio = []'
 mutate "paused fleet counted as starved" "if paused or os.environ" "if os.environ"
 mutate "marker written whatever the push result (capped/failed lose the emergency for 12 h)" 'if r == "sent" and title.startswith' 'if title.startswith'
 mutate "dry run consumes the dedupe window" 'if r == "sent" and title.startswith' 'if r in ("sent", "dry") and title.startswith'
-mutate "marker written before the push (old behaviour)" '    return [("🚨 Fleet starved' '    (not dry) and open(_p("notify_starved_last"), "w").write(str(now()))
-    return [("🚨 Fleet starved'
+mutate "marker written before the push (old behaviour)" '        r = forward(title, body, "urgent", "rotating_light", kind="emergency", dry=dry)
+' '        (not dry and title.startswith("🚨 Fleet starved")) and mark_starved_sent()
+        r = forward(title, body, "urgent", "rotating_light", kind="emergency", dry=dry)
+'
 mutate "idle line kill switch ignored" 'if os.environ.get("OVN_IDLE_LINE", "1") != "0":' "if True:"
 exit $rc

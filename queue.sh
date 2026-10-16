@@ -91,14 +91,32 @@ case "$cmd" in
     ;;
 
   pause)
+    # 2026-10-15: idempotent. A second `pause` used to `touch` the flag, which reset its mtime; pause_guard.sh ages the manual pause by that mtime, so a
+    # deploy that re-ran pause kept the 90-min "forgotten pause" alert from ever firing. An existing flag is left alone (its age is kept).
     mkdir -p "$DIR/state"
-    touch "$DIR/state/PAUSED"
-    echo "Paused. In-progress task still finishes; no new tasks will start."
+    if [ -f "$DIR/state/PAUSED" ]; then
+      echo "Already paused (flag kept, age unchanged). In-progress task still finishes; no new tasks will start."
+      _pause_event="pause-noop"
+    else
+      : > "$DIR/state/PAUSED"
+      echo "Paused. In-progress task still finishes; no new tasks will start."
+      _pause_event="pause"
+    fi
+    printf '%s %s by=%s\n' "$(date -u +%FT%TZ)" "$_pause_event" "${USER:-unknown}" >> "$DIR/state/pause_log" 2>/dev/null || true
     ;;
 
   resume)
-    rm -f "$DIR/state/PAUSED"
-    echo "Resumed."
+    # idempotent too: resuming a queue that is not paused is a no-op, and only a real pause->resume transition is logged
+    if [ -f "$DIR/state/PAUSED" ]; then
+      rm -f "$DIR/state/PAUSED"
+      echo "Resumed."
+      _pause_event="resume"
+    else
+      echo "Resumed (was not paused; no change)."
+      _pause_event="resume-noop"
+    fi
+    mkdir -p "$DIR/state" 2>/dev/null
+    printf '%s %s by=%s\n' "$(date -u +%FT%TZ)" "$_pause_event" "${USER:-unknown}" >> "$DIR/state/pause_log" 2>/dev/null || true
     ;;
 
   report)

@@ -143,14 +143,15 @@ mkdir -p "$T/ovn/repos"; ln -s "$REPO" "$T/ovn/repos/iptv_apps"
 printf 'CHICK_EMAIL=free@example.test\nCHICK_PASSWORD=%s\nCHICK_PREMIUM_EMAIL=prem@example.test\nCHICK_PREMIUM_PASSWORD=%s\n' "$SECRET" "$SECRET" >"$T/creds.env"
 chmod 600 "$T/creds.env"; echo "$SECRET" >"$T/secret"
 
-set_spec() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$REPO/iptv-android/e2e/tests/$1.test.mjs"; (cd "$REPO" && git add -A >/dev/null 2>&1; git commit -qm "spec $1" --allow-empty >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD); }
+set_spec() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$REPO/iptv-android/e2e/tests/$1.test.mjs"; (cd "$REPO" || exit 1; git add -A >/dev/null 2>&1; git commit -qm "spec $1" --allow-empty >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD); }
 reset_specs() { for s in alpha beta gamma; do set_spec "$s" "echo running $s; exit 0"; done; rm -f "$T/emu.starts" "$T/crash" "$T/install_fail" "$T/emu_noboot" "$T/emu_up" "$T/emu.pid" "$T/appium.pid" "$T/appium.starts" "$T/flaky.marker"; rm -rf "$T/ovn/state/qa_devicelane" "$T/ovn/state/qa_shadow"; }
 
 # run the lane exactly as cron would: env -i, minimal PATH, cwd = $HOME-like dir, NTFY_SERVER set
 lane() {  # lane <script-invocation> [extra env KEY=VAL ...] -- [args]
   local script="$1"; shift; local envs=()
   while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done; [ "${1:-}" = -- ] && shift
-  ( cd "${LANE_CWD:-$T/home}" && env -i HOME="$T/home" PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:9 OVN_DIR="$T/ovn" \
+  # 2026-10-15: the subshell records its own pid so a later check can tell THIS run's processes (descendants) from the live fleet's (same script, same argv).
+  ( echo "$BASHPID" >"$T/lane.pid"; cd "${LANE_CWD:-$T/home}" && env -i HOME="$T/home" PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:9 OVN_DIR="$T/ovn" \
       DL_EXTRA_PATH="$FAKE" DL_NODE="$FAKE/node" DL_CREDS="$T/creds.env" DL_API_BASE="http://127.0.0.1:$PORT_BACKEND" \
       DL_APPIUM_PORT="$PORT_APPIUM" DL_EMU_PORT=$EMU_PORT DL_AVD=$TAVD DL_FAKE_KVM=1 DL_BOOT_TIMEOUT=20 DL_SPEC_TIMEOUT=30 DL_NO_VIDEO= ${DL_TRACE:+DL_TRACE=$DL_TRACE} \
       ${envs[@]+"${envs[@]}"} ${DL_BASHX:+/usr/bin/env bash -x} "$script" "$@" 2>"$T/stderr.txt" )
@@ -353,7 +354,7 @@ j4="$(ba --repo-dir "$REPO" --ref nope --api-base http://x.test --out "$T/bout";
 ok "bad ref -> rc 3 + ok:false JSON" "$(echo "$j4" | grep -q '"ok":false' && echo "$j4" | grep -q 'rc=3' && echo 1 || echo 0)"
 # gradle layout without the prod URL -> must refuse (a build that silently hits prod is the dangerous failure)
 set_spec alpha 'exit 0'
-(cd "$REPO" && echo 'android {}' >iptv-android/app/build.gradle.kts && git add -A && git commit -qm nopatch && git update-ref refs/remotes/origin/develop HEAD)
+(cd "$REPO" || exit 1; echo 'android {}' >iptv-android/app/build.gradle.kts && git add -A && git commit -qm nopatch && git update-ref refs/remotes/origin/develop HEAD)
 j5="$(ba --repo-dir "$REPO" --ref origin/develop --api-base http://x.test --out "$T/bout2"; echo "rc=$?")"
 ok "unpatchable API_BASE_URL -> refuses to build (never silently tests prod)" "$(echo "$j5" | grep -q '"ok":false' && echo "$j5" | grep -q 'rc=4' && echo 1 || echo 0)"
 
@@ -394,7 +395,7 @@ ok "unreadable results -> UNVERIFIED, exit 0" "$([ "$v" = UNVERIFIED ] && echo 1
 cat >"$REPO/iptv-android/app/build.gradle.kts" <<'KTS'
 android { defaultConfig { buildConfigField("String", "API_BASE_URL", "\"https://api.chickadeestream.com\"") } }
 KTS
-(cd "$REPO" && git add -A >/dev/null 2>&1; git commit -qm "restore gradle" >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD)
+(cd "$REPO" || exit 1; git add -A >/dev/null 2>&1; git commit -qm "restore gradle" >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD)
 echo "== 17. known-issues quarantine: expected failures never FLAG, recoveries are reported, fixture env un-quarantines"
 cat >"$T/res_q.json" <<'JSON'
 {"counts":{},"seconds":1,"specs":[
@@ -524,7 +525,7 @@ cat >"$REPO/scripts/e2e_janitor.py" <<EOF
 import os, sys
 open("$T/janitor.calls", "a").write(" ".join(sys.argv[1:]) + " pw_set=%s api=%s\n" % (bool(os.environ.get("E2E_STAGING_PREMIUM_PASSWORD")), os.environ.get("E2E_STAGING_API", "")))
 EOF
-(cd "$REPO" && git add -A >/dev/null && git commit -qm janitor && git update-ref refs/remotes/origin/develop HEAD)
+(cd "$REPO" || exit 1; git add -A >/dev/null && git commit -qm janitor && git update-ref refs/remotes/origin/develop HEAD)
 reset_specs; rm -f "$T/janitor.calls"; set_spec beta 'echo "boom"; exit 1'
 out="$(lane "$RN" -- )"
 ok "janitor ran before AND after the specs, staging only" "$([ "$(grep -c -- '--env staging' "$T/janitor.calls" 2>/dev/null)" = 2 ] && echo 1 || echo 0)"
@@ -539,7 +540,15 @@ echo "== 21. cron_nightly.sh wrapper"
 CW="$LANE/cron_nightly.sh"
 reset_specs
 out="$(lane "$CW" -- )"
-ok "wrapper (absolute path, env -i) -> run completes with PASS verdict line" "$(echo "$out" | grep -c '"verdict": "PASS"' | grep -q 1 && echo 1 || echo 0)"
+v21="$(echo "$out" | grep -c '"verdict": "PASS"' | grep -q 1 && echo 1 || echo 0)"
+ok "wrapper (absolute path, env -i) -> run completes with PASS verdict line" "$v21"
+if [ "$v21" != 1 ]; then   # diagnostics only (the assertion above is unchanged): why the wrapper run did not end in one PASS line
+  echo "    diag: wrapper stdout tail:"; echo "$out" | tail -6 | cut -c1-300 | sed 's/^/      /'
+  echo "    diag: wrapper stderr tail:"; tail -6 "$T/stderr.txt" 2>/dev/null | cut -c1-300 | sed 's/^/      /'
+  LRD="$(ls -1dt "$T"/ovn/state/qa_devicelane/runs/*/ 2>/dev/null | head -1)"
+  [ -n "$LRD" ] && for f in build.err setup_check.err appium.log emulator.log; do [ -s "$LRD$f" ] && { echo "    diag: $f tail:"; tail -3 "$LRD$f" | cut -c1-300 | sed 's/^/      /'; }; done
+  echo "    diag: staging lock present: $([ -e "$T/ovn/state/staging_e2e.lock" ] && echo yes || echo no); lane.lock holders: $(command -v fuser >/dev/null 2>&1 && fuser "$T/ovn/state/qa_devicelane/lane.lock" 2>/dev/null | tr -s ' ' || echo n/a)"
+fi
 ok "wrapper logs start/done markers" "$(echo "$out" | grep -q 'cron_nightly\] start' && echo "$out" | grep -q 'cron_nightly\] done' && echo 1 || echo 0)"
 ok "wrapper leaves nothing running" "$([ "$(leftovers)" = 0 ] && echo 1 || echo 0)"
 reset_specs
@@ -663,7 +672,22 @@ ok "ended near the cap (<40s), not the spec's 60s sleep" "$([ "$el" -lt 40 ] && 
 ok "emulator + appium torn down after the abort, teardown verified clean" "$([ "$(leftovers)" = 0 ] && grep -q '"clean":true' "$(ls -d "$T"/ovn/state/qa_devicelane/runs/*/ | tail -1)/teardown.json" && echo 1 || echo 0)"
 reset_specs
 out="$(lane "$RN" DL_OVERALL_TIMEOUT=600 -- )"
-ok "benign: a normal run well inside the cap is unaffected (PASS) and leaves no watchdog sleeping" "$([ "$(echo "$out" | field verdict)" = PASS ] && ! pgrep -f 'dl-watchdog 600' >/dev/null && echo 1 || echo 0)"
+RNPID="$(cat "$T/lane.pid" 2>/dev/null)"
+# a watchdog that belongs to some OTHER process on this box (the live fleet runs the same script): must not count against this run
+sh -c 'exec -a "dl-watchdog 600 1" sleep 3000' & FOREIGN=$!; sleep 1
+mine_wd() {  # 0 when a dl-watchdog 600 process is a descendant of this run's subshell
+  local p a
+  for p in $(pgrep -f 'dl-watchdog 600' 2>/dev/null); do
+    a="$p"
+    while [ -n "$a" ] && [ "$a" != 1 ] && [ "$a" != 0 ]; do
+      [ "$a" = "$RNPID" ] && return 0
+      a="$(ps -o ppid= -p "$a" 2>/dev/null | tr -d ' ')"
+    done
+  done
+  return 1
+}
+ok "benign: a normal run well inside the cap is unaffected (PASS) and leaves no watchdog of ITS OWN sleeping" "$([ "$(echo "$out" | field verdict)" = PASS ] && [ -n "$RNPID" ] && ! mine_wd && echo 1 || echo 0)" 
+kill "$FOREIGN" 2>/dev/null; wait "$FOREIGN" 2>/dev/null
 
 echo "== 25. cron_nightly backstop: hung run_nightly -> hard timeout, post-run sweep, exit 0"
 printf '#!/usr/bin/env bash\ntrap "" TERM\nwhile :; do sleep 1; done\n' >"$T/hung_run.sh"; chmod +x "$T/hung_run.sh"

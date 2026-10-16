@@ -42,32 +42,32 @@ scope_extra_files(){ # $1=worktree $2=item-text $3=declared-files(space-sep) -> 
 }
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-( cd "$tmp" && git init -q && git config user.email t@t && git config user.name t
+( cd "$tmp" || exit 1; git init -q && git config user.email t@t && git config user.name t
   echo base > foo.py && git add -A && git commit -q -m base )
 
 # ---- A: only the declared target touched -> clean ----
-( cd "$tmp" && echo modified >> foo.py )
+( cd "$tmp" || exit 1; echo modified >> foo.py )
 res="$(scope_extra_files "$tmp" '[T2] foo.py — do a thing (cat:python; multifile:no)' 'foo.py')"
 ok "declared-target-only edit passes clean" "[ -z \"\$(echo '$res' | tr -d '[:space:]')\" ]"
-( cd "$tmp" && git checkout -q -- foo.py )
+( cd "$tmp" || exit 1; git checkout -q -- foo.py )
 
 # ---- B: declared target + a same-basename test companion -> still clean ----
-( cd "$tmp" && echo modified >> foo.py && echo "def test_foo(): pass" > test_foo.py )
+( cd "$tmp" || exit 1; echo modified >> foo.py && echo "def test_foo(): pass" > test_foo.py )
 res="$(scope_extra_files "$tmp" '[T2] foo.py — do a thing (cat:python; multifile:no)' 'foo.py')"
 ok "a matching test companion is allowed, not flagged" "[ -z \"\$(echo '$res' | tr -d '[:space:]')\" ]"
-( cd "$tmp" && git checkout -q -- foo.py && rm -f test_foo.py )
+( cd "$tmp" || exit 1; git checkout -q -- foo.py && rm -f test_foo.py )
 
 # ---- C: an unrelated junk file/dir appears (the real shrike-monitor incident shape) -> flagged ----
-( cd "$tmp" && mkdir -p aether && echo junk > aether/README.md )
+( cd "$tmp" || exit 1; mkdir -p aether && echo junk > aether/README.md )
 res="$(scope_extra_files "$tmp" '[T2] foo.py — do a thing (cat:python; multifile:no)' 'foo.py')"
 ok "an undeclared junk file is flagged" "[ -n \"\$(echo '$res' | tr -d '[:space:]')\" ]"
-( cd "$tmp" && rm -rf aether )
+( cd "$tmp" || exit 1; rm -rf aether )
 
 # ---- D: multifile:yes item -> never flagged even with extra files ----
-( cd "$tmp" && mkdir -p aether && echo junk > aether/README.md )
+( cd "$tmp" || exit 1; mkdir -p aether && echo junk > aether/README.md )
 res="$(scope_extra_files "$tmp" '[T4] foo.py — refactor across files (cat:python; multifile:yes)' 'foo.py')"
 ok "a multifile:yes item is never scope-flagged" "[ -z \"\$(echo '$res' | tr -d '[:space:]')\" ]"
-( cd "$tmp" && rm -rf aether )
+( cd "$tmp" || exit 1; rm -rf aether )
 
 echo "Stage scope guard (multifile:no): $P passed, $F failed"
 [ "$F" -eq 0 ]

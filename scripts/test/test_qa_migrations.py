@@ -182,6 +182,12 @@ def part1():
     psql_ = dict((t, s) for t, s, _ in plans)["posts"]
     ok("prodshape FK column samples parent keys (array_agg CTE)", "array_agg" in psql_ and "cardinality" in psql_, psql_[:300])
     ok("prodshape caps huge row counts", ps.build_load_sql(schema, {"tables": {"users": {"rows": 10 ** 9, "columns": {}}}}, max_rows=77)[0][0][2] == 77)
+    selfref = {"tables": {"node": [
+        {"name": "id", "type": "uuid", "udt": "uuid", "nullable": False, "has_default": True, "maxlen": None, "default": "gen_random_uuid()", "identity": "", "generated": False},
+        {"name": "parent", "type": "uuid", "udt": "uuid", "nullable": True, "has_default": False, "maxlen": None, "default": "", "identity": "", "generated": False}]},
+        "unique": {"node": [["id"]]}, "pk": {"node": ["id"]}, "fks": {"node": [(["parent"], "node", ["id"])]}, "enums": {}}
+    pl, _ = ps.build_load_sql(selfref, {"tables": {"node": {"rows": 10, "columns": {"parent": {"null_frac": 0.3, "distinct": 3, "max_len": None}}}}})
+    ok("prodshape types the NULL for a self-referencing nullable FK (CASE WHEN .. NULL ELSE NULL would be text)", "NULL::\"uuid\"" in pl[0][1], pl[0][1])
     bad = False
     try:
         import tempfile as _t
@@ -456,7 +462,7 @@ def docker_dir():
 def run_gate(fx, base, head, path=None, repo="fx", extra=None, rel=False, py=None, timeout=900, record=False, envx=None):
     py = py or sys.executable
     env = {"PATH": path or ("/usr/bin:/bin:" + docker_dir()), "HOME": fx["root"], "NTFY_SERVER": "http://127.0.0.1:9",
-           "OVN_DIR": fx["ovn"], "OVN_REPOS_DIR": fx["repos"], "QA_REPOS_JSON": fx["reg"], "LANG": "C.UTF-8"}
+           "OVN_DIR": fx["ovn"], "OVN_REPOS_DIR": fx["repos"], "QA_REPOS_JSON": fx["reg"], "LANG": "C.UTF-8", "QA_RUN_LABEL": RUN_LABEL}
     env.update(envx or {})
     cmd = [py, ("qa/gate_migrations.py" if rel else GATE), "check", "--repo", repo, "--base", base, "--head", head]
     if not record:
@@ -484,8 +490,15 @@ def docker_up():
     return bool(r and r.returncode == 0)
 
 
+# 2026-10-15: the box is SHARED (the live queue and cron jobs run QA gates too). Every container this test starts carries the label
+# qa-run=<RUN_LABEL> (QA_RUN_LABEL is exported to every gate it runs and read by PgContainer), so leaked() counts only this test's containers.
+# A container this test started and did not remove still fails the leak checks; another run's containers never do.
+RUN_LABEL = "qa-test-%d" % os.getpid()
+os.environ["QA_RUN_LABEL"] = RUN_LABEL
+
+
 def leaked():
-    r = subprocess.run(["docker", "ps", "-a", "--filter", "name=qa-pg-", "--format", "{{.Names}}"], capture_output=True, text=True)
+    r = subprocess.run(["docker", "ps", "-a", "--filter", "label=qa-run=" + RUN_LABEL, "--format", "{{.Names}}"], capture_output=True, text=True)
     return r.stdout.split()
 
 
@@ -573,7 +586,7 @@ def part2():
         branch(fx, "dr_base", {V + "0002.py": BAD2}, start="dr_c0")                       # chain broken at this base
         branch(fx, "dr_fix", {V + "0002.py": OK2}, start="dr_base")
         branch(fx, "dr_fix_newdrift", {V + "0002.py": OK2, "backend/app/models.py": add_nick + '    bio = Column(String(20), nullable=True)\n'}, start="dr_base")
-        before = set(leaked())
+        before = set()   # leaked() is already scoped to this test's own containers (RUN_LABEL), so nothing else on a shared box can count here
 
         def go(name, **kw):
             return run_gate(fx, "main", name, **kw)
@@ -679,7 +692,7 @@ def part2():
         logp = os.path.join(fx["ovn"], "state", "qa_shadow", "migrations.jsonl")
         ok("shadow mode records one JSON line to state/qa_shadow/migrations.jsonl", os.path.exists(logp) and len(open(logp).read().strip().splitlines()) == 1)
         env = {"PATH": "/usr/bin:/bin:" + docker_dir(), "HOME": work, "OVN_DIR": fx["ovn"], "OVN_REPOS_DIR": fx["repos"], "QA_REPOS_JSON": fx["reg"],
-               "OVN_QA_MIGRATIONS": "enforce", "NTFY_SERVER": "http://127.0.0.1:9"}
+               "OVN_QA_MIGRATIONS": "enforce", "NTFY_SERVER": "http://127.0.0.1:9", "QA_RUN_LABEL": RUN_LABEL}
         r = subprocess.run(["env", "-i"] + ["%s=%s" % kv for kv in env.items()] + [sys.executable, GATE, "check", "--repo", "fx", "--base", "main", "--head", "bad_upgrade", "--no-record", "--enforce-exit"],
                            capture_output=True, text=True, timeout=600)
         ok("enforce mode + --enforce-exit + FAIL -> exit code 1", r.returncode == 1, r.returncode)
@@ -688,14 +701,14 @@ def part2():
         ok("enforce mode + PASS -> exit code 0", r.returncode == 0, r.returncode)
 
         # container cleanup: nothing leaked by any scenario above
-        ok("no qa-pg-* container leaked by any scenario", set(leaked()) <= before, set(leaked()) - before)
+        ok("no qa-pg-* container started by this test leaked (scenarios above)", set(leaked()) <= before, set(leaked()) - before)
 
         # SIGKILL a running gate mid-flight; the next gate run must reap its orphaned container
         # 2026-10-02: a SIGKILLed gate cannot run its worktree cleanup; its qa-wt-* dir used to land in /tmp and stay there after EVERY run of this
         # test (found on the box: 5 stale dirs). Give the killed gates a TMPDIR inside `work` so the final rmtree takes the leftovers with it.
         os.makedirs(os.path.join(work, "tmp"), exist_ok=True)
         env = {"PATH": "/usr/bin:/bin:" + docker_dir(), "HOME": work, "OVN_DIR": fx["ovn"], "OVN_REPOS_DIR": fx["repos"], "QA_REPOS_JSON": fx["reg"], "NTFY_SERVER": "http://127.0.0.1:9",
-               "TMPDIR": os.path.join(work, "tmp")}
+               "TMPDIR": os.path.join(work, "tmp"), "QA_RUN_LABEL": RUN_LABEL}
         p = subprocess.Popen(["env", "-i"] + ["%s=%s" % kv for kv in env.items()] + [sys.executable, GATE, "check", "--repo", "fx", "--base", "main", "--head", "benign_add_column", "--no-record"],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         seen = False
@@ -730,7 +743,9 @@ def part2():
         part2_collect(work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-        subprocess.run(["docker", "rm", "-f"] + [n for n in leaked() if n.startswith("qa-pg-") and False], capture_output=True)
+        own = leaked()   # only this test's labelled containers; the leak checks above have already judged them
+        if own:
+            subprocess.run(["docker", "rm", "-f"] + own, capture_output=True)
 
 
 def part2_collect(work):

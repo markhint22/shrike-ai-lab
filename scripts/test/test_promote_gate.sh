@@ -33,7 +33,7 @@ setup(){  # fresh fake tree with the REAL qa helpers copied in (what the box has
 mkrepo(){  # $1=name $2=layout: green (tip is a green hygiene merge) | nongreen (a direct, ungated commit on top of the green merge) | diverged (hotfix on main, not in develop)
   local n="$1" lay="${2:-green}" o="$T/origin/$1.git" s="$T/seed/$1"
   git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
-  ( cd "$s" && echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
+  ( cd "$s" || exit 1; echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
     git checkout -q -b side && echo side > side.txt && git add side.txt && git commit -q -m "side work" && git push -q origin side
     git checkout -q main && git checkout -q -b develop && git checkout -q -b feat1 && echo f1 > feat1.txt && git add feat1.txt && git commit -q -m "feat: one" \
       && git checkout -q develop && git merge -q --no-ff -m "$GREEN" feat1

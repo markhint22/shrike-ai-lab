@@ -5,7 +5,7 @@
 # Usage: ovn_classify_fail.sh <task_log> <status>   -> prints one of:
 #   context-exceeded | diff-not-applied | no-edit | api-mismatch | syntax-error |
 #   test-red | build-red | migration-fork | ts-regression | plan-only | timeout | oversized |
-#   needs-decision | model-api-error | queue-exhausted | stage-unverified | scout-unworkable | net-zero | landed | unknown
+#   needs-decision | model-api-error | queue-exhausted | stage-unverified | scout-unworkable | net-zero | landed | verify-malformed | unknown
 #
 # Ordered most-specific-first; the FIRST signature that hits wins. Signatures are drawn from real
 # aider/gate output. Keep this cheap (greps only) — it runs once per item in record_outcome.
@@ -73,6 +73,21 @@ has(){ printf '%s' "$buf" | grep -qiE "$1"; }
 # 2026-10-12 (uidcredit X7): the aider attempt ended with verdict no-edit-unfenced, or the model tried to udiff-delete a file ("'/dev/null' is not in the subpath of ..."), and NO
 # verification ever ran: the transcript's own deliberation text ("assert", "expected to equal") matched the test-red regex below (xlite 2026-10-12: a udiff-delete attempt was
 # recorded fail_reason=test-red with no GUT run in the log). A verification marker in the log ('--- verify', GUT-FAIL-ID) keeps the old scan. OVN_CLASSIFY_NOEDIT_FIRST=off restores it.
+# 2026-10-15 (A2, reworked by P2 after review): a VERIFY that can never run (npx tsc with no local compiler, `from app.x` run from the wrong cwd, pytest node not found)
+# is verify-malformed, not a code failure. Default is OFF: the old chain below runs unchanged and fail_reason is never changed by this block.
+#   OVN_CLASSIFY_MALFORMED=on      print verify-malformed for a matching signature (explicit opt-in)
+#   OVN_CLASSIFY_MALFORMED=shadow  print the old tag; append one line to OVN_VERIFY_MALFORMED_SHADOW_LOG when it would have matched
+#   off (default)                  no effect at all
+# The signature for "ERROR: not found" is anchored to the pytest verify-clause shape ("ERROR: not found: <path>::<node> (no match in any of"), so a real test-red
+# line such as a Playwright "ERROR: not found: #login-button" never matches.
+_vm_mode="$(printf '%s' "${OVN_CLASSIFY_MALFORMED:-off}" | tr 'A-Z' 'a-z')"
+_vm_sig='To get access to the TypeScript compiler|ERROR: not found: [^ ]+::[^ ]+ \(no match in any of|No module named .?(app|src).?$'
+if [ "$_vm_mode" = on ] && has "$_vm_sig"; then
+  echo "verify-malformed"; exit 0
+fi
+if [ "$_vm_mode" = shadow ] && has "$_vm_sig" && [ -n "${OVN_VERIFY_MALFORMED_SHADOW_LOG:-}" ]; then
+  printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tl" >> "$OVN_VERIFY_MALFORMED_SHADOW_LOG" 2>/dev/null || true
+fi
 if has 'exceed_context_size|context window|contextwindowexceeded|context size has been exceeded|context.{0,15}exceeded|context_length|prompt is too long|maximum context length|reduce the (amount|number)'; then
   echo "context-exceeded"
 elif has 'searchreplacenoexactmatch|unifieddiffnomatch|did not (exactly )?match|failed to apply|no exact match|the diff (block|did not)|edit block'; then

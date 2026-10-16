@@ -16,6 +16,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+import tmp_track  # noqa: E402  (2026-10-15: sweep every mkdtemp dir this test makes)
+tmp_track.install()
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

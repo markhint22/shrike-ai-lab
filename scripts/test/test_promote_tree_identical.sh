@@ -34,7 +34,7 @@ setup(){  # $1=promote_to_prod.sh to test  $2=daily_promote.sh to test
 mkrepo(){  # $1=name $2=kind: identical (empty sync commit) | cancel (add then remove a file: +2, same tree) | diff (one real file)
   local n="$1" kind="$2" o="$T/origin/$1.git" s="$T/seed/$1"
   git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
-  ( cd "$s" && echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
+  ( cd "$s" || exit 1; echo base > f.txt && git add f.txt && git commit -q -m base && git branch -M main && git push -q origin main
     git checkout -q -b develop
     case "$kind" in
       identical) git commit -q --allow-empty -m "chore(sync): reconcile main -> develop";;

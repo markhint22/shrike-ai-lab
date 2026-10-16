@@ -186,7 +186,7 @@ mkloop(){ # mkloop <name> <nlines>
 
 ## Next Steps
 - [ ] [T1] `app/big.py` — add a function (cat:python)' >/dev/null
-  ( cd "$R/$1" && python3 - "$2" <<'PY'
+  ( cd "$R/$1" || { echo "FATAL mkloop: cd $R/$1 failed - refusing to run git in $PWD" >&2; kill -TERM $$; exit 1; }; python3 - "$2" <<'PY'
 import sys
 open("app/big.py", "w").write("".join("def f_%d(): return %d\n" % (i, i) for i in range(1, int(sys.argv[1]) + 1)))
 PY
@@ -324,7 +324,7 @@ ok "the refuse status is emitted right after the implement loop" "$([ "$(grep -c
 ok "the push-retry and credit-push paths reset dirty lockfiles before the rebase" "$([ "$(grep -c 'ovn_reset_dirty_lockfiles "\$PWD" "\$task_log" "push-retry"' "$RUN")" = 1 ] && [ "$(grep -c 'ovn_reset_dirty_lockfiles "\$PWD" "\$task_log" "credit-push-retry"' "$RUN")" = 1 ] && echo 1 || echo 0)"
 
 echo "== MUTATION controls (scratch copy of the tree) =="
-MQ="$T/mut"; rm -rf "$MQ"; mkdir -p "$MQ"; cp -R "$RO_Q/." "$MQ/" 2>/dev/null; rm -rf "$MQ/logs" "$MQ/state" 2>/dev/null
+MQ="$T/mut"; rm -rf "$MQ"; mkdir -p "$MQ"
 mutate(){ # mutate <file-rel> <python-expr old> <new> : replace exactly one occurrence in the scratch copy
   python3 - "$MQ/$1" "$2" "$3" <<'PY'
 import sys
@@ -342,6 +342,11 @@ runmut(){ # runmut <label>: run this very test file from the scratch copy and ca
 if [ "${UDIFF_TEST_NO_MUTATION:-0}" = 1 ]; then
   echo "  (mutation controls skipped: nested run)"
 else
+  # Copy ONLY the code tree. The live box queue holds ~460k files (repos/ 6 GB, logs/ 2.7 GB, state/); copying all of it into the tmpfs /tmp
+  # ran out of inodes (ENOSPC), so every mutant failed to set up and the 8 MUTATION checks failed for the wrong reason (2026-10-15 r17 box run).
+  if ( cd "$RO_Q" && tar -cf - --exclude=./logs --exclude=./state --exclude=./repos --exclude=./reports --exclude=./_archive_pre_git_bak --exclude=__pycache__ . ) | tar -C "$MQ" -xf - 2>/dev/null \
+     && [ -s "$MQ/run_overnight.sh" ] && [ -s "$MQ/scripts/test/test_udiff_unanchored.sh" ]; then MQ_OK=1; else MQ_OK=0; fi
+  ok "MUTATION scratch copy of the code tree is complete (run_overnight.sh and scripts/test present)" "$MQ_OK"
   # M1: the detector never reports anything
   cp "$RO_Q/scripts/ovn_udiff_anchor.py" "$T/anchor.orig"
   mutate scripts/ovn_udiff_anchor.py 'return bool(adds) and not dels and not ctx' 'return False'

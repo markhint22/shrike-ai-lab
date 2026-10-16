@@ -32,7 +32,7 @@ ok "reconcile refuses to push a merge that brings in an absolute symlink" "$([ "
 ok "reconcile reports it as a sanity failure" "$(printf '%s' "$out" | grep -q 'BROKEN file' && echo 1 || echo 0)"
 grep -q "absolute symlink" "$HOME/overnight-queue/logs/reconcile_sanity.log" 2>/dev/null && ok "reason logged" 1 || ok "reason logged" 0
 # ---- ovn_unstage_abs_symlinks: a scripted `git add -A` must not stage a live-env symlink ----
-W="$T/wt"; git init -q "$W"; ( cd "$W" && git config user.email t@t && git config user.name t && echo k > keep.py && mkdir -p web && echo n > web/real.txt
+W="$T/wt"; git init -q "$W"; ( cd "$W" || exit 1; git config user.email t@t && git config user.name t && echo k > keep.py && mkdir -p web && echo n > web/real.txt
   ln -s /home/someone/repo/web/node_modules node_modules; ln -s ../keep.py rel_link; git add -A )
 ok "premise: git add -A stages the absolute symlink" "$(git -C "$W" diff --cached --name-only | grep -qx node_modules && echo 1 || echo 0)"
 ovn_unstage_abs_symlinks "$W"

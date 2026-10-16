@@ -23,7 +23,15 @@ mkdir -p "$T/covlink"; CP="$(python3 -c 'import coverage,os;print(os.path.dirnam
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$T/covlink"
 export HOME="$T/home"; mkdir -p "$HOME"
 pass=0; fail=0
-run_driver(){  # $1 = name, stdin = driver source
+SKIPPED=0
+# $2 (optional) = an input file under art/ that the driver's module loads at import time. When it is absent from the checkout the driver is SKIPPED with
+# an explicit reason (never faked: no stand-in briefs are written). art_pipeline_run.py and gen_from_brief.py both json.load art/art_reference_briefs.json.
+run_driver(){  # $1 = name, $2 = required art/ file or "", stdin = driver source
+  if [ -n "${2:-}" ] && [ ! -f "$ART/$2" ]; then
+    cat >/dev/null; SKIPPED=$((SKIPPED+1))
+    echo "  SKIP $1: art/$2 is not in this checkout (the module loads it at import; its checks need that real input and are not run)"
+    return 0
+  fi
   cat > "$T/$1.py"
   local out rc; out="$(ART_DIR="$ART" WORK="$T/w_$1" "$PYX" "$T/$1.py" 2>&1)"; rc=$?
   printf '%s\n' "$out" | grep -v '^PASS ' | grep -v '^PASSES=' | sed 's/^/    /'
@@ -93,7 +101,7 @@ p = cli(e); chk("CLI empty dir -> [] and 0/0", json.loads(p.stdout) == [] and "0
 PY
 
 # ------------------------------------------------------------- art_pipeline_run
-run_driver pipe <<PY
+run_driver pipe art_reference_briefs.json <<PY
 $COMMON
 import numpy as np, io, contextlib
 from PIL import Image
@@ -148,7 +156,7 @@ chk("__main__ with zero passes just prints DONE", "object PIPELINE DONE" in buf.
 PY
 
 # -------------------------------------------------------------- gen_from_brief
-run_driver gen <<PY
+run_driver gen art_reference_briefs.json <<PY
 $COMMON
 import types, contextlib, io
 REC = {"gen": [], "saved": [], "calls": []}
@@ -307,5 +315,5 @@ srcline = open(os.path.join(ART, "pixelize3.py")).read()
 chk("default SRC is the style_tests dir (unexecuted, by design)", "style_tests" in srcline)
 PY
 
-echo "$pass passed, $fail failed"
+echo "$pass passed, $fail failed, $SKIPPED driver(s) skipped (missing input, see SKIP lines)"
 [ "$fail" -eq 0 ]

@@ -743,6 +743,73 @@ ovn_exhausted_supply_kick() {
 }
 ovn_exhausted_clear() { rm -f "${2:-state}/exhausted_since_${1:-none}" 2>/dev/null; return 0; }
 
+# =====================================================================================================================================================
+# QWEN EXPLORER HOOK (2026-10-13, package n3-qwen-research): the event-driven twin of ovn_exhausted_supply_kick.
+# When a lane reports skip(exhausted) (or is low on work: doable <= 3 and its backlog empty) the queue loop starts scripts/ovn_qwen_explore.py <repo> in the background:
+# the local Qwen reads the repo, proposes mechanically verified [ready] roadmap features, and chains planner + refill itself. NO cron: the loop's own pass is the trigger.
+#   ovn_qwen_explore_kick <repo> <state_dir> <ovn_dir> [exhausted|low]
+#     CHEAP GATES FIRST, so an idle lane does not fork a process every pass (a lane re-reports skip(exhausted) every ~20-60 s):
+#       OVN_QWEN_EXPLORE=off kill switch | script not deployed | state/PAUSED | state/qwen_explore/next_<repo> (epoch the explorer itself writes: cooldown after a productive /
+#       empty pass, daily cap, self-throttle pause, GPU-busy deferral) | the global one-explorer-at-a-time lock is held | OVN_QE_READY_CAP (default 4) [ready] features already queued |
+#       'low' mode only: the repo's backlog still has pullable T-items.
+#     Launch: nohup + nice -n 15, run.lock's fd 200 closed for the child, stdout/stderr to logs/qwen_explore.stdout, never blocking, always rc 0. The kick stamps next_<repo> =
+#     now + OVN_QE_DEBOUNCE_S (300) so a second pass cannot double-launch while the first is still running; the explorer overwrites it when it finishes.
+#   ovn_qwen_explore_wait <state_dir> [max_s] [lanes_seen] [lanes_idle]
+#     The unit is KillMode=control-group and run_overnight.sh exits after every pass, so a still-running explorer would be killed when the pass ends. Called at the very end of the
+#     pass: while an explorer holds the global lock (or was launched < 15 s ago) wait (OVN_QE_WAIT_STEP_S, default 5 s steps, at most OVN_QE_WAIT_S, default 600) so it can finish; its supply_kick wakes nothing
+#     here, the next pass simply finds the work. Returns at once when nothing runs. DELAY: a long wait only when every lane is idle (nobody to delay); when some lane did real work this pass
+#     (lanes_idle < lanes_seen) the wait is capped at OVN_QE_WAIT_BUSY_S (default 90) because the other lanes' next pass waits for it.
+# =====================================================================================================================================================
+ovn_qwen_explore_kick() {
+  local repo="${1:-}" sd="${2:-state}" od="${3:-.}" mode="${4:-exhausted}" qd now nxt rdy backlog_open
+  [ -n "$repo" ] || return 0
+  [ "${OVN_QWEN_EXPLORE:-on}" = off ] && return 0
+  [ -f "$od/scripts/ovn_qwen_explore.py" ] || return 0
+  [ -e "$sd/PAUSED" ] && return 0
+  qd="$sd/qwen_explore"; now="$(date +%s)"
+  nxt="$(cat "$qd/next_${repo}" 2>/dev/null)"; case "$nxt" in ''|*[!0-9]*) nxt=0 ;; esac
+  [ "$now" -lt "$nxt" ] && return 0
+  if [ -e "$qd/lock_global" ] && type -P flock >/dev/null 2>&1 && ! ( flock -n 9 ) 9>"$qd/lock_global" 2>/dev/null; then return 0; fi
+  rdy="$(grep -cE '^- \[ \] \[P[1-4]\] \[ready\]' "$od/roadmap/$repo.md" 2>/dev/null)"; case "$rdy" in ''|*[!0-9]*) rdy=0 ;; esac
+  [ "$rdy" -ge "${OVN_QE_READY_CAP:-4}" ] && return 0
+  if [ "$mode" = low ]; then
+    backlog_open="$(grep -cE '^- \[ \] \[T[1-5]\]' "$od/backlog/$repo.md" 2>/dev/null)"; case "$backlog_open" in ''|*[!0-9]*) backlog_open=0 ;; esac
+    [ "$backlog_open" -gt 0 ] && return 0
+  fi
+  mkdir -p "$qd" "$od/logs" 2>/dev/null
+  printf '%s\n' "$(( now + ${OVN_QE_DEBOUNCE_S:-300} ))" > "$qd/next_${repo}" 2>/dev/null
+  printf '%s\n' "$now" > "$qd/launching_${repo}" 2>/dev/null
+  ( cd "$od" 2>/dev/null; nohup nice -n 15 python3 "$od/scripts/ovn_qwen_explore.py" "$repo" --from-queue 200>&- < /dev/null >> "$od/logs/qwen_explore.stdout" 2>&1 & ) 2>/dev/null
+  return 0
+}
+
+ovn_qwen_explore_wait() {
+  local sd="${1:-state}" max="${2:-${OVN_QE_WAIT_S:-600}}" seen="${3:-0}" idle="${4:-0}" step="${OVN_QE_WAIT_STEP_S:-5}" waited=0 qd="${1:-state}/qwen_explore" running f now ts
+  [ "${OVN_QWEN_EXPLORE:-on}" = off ] && return 0
+  case "$max" in ''|*[!0-9]*) max=600 ;; esac
+  # [lanes_seen lanes_idle]: when some lane did REAL work this pass (idle < seen) every other lane's next pass waits for us, so the wait is short (OVN_QE_WAIT_BUSY_S, default 90): the explorer has
+  # had the whole pass already, and one that is still running is killed with the pass (its accepted items are committed and its ledger written before the planner/refill chain - the chain is resumable).
+  # All lanes idle (nobody to delay): the long wait (OVN_QE_WAIT_S / arg 2).
+  case "$seen$idle" in *[!0-9]*) seen=0; idle=0 ;; esac
+  if [ "$seen" -gt "$idle" ] && [ "$max" -gt "${OVN_QE_WAIT_BUSY_S:-90}" ]; then max="${OVN_QE_WAIT_BUSY_S:-90}"; fi
+  case "$step" in ''|*[!0-9]*|0) step=5 ;; esac
+  type -P flock >/dev/null 2>&1 || return 0
+  while [ "$waited" -lt "$max" ]; do
+    running=0; now="$(date +%s)"
+    if [ -e "$qd/lock_global" ] && ! ( flock -n 9 ) 9>"$qd/lock_global" 2>/dev/null; then running=1; fi
+    if [ "$running" = 0 ]; then
+      for f in "$qd"/launching_*; do
+        [ -f "$f" ] || continue
+        ts="$(cat "$f" 2>/dev/null)"; case "$ts" in ''|*[!0-9]*) continue ;; esac
+        [ $((now - ts)) -lt 15 ] && running=1
+      done
+    fi
+    [ "$running" = 0 ] && return 0
+    sleep "$step"; waited=$((waited + step))
+  done
+  return 0
+}
+
 # --- 2026-10-10 (package docexec; analysis[6] BX-01 / analysis[0] F4) ---------------------------------------------------------------------------------
 # WHY the shadow evidence never existed (reproduced in a scratch clone): the hook DID log '--- DOC-EXECUTOR (shadow): would apply ---' into the cycle's task log, but
 # (1) run_overnight.sh launches the scout with `> "$task_log"` (truncate) AFTER the executor block, erasing every line this hook (and the delete executor) wrote earlier in

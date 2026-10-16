@@ -13,6 +13,9 @@ import subprocess
 import sys
 import tempfile
 
+import tmp_track  # noqa: E402  (2026-10-15: sweep every mkdtemp dir this test makes)
+tmp_track.install()
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 import ovn_stage_guards as G  # noqa: E402

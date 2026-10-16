@@ -29,18 +29,18 @@ would_skip(){ # $1=before $2=src-files(space-sep)
 }
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-( cd "$tmp" && git init -q && git config user.email t@t && git config user.name t
+( cd "$tmp" || exit 1; git init -q && git config user.email t@t && git config user.name t
   mkdir -p app && echo "def existing(): return 1" > app/existing.py
   git add -A && git commit -q -m base )
 BEFORE="$(cd "$tmp" && git rev-parse HEAD)"
 
 # ---- scenario A: commit adds a brand-new source file (the real incident shape) ----
-( cd "$tmp" && echo "def brand_new(): return 2" > app/new_file.py && git add -A && git commit -q -m "add new_file" )
+( cd "$tmp" || exit 1; echo "def brand_new(): return 2" > app/new_file.py && git add -A && git commit -q -m "add new_file" )
 out="$(cd "$tmp" && would_skip "$BEFORE" "app/new_file.py")"
 ok "a net-new source file is skipped (n/a), not run against a no-op revert" "[ '$out' = 'n/a' ]"
 
 # ---- scenario B: commit modifies an EXISTING source file -> the check should still run ----
-( cd "$tmp" && echo "def existing(): return 99" > app/existing.py && git add -A && git commit -q -m "modify existing" )
+( cd "$tmp" || exit 1; echo "def existing(): return 99" > app/existing.py && git add -A && git commit -q -m "modify existing" )
 out="$(cd "$tmp" && would_skip "$BEFORE" "app/existing.py")"
 ok "modifying a pre-existing file is NOT skipped (real regression check still runs)" "[ '$out' = 'ok-to-check' ]"
 

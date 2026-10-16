@@ -6,12 +6,31 @@ HERE_RA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE_RA"
 # 2026-09-30: never let the suite reach the real ntfy.sh (shared per-IP quota; tests exhausted it and silenced all production alerts)
 . "$HERE_RA/ntfy_guard.sh"
+# 2026-10-14: a test subshell whose `cd` failed ran a bare `git add -A; git commit` in the LIVE repo (logs/ 133 MB -> GitHub push rejected 20 h); refuse git mutations there
+. "$HERE_RA/lib_live_repo_guard.sh"
+# 2026-10-14 (N4 tmp-isolation): single-flight (a 2nd concurrent run exits 75), a private disk-backed TMPDIR ($HOME/qtmp/run.<pid>, NOT the 1M-inode tmpfs /tmp) removed on EXIT/INT/TERM, a
+# tmp-leak report + alerts.log WARN, stale-root sweep. `&&` + 2>/dev/null: a sandbox without the lib (test_run_all_meta.sh copies this header) just skips it. OVN_TEST_ISOLATE=off disables.
+. "$HERE_RA/lib_tmp_isolation.sh" 2>/dev/null && ovn_tmp_isolate
+# 2026-10-14: a signal reaching run_all (whatever sent it) must end with a verdict line, never a silent exit (the box run died with no banner). EXIT
+# cleanup from lib_tmp_isolation still runs because `exit` fires the EXIT trap.
+trap 'echo; echo "❌ SOME QUEUE TESTS FAILED (run_all.sh was signalled mid-run; not green)"; exit 1' TERM INT
 # the suite must NEVER launch the real QA shadow gates (branch_hygiene.sh tests run the REAL script from the real tree; the hygiene hook would spawn
 # gates that write fake-repo rows into production state/qa_shadow) - 2026-10-01
 export OVN_QA_SHADOW=off
 # the device-lane suite must only ever use its stub emulator under the sweep: a real KVM emulator burns ~300% CPU next to the dev loop - 2026-10-02
 unset DL_REAL_EMULATOR_TEST
 rc=0
+NOTRUN=0
+# a suite exiting 77 could not run on this host (missing flock/bash 4/source file): it is NOT green - counted and reported at the end (2026-10-14)
+run_or_notrun(){ bash "$1"; _r=$?; if [ "$_r" -eq 77 ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN: $1 did not execute (prerequisites missing)"; elif [ "$_r" -ne 0 ]; then rc=1; fi; }
+# the single verdict: green only when every suite ran and passed. A NOT RUN suite is unverified, never green (2026-10-14 review).
+finish(){
+  if [ "$rc" -ne 0 ]; then echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
+  if [ "$NOTRUN" -gt 0 ]; then echo "⚠️  NOT VERIFIED: $NOTRUN suite(s) did not run on this host - this is NOT a green run (run the NOT RUN suites on the box)"; return 1; fi
+  # the verdict is re-checked here too: a suite that sets rc=1 must never be followed by the green banner (2026-10-15)
+  if [ "$rc" -ne 0 ]; then echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
+  echo "✅ ALL QUEUE TESTS PASS"; return 0
+}
 echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
 echo; echo "===== lib_item_select (real-item resolver — scout-file match over blind top-of-file) ====="; bash test_lib_item_select.sh || rc=1
 echo; echo "===== BUILD-GATE Variant-type grounding (Dictionary/Array runtime errors stay tests:FAIL) ====="; bash test_buildgate_variant_type_grounding.sh || rc=1
@@ -187,6 +206,7 @@ echo; echo "===== run_overnight_aider2_push ====="; bash test_run_overnight_aide
 echo; echo "===== run_overnight_core_funcs ====="; bash test_run_overnight_core_funcs.sh || rc=1
 echo; echo "===== run_overnight_core_loop2 ====="; bash test_run_overnight_core_loop2.sh || rc=1
 echo; echo "===== run_overnight_core_main ====="; bash test_run_overnight_core_main.sh || rc=1
+echo; echo "===== paused restart storm (OVN_PAUSE_WAIT stays up, resumes on flag removal) ====="; bash test_pause_wait_restart_storm.sh || rc=1
 echo; echo "===== run_overnight_core_verify ====="; bash test_run_overnight_core_verify.sh || rc=1
 echo; echo "===== shrike_notify_lib ====="; bash test_shrike_notify_lib.sh || rc=1
 echo; echo "===== staging_smoke ====="; bash test_staging_smoke.sh || rc=1
@@ -258,6 +278,7 @@ echo; echo "===== QA gate: baseline-relative verify - staged-runner SHADOW hook 
 echo; echo "===== QA gate: baseline-relative verify - refresh cron ====="; bash test_baseline_refresh_cron.sh || rc=1
 echo; echo "===== QA gate: release candidate + staging ====="; python3 test_qa_release.py || rc=1
 echo; echo "===== QA: escape ledger + scorecard ====="; bash test_qa_ledger.sh || rc=1
+echo; echo "===== QA: Phase 0 exit + precondition report (read-only) ====="; bash test_qa_phase0_report.sh || rc=1
 echo; echo "===== scout guard ====="; bash test_scout_guard.sh || rc=1
 echo; echo "===== schema budget ====="; bash test_schema_budget.sh || rc=1
 echo; echo "===== harness Y: schema-budget drift cap + repeat circuit-breaker, scout grounding, model/API-error classifier ====="; bash test_harness_y.sh || rc=1
@@ -322,6 +343,8 @@ echo; echo "===== fixup gates e2e ====="; bash test_fixup_gates_e2e.sh || rc=1
 echo; echo "===== fixup own test placeholder ====="; bash test_fixup_own_test_placeholder.sh || rc=1
 echo; echo "===== fixup undid item ====="; bash test_fixup_undid_item.sh || rc=1
 echo; echo "===== git sync failure ====="; bash test_git_sync_failure.sh || rc=1
+echo; echo "===== git sync size guard (no push of a >90 MB blob; GitHub rejects >100 MB) ====="; run_or_notrun test_git_sync_size_guard.sh
+echo; echo "===== live-repo guard (a test subshell that lost its cd must never commit into the live repo) ====="; bash test_live_repo_guard.sh || rc=1
 echo; echo "===== gut error ratchet ====="; bash test_gut_error_ratchet.sh || rc=1
 echo; echo "===== gut missing target ====="; bash test_gut_missing_target.sh || rc=1
 echo; echo "===== idle skip dedupe ====="; bash test_idle_skip_dedupe.sh || rc=1
@@ -343,6 +366,7 @@ echo; echo "===== planner prompt golden ====="; bash test_planner_prompt_golden.
 echo; echo "===== promote tree identical ====="; bash test_promote_tree_identical.sh || rc=1
 echo; echo "===== qa ledger uncredited ====="; bash test_qa_ledger_uncredited.sh || rc=1
 echo; echo "===== qa staging e2e ====="; bash test_qa_staging_e2e.sh || rc=1
+echo; echo "===== qa railway retry (2026-10-14: 120 s retry on timeout, cached link) ====="; python3 test_qa_railway_retry.py || rc=1
 echo; echo "===== queue refill gate ====="; bash test_queue_refill_gate.sh || rc=1
 echo; echo "===== research trigger monotonic ====="; bash test_research_trigger_monotonic.sh || rc=1
 echo; echo "===== retire vague uid ====="; bash test_retire_vague_uid.sh || rc=1
@@ -403,6 +427,7 @@ echo; echo "===== r11: stub guard ====="; bash test_stub_guard.sh || rc=1
 echo; echo "===== r11: stub guard e2e ====="; bash test_stub_guard_e2e.sh || rc=1
 echo; echo "===== r11: stub leak hygiene ====="; bash test_stub_leak_hygiene.sh || rc=1
 echo; echo "===== r11: walltime markers ====="; bash test_walltime_markers.sh || rc=1
+echo; echo "===== r11: walltime alert split (timeout share named apart from passing verify time) ====="; python3 test_walltime_alert_split.py || rc=1
 echo; echo "===== r16: classify fail noedit r14 ====="; bash test_classify_fail_noedit_r14.sh || rc=1
 echo; echo "===== r16: gut clause r16 ====="; bash test_gut_clause_r16.sh || rc=1
 echo; echo "===== r16: progress merge ====="; python3 test_progress_merge.py || rc=1
@@ -439,5 +464,35 @@ echo; echo "===== r17: udiff unanchored ====="; bash test_udiff_unanchored.sh ||
 echo; echo "===== r17: verify polarity compound shadow ====="; bash test_verify_polarity_compound_shadow.sh || rc=1
 echo; echo "===== r17: stage guards ====="; python3 test_stage_guards.py || rc=1
 echo; echo "===== r17: verify polarity compound ====="; python3 test_verify_polarity_compound.py || rc=1
-echo; [ $rc -eq 0 ] && echo "✅ ALL QUEUE TESTS PASS" || echo "❌ SOME QUEUE TESTS FAILED"
+echo; echo "===== hygiene infra-skip (host-storage exhaustion is not a red gate) ====="; run_or_notrun test_hygiene_infra_skip.sh
+echo; echo "===== reconcile LLM resolve gate (LLM-assisted conflict resolve + real gate) ====="; bash test_reconcile_llm_resolve_gate.sh || rc=1
+echo; echo "===== reconcile unknown-rc alerts ====="; bash test_reconcile_unknown_rc_alerts.sh || rc=1
+echo; echo "===== auto-credit lockfile ====="; run_or_notrun test_auto_credit_lockfile.sh
+echo; echo "===== verify.py root ====="; bash test_verify_py_root.sh || rc=1
+echo; echo "===== auto-research escalate ====="; bash test_auto_research_escalate.sh || rc=1
+echo; echo "===== supply ledger ====="; bash test_supply_ledger.sh || rc=1
+echo; echo "===== supply ledger (py) ====="; python3 test_supply_ledger.py || rc=1
+echo; echo "===== qa mutation spike ====="; python3 test_qa_spike_mutation.py || rc=1
+echo; echo "===== spec gate repos ====="; bash test_spec_gate_repos.sh || rc=1
+echo; echo "===== spec rule R18 ====="; bash test_spec_rule_r18.sh || rc=1
+echo; echo "===== spec rule R19 ====="; bash test_spec_rule_r19.sh || rc=1
+echo; echo "===== spec rules R01x ====="; bash test_spec_rules_r01x.sh || rc=1
+echo; echo "===== stage empty file ====="; bash test_stage_empty_file.sh || rc=1
+echo; echo "===== stage file feed ====="; run_or_notrun test_stage_file_feed.sh
+echo; echo "===== stage retry signature ====="; run_or_notrun test_stage_retry_signature.sh
+echo; echo "===== stage scope learn ====="; bash test_stage_scope_learn.sh || rc=1
+echo; echo "===== stage verify-only shadow ====="; bash test_stage_verifyonly_shadow.sh || rc=1
+echo; echo "===== qwen explore (explorer; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_explore.sh || rc=1
+echo; echo "===== qwen explore hook ====="; bash test_qwen_explore_hook.sh || rc=1
+echo; echo "===== qwen critic (second-opinion stage; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_critic.sh || rc=1
+echo; echo "===== NOT RUN exit codes (unrunnable suites are reported, never green) ====="; bash test_suite_notrun_exit.sh || rc=1
+echo; [ $NOTRUN -gt 0 ] && echo "⚠️  $NOTRUN suite(s) NOT RUN on this host (see ** NOT RUN lines above) - not verified"
+# 2026-10-15: these suites used to sit INSIDE finish() (after its rc check), so a failure among them printed ALL QUEUE TESTS PASS. They run here, before the verdict.
+echo; echo "===== ovn outcome gap ====="; bash test_ovn_outcome_gap.sh || rc=1
+echo; echo "===== queue pause idempotent ====="; bash test_queue_pause_idempotent.sh || rc=1
+echo; echo "===== stage credit claim ====="; bash test_stage_credit_claim.sh || rc=1
+echo; echo "===== verify malformed ====="; bash test_verify_malformed.sh || rc=1
+echo; echo "===== tmp leak attribution ====="; bash test_tmp_leak_attribution.sh || rc=1
+echo; echo "===== N4: tmp isolation (single-flight, private TMPDIR, cleanup, leak report, no leaking tests) ====="; bash test_tmp_isolation.sh || rc=1
+echo; finish || rc=1
 exit $rc

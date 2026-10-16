@@ -24,7 +24,7 @@ mkfix(){
   local h="$T/$1/home" q="$T/$1/home/overnight-queue"
   mkdir -p "$q" "$T/$1"
   git init -q --bare "$T/$1/origin.git"
-  ( cd "$q" && git init -q -b overnight-live && git remote add origin "$T/$1/origin.git"
+  ( cd "$q" || exit 1; git init -q -b overnight-live && git remote add origin "$T/$1/origin.git"
     mkdir -p scripts qa/device_lane backlog roadmap reports tools docs
     echo "print(1)" > scripts/a.py; echo "x" > qa/q.py; echo '[]' > qa/device_lane/known_issues.json; echo "- [ ] a" > backlog/x.md; echo r > roadmap/r.md
     echo '[]' > tasks.json; echo "# notes" > NOTES.md; echo "#!/bin/sh" > top.sh; echo "# d" > docs/d.md
