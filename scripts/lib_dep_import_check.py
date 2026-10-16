@@ -118,22 +118,32 @@ def is_dep_file(path):
 
 
 def git(repo, *args):
-    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, errors="replace")
     return r.returncode, r.stdout
 
 
+def git_paths(repo, *args):
+    """(rc, [path, ...]) for a git listing run with -z. Without -z git quotes non-ASCII paths (app/<utf-8 bytes>.py), which
+    silently dropped those files from every scan (2026-10-16 review). Bytes are split on NUL and decoded with the filesystem
+    encoding, so the same string round-trips back into `git show <ref>:<path>`."""
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True)
+    if r.returncode != 0:
+        return r.returncode, []
+    return 0, [os.fsdecode(p) for p in r.stdout.split(b"\0") if p]
+
+
 def changed_dep_files(repo, before, after):
-    rc, out = git(repo, "diff", "--no-renames", "--name-only", before, after)
+    rc, out = git_paths(repo, "diff", "-z", "--no-renames", "--name-only", before, after)
     if rc != 0:
         return None
-    return [f for f in out.splitlines() if is_dep_file(f)]
+    return [f for f in out if is_dep_file(f)]
 
 
 def declared_after(repo, after):
     """All distribution names still declared by ANY dependency file at `after`."""
-    rc, out = git(repo, "ls-tree", "-r", "--name-only", after)
+    rc, out = git_paths(repo, "ls-tree", "-r", "-z", "--name-only", after)
     names = set()
-    for f in out.splitlines():
+    for f in out:
         if is_dep_file(f) and not TEST_PATH_RE.search(f):
             rc, txt = git(repo, "show", f"{after}:{f}")
             if rc == 0:
@@ -141,11 +151,8 @@ def declared_after(repo, after):
     return names
 
 
-def imports_in(path):
-    try:
-        text = open(path, encoding="utf-8", errors="replace").read()
-    except OSError:
-        return set()
+def imports_in_text(text):
+    """Top-level modules a python source text imports (absolute imports only)."""
     mods = set()
     try:
         for node in ast.walk(ast.parse(text)):
@@ -159,22 +166,27 @@ def imports_in(path):
     return mods
 
 
-def source_importers(repo, modules):
-    """{module: [relative non-test .py files importing it]}"""
+def source_importers_at(repo, ref, modules):
+    """{module: [non-test .py files at git ref importing it]}. Reads the TREE OF REF (git ls-tree / git show), never the
+    working tree: a caller whose checkout is not at ref must not get a PASS from an empty or stale tree (2026-10-16 audit).
+    Raises RuntimeError when ref cannot be listed."""
+    rc, out = git_paths(repo, "ls-tree", "-r", "-z", "--name-only", ref)
+    if rc != 0:
+        raise RuntimeError(f"cannot list tree at {ref}")
     hits = {m: [] for m in modules}
-    for dp, dns, fns in os.walk(repo):
-        dns[:] = [d for d in dns if d not in SKIP_DIRS and not d.startswith(".venv")]
-        for fn in fns:
-            if not fn.endswith(".py"):
-                continue
-            full = os.path.join(dp, fn)
-            rel = os.path.relpath(full, repo)
-            if TEST_PATH_RE.search(rel):
-                continue
-            got = imports_in(full)
-            for m in modules:
-                if m in got:
-                    hits[m].append(rel)
+    for f in out:
+        if not f.endswith(".py"):
+            continue
+        parts = f.split("/")
+        if any(p in SKIP_DIRS or p.startswith(".venv") for p in parts[:-1]) or TEST_PATH_RE.search(f):
+            continue
+        rc, txt = git(repo, "show", f"{ref}:{f}")
+        if rc != 0:
+            raise RuntimeError(f"cannot read {f} at {ref}")
+        got = imports_in_text(txt)
+        for m in modules:
+            if m in got:
+                hits[m].append(f)
     return {m: v for m, v in hits.items() if v}
 
 
@@ -200,9 +212,11 @@ def check_removed(repo, before, after):
     removed = {r for r in removed if r not in NO_IMPORT}
     if not removed:
         return "PASS", ["removed dependencies are still declared elsewhere / not importable"]
-    # the working tree is the post-cycle state the caller is gating (HEAD == after)
     mods = {import_name(r): r for r in removed}
-    hits = source_importers(repo, set(mods))
+    try:
+        hits = source_importers_at(repo, after, set(mods))
+    except RuntimeError as e:
+        return "UNVERIFIED", [str(e)]
     if not hits:
         return "PASS", [f"removed {sorted(removed)}: no remaining non-test import"]
     lines = [f"removed dependency '{mods[m]}' is still imported (module '{m}') by: {', '.join(sorted(v)[:5])}"
@@ -340,7 +354,9 @@ def main(argv=None):
     for name, status, lines in results:
         for ln in lines:
             print(f"DEP-GATE {name} {status}: {ln}")
-        failed |= status == "FAIL"
+        # FAIL always blocks in enforce. UNVERIFIED from the removed check (the diff or a ref cannot be read) is not a pass: it blocks in enforce too.
+        # clean-import UNVERIFIED stays non-blocking by design (env-dependent imports, pip/infra failures).
+        failed |= status == "FAIL" or (status == "UNVERIFIED" and name == "removed")
     if failed and mode == "shadow":
         print("DEP-GATE (shadow) would FAIL - not blocking")
         return 0

@@ -12,7 +12,7 @@ for t in flock timeout jq git python3; do command -v $t >/dev/null || { echo "  
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)"; export T; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export HOME="$T/home"; Q="$HOME/overnight-queue"
 unset OVN_PROGRESS_MERGE OVN_PM_DEFER OVN_MERGE_SANITY
@@ -29,7 +29,7 @@ if [ -f OVERNIGHT_PROGRESS.md ] && grep -q RED_A OVERNIGHT_PROGRESS.md && grep -
 echo ". passed"; exit 0'
 
 setup(){
-  rm -rf "$T/home" "$T/origin" "$T/seed" "$T"/*.log
+  rm -rf "${T:?}/home" "${T:?}/origin" "${T:?}/seed" "${T:?}"/*.log
   mkdir -p "$Q/scripts" "$Q/repos" "$Q/state" "$Q/logs" "$T/origin" "$T/seed"
   cp "$OQ/reconcile_branches.sh" "$OQ/branch_hygiene.sh" "$Q/"
   for f in lib_lock.sh lib_pytest_parallel.sh lib_gut_xml.sh lib_tree_guard.sh ovn_progress_merge.py; do cp "$OQ/scripts/$f" "$Q/scripts/"; done

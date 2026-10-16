@@ -41,7 +41,7 @@ run_gate(){ # $1=repo_dir $2=would-a-fixup-fix-it(0|1, simulates aider "fixing" 
 mkvdir(){ mkdir -p "$1/alembic/versions"; }
 
 # ---- 1. duplicate revision id -> groundable summary extracted, repair succeeds -> lands ----
-d=$(mktemp -d); mkvdir "$d"
+d=$(mktemp -d) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
@@ -65,7 +65,7 @@ ok "duplicate-revision + failed repair -> still reverts (safety net intact)" "[ 
 rm -rf "$d"
 
 # ---- 2. multiple heads -> also groundable ----
-d=$(mktemp -d); mkvdir "$d"
+d=$(mktemp -d) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
@@ -85,7 +85,7 @@ ok "the summary names MULTIPLE HEADS" "printf '%s' \"\$summary\" | grep -q 'MULT
 rm -rf "$d"
 
 # ---- 3. clean chain -> gate never fires at all (no summary, no fix-up, no revert) ----
-d=$(mktemp -d); mkvdir "$d"
+d=$(mktemp -d) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None

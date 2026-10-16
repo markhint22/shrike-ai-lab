@@ -15,7 +15,7 @@ for t in timeout git; do type -P $t >/dev/null || { echo "  SKIP: no $t"; exit 0
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)"; export T
+T="$(mktemp -d)" || exit 1; export T
 cleanup(){ rm -rf "$T" /tmp/reconcile-*urc* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
@@ -29,7 +29,7 @@ curl(){ printf '%s\n' "curl $*" >> "$T/curl.log"; return 0; }; export -f curl
 
 mk(){   # <name> <kind>: kind=feat -> develop and overnight/feature each have a unique non-conflicting commit (real merge needed); kind=main -> main is ahead of develop (back-merge)
   local n="$1" k="$2" o="$T/origin/$1.git" s="$T/seed/$1"
-  rm -rf "$o" "$s" "$Q/repos/$n"; mkdir -p "$T/origin" "$T/seed"; git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
+  rm -rf "$o" "$s" "${Q:?}/repos/$n"; mkdir -p "$T/origin" "$T/seed"; git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
   ( cd "$s"; echo base > f.txt; git add -A; git commit -q -m base; git branch -M main; git push -q origin main
     git branch develop; git push -q origin develop
     if [ "$k" = feat ]; then

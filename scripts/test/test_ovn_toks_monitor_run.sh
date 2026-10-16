@@ -10,7 +10,7 @@ for c in "$HERE/../../ovn_toks_monitor.sh" "$HERE/../ovn_toks_monitor.sh" "$HERE
 [ -n "$M" ] || { echo "  SKIP: ovn_toks_monitor.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; Q="$H/overnight-queue"; BIN="$T/bin"; NTFY="$T/ntfy.log"; CNT="$T/date.cnt"; DTF="$T/date.dt"
 mkdir -p "$Q/state" "$BIN"; cp "$M" "$Q/ovn_toks_monitor.sh"; : > "$NTFY"; export NTFY CNT DTF
 

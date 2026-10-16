@@ -15,7 +15,7 @@ S="$HERE/../../sync_branches.sh"; [ -f "$S" ] || S="$HERE/../sync_branches.sh"; 
 pass=0; fail=0; warn=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   KNOWN-BUG (now fixed): $1"; else warn=$((warn+1)); echo "  WARN KNOWN-BUG: $1"; fi; }
-T="$(mktemp -d)"; PFX="sbt$$"
+T="$(mktemp -d)" || exit 1; PFX="sbt$$"
 trap 'rm -rf "$T" /tmp/sync-${PFX}*' EXIT
 export GIT_CONFIG_GLOBAL="$T/gitconfig"; printf '[user]\n\temail = t@t\n\tname = t\n[init]\n\tdefaultBranch = main\n' > "$GIT_CONFIG_GLOBAL"
 export GIT_CONFIG_NOSYSTEM=1
@@ -108,7 +108,7 @@ ok "push failure does not fire the conflict alert" "$([ ! -f "$NTFY_LOG" ] && ec
 
 # ---- 8. worktree creation fails ----
 n="${PFX}nowt"; mk "$n"; adv "$n" main m.txt m "hotfix"; b="$(sha $n develop)"
-git -C "$Q/repos/$n" fetch -q origin; rm -rf "$Q/repos/$n/.git/worktrees"; : > "$Q/repos/$n/.git/worktrees"
+git -C "$Q/repos/$n" fetch -q origin; rm -rf "${Q:?}/repos/$n/.git/worktrees"; : > "$Q/repos/$n/.git/worktrees"
 out="$(run "repos/$n")"
 ok "worktree add failure logged and skipped (develop untouched)" "$(printf '%s' "$out" | grep -q "$n: worktree add failed" && [ "$(sha $n develop)" = "$b" ] && echo 1 || echo 0)"
 kb "worktree-add-failed path leaks the mktemp dir /tmp/sync-<repo>.XXXX (continue skips cleanup; sync_branches.sh:36-37)" "$([ "$(leaks)" = 0 ] && echo 1 || echo 0)"

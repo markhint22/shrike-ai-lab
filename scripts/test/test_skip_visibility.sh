@@ -6,7 +6,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/scripts/test"; for t in test_cron_r10.sh test_gitignore_live_dir.sh; do cp "$HERE/$t" "$T/scripts/test/"; done
 cp "$HERE/../../ovn_git_sync.sh" "$T/ovn_git_sync.sh" 2>/dev/null || cp "$HERE/../ovn_git_sync.sh" "$T/ovn_git_sync.sh" 2>/dev/null
 for t in test_cron_r10.sh test_gitignore_live_dir.sh; do

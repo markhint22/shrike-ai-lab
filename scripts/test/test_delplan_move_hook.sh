@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; Q="$(cd "$HERE/../.." && pwd)"; RUN="$Q/run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log" OVN_EXECUTOR_LOG="$W/exec.log"
@@ -27,7 +27,7 @@ mkrepo(){  # $1 name -> $R $BEFORE $TL (bare origin)
   printf '[autoload]\nMgr="*res://scripts/battle/old_mgr.gd"\n' > project.godot
   printf '## Next Steps\n%s\n' "$ITEM" > OVERNIGHT_PROGRESS.md
   git add -A; git commit -q -m init; git push -q origin main 2>/dev/null
-  BEFORE="$(git rev-parse HEAD)"; TL="$W/$1.log"; : > "$TL"; rm -rf "$OD/state/exec_failed"; : > "$OVN_EXECUTOR_LOG"
+  BEFORE="$(git rev-parse HEAD)"; TL="$W/$1.log"; : > "$TL"; rm -rf "${OD:?}/state/exec_failed"; : > "$OVN_EXECUTOR_LOG"
 }
 hook(){ ovn_executor_hook move "$OD" "$R" "$1" main "$TL" "$BEFORE"; }
 HASH="$(ovn_item_hash "$ITEM")"

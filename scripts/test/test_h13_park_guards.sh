@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"; [ -n "${SLP:-}" ] && kill "$SLP" 2>/dev/null' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"; [ -n "${SLP:-}" ] && kill "$SLP" 2>/dev/null' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 ( sleep 300 & echo $! > "$T/slp"; wait ) >/dev/null 2>&1 &
 sleep 0.3; SLP="$(cat "$T/slp")"
@@ -18,7 +18,7 @@ sleep 0.3; SLP="$(cat "$T/slp")"
 
 # mk_world: fresh fake $HOME/overnight-queue with repo r1 (origin + clone on overnight/feature carrying ONE unpushed commit "L")
 mk_world(){
-  rm -rf "$T/w"; export HOME="$T/w/home"; OQ="$HOME/overnight-queue"
+  rm -rf "${T:?}/w"; export HOME="$T/w/home"; OQ="$HOME/overnight-queue"
   mkdir -p "$OQ/scripts" "$OQ/state" "$OQ/logs" "$OQ/repos"
   cp "$Q/ovn_filesize_retag.sh" "$Q/ovn_filesize_retag.py" "$OQ/"
   cp "$Q/scripts/ovn_batch_park_stragglers.sh" "$Q/scripts/ovn_batch_stragglers.py" "$Q/scripts/ovn_batch_park_tagger.py" "$Q/scripts/lib_worktree.sh" "$OQ/scripts/"

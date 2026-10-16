@@ -9,7 +9,7 @@ SUT=""; for c in "$HERE/../../../register_monitors.sh" "$HERE/../../register_mon
 REAL_DW=""; for c in "$(dirname "$SUT")/overnight-queue/deploy_watch.sh" "$HERE/../../deploy_watch.sh" "$HERE/../deploy_watch.sh"; do [ -f "$c" ] && { REAL_DW="$c"; break; }; done
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 warn(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else echo "  WARN $1 (non-fatal, known defect)"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/lay/overnight-queue" "$T/bin" "$T/bare"
 cp "$SUT" "$T/lay/register_monitors.sh"; cp "$SUT" "$T/bare/register_monitors.sh"   # $T/bare has no overnight-queue/deploy_watch.sh
 cat > "$T/lay/overnight-queue/deploy_watch.sh" <<'DW'

@@ -8,7 +8,7 @@ find_sut(){ local c; for c in "$HERE/../../$1" "$HERE/../$1" "$HERE/$1"; do [ -f
 PY="$(find_sut archive_done.py)"; SH="$(find_sut archive_done.sh)"
 [ -n "$PY" ] && [ -n "$SH" ] || { echo "archive_done.{py,sh} not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 TODAY="$(python3 -c 'import datetime;print(datetime.date.today().isoformat())')"
 
 # ================= archive_done.py =================

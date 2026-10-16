@@ -4,6 +4,12 @@
 # classification (0d / stalled? / <1d / ~Nd <= threshold / healthy), the landed-7d parser (ISO, epoch, ms-epoch, `timestamp`
 # key, garbage), alert-vs-clean paths, topic resolution and active-repo filtering.
 set -uo pipefail
+# Hermetic environment. The outer runner (run_all.sh) and the queue's shell can export OVN_*, NTFY_* and GIT_* variables that the
+# real script under test inherits. An ambient GIT_* setting that breaks `git log` inside ovn_stats.runway() makes that call fail
+# silently (burn=0), so every repo reads "stalled?" and S1b reported "6 low" instead of "3 low" in the full run. Scrub them here and
+# pin git's config, so every check runs the same way whether started by hand, by cron or from run_all.
+for _v in $(env | sed -n -E 's/^((OVN|NTFY|GIT)_[A-Za-z0-9_]*)=.*/\1/p'); do unset "$_v"; done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 pick(){ for c in "$@"; do [ -f "$c" ] && { echo "$c"; return; }; done; }
 FH="$(pick "$HERE/../ovn_fleet_health.sh" "$HERE/../../ovn_fleet_health.sh" "$HERE/../../scripts/ovn_fleet_health.sh")"
@@ -13,7 +19,7 @@ BUCK="$(pick "$HERE/../ovn_outcome_buckets.py" "$HERE/../../scripts/ovn_outcome_
 P=0; F=0; KB=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   KNOWN-BUG (fixed?) $1"; else KB=$((KB+1)); echo "  WARN KNOWN-BUG: $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 BIN="$T/bin"; ALERTS="$T/alerts.txt"; mkdir -p "$BIN"; export ALERTS
 # The script resets PATH to put /usr/bin first, so a PATH stub would lose to the real curl (real network!). An exported bash
 # FUNCTION named curl is imported by the child bash and beats any PATH lookup, so the script can never reach the network.
@@ -25,11 +31,11 @@ curl(){
 }
 export -f curl
 NOW=$(date +%s)
-iso(){ date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+iso(){ python3 -c 'import sys,time; print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(sys.argv[1]))))' "$1"; }   # portable: BSD date has no -d
 
 # fake tree builder ------------------------------------------------------------------------------------
 mk(){ # $1 = name
-  H="$T/$1/home"; R="$H/overnight-queue"; rm -rf "$T/$1"
+  H="$T/$1/home"; R="$H/overnight-queue"; rm -rf "${T:?}/$1"
   mkdir -p "$R/state" "$R/logs" "$R/scripts" "$R/repos"
   cp "$STATS" "$BUCK" "$R/scripts/"
   : > "$ALERTS"

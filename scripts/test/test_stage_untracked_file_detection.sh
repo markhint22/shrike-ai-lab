@@ -29,7 +29,7 @@ is_no_edit(){ # $1 = worktree dir; mirrors the real (fixed) detector exactly
   [ -z "$(git -C "$wt" status --porcelain 2>/dev/null)" ]
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 git init -q "$tmp/wt"; ( cd "$tmp/wt"; git config user.email t@t; git config user.name t
   echo base > existing.py; git add -A; git commit -q -m base )
 

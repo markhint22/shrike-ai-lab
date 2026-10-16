@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../render_dashboard.py" "$HERE/../render_dashboard.py" "$HERE/render_dashboard.py"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "render_dashboard.py not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/tree/state"
 export PYTHONDONTWRITEBYTECODE=1 SUT TREE="$T/tree"
 cat > "$T/drv.py" <<'PY'

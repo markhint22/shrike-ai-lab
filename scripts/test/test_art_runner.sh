@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../art_runner.py" "$HERE/../art_runner.py" "$HERE/art_runner.py"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "art_runner.py not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 python3 -c 'import PIL' 2>/dev/null || { echo "PIL missing - cannot test"; exit 2; }
 export HOME="$T/home"; mkdir -p "$HOME/overnight-queue" "$T/bin"
 export PYTHONDONTWRITEBYTECODE=1   # run the REAL file in place (coverage attribution); never write __pycache__ into the tree

@@ -19,7 +19,7 @@ chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
 
-T="$(mktemp -d)"
+T="$(mktemp -d)" || exit 1
 EXTRA=()     # extra dirs to always clean
 cleanup(){ for d in "${EXTRA[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done; rm -rf "$T"; }
 trap cleanup EXIT
@@ -31,7 +31,7 @@ mkrepo(){ # name
 }
 # mkwt <repo> <parent-dir> <minutes-old> -> echoes path
 mkwt(){
-  local wt; wt="$(mktemp -d "$2/ovnws.XXXXXX")"; EXTRA+=("$wt")
+  local wt; wt="$(mktemp -d "$2/ovnws.XXXXXX")" || exit 1; EXTRA+=("$wt")
   git -C "$Q/repos/$1" worktree add -q --detach "$wt" >/dev/null 2>&1
   touch -d "$3 minutes ago" "$wt"; echo "$wt"
 }
@@ -100,7 +100,7 @@ Wd="$(mkwt alpha /tmp 0)"; echo junk > "$Wd/untracked.txt"; echo changed >> "$Wd
 # mid-merge conflict
 git -C "$Q/repos/alpha" branch side >/dev/null 2>&1
 echo main-change > "$Q/repos/alpha/f.txt"; git -C "$Q/repos/alpha" commit -qam m
-Wm="$(mktemp -d /tmp/ovnws.XXXXXX)"; EXTRA+=("$Wm")
+Wm="$(mktemp -d /tmp/ovnws.XXXXXX)" || exit 1; EXTRA+=("$Wm")
 git -C "$Q/repos/alpha" worktree add -q -b conflict "$Wm" side >/dev/null 2>&1
 ( cd "$Wm" && echo side-change > f.txt && git commit -qam s && git merge main >/dev/null 2>&1 )
 chk "precondition: merge in progress with conflict" bash -c "cd '$Wm' && git status | grep -qi 'unmerged\|merging'"
@@ -123,7 +123,7 @@ chk "no alert for an already-gone dir" bash -c "! test -s '$ALERTS'"
 echo "== live ovn_test_watch worktrees (wt-tw-*) are protected while test_watch.lock is held =="
 if command -v flock >/dev/null 2>&1; then
   mkq; mkrepo alpha
-  mktw(){ local wt; wt="$(mktemp -d /tmp/wt-tw-alpha.XXXXXX)"; EXTRA+=("$wt"); git -C "$Q/repos/alpha" worktree add -q --detach "$wt" >/dev/null 2>&1; touch -d "$1 minutes ago" "$wt"; echo "$wt"; }
+  mktw(){ local wt; wt="$(mktemp -d /tmp/wt-tw-alpha.XXXXXX)" || exit 1; EXTRA+=("$wt"); git -C "$Q/repos/alpha" worktree add -q --detach "$wt" >/dev/null 2>&1; touch -d "$1 minutes ago" "$wt"; echo "$wt"; }
   Wtw="$(mktw 180)"; Wother="$(mkwt alpha /tmp 180)"
   ( flock -x 9; exec sleep 60 ) 9>"$Q/state/test_watch.lock" & HOLD=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do ( flock -n 9 ) 9>>"$Q/state/test_watch.lock" 2>/dev/null || break; sleep 0.3; done
@@ -169,7 +169,7 @@ known "alert-write failure should be silent (2>/dev/null follows the failing >> 
 mkq
 out="$(sweep)"; rc=$?
 eqv "empty repos/ dir -> exit 0, silent" "0:" "$rc:$out"
-rm -rf "$Q/repos"
+rm -rf "${Q:?}/repos"
 out="$(sweep)"; rc=$?
 eqv "no repos/ dir at all -> exit 0, silent" "0:" "$rc:$out"
 

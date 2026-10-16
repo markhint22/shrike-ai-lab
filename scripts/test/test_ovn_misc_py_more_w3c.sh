@@ -9,7 +9,7 @@ D="$HERE/.."; [ -f "$D/ovn_classify.py" ] || D="$HERE"
 export PYTHONDONTWRITEBYTECODE=1
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 eq(){ [ "$2" = "$3" ] && ok "$1" 1 || { ok "$1 (got: $2 | want: $3)" 0; }; }
 

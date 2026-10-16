@@ -11,7 +11,7 @@ bad(){ fail=$((fail+1)); echo "  FAIL $1"; }
 chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
-T="$(mktemp -d)"; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
 unset OVERNIGHT_DIR
 D="$T/d"; L="$D/state/token_ledger.jsonl"
 run(){ OVERNIGHT_DIR="$D" bash "$SH" "$@"; }

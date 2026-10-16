@@ -302,7 +302,7 @@ printf '{"v":99}\n' > package-lock.json
 if [ ! -f "${RO_STUB}/advanced" ]; then
   touch "${RO_STUB}/advanced"
   b="$(git rev-parse --abbrev-ref HEAD)"   # the cycle works on its own overnight/<ts>/<id> branch: advance THAT branch on origin so the cycle's push is non-fast-forward
-  d="$(mktemp -d)"; git clone -q "$(git remote get-url origin)" "$d" 2>/dev/null; ( cd "$d" && git checkout -q -b "$b" origin/main && echo other > other.txt && git add -A && git -c user.name=o -c user.email=o@o commit -q -m other && git push -q origin "$b" 2>/dev/null ); rm -rf "$d"
+  d="$(mktemp -d)" || exit 1; git clone -q "$(git remote get-url origin)" "$d" 2>/dev/null; ( cd "$d" && git checkout -q -b "$b" origin/main && echo other > other.txt && git add -A && git -c user.name=o -c user.email=o@o commit -q -m other && git push -q origin "$b" 2>/dev/null ); rm -rf "$d"
 fi
 echo "verify ok"; exit 0
 V

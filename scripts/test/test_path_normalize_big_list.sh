@@ -11,7 +11,7 @@ LIB="$HERE/../lib_path_normalize.sh"
 [ -f "$LIB" ] || { echo "  FAIL: lib not found"; exit 1; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 # shellcheck disable=SC1090
 source "$LIB"
 # the OLD implementation, verbatim (pre-2026-10-09), kept as a mutation control

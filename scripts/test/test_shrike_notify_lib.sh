@@ -10,7 +10,7 @@ LIB="$HERE/../../shrike_notify_lib.sh"; [ -f "$LIB" ] || LIB="$HERE/../shrike_no
 [ -f "$LIB" ] || { echo "shrike_notify_lib.sh not found"; exit 1; }
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 BIN="$T/bin"; mkdir -p "$BIN"
 export CURL_LOG="$T/curl.log"; export CURL_PAYLOAD="$T/curl.payload"
 cat > "$BIN/curl" <<'STUB'

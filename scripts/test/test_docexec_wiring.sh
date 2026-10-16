@@ -35,7 +35,7 @@ mkrepo2(){ # <name> <progress text>   -> repo with scripts/dp.gd tracked
 cycle(){ # <name> [ENV=...]  one ongoing-<name> cycle
   local name="$1"; shift
   ro_tasks "$(jq -nc --arg R "$R" --arg n "$name" '[{id:("ongoing-"+$n),repo:($R+"/"+$n),prompt:"Work the single top not-yet-done item in the overnight progress log."}]')"
-  rm -rf "$T/tree/reports"/* "$ST/outcomes.jsonl" "$RO_STUB/aider_n" "$RO_STUB/aider_kinds" "$LOG" "$ST/executor_mode"
+  rm -rf "${T:?}/tree/reports"/* "${ST:?}/outcomes.jsonl" "${RO_STUB:?}/aider_n" "${RO_STUB:?}/aider_kinds" "$LOG" "${ST:?}/executor_mode"
   printf 'IMPL_SEQ=none\nSCOUT_FILES=scripts/dp.gd\nSCOUT_PLAN="add a doc comment above predicted"\n' > "$RO_STUB/scn"
   ro_run_main "$@"; REP="$(ro_report)"
   STATUS="$(jq -r --arg id "ongoing-$name" 'select(.id==$id) | .status' "$ST/outcomes.jsonl" 2>/dev/null | tail -1)"
@@ -82,7 +82,7 @@ EOP
 bmode(){ # <name> <mode line or ''> [ENV=...]  one cycle with the state file preset
   local name="$1" line="$2"; shift 2
   ro_tasks "$(jq -nc --arg R "$R" --arg n "$name" '[{id:("ongoing-"+$n),repo:($R+"/"+$n),prompt:"Work the single top not-yet-done item in the overnight progress log."}]')"
-  rm -rf "$T/tree/reports"/* "$ST/outcomes.jsonl" "$RO_STUB/aider_n" "$RO_STUB/aider_kinds" "$LOG" "$ST/executor_mode"
+  rm -rf "${T:?}/tree/reports"/* "${ST:?}/outcomes.jsonl" "${RO_STUB:?}/aider_n" "${RO_STUB:?}/aider_kinds" "$LOG" "${ST:?}/executor_mode"
   [ -n "$line" ] && printf '%s\n' "$line" > "$ST/executor_mode"
   printf 'IMPL_SEQ=none\nSCOUT_FILES=scripts/dp.gd\n' > "$RO_STUB/scn"
   ro_run_main "$@"
@@ -110,11 +110,11 @@ bmode b3 'doc:b3=on' STUB_APPLY=ok
 eq "... (control) without the marker the same gap IS offered again and lands" "pushed(tests:pass) doc-executor" "$STATUS"
 mkrepo2 b3 "$(mkp "$(doc_item "$PARKED")")"; mkdir -p "$ST/exec_failed"; cp "$T/exec_failed.keep"/* "$ST/exec_failed/" 2>/dev/null
 ro_tasks "$(jq -nc --arg R "$R" '[{id:"ongoing-b3",repo:($R+"/b3"),prompt:"Work the single top not-yet-done item in the overnight progress log."}]')"
-rm -rf "$T/tree/reports"/* "$ST/outcomes.jsonl" "$RO_STUB/aider_n" "$LOG"; printf 'doc:b3=on\n' > "$ST/executor_mode"
+rm -rf "${T:?}/tree/reports"/* "${ST:?}/outcomes.jsonl" "${RO_STUB:?}/aider_n" "$LOG"; printf 'doc:b3=on\n' > "$ST/executor_mode"
 ro_run_main STUB_APPLY=ok
 STATUS="$(jq -r 'select(.id=="ongoing-b3") | .status' "$ST/outcomes.jsonl" 2>/dev/null | tail -1)"
 eq "with the exec_failed marker in place the next cycle does not retry the gap: skip(exhausted)" "skip(exhausted)" "$STATUS"
-rm -rf "$ST/exec_failed" "$T/exec_failed.keep"
+rm -rf "${ST:?}/exec_failed" "${T:?}/exec_failed.keep"
 mkrepo2 b4 "$(mkp "$(doc_item "$PARKED")")"
 bmode b4 'doc:b4=on' OVN_DOC_REROUTE=off
 eq "OVN_DOC_REROUTE=off is a kill switch even in ON mode (skip(exhausted), no commit)" "skip(exhausted)" "$STATUS"
@@ -143,7 +143,7 @@ rm -f "$T/chk"
 bmode e2 'doc:e2=on' CHK_LOG="$T/chk" STUB_APPLY=fail
 eq "ON, apply fails: still skip(exhausted) (the reused lookup does not change the outcome)" "skip(exhausted)" "$STATUS"
 eq "... and still only 2 checks" "2" "$(wc -l < "$T/chk" 2>/dev/null | tr -d ' ')"
-rm -rf "$ST/exec_failed"; rm -f "$ST/executor_mode"
+rm -rf "${ST:?}/exec_failed"; rm -f "$ST/executor_mode"
 
 echo "=== C: BX-01 post-check on a model-written doc cycle ==="
 rm -f "$T/tree/scripts/ovn_doc_executor.py"; ro_link scripts/ovn_doc_executor.py   # the post-check imports the REAL executor module (parse_item/anchor): drop the stand-in
@@ -169,7 +169,7 @@ cyc2(){ # <name> <variant> [ENV=...]
   mkrepo2 "$name" "$(mkp "$(doc_item '')")"
   echo "$variant" > "$RO_STUB/doc_variant"
   ro_tasks "$(jq -nc --arg R "$R" --arg n "$name" '[{id:("ongoing-"+$n),repo:($R+"/"+$n),prompt:"Work the single top not-yet-done item in the overnight progress log."}]')"
-  rm -rf "$T/tree/reports"/* "$ST/outcomes.jsonl" "$RO_STUB/aider_n" "$LOG" "$ST/executor_mode"
+  rm -rf "${T:?}/tree/reports"/* "${ST:?}/outcomes.jsonl" "${RO_STUB:?}/aider_n" "$LOG" "${ST:?}/executor_mode"
   ro_run_main "$@"
   STATUS="$(jq -r --arg id "ongoing-$name" 'select(.id==$id) | .status' "$ST/outcomes.jsonl" 2>/dev/null | tail -1)"
   [ -n "${DBGLOG:-}" ] && { echo "=== task log $name ==="; cat "$(ls -t "$T"/tree/logs/*/ongoing-$name.log | head -1)"; }

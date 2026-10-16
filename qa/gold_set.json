@@ -103,10 +103,9 @@
    "repo": "iptv_apps",
    "base": "fa18dd00797f33c1aed891a28457ca4d418da4ea",
    "head": "8946545fab50817d85c2f617857d68939a696243",
-   "gate": "pending:landing_requirements_removal",
+   "gate": "landing:lib_dep_import_check:removed",
    "kind": "true_positive",
    "title": "fleet removed aiohttp from requirements.txt while app code still imports it: prod build failed ('No module named aiohttp')",
-   "pending": "landing track A4(b): a removed requirement whose top-level module is still imported must fail landing",
    "date": "2026-10-03"
   },
   {

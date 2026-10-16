@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 G="$ROOT/scripts/ovn_churn_guard.sh"; PY="$ROOT/scripts/ovn_churn_guard.py"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T" /tmp/wt-churnguard-* 2>/dev/null' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T" /tmp/wt-churnguard-* 2>/dev/null' EXIT
 PY2=1
 export NTFY_SERVER="http://127.0.0.1:9/x" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=fleet GIT_AUTHOR_EMAIL=f@f GIT_COMMITTER_NAME=fleet GIT_COMMITTER_EMAIL=f@f

@@ -4,7 +4,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SRC="$HERE/../../ovn_auto_research.sh"
 [ -f "$SRC" ] || SRC="$HERE/../ovn_auto_research.sh"
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 sed -n '/^COOLDOWN_EMPTY_H=/,/^}/p' "$SRC" > "$T/fn.sh"
 [ -s "$T/fn.sh" ] || { echo "  FAIL: could not extract ar_cooldown_s"; echo "auto research cooldown: 0 passed, 1 failed"; exit 1; }
 source "$T/fn.sh"

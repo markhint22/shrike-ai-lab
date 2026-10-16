@@ -18,7 +18,7 @@ nok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/
 mkvdir(){ mkdir -p "$1/alembic/versions"; }
 
 # ---- 1. clean, single linear chain -> OK ----
-d=$(mktemp -d); mkvdir "$d"
+d=$(mktemp -d) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
@@ -33,7 +33,7 @@ ok  "clean linear chain -> reports OK"              "printf '%s' \"\$out\" | gre
 rm -rf "$d"
 
 # ---- 2. duplicate revision id in two files (the exact gitlark shape) -> FAIL ----
-d=$(mktemp -d); mkvdir "$d"
+d=$(mktemp -d) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
@@ -52,7 +52,7 @@ ok  "duplicate revision id -> flagged by name"      "printf '%s' \"\$out\" | gre
 rm -rf "$d"
 
 # ---- 3. multiple heads (a disconnected side-chain) -> FAIL ----
-d=$(mktemp -d); mkvdir "$d"
+d=$(mktemp -d) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
@@ -71,7 +71,7 @@ ok  "multiple heads -> flagged"                     "printf '%s' \"\$out\" | gre
 rm -rf "$d"
 
 # ---- 4. String FK pointing at a UUID target (the billwatch shape) -> FAIL ----
-d=$(mktemp -d); mkvdir "$d"
+d=$(mktemp -d) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_users.py" <<'EOF'
 from alembic import op
 from sqlalchemy.dialects import postgresql
@@ -101,7 +101,7 @@ ok  "String FK to UUID target -> flagged"           "printf '%s' \"\$out\" | gre
 rm -rf "$d"
 
 # ---- 5. no alembic dirs at all -> safe no-op OK (nothing to check) ----
-d=$(mktemp -d)
+d=$(mktemp -d) || exit 1
 out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
 ok  "no alembic dirs -> exit 0 (nothing to check)"  "[ $rc -eq 0 ]"
 rm -rf "$d"

@@ -7,7 +7,7 @@ S=""; for c in "$HERE/../../hourly_notify.sh" "$HERE/../hourly_notify.sh"; do [ 
 [ -n "$S" ] || { echo "  SKIP: hourly_notify.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ -n "$2" ] && [ -z "${2//1/}" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 Q="$T/q"; BIN="$T/bin"; STUBD="$T/stubd"; CALLS="$T/calls"
 mkdir -p "$Q/state" "$Q/scripts" "$BIN" "$STUBD" "$CALLS"; export STUBD CALLS
 cp "$S" "$Q/hourly_notify.sh"

@@ -3,7 +3,7 @@
 # tests/new_pkg/test_x.py looked like it touched an undeclared path "tests/new_pkg/" and the whole attempt was discarded
 # (76 of 256 scope-violation rejections in 14d). The guard must list individual files (-uall).
 Q="$(cd "$(dirname "$0")/../.." && pwd)"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 ( cd "$T" && git init -q -b main && echo x > a.txt && git add -A && git commit -q -m base && mkdir -p tests/new_pkg && echo t > tests/new_pkg/test_x.py && echo u > tests/new_pkg/helper.py )

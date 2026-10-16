@@ -12,12 +12,12 @@ EX="$ROOT/ovn_delete_executor.py"; LIB="$ROOT/lib_fixup.sh"; RO="$OQ/run_overnig
 . "$HERE/ntfy_guard.sh" 2>/dev/null || true
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
 # ================= X4: importer guard =================
 mkrepo(){
-  rm -rf "$T/r"; mkdir -p "$T/r"; cd "$T/r" || exit 1; git init -q -b main .
+  rm -rf "${T:?}/r"; mkdir -p "$T/r"; cd "$T/r" || exit 1; git init -q -b main .
   mkdir -p scripts/battle tests
   printf 'class_name CellRing\nextends RefCounted\nstatic func ring_index(c, o): return 1\n' > scripts/battle/cell_ring.gd; echo 'uid://b1cr' > scripts/battle/cell_ring.gd.uid
   printf 'extends GutTest\nconst CellRing = preload("res://scripts/battle/cell_ring.gd")\nfunc test_x(): assert_eq(CellRing.ring_index(1, 2), 1)\n' > tests/test_cell_ring.gd; echo 'uid://b2cr' > tests/test_cell_ring.gd.uid
@@ -76,11 +76,11 @@ if [ -f "$ROOT/lib_worktree.sh" ] && [ -f "$ROOT/lib_path_normalize.sh" ] && [ -
   printf '#!/usr/bin/env bash\ncase "$1" in hold) : > "$(dirname "$0")/state/HOLD_$2";; release) rm -f "$(dirname "$0")/state/HOLD_$2";; esac\nexit 0\n' > "$Q/queue.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$Q/scripts/ovn_log_tokens.sh"; chmod +x "$Q/queue.sh" "$Q/scripts/"*.sh
   mkk(){  # $1 name
-    local o="$T/origin_$1.git" w; git init -q --bare "$o"; w="$(mktemp -d)"
+    local o="$T/origin_$1.git" w; git init -q --bare "$o"; w="$(mktemp -d)" || exit 1
     ( cd "$w" || exit 1; git init -q -b overnight/feature && mkdir -p src && printf 'def real():\n    return 1\n' > src/real.py && printf '# Progress\n\n- [ ] [CLAUDE] src/real.py has been recovered/decomposed 4 times (cap 0) without ever landing - the fleet keeps re-guessing at this same file with no real diagnosis; needs a human/Claude session to understand the actual blast radius (recovery:escalated)\n- [ ] [AUTO-SKIP after 5 no-op cycles — review] [T4] src/real.py — a stuck item needing escalation. VERIFY: pytest -q\n' > OVERNIGHT_PROGRESS.md \
         && git add -A && git commit -q -m init && git remote add origin "$o" && git push -q origin overnight/feature )
     git --git-dir="$o" symbolic-ref HEAD refs/heads/overnight/feature; rm -rf "$w"
-    rm -rf "$Q/repos/$1"; git clone -q "$o" "$Q/repos/$1" && ( cd "$Q/repos/$1" && git checkout -q overnight/feature )
+    rm -rf "${Q:?}/repos/$1"; git clone -q "$o" "$Q/repos/$1" && ( cd "$Q/repos/$1" && git checkout -q overnight/feature )
     printf '4' > "$Q/state/recovery_lineage/$1__src_real.py.count"
   }
   runrp(){ RN="$1"; shift; ( cd "$Q" && HOME="$H" LITELLM_BASE="http://127.0.0.1:9" LITELLM_MASTER_KEY=k OVN_MODEL=m OVN_RECOVER_LINEAGE_CAP=0 env "$@" timeout 120 bash "$RP" "$RN" >/dev/null 2>&1 ); }
@@ -129,7 +129,7 @@ eff="$(OVN_IMPL_CREDIT_REQUIRE_VERIFY=enforce; eval "$(sed -n '/^STRICT_MODE=/,/
 ok "R2c enforce is still accepted" "$([ "$eff" = enforce ] && echo 1 || echo 0)"
 
 # --- 3. trailer importer guard for non-.gd files: only import-style references count; tests/ exempt
-rm -rf "$T/r3"; mkdir -p "$T/r3/src" "$T/r3/tests" "$T/r3/web" "$T/r3/notes" "$T/r3/pkg"; cd "$T/r3" || exit 1; git init -q -b main .
+rm -rf "${T:?}/r3"; mkdir -p "$T/r3/src" "$T/r3/tests" "$T/r3/web" "$T/r3/notes" "$T/r3/pkg"; cd "$T/r3" || exit 1; git init -q -b main .
 printf 'def f():\n    return 1\n' > src/utils.py
 printf 'from src import utils\nprint(utils.f())\n' > src/app.py
 printf 'x = "see utils for details"\nprint(x)\n' > notes/readme_helper.py
@@ -158,7 +158,7 @@ ok "R3f (scope) the deterministic executor keeps the broad word scan: its check 
 # --- 4 (canon case) is covered in test_twin_credit_dedupe.sh Q6/Q7
 
 # --- 5. sidecar filters / kill switches of the importer scan and companions
-rm -rf "$T/r5"; mkdir -p "$T/r5/art" "$T/r5/lib"; cd "$T/r5" || exit 1; git init -q -b main .
+rm -rf "${T:?}/r5"; mkdir -p "$T/r5/art" "$T/r5/lib"; cd "$T/r5" || exit 1; git init -q -b main .
 printf 'png' > art/tile.png; printf '[remap]\nsource_file="res://art/tile.png"\nimport tile.png\n' > art/tile.png.import
 printf 'x=1\n' > lib/helper.py; printf 'import helper\n' > lib/other.gd.uid
 git add -A; git commit -q -m base

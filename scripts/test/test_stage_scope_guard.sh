@@ -41,7 +41,7 @@ scope_extra_files(){ # $1=worktree $2=item-text $3=declared-files(space-sep) -> 
   echo "$_extra"
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 ( cd "$tmp" || exit 1; git init -q && git config user.email t@t && git config user.name t
   echo base > foo.py && git add -A && git commit -q -m base )
 

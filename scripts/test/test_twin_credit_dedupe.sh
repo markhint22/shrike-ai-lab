@@ -17,7 +17,7 @@ CI="$S/ovn_credit_items.py"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 sedi(){ if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
-W="$(mktemp -d)"; trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$W"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 canon(){ printf '%s\n' "$1" > "$W/c.md"; python3 "$CI" canon "$W/c.md" 1; }
 
@@ -200,7 +200,7 @@ RESP
   FEAT='Add the model feature to the game'
   SLUG="$(printf '%s' "$FEAT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40)"
   setup_pl(){
-    rm -rf "$WD/repos/xl" "$WD/state"; mkdir -p "$WD/repos/xl/scripts"; (cd "$WD/repos/xl" && git init -q . && git config user.email t@t && git config user.name t && echo 'extends Node' > scripts/a.gd && git add -A && git commit -q -m base)
+    rm -rf "${WD:?}/repos/xl" "${WD:?}/state"; mkdir -p "$WD/repos/xl/scripts"; (cd "$WD/repos/xl" && git init -q . && git config user.email t@t && git config user.name t && echo 'extends Node' > scripts/a.gd && git add -A && git commit -q -m base)
     : > "$WD/logs/ovn_planner.log"
     printf '# backlog\n' > "$WD/backlog/xl.md"; printf '# roadmap\n- [ ] [P2] [ready] %s\n' "$FEAT" > "$WD/roadmap/xl.md"
     printf '## Next Steps\n- [x] (already-done, scout-verified) [T1] scripts/model_one.gd — Add one. VERIFY: `grep -q one scripts/model_one.gd`. (cat:godot; multifile:no) [feat:xl-20200101-%s]\n' "$SLUG" > "$WD/repos/xl/OVERNIGHT_PROGRESS.md"

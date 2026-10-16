@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../ovn_credit_already_satisfied.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/ovn_credit_already_satisfied.sh"
 [ -f "$SCRIPT" ] || { echo "  SKIP: ovn_credit_already_satisfied.sh not found"; exit 0; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
 touch noverify_file.py   # target exists: the path gate (2026-09-30) only refuses a no-VERIFY credit whose target is wrong
 

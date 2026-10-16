@@ -30,7 +30,7 @@ extract_new_migration_path() {  # $1=prompt $2=top_progress_item
   printf '%s\n%s' "$1" "$2" | grep -oE '[A-Za-z0-9_./-]*alembic/versions/[A-Za-z0-9_]+\.py' | head -1
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp" || exit 1
 mkdir -p iptv-backend/alembic/versions
 : > iptv-backend/alembic/versions/0006_referrals.py   # an existing migration, must never be touched

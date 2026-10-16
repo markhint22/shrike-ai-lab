@@ -61,16 +61,28 @@ def run_gold_gate(row, rd, live_model):
     if gate == "none" or gate.startswith("pending:"):
         return None
     if gate.startswith("landing:"):
-        script = os.path.join(HERE, "..", "scripts", gate.split(":", 1)[1] + ".py")
+        # landing:<check>            -> scripts/<check>.py <worktree-at-head>   (check-only, unchanged)
+        # landing:<lib>:<mode>       -> scripts/<lib>.py <mode> --repo <worktree> --before base --after head   (2026-10-16: G9 dep-removal)
+        parts = gate.split(":")
+        name, mode = parts[1], (parts[2] if len(parts) > 2 else "")
+        script = os.path.join(HERE, "..", "scripts", name + ".py")
         if not os.path.isfile(script):
-            return {"verdict": "UNVERIFIED", "summary": "landing check %s not present" % gate.split(":", 1)[1], "details": {}}
+            return {"verdict": "UNVERIFIED", "summary": "landing check %s not present" % name, "details": {}}
         with qc.worktree(rd, row["head"]) as wt:
             if not wt:
                 return {"verdict": "UNVERIFIED", "summary": "could not create worktree at head", "details": {}}
-            rc, so, se = qc.run([sys.executable, script, wt], timeout=120, polite=True)
+            if mode:
+                # OVN_DEP_GATE=enforce: the lib's default 'shadow' always exits 0, which would make a real FAIL look like a PASS here
+                cmd = [sys.executable, script, mode, "--repo", wt, "--before", row["base"], "--after", row["head"]]
+                rc, so, se = qc.run(cmd, timeout=120, polite=True, env={"OVN_DEP_GATE": "enforce"})
+            else:
+                rc, so, se = qc.run([sys.executable, script, wt], timeout=120, polite=True)
         if rc == 124 or rc == 127:
             return {"verdict": "UNVERIFIED", "summary": "landing check could not run (rc=%d)" % rc, "details": {}}
-        return {"verdict": "FAIL" if rc == 1 else ("PASS" if rc == 0 else "UNVERIFIED"), "summary": (so + se).strip()[:160], "details": {}}
+        out = (so + se).strip()
+        if mode and rc == 0 and " UNVERIFIED: " in out:   # the lib exits 0 on infra trouble; never report that as a PASS
+            return {"verdict": "UNVERIFIED", "summary": out[:160], "details": {}}
+        return {"verdict": "FAIL" if rc == 1 else ("PASS" if rc == 0 else "UNVERIFIED"), "summary": out[:160], "details": {}}
     script = os.path.join(HERE, "gate_%s.py" % gate)
     if not os.path.isfile(script):
         return {"verdict": "UNVERIFIED", "summary": "no gate script gate_%s.py" % gate, "details": {}}

@@ -34,7 +34,7 @@ is_build_gate_triggered(){ # $1=task_log
   grep -E "$_BUILD_BREAK_POS_RE" "$1" | grep -vE "$_BUILD_BREAK_NEG_RE" | grep -q .
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 # ---- 1. real-shaped case confirmed live: plain test-ASSERTION failure, only the
 #      generic Gradle banner as a POS signal, no compile-specific diagnostic ----

@@ -17,7 +17,7 @@ bad(){ fail=$((fail+1)); echo "  FAIL $1"; }
 chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 STUB="$T/stub"; mkdir -p "$STUB"; CURLLOG="$T/curl.log"
 cat > "$STUB/curl" <<EOF
 #!/bin/bash
@@ -27,7 +27,7 @@ EOF
 chmod +x "$STUB/curl"
 W="$T/w/overnight-queue"; OUTC="$W/state/outcomes.jsonl"; LOG="$W/logs/ovn_batch_scorecard.log"
 setup(){
-  rm -rf "$T/w" "$CURLLOG"; mkdir -p "$W"/{scripts,state,logs}
+  rm -rf "${T:?}/w" "$CURLLOG"; mkdir -p "$W"/{scripts,state,logs}
   sed "s|^export PATH=.*|export PATH=\"$STUB:/usr/bin:/bin\"|" "$SH" > "$W/scripts/ovn_batch_scorecard.sh"
   cp "$PY" "$W/scripts/ovn_batch_scorecard.py"
 }

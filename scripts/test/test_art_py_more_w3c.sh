@@ -16,7 +16,7 @@ for c in "${OVN_ART_PY:-}" "$REAL_HOME/aider-venv/bin/python" "$REAL_HOME"/overn
   if "$c" -c 'import numpy, PIL.Image' 2>/dev/null; then PYX="$c"; break; fi
 done
 [ -n "$PYX" ] || { echo "  SKIP: no python with numpy+PIL"; exit 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 # a venv python does not see coverage.py; expose JUST the coverage package so the runner's sitecustomize can trace it
 mkdir -p "$T/covlink"; CP="$(python3 -c 'import coverage,os;print(os.path.dirname(coverage.__file__))' 2>/dev/null)"
 [ -n "$CP" ] && ln -s "$CP" "$T/covlink/coverage"

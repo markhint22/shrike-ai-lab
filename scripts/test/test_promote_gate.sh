@@ -13,7 +13,7 @@ P2P="${OVN_PROMOTE_TO_PROD:-$OQ/promote_to_prod.sh}"; DPR="${OVN_DAILY_PROMOTE:-
 PYB="$(command -v python3.12 || command -v python3)"; [ -n "$PYB" ] || { echo "  SKIP: no python3"; exit 0; }
 pass=0; fail=0
 ck(){ if eval "$2" >/dev/null 2>&1; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export HOME="$T/home"; Q="$HOME/overnight-queue"; OUT="$T/out.log"
 # macOS has no timeout(1) and the promote script calls it: a pass-through shim (only when the real one is missing) keeps this test runnable on the Mac.
@@ -25,7 +25,7 @@ EXTRA=()
 GREEN="chore(overnight): reconcile overnight/feature into develop (branch-hygiene, gate=tests-green)"
 
 setup(){  # fresh fake tree with the REAL qa helpers copied in (what the box has under ~/overnight-queue/qa)
-  rm -rf "$T/home" "$T/origin" "$T/seed"; mkdir -p "$Q/state" "$Q/scripts" "$Q/qa" "$Q/repos" "$T/origin" "$T/seed"
+  rm -rf "${T:?}/home" "${T:?}/origin" "${T:?}/seed"; mkdir -p "$Q/state" "$Q/scripts" "$Q/qa" "$Q/repos" "$T/origin" "$T/seed"
   for f in qa_common release_candidate staging_check promote_gate qa_timeout; do cp "$QA/$f.py" "$Q/qa/"; done
   cp "$P2P" "$Q/promote_to_prod.sh"; : > "$T/curl.log"; EXTRA=()
   printf 'import sys\nsys.exit(0)\n' > "$Q/scripts/check_migrations.py"
@@ -113,7 +113,7 @@ ck "enforce+corrupt snapshot file: unusable evidence for a staged repo => BLOCKE
 setup; mkrepo app green; EXTRA=(OVN_QA_STAGING_CHECK=enforce); snap app "SUCCESS:$(sha app main)"; printf 'import sys\nsys.exit(3)\n' > "$Q/qa/promote_gate.py"; benign "helper crashes (exit 3, no output)"
 setup; mkrepo app green; EXTRA=(OVN_QA_STAGING_CHECK=enforce); snap app "SUCCESS:$(sha app main)"; printf 'print("garbage")\n' > "$Q/qa/promote_gate.py"; benign "helper prints garbage"
 setup; mkrepo app green; EXTRA=(OVN_QA_STAGING_CHECK=enforce); snap app "SUCCESS:$(sha app main)"; printf 'import time\ntime.sleep(30)\n' > "$Q/qa/promote_gate.py"; EXTRA+=(OVN_PROMOTE_GATE_TIMEOUT=2); benign "helper hangs (bounded by qa_timeout)"
-setup; mkrepo app green; EXTRA=(OVN_QA_STAGING_CHECK=enforce); snap app "SUCCESS:$(sha app main)"; rm -rf "$Q/qa"; benign "qa/ dir absent entirely (older checkout)"
+setup; mkrepo app green; EXTRA=(OVN_QA_STAGING_CHECK=enforce); snap app "SUCCESS:$(sha app main)"; rm -rf "${Q:?}/qa"; benign "qa/ dir absent entirely (older checkout)"
 ck "no qa/ dir: no evidence lines, output unchanged" "! has '[staging-gate]'"
 setup; mkrepo app green; EXTRA=(OVN_QA_STAGING_CHECK=off); snap app "SUCCESS:$(sha app main)"; benign "mode=off"
 # --force overrides an enforced block (a human decision), loudly

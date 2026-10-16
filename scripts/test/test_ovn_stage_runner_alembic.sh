@@ -105,7 +105,7 @@ o_tree()  { git -C "$O" ls-tree -r --name-only overnight/feature; }
 o_migs()  { o_tree | grep -c '^backend/alembic/versions/.*\.py$'; }
 o_prog()  { osr_origin_file OVERNIGHT_PROGRESS.md; }
 chain_ok(){  # materialise origin's tree and run the repo-agnostic chain check the MIGRATION-SAFETY gate uses
-  local d; d="$(mktemp -d "$T/chk.XXXX")"; git -C "$O" archive overnight/feature backend/alembic | tar -x -C "$d"
+  local d; d="$(mktemp -d "$T/chk.XXXX")" || exit 1; git -C "$O" archive overnight/feature backend/alembic | tar -x -C "$d"
   python3 "$REALQ/scripts/check_migrations.py" "$d/backend" >/dev/null 2>&1; }
 
 echo "== A: model-only staged step -> migration generated in the same run, verified + pushed with it"

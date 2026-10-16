@@ -9,7 +9,7 @@ LIBDIR="${OVN_LIB_DIR:-$HERE/..}"
 [ -f "$LIBDIR/lib_verify_clause.sh" ] || { echo "  SKIP: lib_verify_clause.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT; tmp="$(cd "$tmp" && pwd -P)"
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT; tmp="$(cd "$tmp" && pwd -P)"
 mkdir -p "$tmp/work/app"
 printf 'class ParentalControlsService:\n    pass\n' > "$tmp/work/app/pc.py"
 it(){ printf -- '- [ ] [T4] app/pc.py — Remove it. VERIFY: %s (cat:refactor; multifile:yes)' "$1"; }

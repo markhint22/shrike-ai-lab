@@ -23,7 +23,7 @@ osr_summary(){ echo; echo "$pass passed, $fail failed ($warn known-bug warnings)
 _osr_stub(){ printf '%s\n' "$2" > "$1"; chmod +x "$1"; }
 
 osr_new(){   # build a fresh fake tree. sets T H Q O RD
-  T="$(mktemp -d)"; H="$T/home"; Q="$H/overnight-queue"; O="$T/origin.git"; RD="$Q/repos/$OSR_REPO"
+  T="$(mktemp -d)" || exit 1; H="$T/home"; Q="$H/overnight-queue"; O="$T/origin.git"; RD="$Q/repos/$OSR_REPO"
   mkdir -p "$Q/scripts" "$Q/state" "$Q/logs" "$Q/assets" "$H/aider-venv/bin" "$H/godot" "$T/scn" "$T/llm" "$Q/repos"
   cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$REALQ/scripts/lib_gut_xml.sh" "$REALQ/scripts/lib_new_tests.sh" "$Q/scripts/"
   cp "$REALQ/ovn_classify_fail.sh" "$Q/"

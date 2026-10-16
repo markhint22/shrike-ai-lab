@@ -16,7 +16,7 @@ ESC_PIN=(OVN_AR_MAX_PER_DAY=2 OVN_AR_MAX_PER_RUN=2 'OVN_AR_REPOS=iptv_apps xlite
 esc_run(){ ar_run "${ESC_PIN[@]}" "$@"; }   # the pins come before the scenario's own VAR=val args, and env applies the later assignment, so a scenario can still override a pin
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-MT="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
+MT="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
 META='{cat: backend; size: S; multifile: no; research: repo}'
 TODAY="$(date +%F)"; YESTERDAY="$(python3 -c 'import time;print(time.strftime("%Y-%m-%d", time.localtime(time.time()-86400)))')"
 

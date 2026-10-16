@@ -9,7 +9,7 @@ P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
 [ -f "$SCRIPT" ] || { echo "SKIP: no script"; echo "ovn_feature_groups_more: 0 passed, 0 failed"; exit 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/repos/aa" "$T/repos/bb" "$T/repos/nobl" "$T/backlog" "$T/state" "$T/roadmap" "$T/repos/afile.txt"
 export OVN_QUEUE_DIR="$T" OVN_REPOS_DIR="$T/repos" OVN_BACKLOG_DIR="$T/backlog" OVN_TASK_STATS="$T/state/task_stats.log" OVN_ROADMAP_DIR="$T/roadmap"
 slug="aa-20260101-ship-the-widget-feature-now-please-ok-wh"

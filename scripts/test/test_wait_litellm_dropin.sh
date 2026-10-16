@@ -11,7 +11,7 @@ for c in "${WAIT_CONF:-/nonexistent}" "$OQ/../../docs/patches/overnight-queue.se
 TO="$(command -v timeout || command -v gtimeout || true)"
 P=0; F=0; QUIET=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); [ "$QUIET" = 1 ] || echo "  FAIL: $1"; fi; }
-T="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 # check_conf FILE LABEL : every property of the drop-in
 check_conf(){

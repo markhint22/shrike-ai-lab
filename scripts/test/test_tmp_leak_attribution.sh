@@ -8,7 +8,7 @@ LIB="$HERE/lib_tmp_isolation.sh"
 [ -f "$LIB" ] || { echo "  FAIL: $LIB missing"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 . "$LIB"
 ROOT="$T/base/run.4242"; mkdir -p "$ROOT"
 mkdir -p "$ROOT/bigleak.AbCdEf"; for i in $(seq 1 50); do : > "$ROOT/bigleak.AbCdEf/f$i"; done

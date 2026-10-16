@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 FS=""
 for c in "$HERE/../../fleet_stats.py" "$HERE/../fleet_stats.py" "$HERE/fleet_stats.py"; do [ -f "$c" ] && { FS="$(cd "$(dirname "$c")" && pwd)/$(basename "$c")"; break; }; done
 [ -n "$FS" ] || { echo "  SKIP: fleet_stats.py not found"; exit 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin"
 cat > "$T/bin/docker" <<'EOF'
 #!/usr/bin/env bash

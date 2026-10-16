@@ -32,7 +32,7 @@ write_stage_task_stats(){ # $1=jsonl $2=repo $3=pushed-count $4=out-file
   printf '%s\t%s\t%s\t%s\t%s\n' "111" "$repo" "$_stage_oc" "$_stage_tag" "${_stage_file:-?}" >> "$out"
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 jsonl="$tmp/gitlark-run.jsonl"
 cat > "$jsonl" <<'JEOF'
 {"run":"r1","repo":"gitlark","tier":5,"item":"[T5] web/src/pages/Foo.spec.ts — do a thing. VERIFY: npx vitest run. (cat:test; multifile:no)","event":"decomposed","steps":1}

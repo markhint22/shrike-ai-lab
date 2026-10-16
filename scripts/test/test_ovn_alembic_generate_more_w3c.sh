@@ -10,7 +10,7 @@ REAL_HOME="$HOME"
 export PYTHONDONTWRITEBYTECODE=1
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"
 
 # ----------------------------------------------------------------- alembic half
@@ -21,7 +21,7 @@ for c in "${OVN_TEST_PY:-}" "$REAL_HOME"/overnight-queue/repos/*/.venv/bin/pytho
   if "$c" -c 'import alembic, sqlalchemy; from alembic import command; command.check' 2>/dev/null; then PYX="$c"; break; fi
 done
 mkproj() {  # $1 = extra env.py snippet run inside run()
-  local P; P="$(mktemp -d "$T/p.XXXXXX")"; mkdir -p "$P/app" "$P/alembic/versions"
+  local P; P="$(mktemp -d "$T/p.XXXXXX")" || exit 1; mkdir -p "$P/app" "$P/alembic/versions"
   printf '[alembic]\nscript_location = alembic\nprepend_sys_path = .\n' > "$P/alembic.ini"
   : > "$P/app/__init__.py"
   cat > "$P/app/models.py" <<'PY'

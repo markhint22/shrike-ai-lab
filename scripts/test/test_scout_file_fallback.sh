@@ -33,7 +33,7 @@ ok "fallback only fires when FILE_ARGS is empty (never overrides a real scout fi
 # --- B: the identifier-grep logic, extracted verbatim in spirit, must resolve a
 # backtick-quoted function name in item text to its REAL defining file even when
 # the scout guessed a different, nonexistent one ---
-TMPD="$(mktemp -d)"
+TMPD="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPD"' EXIT
 cd "$TMPD" || exit 1
 mkdir -p app/models tests

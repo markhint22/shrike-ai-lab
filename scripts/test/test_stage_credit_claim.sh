@@ -10,7 +10,7 @@ RUN="$HERE/../../run_overnight.sh"
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 . "$LIB"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 L="$T/state/stage_credited.ledger"
 A="$T/state/stage_runs/gitlark-20261013-190400.jsonl"
 B="$T/state/stage_runs/gitlark-20261014-010000.jsonl"

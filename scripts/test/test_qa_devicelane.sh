@@ -16,7 +16,7 @@ ok() { if [ "$2" = 1 ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fa
 b() { if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
 
 PRE_BUILD_DIRS="$(ls -d /tmp/qa-dl-build.* 2>/dev/null)"   # a real lane run may be building concurrently; only NEW leftovers count
-T="$(mktemp -d /tmp/qa-dl-test.XXXXXX)"
+T="$(mktemp -d /tmp/qa-dl-test.XXXXXX)" || exit 1
 SERVER_PIDS=""
 # 2026-10-02: per-run random emulator console port (even) and AVD name, like the appium port: a fixed 5598 + the default qa_api34 AVD made two
 # concurrent suite runs (run_all.sh + test-watch) - or a suite run next to a real lane run - collide on emulator-$EMU_PORT / each other's AVD sweep.
@@ -144,7 +144,7 @@ printf 'CHICK_EMAIL=free@example.test\nCHICK_PASSWORD=%s\nCHICK_PREMIUM_EMAIL=pr
 chmod 600 "$T/creds.env"; echo "$SECRET" >"$T/secret"
 
 set_spec() { printf '#!/usr/bin/env bash\n%s\n' "$2" >"$REPO/iptv-android/e2e/tests/$1.test.mjs"; (cd "$REPO" || exit 1; git add -A >/dev/null 2>&1; git commit -qm "spec $1" --allow-empty >/dev/null 2>&1; git update-ref refs/remotes/origin/develop HEAD); }
-reset_specs() { for s in alpha beta gamma; do set_spec "$s" "echo running $s; exit 0"; done; rm -f "$T/emu.starts" "$T/crash" "$T/install_fail" "$T/emu_noboot" "$T/emu_up" "$T/emu.pid" "$T/appium.pid" "$T/appium.starts" "$T/flaky.marker"; rm -rf "$T/ovn/state/qa_devicelane" "$T/ovn/state/qa_shadow"; }
+reset_specs() { for s in alpha beta gamma; do set_spec "$s" "echo running $s; exit 0"; done; rm -f "$T/emu.starts" "$T/crash" "$T/install_fail" "$T/emu_noboot" "$T/emu_up" "$T/emu.pid" "$T/appium.pid" "$T/appium.starts" "$T/flaky.marker"; rm -rf "${T:?}/ovn/state/qa_devicelane" "${T:?}/ovn/state/qa_shadow"; }
 
 # run the lane exactly as cron would: env -i, minimal PATH, cwd = $HOME-like dir, NTFY_SERVER set
 lane() {  # lane <script-invocation> [extra env KEY=VAL ...] -- [args]
@@ -330,7 +330,7 @@ out="$(se --check)"; rc=$?
 ok "provisioned fake lane -> ready=true rc 0" "$([ $rc = 0 ] && [ "$(echo "$out" | field ready)" = True ] && echo 1 || echo 0)"
 out="$(se --check)"; rc=$?
 ok "re-run is idempotent" "$([ $rc = 0 ] && [ "$(echo "$out" | field ready)" = True ] && echo 1 || echo 0)"
-rm -rf "$SDK/system-images"; out="$(se --check)"; rc=$?
+rm -rf "${SDK:?}/system-images"; out="$(se --check)"; rc=$?
 ok "missing system image -> ready=false rc 1, names the package" "$([ $rc = 1 ] && [ "$(echo "$out" | field ready)" = False ] && echo "$out" | field missing | grep -q 'system-images' && echo 1 || echo 0)"
 mkdir -p "$SDK/system-images/android-34/google_apis/x86_64"; : >"$SDK/system-images/android-34/google_apis/x86_64/system.img"
 out="$( ( cd "$T/home" && env -i HOME="$T/home" DL_AVD=$TAVD PATH=/usr/bin:/bin:"$FAKE" DL_FAKE_KVM=0 "$SE" --check 2>/dev/null ) )"; rc=$?
@@ -343,7 +343,7 @@ ok "bad usage -> rc 2" "$([ $rc = 2 ] && echo 1 || echo 0)"
 echo "== 14. build_apk.sh: cache + unpatchable layout"
 BA="$LANE/build_apk.sh"
 ba() { ( cd "$T/home" && env -i HOME="$T/home" PATH=/usr/bin:/bin ANDROID_HOME="$SDK" "$BA" "$@" 2>/dev/null ); }
-rm -rf "$T/bout"
+rm -rf "${T:?}/bout"
 j1="$(ba --repo-dir "$REPO" --ref origin/develop --api-base http://x.test --out "$T/bout" | tail -1)"
 j2="$(ba --repo-dir "$REPO" --ref origin/develop --api-base http://x.test --out "$T/bout" | tail -1)"
 ok "first build ok, uncached" "$(echo "$j1" | grep -q '"cached":false' && echo 1 || echo 0)"
@@ -649,13 +649,13 @@ pkill -KILL -f "fwd-probe-$TAVD" 2>/dev/null; wait "$FP" 2>/dev/null
 ok "benign: dl_timeout_fwd still times out with rc 124" "$([ $rc = 124 ] && echo 1 || echo 0)"
 ( . "$LANE/lane_env.sh"; dl_timeout_fwd 10 bash -c 'exit 7' ); rc=$?
 ok "benign: dl_timeout_fwd passes the command's exit code through" "$([ $rc = 7 ] && echo 1 || echo 0)"
-reset_specs; touch "$T/gradle_slow"; rm -rf "$T/ovn/state/qa_devicelane/apk"
+reset_specs; touch "$T/gradle_slow"; rm -rf "${T:?}/ovn/state/qa_devicelane/apk"
 t0=$(date +%s)
 out="$(lane "$RN" DL_OVERALL_TIMEOUT=6 -- )"; el=$(( $(date +%s) - t0 ))
 ok "overall cap hit during the build -> UNVERIFIED, ended near the cap" "$([ "$(echo "$out" | field verdict)" = UNVERIFIED ] && [ "$el" -lt 40 ] && echo 1 || echo 0)"
 ok "the hung gradle (grandchild of build_apk under timeout) is gone, not leaked" "$(pgrep -f "fake-gradle-$TAVD" >/dev/null && echo 0 || echo 1)"
 pkill -KILL -f "fake-gradle-$TAVD" 2>/dev/null
-rm -f "$T/gradle_slow"; rm -rf "$T/ovn/state/qa_devicelane/apk"; reset_specs
+rm -f "$T/gradle_slow"; rm -rf "${T:?}/ovn/state/qa_devicelane/apk"; reset_specs
 out="$(lane "$RN" -- )"
 ok "benign: with a normal gradle the build still succeeds and the run PASSes" "$([ "$(echo "$out" | field verdict)" = PASS ] && echo 1 || echo 0)"
 
@@ -720,7 +720,7 @@ ok "every section above ran against the stub emulator (the SDK emulator is the f
 if [ "${DL_REAL_EMULATOR_TEST:-0}" = 1 ]; then
   echo "  (DL_REAL_EMULATOR_TEST=1: ONE bounded real KVM boot + verified teardown)"
   REAL_OUT="$( ( export DL_EMU_PORT="${DL_REAL_PORT:-5590}" DL_BOOT_TIMEOUT="${DL_REAL_BOOT_TIMEOUT:-300}"; unset ANDROID_HOME ANDROID_SDK_ROOT DL_FAKE_KVM QA_DL_HOME; . "$LANE/lane_env.sh"
-      P="$(mktemp -d /tmp/qa-dl-real.XXXXXX)"
+      P="$(mktemp -d /tmp/qa-dl-real.XXXXXX)" || exit 1
       start_emulator "$P/emu.pid" "$P/emu.log"; rc=$?; echo "boot_rc=$rc boot_s=${DL_BOOT_SECONDS:-0}"
       # evidence BEFORE teardown: a failed boot must be diagnosable from this output alone (the first real attempt, 2026-10-02, timed out and its log was gone)
       [ "$rc" = 0 ] || { echo "--- emulator.log tail ---"; tail -25 "$P/emu.log" 2>&1; echo "--- adb devices ---"; "$ADB" devices 2>&1; echo "--- qemu cpu ---"; ps -eo pid,pcpu,etime,args 2>/dev/null | grep "[-]avd $DL_AVD" | cut -c1-160; }

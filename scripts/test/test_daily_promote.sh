@@ -14,6 +14,8 @@
 # intercepted with a fake curl on PATH (avoids any real network call here).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# 2026-10-16: fail-closed sandbox helpers (a failed mktemp must abort, never turn HOME into /home and rm -rf it)
+. "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
 if [ -n "${OVN_DAILY_PROMOTE:-}" ]; then
   G="$OVN_DAILY_PROMOTE"
 else
@@ -25,8 +27,8 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || { echo "  FAIL: cannot create a safe temp dir - aborting before touching anything"; exit 1; }
+trap 'safe_rm_rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -38,8 +40,8 @@ export PATH="$tmp/bin:$PATH"
 export NTFY_TOPIC="shrike_dailypromote_selftest_ignore"
 
 reset_env(){
-  export HOME="$tmp/home"
-  rm -rf "$HOME"; mkdir -p "$HOME/overnight-queue/repos"
+  safe_set_sandbox_home "$tmp" || exit 1
+  safe_rm_rf "$HOME" || exit 1; mkdir -p "$HOME"; mkdir -p "$HOME/overnight-queue/repos"
   export FAKE_CURL_LOG="$tmp/curl.log"; export FAKE_PROMOTE_LOG="$tmp/promote.log"
   : > "$FAKE_CURL_LOG"; : > "$FAKE_PROMOTE_LOG"
   # fake promote_to_prod.sh: behavior keyed off the repo dir name, mirroring the real

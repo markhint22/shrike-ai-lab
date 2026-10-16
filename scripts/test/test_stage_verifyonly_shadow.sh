@@ -7,7 +7,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 unset OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP OVN_STAGE_VERIFYONLY_PREFLIGHT OVN_STAGE_ITEM_VERIFY OVN_STAGE_IV_SHADOW_LOG OVN_STAGE_VERIFYONLY_LOG NTFY_SERVER NTFY_TOPIC
-W="$(mktemp -d)"; trap 'rm -rf "$W"; osr_cleanup' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"; osr_cleanup' EXIT
 sed -n '/^# >>> n4-stage-waste helpers: verify-only preflight/,/^# <<< n4-stage-waste helpers: verify-only preflight/p' "$RUNNER" > "$W/h.sh"
 [ -s "$W/h.sh" ] || { echo "  FAIL: verify-only helper block not found in $RUNNER"; exit 1; }
 # shellcheck disable=SC1091

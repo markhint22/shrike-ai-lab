@@ -20,7 +20,7 @@ P=0; F=0
 # assertions run with pipefail OFF (x | grep -q is flaky under pipefail: SIGPIPE rc 141)
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-T="$(cd "$(mktemp -d)" && pwd -P)"
+T="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
 trap 'rm -rf "$T"' EXIT
 W="$T/world"; mkdir -p "$W"
 

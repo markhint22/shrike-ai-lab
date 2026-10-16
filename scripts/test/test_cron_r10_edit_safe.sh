@@ -14,7 +14,7 @@ fi
 for t in flock timeout git python3 nice; do command -v $t >/dev/null 2>&1 || { echo "  SKIP: no $t"; exit 0; }; done
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 mktree(){ # <name> -> tree $T/<name> shaped like the checkout: scripts/test/test_cron_r10.sh, scripts/<tools>, docs/patches/cron-r10.txt
   local d="$T/$1"; mkdir -p "$d/scripts/test" "$d/docs/patches"
   for f in lib_verify_clause.sh lib_gut_xml.sh lib_worktree.sh ovn_spec_check.sh ovn_spec_gate.py ovn_spec_rules.py ovn_spec_classify.py ovn_backlog_eligibility.py ovn_mutation_supply.py ovn_log_cap.sh; do cp "$SRC/$f" "$d/scripts/" 2>/dev/null; done

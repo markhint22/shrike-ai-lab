@@ -6,9 +6,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$HERE/../ovn_log_cap.sh"; [ -f "$TOOL" ] || { echo "  SKIP: ovn_log_cap.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 mkq(){  # fresh fixture: logs/big.log (80000 lines ~ 2.4MB), logs/small.log, state/x, repos/r/x.log (must never be touched)
-  rm -rf "$T/q"; mkdir -p "$T/q/logs" "$T/q/state" "$T/q/repos/r"
+  rm -rf "${T:?}/q"; mkdir -p "$T/q/logs" "$T/q/state" "$T/q/repos/r"
   i=0; seq 1 80000 | sed 's/^/gate output line number /' > "$T/q/logs/big.log"
   seq 1 10 > "$T/q/logs/small.log"; echo keep > "$T/q/state/x.log"; seq 1 40000 > "$T/q/repos/r/x.log"
   cp "$T/q/logs/big.log" "$T/big.orig"; cp "$T/q/repos/r/x.log" "$T/repos_x.orig"
@@ -56,7 +56,7 @@ ok "dry run does not remove old gate files, it says it would" "$([ -e "$T/q/logs
 
 echo "== edge cases"
 mkq; run env OVN_LOG_CAP_MB=abc OVN_LOG_KEEP_LINES=-5 bash "$TOOL" --apply; ok "non-numeric knobs fall back to defaults (20MB/20000 lines): the 2.4 MB log is under the cap and untouched" "$(cmp -s "$T/q/logs/big.log" "$T/big.orig" && echo 1 || echo 0)"
-mkq; rm -rf "$T/q/logs"; run tool --apply; ok "missing logs/ dir is a clean no-op (exit 0)" "$([ "$(cat "$T/rc")" = 0 ] && echo 1 || echo 0)"
+mkq; rm -rf "${T:?}/q/logs"; run tool --apply; ok "missing logs/ dir is a clean no-op (exit 0)" "$([ "$(cat "$T/rc")" = 0 ] && echo 1 || echo 0)"
 mkq; head -c 3000000 /dev/zero | tr '\0' 'x' > "$T/q/logs/longline.log"; run tool --apply
 ok "a huge log with fewer lines than KEEP is left alone (cannot be line-capped)" "$([ "$(wc -c < "$T/q/logs/longline.log" | tr -d ' ')" = 3000000 ] && grep -q 'left alone' "$T/out" && echo 1 || echo 0)"
 

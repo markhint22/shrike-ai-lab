@@ -27,7 +27,7 @@ if [ -z "$PYT" ]; then
   if [ -n "${OVN_REQUIRE_TOOLS:-}" ]; then echo "  FAIL pytest is required (OVN_REQUIRE_TOOLS set) but no python with pytest was found"; echo "0 passed, 1 failed"; exit 1; fi
   echo "  SKIP test_ovn_ghost_tests: pytest is genuinely absent here (set OVN_REQUIRE_TOOLS=1 to make that a failure)"; echo "0 passed, 0 failed"; exit 0
 fi
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"
 # remove ONLY the temporary worktrees of the given fixture dirs' clones (never a /tmp/wt-ghost-* glob: a real ovn_ghost_tests.py run uses the same prefix at the same time)
 rm_ghost_worktrees(){
   local fx c w
@@ -49,7 +49,7 @@ G(){ git -c advice.detachedHead=false "$@"; }
 
 # ---- fixture: a fresh OVN_DIR + bare origin + live clone per scenario --------------------------------------------------------------------------------
 mkfix(){ # scenarios run inside $(...) subshells, so every fixture gets its own mktemp dir (no counter that a subshell would lose)
-  F_ROOT="$(mktemp -d "$T/fx.XXXXXX")"; F_REPO="demo${F_ROOT##*.}"; F_OVN="$F_ROOT/ovn"; F_BARE="$F_ROOT/origin.git"; F_CLONE="$F_OVN/repos/$F_REPO"; F_SEED="$F_ROOT/seed"; F_OTHER="$F_ROOT/other"
+  F_ROOT="$(mktemp -d "$T/fx.XXXXXX")" || exit 1; F_REPO="demo${F_ROOT##*.}"; F_OVN="$F_ROOT/ovn"; F_BARE="$F_ROOT/origin.git"; F_CLONE="$F_OVN/repos/$F_REPO"; F_SEED="$F_ROOT/seed"; F_OTHER="$F_ROOT/other"
   mkdir -p "$F_OVN/repos" "$F_OVN/state" "$F_OVN/scripts"; cp "$LIBWT" "$F_OVN/scripts/"
   G init -q --bare "$F_BARE"; G -C "$F_BARE" symbolic-ref HEAD "refs/heads/$BR"
   G clone -q "$F_BARE" "$F_SEED" 2>/dev/null; G -C "$F_SEED" checkout -q -b "$BR"
@@ -194,7 +194,7 @@ sc_nopass(){ # no ghost passed but one would be deleted (the other two are undec
   [ "$RC" = 1 ] && [ "$(remote_sha)" = "$b" ] && case "$OUT" in *"ABORT"*) true;; *) false;; esac && [ "$(remote_has iptv-backend/app/jobs/test_fail.py)" = 1 ] && [ "$(nwt)" = 1 ] && echo 1 || { echo "$OUT" >&2; echo 0; }
 }
 sc_cleanup_scope(){ # the test's own cleanup removes the fixture's worktrees and NOTHING else under /tmp/wt-ghost-* (a concurrent real run's worktree must survive)
-  mkfix; local foreign own; foreign="$(mktemp -d /tmp/wt-ghost-realrun.XXXXXX)"; own="/tmp/wt-ghost-$F_REPO.leftover$$"
+  mkfix; local foreign own; foreign="$(mktemp -d /tmp/wt-ghost-realrun.XXXXXX)" || exit 1; own="/tmp/wt-ghost-$F_REPO.leftover$$"
   G -C "$F_CLONE" worktree add -q --detach "$own" HEAD 2>/dev/null
   local before_own=0 after_own=1 foreign_ok=0
   [ -d "$own" ] && before_own=1
@@ -238,7 +238,7 @@ sc_reloc(){
 
 # ---- mutants ----------------------------------------------------------------------------------------------------------------------------------------
 mutant(){ # old new  -> prints the path of a mutated copy (with lib_worktree.sh beside it); fails when the anchor is missing
-  local d; d="$(mktemp -d "$T/mut.XXXXXX")"; cp "$LIBWT" "$d/"
+  local d; d="$(mktemp -d "$T/mut.XXXXXX")" || exit 1; cp "$LIBWT" "$d/"
   "$PY3" - "$GH" "$d/ovn_ghost_tests.py" "$1" "$2" <<'PYEOF' || return 1
 import sys
 src, dst, old, new = sys.argv[1:5]

@@ -20,7 +20,7 @@ source "$LIB"
 FN_SRC="$(sed -n '/^record_outcome(/,/^}/p' "$R")"; [ -n "$FN_SRC" ] || { echo "  FAIL: could not extract record_outcome()"; exit 1; }
 eval "$FN_SRC"
 SCRIPT_DIR="$(cd "$(dirname "$R")" && pwd)"
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 STATE_DIR="$tmp/state"; mkdir -p "$STATE_DIR"
 
 # a progress file: line 1 '# progress'; the TOP open item (roster) is NOT what the cycles below work

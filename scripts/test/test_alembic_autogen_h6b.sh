@@ -21,7 +21,7 @@ for c in "${OVN_TEST_PY:-}" "$HOME"/overnight-queue/repos/*/.venv/bin/python "$H
   if "$c" -c 'import alembic, sqlalchemy; from alembic import command; command.check' 2>/dev/null; then PYX="$c"; break; fi
 done
 fail=0; ok(){ echo "  ok   - $1"; }; bad(){ echo "  FAIL - $1"; fail=1; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"; unset DATABASE_URL ANTHROPIC_API_KEY
 
 echo "C  credit helper (stdlib only - runs without alembic)"
@@ -149,7 +149,7 @@ PY
 }
 runpy() { local d="$1"; shift; ( cd "$d" && "$PYX" "$PYS" "$@" 2>&1 ); }
 nver() { ls "$1"/alembic/versions/*.py 2>/dev/null | wc -l | tr -d ' '; }
-newp() { P="$(mktemp -d "$T/p.XXXXXX")"; mkproj "$P"; write_model "$P" "$1"; }
+newp() { P="$(mktemp -d "$T/p.XXXXXX")" || exit 1; mkproj "$P"; write_model "$P" "$1"; }
 
 echo "M1 driver: NEGATIVE - each removal/alteration is refused ('needs a human'), no file left behind, rc 11"
 for v in idx_removed uq_removed fk_removed notnull typechg; do

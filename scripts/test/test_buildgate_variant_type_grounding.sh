@@ -33,7 +33,7 @@ ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/n
 # mirrors run_overnight.sh's own condition exactly: POS matches AND NOT NEG.
 is_build_break(){ printf '%s' "$1" | grep -E "$POS" | grep -vE "$NEG" | grep -q .; }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 # --- A: the exact live false-positive this fix closes — Dictionary base-object type ---
 log_dict="SCRIPT ERROR: Invalid access to property or key of type 'StringName' on a base object of type 'Dictionary'."

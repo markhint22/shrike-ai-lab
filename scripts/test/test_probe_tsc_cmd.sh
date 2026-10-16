@@ -10,7 +10,7 @@ ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((f
 kb(){ if [ "$2" = "1" ]; then echo "  ok   $1"; else echo "  WARN KNOWN-BUG: $1 (non-fatal)"; fi; }
 both(){ [ "$1" = 1 ] && [ "$2" = 1 ] && echo 1 || echo 0; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; W="$H/overnight-queue"; mkdir -p "$W" "$T/bin"
 LOG="$T/calls.log"
 cat > "$T/bin/timeout" <<X

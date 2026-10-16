@@ -6,8 +6,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 EX="$HERE/../ovn_delete_executor.py"; [ -f "$EX" ] || EX="$HERE/ovn_delete_executor.py"
 RO="$HERE/../../run_overnight.sh"; [ -f "$RO" ] || RO="$HERE/../run_overnight.sh"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-mkrepo(){ rm -rf "$T/r" "$T/origin.git"; git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/r" 2>/dev/null; cd "$T/r"; git config user.email t@t; git config user.name t
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+mkrepo(){ rm -rf "${T:?}/r" "${T:?}/origin.git"; git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/r" 2>/dev/null; cd "$T/r"; git config user.email t@t; git config user.name t
   mkdir -p app tests
   echo 'def dead_helper(): return 1' > app/dead_helper.py
   echo 'def live_helper(): return 2' > app/live_helper.py
@@ -45,7 +45,7 @@ run_block(){  # $1 = verification result the stub returns; echoes the block's st
   mkrepo; cd "$T/r"
   printf '## Next Steps\n- [ ] [T1] app/dead_helper.py — Delete this file and its dedicated test tests/test_dead_helper.py. (cat:python)\n' > OVERNIGHT_PROGRESS.md
   git add -A; git commit -q -m prog; git push -q origin main
-  rm -rf "$T/sd"; mkdir -p "$T/sd/scripts" "$T/sd/state"; cp "$EX" "$T/sd/scripts/"
+  rm -rf "${T:?}/sd"; mkdir -p "$T/sd/scripts" "$T/sd/state"; cp "$EX" "$T/sd/scripts/"
   cat > "$T/harness.sh" <<H
 set -u
 SCRIPT_DIR="$T/sd"; id="ongoing-testrepo"; branch=main; task_log="$T/task.log"; : > "\$task_log"

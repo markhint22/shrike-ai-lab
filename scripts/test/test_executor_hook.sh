@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; Q="$(cd "$HERE/../.." && pwd)"; RUN="$Q/run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"
@@ -74,7 +74,7 @@ mkrepo(){  # $1 name  $2 item line -> $R, $BEFORE, $TL ; with a bare origin
   mkdir -p docs; printf 'base\n' > docs/a.md; printf 'readme\n' > README.md
   printf '## Next Steps\n%s\n' "$2" > OVERNIGHT_PROGRESS.md
   git add -A; git commit -q -m init; git push -q origin main 2>/dev/null
-  BEFORE="$(git rev-parse HEAD)"; TL="$W/$1.log"; : > "$TL"; : > "$STUB_CALLS"; rm -rf "$OD/state/exec_failed"
+  BEFORE="$(git rev-parse HEAD)"; TL="$W/$1.log"; : > "$TL"; : > "$STUB_CALLS"; rm -rf "${OD:?}/state/exec_failed"
 }
 hook(){ ovn_executor_hook "$1" "$OD" "$R" "$2" main "$TL" "$BEFORE"; }
 
@@ -133,7 +133,7 @@ failcase f6 dirty
 ok "undeclared UNSTAGED edits (README.md) => reset, remembered, README.md restored" "[ \"\$(git rev-parse HEAD)\" = '$BEFORE' ] && [ -e '$OD/state/exec_failed/$HASH' ] && [ \"\$(cat README.md)\" = readme ]"
 failcase f7 nothing
 ok "APPLIED but nothing changed => reset, remembered" "[ \"\$(git rev-parse HEAD)\" = '$BEFORE' ] && [ -e '$OD/state/exec_failed/$HASH' ]"
-mkrepo f8 "$ITEM_DOC"; git -C "$W/f8.git" config receive.denyCurrentBranch ignore; rm -rf "$W/f8.git"; HASH2="$(ovn_item_hash "$ITEM_DOC")"
+mkrepo f8 "$ITEM_DOC"; git -C "$W/f8.git" config receive.denyCurrentBranch ignore; rm -rf "${W:?}/f8.git"; HASH2="$(ovn_item_hash "$ITEM_DOC")"
 OUT="$(OVN_DOC_EXECUTOR=on hook doc "$ITEM_DOC")"; RC=$?
 ok "push failure (origin gone) => rc 1, reset to BEFORE_SHA, remembered, no status" "[ $RC = 1 ] && [ -z '$OUT' ] && [ \"\$(git rev-parse HEAD)\" = '$BEFORE' ] && [ -e '$OD/state/exec_failed/$HASH2' ]"
 

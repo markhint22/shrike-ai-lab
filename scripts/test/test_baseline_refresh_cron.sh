@@ -13,7 +13,7 @@ ok(){ if [ "$2" = 1 ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fai
 T2(){ local l="$1"; if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then ok "$l" 1; else ok "$l" 0; fi; }   # snippet evaluated in THIS shell (helpers visible)
 t(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l" 1; else ok "$l" 0; fi; }
 PYB="$(command -v python3.12 || command -v python3)"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 OVN="$T/ovn"; mkdir -p "$OVN/qa" "$OVN/state" "$OVN/logs" "$OVN/repos" "$T/tmp"
 cp "$QAS/qa_common.py" "$QAS/baseline_verify.py" "$QAS/qa_timeout.py" "$QAS/baseline_refresh_cron.sh" "$OVN/qa/"
 chmod +x "$OVN/qa/baseline_refresh_cron.sh"

@@ -22,7 +22,7 @@ for f in promote_to_prod.sh daily_promote.sh staging_smoke.sh deploy_watch.sh qa
 PYB="$(command -v python3.12 || command -v python3)"; [ -n "$PYB" ] || { echo "  SKIP: no python3"; exit 0; }
 pass=0; fail=0
 ck(){ if eval "$2" >/dev/null 2>&1; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'cd /; rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'cd /; rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export HOME="$T/home"; Q="$HOME/overnight-queue"; OUT="$T/out.log"
 mkdir -p "$T/shim"; cd "$T"
@@ -33,7 +33,7 @@ EXTRA=()
 GREEN="chore(overnight): reconcile overnight/feature into develop (branch-hygiene, gate=tests-green)"
 
 setup(){
-  rm -rf "$T/home" "$T/origin" "$T/seed"; mkdir -p "$Q/state" "$Q/scripts" "$Q/qa" "$Q/repos" "$Q/logs" "$T/origin" "$T/seed"
+  rm -rf "${T:?}/home" "${T:?}/origin" "${T:?}/seed"; mkdir -p "$Q/state" "$Q/scripts" "$Q/qa" "$Q/repos" "$Q/logs" "$T/origin" "$T/seed"
   for f in qa_common release_candidate staging_check promote_gate qa_timeout prod_alembic_check promote_postcheck; do cp "$QA/$f.py" "$Q/qa/"; done
   cp "$QA/qa_enforce.sh" "$QA/qa_daily_shadow.sh" "$Q/qa/"
   cp "$OQ/promote_to_prod.sh" "$OQ/daily_promote.sh" "$OQ/staging_smoke.sh" "$Q/"; : > "$T/curl.log"; EXTRA=()
@@ -381,7 +381,7 @@ rec billwatch 0011; r="$(pac billwatch | jv)"
 ck "C-benign: prod already at head => PASS" "[ \"\${r%% *}\" = PASS ] && echo \"\$r\" | grep -q 'no pending'"
 rec billwatch zzz99; r="$(pac billwatch | jv)"
 ck "C-neg: prod revision not in the candidate history => FAIL (ahead / diverged)" "[ \"\${r%% *}\" = FAIL ] && echo \"\$r\" | grep -q 'NOT in the candidate'"
-rm -rf "$Q/state/prod_alembic"; r="$(pac billwatch | jv)"
+rm -rf "${Q:?}/state/prod_alembic"; r="$(pac billwatch | jv)"
 ck "C: no prod snapshot => UNVERIFIED (never FAIL)" "[ \"\${r%% *}\" = UNVERIFIED ]"
 rec billwatch 0009; "$PYB" -c "
 import json,time; p='$Q/state/prod_alembic/billwatch.json'; j=json.load(open(p)); j['fetched_at']=time.time()-200000; json.dump(j,open(p,'w'))"; r="$(pac billwatch | jv)"
@@ -390,7 +390,7 @@ setup; mkrepo plain; r="$(pac plain | jv)"
 ck "C: repo without alembic => NA" "[ \"\${r%% *}\" = NA ]"
 setup; mkrepo iptv_apps norev; rec iptv_apps 0010; r="$(pac iptv_apps | jv)"
 ck "C-neg: the 0011 incident (docstring-only migration, no revision) => FAIL even with a good prod snapshot" "[ \"\${r%% *}\" = FAIL ] && echo \"\$r\" | grep -q 'without a revision id' && echo \"\$r\" | grep -q 0011_c.py"
-rm -rf "$Q/state/prod_alembic"; r="$(pac iptv_apps | jv)"
+rm -rf "${Q:?}/state/prod_alembic"; r="$(pac iptv_apps | jv)"
 ck "C-neg: the structural FAIL needs no prod snapshot" "[ \"\${r%% *}\" = FAIL ]"
 # through the promote: shadow => WARN once per (repo, sha), promote STILL happens
 setup; mkrepo iptv_apps norev; snap iptv_apps "SUCCESS:$(sha iptv_apps develop)"; EXTRA=(OVN_POSTCHECK=off); runp --yes "$Q/repos/iptv_apps"
@@ -459,7 +459,7 @@ printf '#!/bin/sh\necho "CURL_CALL $*" >> "$FAKE_CURL_LOG"\nexit 0\n' > "$T/shim
 DW="$OQ/deploy_watch.sh"; FX="$T/fx"
 ck "E: ripple / social-media-manager / task-manager are no longer monitored" "! grep -qE '^(ripple|task-manager|social)[a-z-]*\\|' $DW && ! grep -qE '^[a-z-]+\\|(social-media-manager|task-manager-platform)\\|' $DW"
 ck "E: the 3 Railway STAGING services are in SURFACES (alert-only, fleet=0)" "[ \"\$(grep -cE '^[a-z]+-staging\\|[a-z_]+\\|.*\\|railway\\|[0-9a-f-]+:staging:[0-9a-f-]+\\|.*\\|0\$' $DW)\" = 3 ]"
-dwsetup(){ rm -rf "$T/dwhome" "$FX"; mkdir -p "$T/dwhome" "$FX"; unset RW_ST_STAGING RW_ST_PROD RW_SHA_STAGING RW_SHA_PROD RW_ID_STAGING RW_ID_PROD; }
+dwsetup(){ rm -rf "${T:?}/dwhome" "$FX"; mkdir -p "$T/dwhome" "$FX"; unset RW_ST_STAGING RW_ST_PROD RW_SHA_STAGING RW_SHA_PROD RW_ID_STAGING RW_ID_PROD; }
 curl(){ echo "curl $*" >> "$FX/curl.log"; [ -e "$FX/curl_fail" ] && return 22; case "$*" in *ntfy.sh*|*127.0.0.1*) return 0;; *"%{http_code}"*) printf 200;; esac; return 0; }
 ssh(){ echo "ssh $*" >> "$FX/ssh.log"; cat > /dev/null 2>&1 < /dev/null; local a; for a in "$@"; do case "$a" in ITEM_B64=*) printf '%s' "${a#ITEM_B64=}" | base64 -d >> "$FX/items.log"; echo >> "$FX/items.log";; esac; done; echo enqueued; return 0; }
 # railway: deploy_watch.sh never calls a `railway` function of ours. Its own railway() wrapper runs scripts/railway_serial.sh, which executes

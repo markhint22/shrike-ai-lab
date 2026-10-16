@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 RV="$HERE/../ovn_retire_vague.py"; [ -f "$RV" ] || RV="$HERE/ovn_retire_vague.py"
 [ -f "$RV" ] || { echo "  ❌ ovn_retire_vague.py not found"; exit 1; }
 rc=0; fail(){ echo "  ❌ $1"; rc=1; }; ok(){ echo "  ✅ $1"; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/pkgdir"; echo "y = 1" > "$tmp/pkgdir/mod.py"
 RVDIR="$(cd "$(dirname "$RV")" && pwd)"
 cd "$tmp"

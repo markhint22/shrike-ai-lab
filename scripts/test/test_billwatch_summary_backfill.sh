@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../billwatch_summary_backfill.py" "$HERE/../billwatch_summary_backfill.py" "$HERE/billwatch_summary_backfill.py"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "billwatch_summary_backfill.py not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; SRV=""; trap '[ -n "$SRV" ] && kill "$SRV" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; SRV=""; trap '[ -n "$SRV" ] && kill "$SRV" 2>/dev/null; rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME" "$T/stub"
 
 # ---- stub psycopg2 ----
@@ -167,7 +167,7 @@ ok "exhausted time budget -> stops before any LLM call/insert" "$(grep -q 'time 
 ok "time-boxed run with zero work writes no ledger row" "$([ ! -e "$LEDGER" ] && echo 1 || echo 0)"
 
 # 5. ledger write failure is non-fatal
-rm -rf "$HOME/overnight-queue"; mkdir -p "$HOME/overnight-queue"; : > "$HOME/overnight-queue/state"   # 'state' is a FILE -> makedirs raises OSError
+rm -rf "${HOME:?}/overnight-queue"; mkdir -p "$HOME/overnight-queue"; : > "$HOME/overnight-queue/state"   # 'state' is a FILE -> makedirs raises OSError
 echo '[[1,"plain bill",null,null]]' > "$T/bills.json"; run FAKE_REMAINING=0
 ok "unwritable ledger dir -> OSError swallowed, exit 0, insert still done" "$([ $rc = 0 ] && [ -n "$(inserts)" ] && ! grep -q Traceback "$T/err" && echo 1 || echo 0)"
 

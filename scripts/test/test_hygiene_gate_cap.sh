@@ -14,7 +14,7 @@ grep -q '^hyg_gate_cap()' "$BH" || { echo "  FAIL: hyg_gate_cap() is not defined
 grep -q '^hyg_gate_run()' "$BH" || { echo "  FAIL: hyg_gate_run() is not defined in $BH"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
 # ---- the function, extracted from the real script (from its header line to the closing brace at column 0)
@@ -28,7 +28,7 @@ ok "mutant 1 (never cap) differs from the real function" "$(cmp -s "$T/fn.sh" "$
 # drive <fn file> <lines> [env assignments...] -> runs `seq 1 N | cap` in a clean subshell; prints captured stdout to $T/o, the dir used is $T/gd
 drive(){
   local fn="$1" n="$2"; shift 2
-  rm -rf "$T/gd"
+  rm -rf "${T:?}/gd"
   ( export SCRIPT_DIR="$T/sd"; export OVN_HYGIENE_GATE_DIR="$T/gd"; export repo="/x/myrepo"; for kv in "$@"; do export "$kv"; done
     log(){ echo "[branch-hygiene TS] $*"; }
     . "$fn"
@@ -58,7 +58,7 @@ ok "non-numeric knobs fall back to the defaults (30/150), not to an error" "$([ 
 drive "$T/fn.sh" 5000 OVN_HYGIENE_GATE_DIR="$T/notadir/sub"
 ok "per-run dir cannot be created: everything is streamed (5000 lines), nothing lost" "$([ "$(lines $T/o)" = 5000 ] && echo 1 || echo 0)"
 # pruning: files older than KEEP_DAYS are removed, fresh ones stay
-rm -rf "$T/gd"; mkdir -p "$T/gd"; : > "$T/gd/old.file"; : > "$T/gd/new.file"; touch -t 202001010000 "$T/gd/old.file"
+rm -rf "${T:?}/gd"; mkdir -p "$T/gd"; : > "$T/gd/old.file"; : > "$T/gd/new.file"; touch -t 202001010000 "$T/gd/old.file"
 ( export SCRIPT_DIR="$T/sd" OVN_HYGIENE_GATE_DIR="$T/gd" repo=r; log(){ :; }; . "$T/fn.sh"; seq 1 3 | hyg_gate_cap pytest > /dev/null )
 ok "prune: a per-run file older than 3 days is removed, a fresh one is kept" "$([ ! -e "$T/gd/old.file" ] && [ -e "$T/gd/new.file" ] && echo 1 || echo 0)"
 # exit status through the pipe: the gate's code is ${PIPESTATUS[0]}
@@ -131,7 +131,7 @@ mkrepo(){  # <name> <red 0|1>: bare origin + clone with a stub .venv/bin/pytest 
   chmod +x "$T/repos/$n/.venv/bin/pytest"
 }
 runbh(){ # <bh script> <repo>
-  rm -rf "$T/home" "$T/state"; mkdir -p "$HOME/overnight-queue/scripts" "$STATE_DIR"; : > "$HOME/overnight-queue/scripts/check_migrations.py"
+  rm -rf "${T:?}/home" "${T:?}/state"; mkdir -p "$HOME/overnight-queue/scripts" "$STATE_DIR"; : > "$HOME/overnight-queue/scripts/check_migrations.py"
   ( cd "$T" && PATH="$BIN:$PATH" bash "$1" "$T/repos/$2" > "$T/out.log" 2>&1 ); echo $? > "$T/rc"
 }
 mkdir -p "$T/repos"

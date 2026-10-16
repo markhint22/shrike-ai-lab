@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 . "$HERE/lib_ro_core.sh"
 . "$Q/scripts/lib_item_select.sh"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
+TMP="$(mktemp -d)" || exit 1; trap 'rm -rf "$TMP"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
 gitq(){ git -c user.email=t@t -c user.name=t "$@"; }
 # the lib_ro_core ok() takes 1/0; wrap a command
 t(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l" 1; else ok "$l" 0; fi; }
@@ -268,7 +268,7 @@ y_run(){
   ro_mkrepo "r-$name" "$prog" >/dev/null
   echo "OVN_BESTOF_N=$n" > "$ST/pilot_flags.env"
   cp "$scn" "$RO_STUB/scn"
-  : > "$RO_STUB/aider_n"; rm -f "$RO_STUB/impl_n" "$RO_STUB/aider_kinds" "$ST/outcomes.jsonl" "$T/tree/reports"/* 2>/dev/null; rm -rf "$T/tree/logs"/* 2>/dev/null
+  : > "$RO_STUB/aider_n"; rm -f "$RO_STUB/impl_n" "$RO_STUB/aider_kinds" "$ST/outcomes.jsonl" "$T/tree/reports"/* 2>/dev/null; rm -rf "${T:?}/tree/logs"/* 2>/dev/null
   ro_tasks "$(jq -nc --arg R "$R" --arg n "$name" '[{id:("t-"+$n),repo:($R+"/r-"+$n),prompt:"x"}]')"
   ro_run_main "$@"
 }

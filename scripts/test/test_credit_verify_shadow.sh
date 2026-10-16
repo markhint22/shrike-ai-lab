@@ -32,7 +32,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../ovn_credit_already_satisfied.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/../../scripts/ovn_credit_already_satisfied.sh"
 [ -f "$SCRIPT" ] || { echo "  ❌ ovn_credit_already_satisfied.sh not found"; exit 1; }
 rc=0; fail(){ echo "  ❌ $1"; rc=1; }; ok(){ echo "  ✅ $1"; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp" || exit 1
 
 # --- fixture: a repo dir with one file that genuinely exists, one that doesn't ---

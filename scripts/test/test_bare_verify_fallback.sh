@@ -13,7 +13,7 @@ S="$HERE/.."; [ -f "$S/lib_verify_clause.sh" ] || S="$HERE"
 P=0; F=0
 # assertions are evaluated with pipefail OFF (grep -q + pipefail is flaky: SIGPIPE rc 141)
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(realpath "$(mktemp -d)" 2>/dev/null || mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(realpath "$(mktemp -d)" 2>/dev/null || mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 L_GREP='- [ ] [T1] scripts/battle/damage.gd — Add static method `get_max_directive_value()` returning `MissionDirective.Directive.values().max()` VERIFY: grep -q "static func get_max_directive_value" scripts/battle/damage.gd && grep -q "MissionDirective.Directive.values().max()" scripts/battle/damage.gd. (cat:godot; multifile:no) [feat:xlite-20261010-x]'
 L_GUT='- [ ] [T2] tests/test_damage.gd — Add test case VERIFY: godot --headless -s addons/gut/gut_cmdln.gd -gdir=tests -gtest=test_damage.gd -gexit. (cat:test; multifile:no) [feat:xlite-20261010-x]'
@@ -120,7 +120,7 @@ if ! sed --version >/dev/null 2>&1; then
   echo "  SKIP: needs GNU sed (the credit script edits with sed -i); run on the box"
 else
   CR="$S/ovn_credit_already_satisfied.sh"
-  mk(){ rm -rf "$tmp/e"; mkdir -p "$tmp/e/scripts/battle" "$tmp/e/tests"; cd "$tmp/e" || exit 1
+  mk(){ rm -rf "${tmp:?}/e"; mkdir -p "$tmp/e/scripts/battle" "$tmp/e/tests"; cd "$tmp/e" || exit 1
     printf 'extends RefCounted\nstatic func other() -> int:\n\treturn 1\n' > scripts/battle/damage.gd
     printf '%s\n' "$1" > OVERNIGHT_PROGRESS.md
     printf 'scripts/battle/damage.gd\nThis item is already done, no changes needed.\n' > aider.log

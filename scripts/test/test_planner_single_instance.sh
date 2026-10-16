@@ -5,7 +5,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P="$HERE/../../ovn_planner.sh"; [ -f "$P" ] || P="$HERE/../ovn_planner.sh"; [ -f "$P" ] || P="$HERE/ovn_planner.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"; kill %1 2>/dev/null' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"; kill %1 2>/dev/null' EXIT
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 ok "planner takes an exclusive flock on state/ovn_planner.lock" "$(grep -q 'flock -n 228' "$P" && grep -q 'ovn_planner.lock' "$P" && echo 1 || echo 0)"

@@ -8,7 +8,7 @@ SCRIPT="${OVN_DERIVE_LOGS:-$HERE/../ovn_derive_legacy_logs.py}"; [ -f "$SCRIPT" 
 [ -f "$SCRIPT" ] || { echo "  SKIP: ovn_derive_legacy_logs.py not found"; exit 0; }
 
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/state"
 
 write_outcome(){ # $1=ts $2=repo $3=id $4=tier $5=category $6=status
@@ -72,7 +72,7 @@ python3 "$SCRIPT" "$tmp/state" >/dev/null
 grep -q "rotatedrepo" "$tmp/state/task_stats.derived.log" && ok "a truncated/rotated outcomes.jsonl is handled without crashing (cursor resets)" || fail "did not recover from file truncation"
 
 # ---- 6: missing outcomes.jsonl entirely -> exits cleanly, no crash ----
-rm -rf "$tmp/empty_state"; mkdir -p "$tmp/empty_state"
+rm -rf "${tmp:?}/empty_state"; mkdir -p "$tmp/empty_state"
 python3 "$SCRIPT" "$tmp/empty_state" >/dev/null 2>&1
 empty_rc=$?
 ok "missing outcomes.jsonl exits cleanly (no crash)" "[ $empty_rc -eq 0 ]"

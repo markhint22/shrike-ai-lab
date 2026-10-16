@@ -14,7 +14,7 @@ AT_REAL=""
 for c in "$HERE/../ovn_autotest.sh" "$HERE/../../scripts/ovn_autotest.sh" "$HERE/ovn_autotest.sh"; do [ -f "$c" ] && { AT_REAL="$c"; break; }; done
 [ -n "$AT_REAL" ] || { echo "  SKIP: ovn_autotest.sh not found"; exit 0; }
 P=0; F=0
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 
 H="$T/home"; mkdir -p "$H/aider-venv/bin" "$H/godot" "$T/qdir/state"
 export GODOT_LOG="$T/godot.log"
@@ -66,7 +66,7 @@ has(){ case "$OUT" in *"$1"*) return 0;; *) return 1;; esac; }
 battery(){
   local AT="$1" BF=0
   chk(){ if [ "$2" = 1 ]; then :; else BF=$((BF+1)); [ -n "${BATTERY_VERBOSE:-}" ] && echo "  FAIL: $1"; fi; }
-  rm -rf "$T/qdir/state/godot_checkonly_cache"
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"
 
   # (a) import-before-check when the cache is missing
   mkrepo imp nocache; echo 'extends Node' > "$R/scripts/new1.gd"
@@ -104,7 +104,7 @@ battery(){
   chk "b7 OVN_BASE_SHA: an edit already COMMITTED since the base is still seen and fails" "$([ "$RC" = 1 ] && has 'freshly introduced problem' && echo 1 || echo 0)"
 
   # (c) cache by sha1(path+blob)
-  rm -rf "$T/qdir/state/godot_checkonly_cache"   # b1 already cached this very blob (same path+content in the earlier repo)
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"   # b1 already cached this very blob (same path+content in the earlier repo)
   mkrepo cache; echo '# touched' >> "$R/scripts/prebad.gd"; before="$(cat "$R/scripts/prebad.gd")"
   run_at "$AT"
   blob="$(git -C "$R" rev-parse HEAD:scripts/prebad.gd)"
@@ -130,13 +130,13 @@ battery(){
   chk "d3 no hard error: advisory still shown, rc=0" "$([ "$RC" = 0 ] && has '[lint-advisory] scripts/clean.gd' && echo 1 || echo 0)"
   # (f) occurrence COUNTS, not membership (reviewer round 2: a second use of an already-undeclared identifier has the same normalised message as the
   #     baseline one and was invisible)
-  rm -rf "$T/qdir/state/godot_checkonly_cache"
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"
   mkrepo dup; printf 'extends Node\nvar PREBAD = 1\nfunc a():\n\tpass\n' > "$R/scripts/prebad.gd"; git -C "$R" add -A; git -C "$R" commit -q -m one >/dev/null 2>&1
   printf 'extends Node\nvar PREBAD = 1\nfunc a():\n\tpass\nfunc zz_dup():\n\tvar PREBAD_again = 2\n' > "$R/scripts/prebad.gd"
   run_at "$AT"
   chk "f1 the SAME message once more than the pre-edit blob had it fails the step (rc=1, [API])" "$([ "$RC" = 1 ] && has '[API] scripts/prebad.gd' && echo 1 || echo 0)"
   chk "f2 ...and the report carries exactly the one extra occurrence, not the old one too" "$([ "$(grep -c 'pre-existing problem' <<< "$OUT")" = 1 ] && echo 1 || echo 0)"
-  rm -rf "$T/qdir/state/godot_checkonly_cache"
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"
   mkrepo dup2; printf 'extends Node\nvar PREBAD = 1\nvar PREBAD_b = 2\nfunc a():\n\tpass\n' > "$R/scripts/prebad.gd"; git -C "$R" add -A; git -C "$R" commit -q -m two >/dev/null 2>&1
   printf '# moved down\nextends Node\n\nvar PREBAD = 1\nvar PREBAD_b = 2\nfunc a():\n\tpass\n' > "$R/scripts/prebad.gd"
   run_at "$AT"
@@ -146,13 +146,13 @@ battery(){
   chk "f4 baseline twice, edit three times: the step fails and shows exactly one" "$([ "$RC" = 1 ] && [ "$(grep -c 'pre-existing problem' <<< "$OUT")" = 1 ] && echo 1 || echo 0)"
 
   # (g) cache key covers sibling and import-cache state; atomic write; stale entries pruned
-  rm -rf "$T/qdir/state/godot_checkonly_cache"
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"
   mkrepo gsib; echo '# touched' >> "$R/scripts/prebad.gd"; gblob="$(git -C "$R" rev-parse HEAD:scripts/prebad.gd)"
   run_at "$AT"; : > "$GODOT_LOG"; run_at "$AT"
   chk "g1 unchanged siblings: the second call is a cache hit (0 baseline runs)" "$([ "$(grep -c "^CHECK scripts/prebad.gd $gblob\$" "$GODOT_LOG")" = 0 ] && echo 1 || echo 0)"
   echo '# a sibling changed' >> "$R/scripts/clean.gd"; : > "$GODOT_LOG"; run_at "$AT"
   chk "g2 a SIBLING .gd changed since the entry was written: the baseline is recomputed (1 run), not reused" "$([ "$(grep -c "^CHECK scripts/prebad.gd $gblob\$" "$GODOT_LOG")" = 1 ] && echo 1 || echo 0)"
-  rm -rf "$T/qdir/state/godot_checkonly_cache"
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"
   mkrepo gcc nocache; echo '# touched' >> "$R/scripts/prebad.gd"; gblob="$(git -C "$R" rev-parse HEAD:scripts/prebad.gd)"
   run_at "$AT" OVN_AUTOTEST_GODOT_IMPORT=off      # no class cache at all: baseline cached under the 'nocache' key
   mkdir -p "$R/.godot"; echo cfg > "$R/.godot/global_script_class_cache.cfg"; : > "$GODOT_LOG"; run_at "$AT"
@@ -162,7 +162,7 @@ battery(){
   : > "$GODOT_LOG"; run_at "$AT"
   chk "g5 nothing changed: cache hit again" "$([ "$(grep -c "^CHECK scripts/prebad.gd $gblob\$" "$GODOT_LOG")" = 0 ] && echo 1 || echo 0)"
   # atomic write: the entry arrives by mv from a temp file in the same dir (a shim mv records its calls); no temp file is left behind
-  rm -rf "$T/qdir/state/godot_checkonly_cache"; mkdir -p "$T/shimbin"; : > "$T/mv.log"
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"; mkdir -p "$T/shimbin"; : > "$T/mv.log"
   printf '#!/usr/bin/env bash\necho "MV $*" >> "%s"\nexec /bin/mv "$@"\n' "$T/mv.log" > "$T/shimbin/mv"; chmod +x "$T/shimbin/mv"
   mkrepo gatom; echo '# touched' >> "$R/scripts/prebad.gd"
   run_at "$AT" PATH="$T/shimbin:$PATH"
@@ -178,7 +178,7 @@ battery(){
 
   # (e) the live file is NEVER written by the baseline run (reviewer finding: the in-place swap lived in a command-substitution subshell whose
   #     trap does not see a TERM sent to the parent, so a test-cmd timeout left the pre-edit blob in the file, or resurrected a reverted edit later)
-  rm -rf "$T/qdir/state/godot_checkonly_cache"   # an earlier case cached this very blob
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"   # an earlier case cached this very blob
   mkrepo live; echo '# edited' >> "$R/scripts/prebad.gd"
   edited="$(git hash-object "$R/scripts/prebad.gd")"; pre="$(git -C "$R" rev-parse HEAD:scripts/prebad.gd)"
   run_at "$AT" GODOT_PROBE="$R/scripts/prebad.gd"
@@ -188,7 +188,7 @@ battery(){
   chk "e3 the baseline engine run did not happen in the live project dir" "$([ "$(grep -c "^CHECK scripts/prebad.gd $pre\$" "$GODOT_LOG")" = 1 ] && [ "$(grep -c "^PROBE .* cwd=$R\$" "$GODOT_LOG")" -lt "$probes" ] && echo 1 || echo 0)"
   chk "e4 no overlay dir is left behind" "$([ "$(ls -d "${TMPDIR:-/tmp}"/ovn_gdbase.* 2>/dev/null | wc -l | tr -d ' ')" = 0 ] && echo 1 || echo 0)"
   # TERM the gate while the (slow) baseline run is in flight: the live file must be intact right away and must stay intact after the run would have ended
-  rm -rf "$T/qdir/state/godot_checkonly_cache"
+  rm -rf "${T:?}/qdir/state/godot_checkonly_cache"
   mkrepo term; echo '# edited again' >> "$R/scripts/prebad.gd"
   edited="$(git hash-object "$R/scripts/prebad.gd")"; pre="$(git -C "$R" rev-parse HEAD:scripts/prebad.gd)"
   ( cd "$T" && exec env HOME="$H" OVN_DIR="$T/qdir" OVN_GODOT_CACHE_DIR="$T/qdir/state/godot_checkonly_cache" GODOT_SLOW_HASH="$pre" GODOT_SLOW=3 bash "$AT" "$R" >/dev/null 2>&1 ) &

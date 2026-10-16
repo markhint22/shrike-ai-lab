@@ -8,11 +8,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; RUN="$S/../run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 # shellcheck disable=SC1090
 . "$S/lib_autotest_base.sh"
 set -o pipefail   # the runner's mode: the predicate must not use `find | grep -q`
-mk(){ rm -rf "$W/$1"; mkdir -p "$W/$1"; }
+mk(){ rm -rf "${W:?}/$1"; mkdir -p "$W/$1"; }
 mk godot; : > "$W/godot/project.godot"
 mk empty
 mk pkg; : > "$W/pkg/package.json"

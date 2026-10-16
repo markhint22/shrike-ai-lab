@@ -2,7 +2,7 @@
 # lib_gut_xml.sh: a red GUT report must never be called green (the old `grep failures="0"` accepted a root failures="3" report).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/../lib_gut_xml.sh"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 mk(){ printf '%s' "$2" > "$T/$1.xml"; }
 RED='<?xml version="1.0"?>

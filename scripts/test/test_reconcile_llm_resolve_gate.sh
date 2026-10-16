@@ -16,7 +16,7 @@ for t in flock timeout git python3; do type -P $t >/dev/null || { echo "  SKIP: 
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)"; export T
+T="$(mktemp -d)" || exit 1; export T
 cleanup(){ rm -rf "$T" /tmp/reconcile-*llmgate* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
@@ -47,7 +47,7 @@ echo ". passed"; exit 0'
 
 mk(){   # <name>: a repo whose develop and overnight/feature conflict in TWO files (a.txt b.txt, both within the <=3 limit); clone checked out on overnight/feature like production
   local n="$1" o="$T/origin/$1.git" s="$T/seed/$1" i
-  rm -rf "$o" "$s" "$Q/repos/$n"; mkdir -p "$T/origin" "$T/seed"; git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
+  rm -rf "$o" "$s" "${Q:?}/repos/$n"; mkdir -p "$T/origin" "$T/seed"; git init -q --bare -b main "$o"; git clone -q "$o" "$s" 2>/dev/null
   ( cd "$s"; for i in a b; do printf 'one\ntwo\nthree\nfour\nfive\n' > "$i.txt"; done
     git add -A; git commit -q -m base; git branch -M main; git push -q origin main
     git branch develop; git branch overnight/feature; git push -q origin develop overnight/feature

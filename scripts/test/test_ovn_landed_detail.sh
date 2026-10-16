@@ -16,7 +16,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)"; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
+tmp="$(mktemp -d)" || exit 1; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
 TSF="$HOME/overnight-queue/state/task_stats.log"
 now="$(date +%s)"
 

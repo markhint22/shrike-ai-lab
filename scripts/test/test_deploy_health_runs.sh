@@ -2,7 +2,7 @@
 # deploy_health.sh must actually RUN (not just pass bash -n): a quoted phrase inside a comment in the multi-line SURFACES
 # string once closed the string early -> 'SURFACES: unbound variable', the check silently did nothing for hours.
 cd "$(dirname "$0")/../.." || exit 1
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
 fail=0; ok(){ echo "ok - $1"; }; bad(){ echo "FAIL - $1"; fail=1; }
 mkdir -p "$T/bin"; printf '#!/usr/bin/env bash\nprintf 200\n' > "$T/bin/curl"; chmod +x "$T/bin/curl"
 out=$(PATH="$T/bin:$PATH" DRYRUN=1 bash deploy_health.sh 2>&1)

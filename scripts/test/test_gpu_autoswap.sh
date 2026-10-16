@@ -8,6 +8,8 @@
 # state/logs are throwaway, never touching the real host's state).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# 2026-10-16: fail-closed sandbox helpers (a failed mktemp must abort, never turn HOME into /home and rm -rf it)
+. "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
 if [ -n "${OVN_GPU_AUTOSWAP:-}" ]; then
   G="$OVN_GPU_AUTOSWAP"
 else
@@ -19,8 +21,8 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || { echo "  FAIL: cannot create a safe temp dir - aborting before touching anything"; exit 1; }
+trap 'safe_rm_rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
 
 cat > "$tmp/bin/curl" <<'EOF'
@@ -79,8 +81,8 @@ EOF
 chmod +x "$tmp/bin/"*
 
 reset_env(){
-  export HOME="$tmp/home"
-  rm -rf "$HOME"; mkdir -p "$HOME/overnight-queue/state" "$HOME/overnight-queue/logs"
+  safe_set_sandbox_home "$tmp" || exit 1
+  safe_rm_rf "$HOME" || exit 1; mkdir -p "$HOME"; mkdir -p "$HOME/overnight-queue/state" "$HOME/overnight-queue/logs"
   export FAKE_CURL_LOG="$tmp/curl.log"; export FAKE_DOCKER_LOG="$tmp/docker.log"; export FAKE_NVSMI_LOG="$tmp/nvsmi.log"
   : > "$FAKE_CURL_LOG"; : > "$FAKE_DOCKER_LOG"; : > "$FAKE_NVSMI_LOG"
   unset FAKE_RUNNING FAKE_HEALTHY FAKE_DUP FAKE_USED FAKE_TOTAL FAKE_HOLDERS FAKE_TOP_PID FAKE_TOP_CMD FAKE_TOP_ET FAKE_TOP_SECS

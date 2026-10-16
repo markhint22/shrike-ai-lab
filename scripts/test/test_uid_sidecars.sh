@@ -15,10 +15,10 @@ RO="$SCR/../run_overnight.sh"; [ -f "$RO" ] || RO="$HERE/../run_overnight.sh"
 . "$HERE/ntfy_guard.sh" 2>/dev/null || true
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 mkrepo(){  # a Godot-shaped repo: tracked scripts + their .uid sidecars (+ a .import)
-  rm -rf "$T/r" "$T/origin.git"; git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/r" 2>/dev/null; cd "$T/r" || exit 1
+  rm -rf "${T:?}/r" "${T:?}/origin.git"; git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/r" 2>/dev/null; cd "$T/r" || exit 1
   git config user.email t@t; git config user.name t
   mkdir -p tests scripts art
   printf 'extends GutTest\nfunc test_x():\n\tpass_test("x")\n' > tests/test_aoe_destructible.gd; echo 'uid://b1aoe' > tests/test_aoe_destructible.gd.uid
@@ -115,7 +115,7 @@ run_exec_block(){  # $1 = extra env assignment for the harness ("" for none)
   mkrepo; cd "$T/r" || exit 1
   printf '## Next Steps\n%s\n' "$ITEM" > OVERNIGHT_PROGRESS.md
   git add -A; git commit -q -m prog; git push -q origin main
-  rm -rf "$T/sd"; mkdir -p "$T/sd/scripts" "$T/sd/state"; cp "$EX" "$T/sd/scripts/"
+  rm -rf "${T:?}/sd"; mkdir -p "$T/sd/scripts" "$T/sd/state"; cp "$EX" "$T/sd/scripts/"
   cat > "$T/harness.sh" <<H
 set -u
 $1
@@ -140,7 +140,7 @@ ok "C2 origin has NEITHER the .gd NOR its .gd.uid" "$(! git cat-file -e origin/m
 cp "$EX" "$T/ex_orig.py"
 mkrepo; cd "$T/r" || exit 1
 printf '## Next Steps\n%s\n' "$ITEM" > OVERNIGHT_PROGRESS.md; git add -A; git commit -q -m prog; git push -q origin main
-rm -rf "$T/sd2"; mkdir -p "$T/sd2/scripts" "$T/sd2/state"
+rm -rf "${T:?}/sd2"; mkdir -p "$T/sd2/scripts" "$T/sd2/state"
 cat > "$T/sd2/scripts/ovn_delete_executor.py" <<'PY'
 import sys
 if sys.argv[1] == "check":

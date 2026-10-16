@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ENQ="$HERE/../ovn_enqueue_emergency.py"
 [ -f "$ENQ" ] || ENQ="$HERE/ovn_enqueue_emergency.py"   # fallback if colocated
 rc=0
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 fail(){ echo "  ❌ $1"; rc=1; }
 ok(){ echo "  ✅ $1"; }

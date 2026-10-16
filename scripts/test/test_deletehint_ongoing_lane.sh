@@ -32,7 +32,7 @@ needs_delete_hint(){ # $1=prompt $2=repo_dir
   printf '%s\n%s' "$1" "$top" | grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b'
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 # ---- 1. real-shaped case confirmed live: the ongoing-lane's generic wrapper prompt
 #      (no delete/file words at all) PLUS a real "delete the dead X" top item in

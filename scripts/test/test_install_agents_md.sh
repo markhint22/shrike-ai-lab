@@ -8,7 +8,7 @@ SUT=""; for c in "$HERE/../../install_agents_md.sh" "$HERE/../install_agents_md.
 [ -n "$SUT" ] || { echo "install_agents_md.sh not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 warn(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else echo "  WARN $1 (non-fatal, known defect)"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; Q="$HOME/overnight-queue"; mkdir -p "$Q/repos" "$Q/staging_agents"
 export GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 QLOG="$T/queue.log"; : > "$QLOG"
@@ -41,7 +41,7 @@ remote_log(){ g --git-dir="$T/origin_$1.git" log --format='%an|%ae|%s' overnight
 mkrepo billwatch ""                  ; stage billwatch $'# billwatch agents\nline2\nline3'
 mkrepo gitlark "same content"        ; stage gitlark "same content"
 mkrepo iptv_apps ""                  # NO staged file
-mkrepo test-automation-agent ""      ; stage test-automation-agent "taa"; rm -rf "$Q/repos/test-automation-agent"   # repo missing -> sync fails
+mkrepo test-automation-agent ""      ; stage test-automation-agent "taa"; rm -rf "${Q:?}/repos/test-automation-agent"   # repo missing -> sync fails
 mkrepo shrike-notify "old notify"           ; stage shrike-notify "notify"; echo once > "$T/mode_shrike-notify"
 mkrepo shrike-monitor "old monitor"           ; stage shrike-monitor "monitor"; echo always > "$T/mode_shrike-monitor"
 mkrepo xlite "old xlite agents"      ; stage xlite $'new xlite agents\nsecond'
@@ -74,6 +74,6 @@ ok "re-run: installed repos now 'unchanged' (idempotent, no duplicate commits)" 
 ok "re-run: previously failed shrike-monitor now installs once the push works" "$(grep -qx 'shrike-monitor: installed AGENTS.md (1 lines)' "$T/out2" && echo 1 || echo 0)"
 
 # missing ~/overnight-queue -> exit 1
-H2="$(mktemp -d)"; ( cd "$T"; HOME="$H2" bash "$SUT" > "$T/out3" 2>/dev/null ); rc3=$?; rm -rf "$H2"
+H2="$(mktemp -d)" || exit 1; ( cd "$T"; HOME="$H2" bash "$SUT" > "$T/out3" 2>/dev/null ); rc3=$?; rm -rf "$H2"
 ok "no ~/overnight-queue -> exit 1, prints nothing" "$([ $rc3 = 1 ] && [ ! -s "$T/out3" ] && echo 1 || echo 0)"
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

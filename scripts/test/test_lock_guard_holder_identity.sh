@@ -22,7 +22,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 # lock_guard.sh hardcodes `cd "$HOME/overnight-queue"; LOCK="state/run.lock"` (not overridable via
 # env/args) - sandbox via $HOME (same technique as test_reconcile_branches.sh) so this test can
 # NEVER touch the real production lock file, since the script would otherwise `kill -9` real PIDs.

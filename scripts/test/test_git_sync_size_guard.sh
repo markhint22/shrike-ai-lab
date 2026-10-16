@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 G=""; for c in "$HERE/../../ovn_git_sync.sh" "$HERE/../ovn_git_sync.sh"; do [ -f "$c" ] && { G="$c"; break; }; done
 [ -n "$G" ] || { echo "  NOT RUN: ovn_git_sync.sh not found"; exit 77; }   # 77 = cannot run here; run_all.sh reports it (never a silent green)
 G="$(cd "$(dirname "$G")" && pwd)/$(basename "$G")"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; T="$(cd "$T" && pwd -P)"
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT; T="$(cd "$T" && pwd -P)"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null

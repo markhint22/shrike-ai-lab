@@ -25,7 +25,7 @@ skip(){ S=$((S+1)); echo "  SKIP: $1"; }
 # This is the exact predicate run_overnight uses to decide whether to run the sub-flow.
 has_t3(){ grep -E '^- \[ \] ' "$1" 2>/dev/null | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' \
             | grep -qE '\[T[345]\]|·T[345]·'; }
-d=$(mktemp -d)
+d=$(mktemp -d) || exit 1
 printf -- '- [ ] [T3] app/foo.py — add a fn\n' > "$d/py.md"
 ok   "inline fires on a python T3 item"        "has_t3 $d/py.md"
 printf -- '- [ ] [T4] app/svc.py — wire it\n'  > "$d/t4.md"
@@ -49,7 +49,7 @@ pick(){  # mirrors ovn_stage_runner.sh's post-2026-09-15 auto-pick
   [ -z "$item" ] && item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
   printf '%s' "$item"
 }
-d=$(mktemp -d)
+d=$(mktemp -d) || exit 1
 printf -- '- [ ] [T3] web/x.vue — ui\n- [ ] [T3] app/svc.py — logic\n' > "$d/q.md"
 ok  "auto-pick PREFERS the python item over the vue" "[ \"\$(pick $d/q.md)\" = '[T3] app/svc.py — logic' ]"
 printf -- '- [ ] [T3] scripts/a.gd — godot\n- [ ] [T3] web/x.vue — ui\n' > "$d/q2.md"
@@ -75,7 +75,7 @@ ok  "decompose picks self-verifying rules for a .py item" "[ \"\$(rules_kind '[T
 
 # ============ 4. queue_refill.py routing: godot pulled in normally, same as python ============
 if [ -f "$OVN/queue_refill.py" ]; then
-  d=$(mktemp -d)
+  d=$(mktemp -d) || exit 1
   printf -- '- [ ] [T3] app/a.py — real python work\n- [ ] [T3] scripts/b.gd — godot work\n- [ ] [T2] app/c.py — more python\n' > "$d/backlog.md"
   printf '# progress\n' > "$d/prog.md"
   out="$(python3 "$OVN/queue_refill.py" "$d/prog.md" "$d/backlog.md" 5 2>/dev/null)"
@@ -92,7 +92,7 @@ fi
 # ============ 5. ovn_autotest.sh GODOT gate (needs gdparse + godot) ============
 GDP="$HOME/aider-venv/bin/gdparse"; GODOT="$HOME/godot/godot4"; AT="$OVN/scripts/ovn_autotest.sh"
 if [ -x "$GDP" ] && [ -f "$AT" ]; then
-  d=$(mktemp -d); ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
+  d=$(mktemp -d) || exit 1; ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
     printf 'config_version=5\n' > project.godot; git add -A; git commit -qm init )
   # bad Godot-3 syntax -> gate FAILS
   printf 'extends KinematicBody2D\nexport var s = 1\nfunc _ready():\n\tyield(get_tree(),"x")\n' > "$d/bad.gd"
@@ -109,7 +109,7 @@ fi
 
 # ============ 6. gate FIX 2: "test exercises the changed source" detection (unit) ============
 exercises(){ local tf="$1" m="$2" e=0; grep -qE "\\b${m}\\b" "$tf" 2>/dev/null && e=1; grep -qE '\.(get|post|put|delete|patch)\(' "$tf" 2>/dev/null && e=1; [ "$e" = 1 ]; }
-d=$(mktemp -d)
+d=$(mktemp -d) || exit 1
 printf 'from app.saved_search_service import SavedSearchService\ndef test_x(): assert SavedSearchService()\n' > "$d/good.py"
 ok  "gate: a test importing the module EXERCISES it"       "exercises $d/good.py saved_search_service"
 printf 'def test_x(): assert 1==1\n' > "$d/vac.py"
@@ -121,7 +121,7 @@ rm -rf "$d"
 # ============ 7. gate END-TO-END: real ovn_autotest.sh rejects a vacuous test, accepts a real one ============
 AT="$OVN/scripts/ovn_autotest.sh"
 if [ -f "$AT" ]; then
-  d=$(mktemp -d); ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
+  d=$(mktemp -d) || exit 1; ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
     mkdir -p svc/.venv/bin svc/app svc/tests
     printf '#!/bin/sh\nexit 0\n' > svc/.venv/bin/pytest; chmod +x svc/.venv/bin/pytest
     printf 'class Foo:\n    pass\n' > svc/app/foo.py
@@ -146,7 +146,7 @@ fi
 
 # ============ 8. verify-repair loop: failure-reason extraction + present & flag-guarded ============
 extract_reason(){ grep -iE 'QUALITY FAIL|FAILED |assert|Error|Parse Error|Import|not declared|tzinfo|does not exercise' "$1" 2>/dev/null | grep -viE 'passed|0 error' | tail -12; }
-d=$(mktemp -d)
+d=$(mktemp -d) || exit 1
 printf '10 passed\nFAILED tests/test_x.py::test_foo - assert 3 == 4\n' > "$d/vlog"
 ok  "repair: extracts the failed-test assertion for feedback" "extract_reason $d/vlog | grep -q 'assert 3 == 4'"
 printf -- '-- QUALITY FAIL: no changed test exercises the changed source --\n' > "$d/vlog2"
@@ -164,7 +164,7 @@ fi
 
 # ============ 9. try_regen: extract the "re-run `CMD`" instruction + safety-gate it ============
 extract_cmd(){ sed -nE 's/.*re-?run `([^`]+)`.*/\1/p' "$1" 2>/dev/null | head -1; }
-d=$(mktemp -d)
+d=$(mktemp -d) || exit 1
 printf 'docs/openapi.json is stale - re-run `python scripts/export_openapi.py` from backend/ and commit\n' > "$d/v"
 ok  "regen: extracts the regenerate command from the failure"    "[ \"\$(extract_cmd $d/v)\" = 'python scripts/export_openapi.py' ]"
 printf 'a normal assertion failure, no regen instruction\n' > "$d/v2"

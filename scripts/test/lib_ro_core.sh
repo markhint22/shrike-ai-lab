@@ -43,7 +43,7 @@ ro_stub(){ # ro_stub NAME <<'EOF' ... EOF   (body from stdin) -> $HOME/aider-ven
 . "$RO_HERE/lib_live_repo_guard.sh"
 
 ro_init(){
-  T="$(mktemp -d)"; export T
+  T="$(mktemp -d)" || exit 1; export T
   trap 'rm -rf "$T"' EXIT
   ro_git_env
   export HOME="$T/home" RO_STUB="$T/stub"
@@ -153,7 +153,7 @@ ro_tasks(){ printf '%s\n' "$1" > "$T/tree/tasks.json"; }
 # ro_mkrepo NAME [PROGRESS_TEXT] -> creates $T/repos/NAME w/ bare origin, app/foo.py, .ovn-verify.sh, OVERNIGHT_PROGRESS.md
 ro_mkrepo(){
   local name="$1" prog="${2-__default__}" r="$T/repos/$1"
-  rm -rf "$r" "$T/origin/$name.git"
+  rm -rf "$r" "${T:?}/origin/$name.git"
   git init -q --bare "$T/origin/$name.git"
   git clone -q "$T/origin/$name.git" "$r" 2>/dev/null
   ( cd "$r" || exit 1; git checkout -q -b main 2>/dev/null

@@ -28,7 +28,7 @@ eval "$FN_SRC"
 # swallowed by `eval`'s exit-code-only ok()/nok() (a false pass would have hidden this).
 SCRIPT_DIR="$(cd "$(dirname "$R")" && pwd)"
 
-STATE_DIR="$(mktemp -d)"
+STATE_DIR="$(mktemp -d)" || exit 1
 class_of(){ # $1=status $2=id(unique per call so lines don't collide)
   : > "$STATE_DIR/outcomes.jsonl"
   record_outcome "$2" repo "$1" "" aider_fix 1 /dev/null

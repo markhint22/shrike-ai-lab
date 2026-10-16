@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 RF="$HERE/../../queue_refill.py"; [ -f "$RF" ] || RF="$HERE/../queue_refill.py"; [ -f "$RF" ] || RF="$HERE/queue_refill.py"
 [ -f "$RF" ] || { echo "  ❌ queue_refill.py not found"; exit 1; }
 rc=0; fail(){ echo "  ❌ $1"; rc=1; }; ok(){ echo "  ✅ $1"; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 prog="$tmp/prog.md"; bl="$tmp/bl.md"
 printf '# progress\n- [ ] [T1] pre-existing item\n' > "$prog"

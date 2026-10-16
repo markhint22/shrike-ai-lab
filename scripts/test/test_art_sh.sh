@@ -7,7 +7,7 @@ SUT=""; for c in "$HERE/../../art.sh" "$HERE/../art.sh" "$HERE/art.sh"; do [ -f 
 [ -n "$SUT" ] || { echo "art.sh not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 warn(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else echo "  WARN $1 (non-fatal, known defect)"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME/overnight-queue/logs" "$T/bin"
 Q="$HOME/overnight-queue/art_queue.md"; CALLS="$T/calls.log"; : > "$CALLS"
 export CALLS PGREP_RC=1 DOCKER_RUNNING=false
@@ -109,7 +109,7 @@ ok "review: prints staging dir + approval hint" "$(echo "$out" | grep -q "staged
 mkdir -p "$HOME/overnight-queue/repos/xlite/assets/staging/art-review/hero"
 out="$(art review)"
 ok "review: lists staged unit dirs indented" "$(echo "$out" | grep -qx '  hero' && echo 1 || echo 0)"
-rm -rf "$HOME/overnight-queue/repos/xlite/assets/staging/art-review"; out="$(art review)"
+rm -rf "${HOME:?}/overnight-queue/repos/xlite/assets/staging/art-review"; out="$(art review)"
 ok "review: no staging dir -> '(none yet)' (pipefail makes the || echo fire)" "$(echo "$out" | grep -q '(none yet)' && echo 1 || echo 0)"
 
 # ---- remove ----

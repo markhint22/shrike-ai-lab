@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; ROOT="$(cd "$HERE/../.." && pwd)"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)"; trap 'rm -rf "$W" /tmp/wt-churnguard-* 2>/dev/null' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W" /tmp/wt-churnguard-* 2>/dev/null' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export OVN_STATE_DIR="$W/state"; mkdir -p "$OVN_STATE_DIR"

@@ -12,7 +12,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){  if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 nok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then F=$((F+1)); echo "  FAIL(expected-false): $1"; else P=$((P+1)); fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export OVN_DEP_CACHE="$T/cache"
 export OVN_DEP_GATE=enforce   # the lib defaults to shadow; cases below that test the default unset it explicitly
 G(){ git -c user.name=t -c user.email=t@t "$@"; }
@@ -199,6 +199,47 @@ ok  "branch_hygiene: clean-import gate guarded by [ -f lib ]" "grep -q 'if \\[ -
 ok  "stage runner full_verify: lib guarded + vok=0 on fail" "grep -q 'DEP-IMPORT FAIL' '$SR' && grep -q 'if \\[ -f scripts/lib_dep_import_check.py \\]' '$SR'"
 ok  "stage runner full_verify runs check_migrations" "grep -q 'MIGRATION SAFETY FAIL (see above)' '$SR'"
 for f in "$RO" "$BH" "$SR" "$AG"; do ok "bash -n $(basename "$f")" "bash -n '$f'"; done
+
+# ---------- 6. dep-removal scans the TREE OF THE AFTER COMMIT, not the working tree (2026-10-16 audit) ----------
+# Old behaviour: os.walk of the checkout -> an empty or stale checkout returned PASS for a real removal (silent fail-open).
+r="$T/r6"; mkrepo "$r"
+printf 'fastapi\naiohttp==3.9\n' > "$r/requirements.txt"; printf 'import aiohttp\n' > "$r/app/service.py"
+G -C "$r" add -A; G -C "$r" commit -qm base; b6="$(G -C "$r" rev-parse HEAD)"
+printf 'fastapi\n' > "$r/requirements.txt"; G -C "$r" commit -qam "drop aiohttp"; a6="$(G -C "$r" rev-parse HEAD)"
+rm -rf "${T:?}/r6-empty"; git clone -q --no-checkout "$r" "$T/r6-empty" 2>/dev/null
+out="$(python3 "$LIB" removed --repo "$T/r6-empty" --before "$b6" --after "$a6" 2>&1)"; rc=$?
+nok "NEGATIVE empty checkout (not at after) must not PASS a real aiohttp removal" "[ $rc -eq 0 ]"
+ok  "empty checkout: FAIL names aiohttp and app/service.py from the after tree" "printf '%s' \"\$out\" | grep -q \"'aiohttp'.*app/service.py\""
+out="$(python3 "$LIB" removed --repo "$r" --before "$b6" --after "$a6" 2>&1)"; rc=$?
+nok "same removal, checkout at after -> still FAIL" "[ $rc -eq 0 ]"
+r7="$T/r7"; mkrepo "$r7"
+printf 'fastapi\naiohttp==3.9\n' > "$r7/requirements.txt"; printf 'import aiohttp\n' > "$r7/app/service.py"
+G -C "$r7" add -A; G -C "$r7" commit -qm base; b7="$(G -C "$r7" rev-parse HEAD)"
+printf 'fastapi\n' > "$r7/requirements.txt"; printf 'import fastapi\n' > "$r7/app/service.py"; G -C "$r7" commit -qam "drop aiohttp and its import"
+printf 'import aiohttp\n' > "$r7/app/service.py"   # UNCOMMITTED edit in the working tree only: after tree has no import
+python3 "$LIB" removed --repo "$r7" --before "$b7" --after HEAD >/dev/null 2>&1; rc=$?
+ok  "BENIGN uncommitted working-tree import is not what is gated: after tree has no import -> pass" "[ $rc -eq 0 ]"
+rm -rf "${T:?}/r6-empty"
+
+# 6b. a bogus --after ref is UNVERIFIED for the removed check: shadow reports it and exits 0, enforce must NOT pass the gate (2026-10-16 review)
+rb="$T/r6b"; mkrepo "$rb"
+printf 'fastapi\naiohttp==3.9\n' > "$rb/requirements.txt"; printf 'import aiohttp\n' > "$rb/app/service.py"
+G -C "$rb" add -A; G -C "$rb" commit -qm base; bb="$(G -C "$rb" rev-parse HEAD)"
+out="$(OVN_DEP_GATE=enforce python3 "$LIB" removed --repo "$rb" --before "$bb" --after no-such-ref-0000 2>&1)"; rc=$?
+nok "NEGATIVE enforce: bogus --after ref (UNVERIFIED removed) must not exit 0" "[ $rc -eq 0 ]"
+ok  "enforce: bogus --after reports the removed check as UNVERIFIED" "printf '%s' \"\$out\" | grep -q 'DEP-GATE removed UNVERIFIED'"
+out="$(OVN_DEP_GATE=shadow python3 "$LIB" removed --repo "$rb" --before "$bb" --after no-such-ref-0000 2>&1)"; rc=$?
+ok  "BENIGN shadow: bogus --after reports UNVERIFIED and exits 0 (shadow unchanged)" "[ $rc -eq 0 ] && printf '%s' \"\$out\" | grep -q 'DEP-GATE removed UNVERIFIED'"
+
+# 7. non-ASCII file names: git ls-tree quotes them without -z (core.quotepath); the importer scan must still see them (2026-10-16 review)
+rn="$T/r7n"; mkrepo "$rn"
+printf 'fastapi\naiohttp==3.9\n' > "$rn/requirements.txt"; printf 'import fastapi\n' > "$rn/app/main.py"
+printf 'import aiohttp\n' > "$rn/app/s\303\274vc.py"
+G -C "$rn" add -A; G -C "$rn" commit -qm base; bn="$(G -C "$rn" rev-parse HEAD)"
+printf 'fastapi\n' > "$rn/requirements.txt"; G -C "$rn" commit -qam "drop aiohttp; importer has a non-ASCII name"; an="$(G -C "$rn" rev-parse HEAD)"
+out="$(OVN_DEP_GATE=enforce python3 "$LIB" removed --repo "$rn" --before "$bn" --after "$an" 2>&1)"; rc=$?
+nok "NEGATIVE non-ASCII importer path: removed aiohttp still imported -> FAIL" "[ $rc -eq 0 ]"
+ok  "non-ASCII importer path is named in the FAIL" "printf '%s' \"\$out\" | grep -q 'aiohttp.*s.*vc.py'"
 
 echo "landing gates: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # qa_run_shadow.sh: always exits 0, runs gates, survives a crashing/slow gate, resolves its dir before cd (cron-style relative path).
 Q="$(cd "$(dirname "$0")/../.." && pwd)"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 mkdir -p "$T/ovn/qa" "$T/ovn/state" "$T/ovn/logs"
 cp "$Q/qa/qa_run_shadow.sh" "$Q/qa/qa_timeout.py" "$T/ovn/qa/"

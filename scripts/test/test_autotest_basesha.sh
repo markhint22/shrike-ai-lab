@@ -3,7 +3,7 @@
 # exited 0 - a failing new test sailed through. With OVN_BASE_SHA it must run the scoped tests and exit non-zero. Also covers the per-repo
 # opt-in helper (scripts/lib_autotest_base.sh).
 Q="$(cd "$(dirname "$0")/../.." && pwd)"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 R="$T/repo"; mkdir -p "$R/backend/.venv/bin" "$R/backend/tests"

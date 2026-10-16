@@ -8,7 +8,7 @@ R="$(cd "$HERE/../.." && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'chmod -R u+rw "$T" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'chmod -R u+rw "$T" 2>/dev/null; rm -rf "$T"' EXIT
 
 # ---- usage exits ----
 for s in dedupe_progress_headers dedupe_gd_duplicate_functions dedupe_python_duplicate_defs; do

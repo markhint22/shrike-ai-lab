@@ -30,7 +30,7 @@ FN_SRC="$(sed -n '/^record_outcome(/,/^}/p' "$R")"
 eval "$FN_SRC"
 SCRIPT_DIR="$(cd "$(dirname "$R")" && pwd)"   # record_outcome references it for ovn_classify_fail.sh
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 STATE_DIR="$tmp/state"; mkdir -p "$STATE_DIR"
 
 # record one outcome against a repo dir whose top doable item is $1; echo "<item_hash> <feat_tag>"

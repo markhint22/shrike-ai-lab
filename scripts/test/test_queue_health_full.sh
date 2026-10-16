@@ -9,7 +9,7 @@ for c in "$HERE/../../queue_health.sh" "$HERE/../queue_health.sh" "$HERE/queue_h
 [ -n "$QH" ] || { echo "  SKIP: queue_health.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 Q="$T/q"; BIN="$T/bin"; ALERTS="$T/alerts.txt"; CURLLOG="$T/curl.log"
 mkdir -p "$Q/state" "$Q/repos" "$BIN"
 cp "$QH" "$Q/queue_health.sh"
@@ -98,7 +98,7 @@ echo "flag" > "$Q/state/branch_hygiene_review_eps"
 qh NTFY_TOPIC=tt MIN_DOABLE=0
 ok "flagged non-repo (eps) does not crash; still only stalled on beta" "$([ "$RC" = 0 ] && echo 1 || echo 0)"
 # now make beta only slightly ahead
-rm -rf "$Q/repos/beta/.git" "$T/origin_beta.git"; mkgit beta 3
+rm -rf "${Q:?}/repos/beta/.git" "${T:?}/origin_beta.git"; mkgit beta 3
 reset
 qh NTFY_TOPIC=tt MIN_DOABLE=0
 ok "flag but ahead<25 -> no stalled alert" "$([ "$(cnt 'Hygiene stalled')" = 0 ] && echo 1 || echo 0)"

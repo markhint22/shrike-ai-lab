@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 GATE="$HERE/../ovn_tsc_gate.sh"; [ -f "$GATE" ] || GATE="$HERE/ovn_tsc_gate.sh"
 [ -f "$GATE" ] || { echo "  ❌ ovn_tsc_gate.sh not found"; exit 1; }
 rc=0; fail(){ echo "  ❌ $1"; rc=1; }; ok(){ echo "  ✅ $1"; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export FAKE_ERR_COUNT_FILE="$tmp/errcount"
 bl="$tmp/baselines"; mkdir -p "$bl"
 repo="$tmp/repo"; wd="$repo/web"; mkdir -p "$wd/src" "$wd/node_modules/.bin"

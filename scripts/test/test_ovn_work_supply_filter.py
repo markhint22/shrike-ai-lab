@@ -88,7 +88,8 @@ def mk(kind, file, symbols, tier="T2", cat="python"):
 def env_dir(files=None, backlog="# backlog\n", progress="# progress\n", done=""):
     """An OVN_DIR with repos/demo holding `files`; the default files produce exactly ONE gap (no-rate-limit on open_router.py)."""
     if files is None:
-        files = {"iptv-backend/app/routers/limited.py": "from app.core.limiter import limiter\n@router.get('/a')\n@limiter.limit('5/minute')\ndef a(request):\n    return 1\n",
+        files = {"iptv-backend/app/core/limiter.py": "from slowapi import Limiter\nlimiter = Limiter(key_func=None)\n",   # 2026-10-16: the repo DEFINES its limiter (the template reads it, see repo_limiter_import)
+                 "iptv-backend/app/routers/limited.py": "from app.core.limiter import limiter\n@router.get('/a')\n@limiter.limit('5/minute')\ndef a(request):\n    return 1\n",
                  "iptv-backend/app/routers/open_router.py": "@router.get('/x')\ndef x():\n    return 1\n@router.post('/y')\nasync def y(body):\n    return 2\n"}
     d = os.path.realpath(tempfile.mkdtemp(prefix="ovn-"))
     clone = os.path.join(d, "repos", "demo")

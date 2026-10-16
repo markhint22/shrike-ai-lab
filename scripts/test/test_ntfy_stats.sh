@@ -13,7 +13,7 @@ ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/n
 
 # ---- ovn_tier_stats.py ----
 if [ -f "$TS" ]; then
-  tmp="$(mktemp -d)"; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
+  tmp="$(mktemp -d)" || exit 1; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
   OUT="$HOME/overnight-queue/state/outcomes.jsonl"
   now="$(date -u +%FT%TZ 2>/dev/null || python3 -c 'import datetime;print(datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))')"
   cat > "$OUT" <<EOF
@@ -58,7 +58,7 @@ fi
 
 # ---- ovn_planning_stats.py ----
 if [ -f "$PS" ]; then
-  tmp="$(mktemp -d)"; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/logs"
+  tmp="$(mktemp -d)" || exit 1; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/logs"
   now_local="$(date '+%Y-%m-%d %H:%M:%S')"
   cat > "$HOME/overnight-queue/logs/ovn_planner.log" <<EOF
 $now_local gitlark: appended 8 27B-decomposed items to backlog; marked feature [decomposed]

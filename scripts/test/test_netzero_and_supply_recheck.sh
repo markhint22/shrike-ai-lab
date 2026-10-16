@@ -17,7 +17,7 @@ ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/n
 echo "== A: ovn_cycle_net_zero (unit, real function extracted from run_overnight.sh)"
 FN="$(sed -n '/^ovn_cycle_net_zero() {/,/^}/p' "$RO")"; [ -n "$FN" ] || { echo "  FAIL: could not extract ovn_cycle_net_zero"; exit 1; }
 eval "$FN"
-tmp="$(mktemp -d)"; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+tmp="$(mktemp -d)" || exit 1; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 R="$tmp/r"; mkdir -p "$R"; cd "$R" || exit 1; git init -q -b main . 2>/dev/null || git init -q .
 printf 'import os\nx = os.getenv("A")\n' > svc.py; printf '# prog\n- [ ] [T1] svc.py — do it\n' > OVERNIGHT_PROGRESS.md
 git add -A; git commit -q -m seed; B0="$(git rev-parse HEAD)"

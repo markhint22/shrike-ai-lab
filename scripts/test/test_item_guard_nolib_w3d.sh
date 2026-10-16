@@ -8,7 +8,7 @@ G="$HERE/../ovn_item_guard.sh"; [ -f "$G" ] || G="$HERE/../scripts/ovn_item_guar
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/iso"; cp "$G" "$tmp/iso/ovn_item_guard.sh"; GG="$tmp/iso/ovn_item_guard.sh"
 md5(){ printf '%s' "$1" | md5sum | cut -d' ' -f1; }
 new_repo(){ local r="$tmp/$1"; mkdir -p "$r"; printf '%s\n' "${@:2}" > "$r/OVERNIGHT_PROGRESS.md"; echo "$r"; }

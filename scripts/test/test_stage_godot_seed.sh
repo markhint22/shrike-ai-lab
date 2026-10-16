@@ -26,7 +26,7 @@ BLOCK="$(awk 'index($0,"# 2026-10-09 (xlite godot lane): same class of bug as no
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the godot seed block from $SR"; exit 1; }
 case "$BLOCK" in *'wt_seed_godot'*'--import'*) : ;; *) echo "  FAIL: extracted block does not look like the seed block"; exit 1 ;; esac
 
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 export GODOT_LOG="$T/godot.log"
 
 # queue-dir stand-in: the block sources scripts/lib_worktree.sh and writes logs/ relative to the cwd (the runner cd's to ~/overnight-queue)
@@ -34,7 +34,7 @@ Q="$T/queue"; mkdir -p "$Q/scripts" "$Q/logs"; cp "$LIBWT" "$Q/scripts/lib_workt
 SAYLOG="$T/say.log"
 
 mk_home(){ # $1 = with|without godot
-  rm -rf "$T/home"; mkdir -p "$T/home/godot"
+  rm -rf "${T:?}/home"; mkdir -p "$T/home/godot"
   [ "$1" = with ] || return 0
   cat > "$T/home/godot/godot4" <<'EOF'
 #!/usr/bin/env bash
@@ -51,7 +51,7 @@ EOF
 
 # a real repo with an origin/overnight/feature ref, a godot project at the root (and a second one in a subdir), the import cache present but gitignored
 mk_repo(){
-  rm -rf "$T/rd" "$T/origin.git" "$T/wt"
+  rm -rf "${T:?}/rd" "${T:?}/origin.git" "${T:?}/wt"
   git init -q --bare "$T/origin.git"
   git clone -q "$T/origin.git" "$T/rd" 2>/dev/null
   ( cd "$T/rd"; git config user.email t@t; git config user.name t
@@ -96,7 +96,7 @@ battery(){ # $1 = block text (real or mutant); returns the number of failed asse
   out="$(cd "$T/wt" && HOME="$T/home" "$T/home/godot/godot4" --headless --path . --check-only --script res://scripts/a.gd 2>&1)"
   chk "8 a following --check-only reports 0 SCRIPT ERROR" "$([[ $out == *'SCRIPT ERROR'* ]] && echo 0 || echo 1)"
   # control: an UNSEEDED worktree gives the false error (the shim models the real symptom)
-  rm -rf "$T/wt2"; git -C "$T/rd" worktree add -q "$T/wt2" origin/overnight/feature
+  rm -rf "${T:?}/wt2"; git -C "$T/rd" worktree add -q "$T/wt2" origin/overnight/feature
   out="$(cd "$T/wt2" && HOME="$T/home" "$T/home/godot/godot4" --headless --path . --check-only --script res://scripts/a.gd 2>&1)"
   chk "9 control: without the seed the same check-only reports the false ScreenBg error" "$([[ $out == *ScreenBg* ]] && echo 1 || echo 0)"
   git -C "$T/rd" worktree remove --force "$T/wt2" 2>/dev/null
@@ -122,7 +122,7 @@ battery(){ # $1 = block text (real or mutant); returns the number of failed asse
   chk "17 repo without project.godot: no godot call, no say line" "$([ "$(calls)" = 0 ] && [ ! -s "$SAYLOG" ] && echo 1 || echo 0)"
 
   # project in a subdir only: seeded + imported there
-  git -C "$T/rd" worktree remove --force "$T/wt" 2>/dev/null; rm -rf "$T/rd" "$T/origin.git" "$T/wt"
+  git -C "$T/rd" worktree remove --force "$T/wt" 2>/dev/null; rm -rf "${T:?}/rd" "${T:?}/origin.git" "${T:?}/wt"
   git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/rd" 2>/dev/null
   ( cd "$T/rd"; git config user.email t@t; git config user.name t
     printf '.godot/\n*.import\n' > .gitignore; mkdir -p game/assets; echo 'config_version=5' > game/project.godot; echo png > game/assets/a.png
@@ -139,7 +139,7 @@ battery(){ # $1 = block text (real or mutant); returns the number of failed asse
 live(){
   GB="$HOME/godot/godot4"; XL="${OVN_LIVE_XLITE:-$HOME/overnight-queue/repos/xlite}"
   [ -x "$GB" ] && [ -d "$XL/.git" ] || { echo "  SKIP --live: need $GB and $XL"; return 0; }
-  S="$(mktemp -d "$HOME/scratch-stageseed-XXXXXX")"
+  S="$(mktemp -d "$HOME/scratch-stageseed-XXXXXX")" || exit 1
   echo "  live: scratch=$S"
   mkdir -p "$S/src" "$S/rd"
   git -C "$XL" archive HEAD | tar -x -C "$S/rd"

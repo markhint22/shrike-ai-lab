@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 reset_hd(){ git -C "$REPO" rev-parse origin/main; }
 # every case starts with clean integrity state (baseline cache, per-item revert counters, cycle markers live under the shared fake tree)
 eval "$(declare -f mk_case | sed '1s/mk_case/_mk_case_orig/')"
-mk_case(){ _mk_case_orig "$@"; rm -rf "$TREE/state/nr_reverts" "$TREE"/state/baseline_fail_* "$TREE"/state/cycle_active_*; }
+mk_case(){ _mk_case_orig "$@"; rm -rf "${TREE:?}/state/nr_reverts" "${TREE:?}"/state/baseline_fail_* "${TREE:?}"/state/cycle_active_*; }
 
 PRE='echo "FAILED tests/test_app.py::test_old - assert 1 == 2"; echo "== 1 failed, 4 passed in 0.50s =="'
 NEWRED='echo "FAILED tests/test_app.py::test_old - assert 1 == 2"; echo "FAILED tests/test_vod.py::test_vod - assert 3 == 4"; echo "== 2 failed, 3 passed in 0.50s =="'

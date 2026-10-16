@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 G=""; for c in "$HERE/../../ovn_git_sync.sh" "$HERE/../ovn_git_sync.sh"; do [ -f "$c" ] && { G="$c"; break; }; done
 [ -n "$G" ] || { echo "  SKIP: ovn_git_sync.sh not found"; exit 0; }
 G="$(cd "$(dirname "$G")" && pwd)/$(basename "$G")"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 T="$(cd "$T" && pwd -P)"   # /private/var vs /var on macOS
 P=0; F=0
 # assertions are evaluated with pipefail OFF (no `x | grep -q` flakiness); conditions use grep -c / [ ] only
@@ -116,7 +116,7 @@ run_suite(){  # $1=label $2=script
   # ---- D4: deletions are synced ----
   build "$2"; mkdir -p "$R/tools"; echo t > "$R/tools/t.py"; echo g > "$R/gone.sh"; echo g > "$R/gone_data.json"
   git -C "$R" add -A >/dev/null 2>&1; git -C "$R" commit -q -m more >/dev/null 2>&1; git -C "$R" push -q origin overnight-live >/dev/null 2>&1
-  rm -f "$R/gone.sh" "$R/gone_data.json"; rm -rf "$R/tools"; echo v2 > "$R/scripts/a.sh"
+  rm -f "$R/gone.sh" "$R/gone_data.json"; rm -rf "${R:?}/tools"; echo v2 > "$R/scripts/a.sh"
   sync_run
   ok "D4 a deleted tracked root *.sh, a deleted tracked root data file and a whole deleted tracked dir (tools/) are removed from the mirror too" "[ $RC -eq 0 ] && [ \"\$(tracked gone.sh)\" = 0 ] && [ \"\$(tracked gone_data.json)\" = 0 ] && [ \"\$(tracked tools/t.py)\" = 0 ] && [ \"\$(git -C '$R' status --porcelain | grep -c '^ D')\" = 0 ] && [ \"\$(head_)\" = \"\$(remote_)\" ]"
   # ---- E: no-op ----

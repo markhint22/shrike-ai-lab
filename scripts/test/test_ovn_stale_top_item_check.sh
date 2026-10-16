@@ -20,7 +20,7 @@ chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 STUB="$T/stub"; mkdir -p "$STUB"; CURLLOG="$T/curl.log"
 cat > "$STUB/curl" <<EOF
 #!/bin/bash
@@ -31,7 +31,7 @@ chmod +x "$STUB/curl"
 W="$T/w/overnight-queue"; LOG="$W/logs/ovn_stale_top_item_check.log"; ST="$W/state"
 PYOUT="$T/pyout.tsv"; PYARGS="$T/pyargs.log"; PYERR="$T/pyerr.txt"
 setup(){
-  rm -rf "$T/w" "$CURLLOG" "$PYARGS" "$PYERR"; : > "$PYOUT"; mkdir -p "$W"/{scripts,state,logs}
+  rm -rf "${T:?}/w" "$CURLLOG" "$PYARGS" "$PYERR"; : > "$PYOUT"; mkdir -p "$W"/{scripts,state,logs}
   sed "s|^export PATH=.*|export PATH=\"$STUB:/usr/bin:/bin\"|" "$SH" > "$W/scripts/ovn_stale_top_item_check.sh"
   cat > "$W/scripts/ovn_stale_top_item_check.py" <<EOF
 import sys

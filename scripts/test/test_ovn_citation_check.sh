@@ -21,7 +21,7 @@ chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 echo "== python helper =="
 R="$T/repo"; mkdir -p "$R/src" "$R/node_modules/pkg" "$R/.venv/lib" "$R/.git/x"
@@ -99,7 +99,7 @@ chmod +x "$STUB/curl"
 W="$T/w/overnight-queue"
 gi(){ git -C "$W" "$@"; }
 setup(){
-  rm -rf "$T/w" "$CURLLOG"; mkdir -p "$W"/{scripts,state,logs,backlog,repos/alpha/src}
+  rm -rf "${T:?}/w" "$CURLLOG"; mkdir -p "$W"/{scripts,state,logs,backlog,repos/alpha/src}
   touch "$W/repos/alpha/src/Existing.kt"
   sed "s|^export PATH=.*|export PATH=\"$STUB:/usr/bin:/bin\"|" "$SH" > "$W/scripts/ovn_citation_check.sh"
   cp "$PY" "$W/scripts/ovn_citation_check.py"

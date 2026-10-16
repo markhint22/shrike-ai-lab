@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 L="$HERE/../lib_tree_guard.sh"; [ -f "$L" ] || L="$HERE/lib_tree_guard.sh"
 R="$HERE/../../reconcile_branches.sh"; [ -f "$R" ] || R="$HERE/../reconcile_branches.sh"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 . "$L"
 git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/seed" 2>/dev/null
 ( cd "$T/seed"; git config user.email t@t; git config user.name t

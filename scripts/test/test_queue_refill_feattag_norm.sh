@@ -20,7 +20,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 RF="$HERE/../../queue_refill.py"; [ -f "$RF" ] || RF="$HERE/../queue_refill.py"; [ -f "$RF" ] || RF="$HERE/queue_refill.py"
 [ -f "$RF" ] || { echo "  SKIP: queue_refill.py not found"; exit 0; }
 rc=0; fail(){ echo "  FAIL: $1"; rc=1; }; ok(){ echo "  ok: $1"; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 # --- A: SAME feat-tag slug, NEW date — must dedup (not re-pulled) ---
 prog="$tmp/progA.md"; bl="$tmp/blA.md"

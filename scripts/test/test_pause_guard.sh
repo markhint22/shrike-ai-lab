@@ -9,6 +9,8 @@
 # (auto-clear, no resume call), and MANUAL pause (alert-only, never auto-cleared).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# 2026-10-16: fail-closed sandbox helpers (a failed mktemp must abort, never turn HOME into /home and rm -rf it)
+. "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
 if [ -n "${OVN_PAUSE_GUARD:-}" ]; then
   G="$OVN_PAUSE_GUARD"
 else
@@ -20,8 +22,8 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || { echo "  FAIL: cannot create a safe temp dir - aborting before touching anything"; exit 1; }
+trap 'safe_rm_rf "$tmp"' EXIT
 
 # fake bin dir: curl (records alerts, never hits the network) + queue.sh (records resume calls)
 mkdir -p "$tmp/bin"
@@ -33,8 +35,8 @@ EOF
 chmod +x "$tmp/bin/curl"
 
 run_guard(){  # sets up a fresh sandbox HOME each call
-  export HOME="$tmp/home"
-  rm -rf "$HOME"; mkdir -p "$HOME/overnight-queue/state"
+  safe_set_sandbox_home "$tmp" || exit 1
+  safe_rm_rf "$HOME" || exit 1; mkdir -p "$HOME"; mkdir -p "$HOME/overnight-queue/state"
   cat > "$HOME/overnight-queue/queue.sh" <<'EOF'
 #!/usr/bin/env bash
 # mirrors the real queue.sh resume: removes state/PAUSED itself (pause_guard.sh's

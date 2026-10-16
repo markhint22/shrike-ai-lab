@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../../ovn_prioritize_tiers.py"; [ -f "$S" ] || S="$HERE/../ovn_prioritize_tiers.py"; [ -f "$S" ] || S="$HERE/ovn_prioritize_tiers.py"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 P="$T/p.md"
 run(){ python3 "$S" "$@" 2>&1; }
 same(){ [ "$(cat "$1")" = "$(printf '%b' "$2")" ] && echo 1 || echo 0; }   # compare file to expected (%b text, no trailing NL compare)

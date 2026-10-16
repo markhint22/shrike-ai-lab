@@ -9,7 +9,7 @@ SCRIPT="$HERE/../ovn_credit_already_satisfied.sh"; [ -f "$SCRIPT" ] || SCRIPT="$
 [ -f "$SCRIPT" ] || { echo "  SKIP: script not found"; exit 0; }
 sed --version >/dev/null 2>&1 || { echo "  SKIP: needs GNU sed"; exit 0; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT; cd "$tmp"
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT; cd "$tmp"
 mkdir -p src; touch src/exists.py src/stale_to_delete.py
 mk(){ cat > OVERNIGHT_PROGRESS.md <<'P'
 ## Next Steps

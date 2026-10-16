@@ -10,7 +10,7 @@ DRV="$HERE/lib_ro_aider1_driver.sh"
 Q="$(cd "$HERE/../.." && pwd)"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 run(){ timeout 150 bash "$DRV" "$1" "$T/$1" > "$T/$1.out" 2>&1; }
 res(){ cat "$T/$1/result" 2>/dev/null; }
 rd(){ echo "$T/$1/repos/ro_aider1_repo"; }

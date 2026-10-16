@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; Q="$(cd "$HERE/../.." && pwd)"; RUN="$Q/run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 W="$(cd "$W" && pwd -P)"
 export HOME="$W/home"; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
@@ -67,7 +67,7 @@ mkrepo(){  # $1 name  $2 progress text -> $R, $BEFORE, $TL
   mkdir -p docs; printf 'base\n' > docs/a.md
   printf '## Next Steps\n%s\n' "$2" > OVERNIGHT_PROGRESS.md
   git add -A; git commit -q -m init; git push -q origin main 2>/dev/null
-  BEFORE="$(git rev-parse HEAD)"; TL="$W/cyc-$1/ongoing-$1.log"; mkdir -p "$(dirname "$TL")"; : > "$TL"; : > "$STUB_CALLS"; rm -rf "$OD/state/exec_failed" "$LOG" "$OD/state/executor_mode"
+  BEFORE="$(git rev-parse HEAD)"; TL="$W/cyc-$1/ongoing-$1.log"; mkdir -p "$(dirname "$TL")"; : > "$TL"; : > "$STUB_CALLS"; rm -rf "${OD:?}/state/exec_failed" "$LOG" "${OD:?}/state/executor_mode"
 }
 hook(){ ovn_executor_hook doc "$OD" "$R" "$1" main "$TL" "$BEFORE"; }
 rows(){ [ -f "$LOG" ] && wc -l < "$LOG" | tr -d ' ' || echo 0; }
@@ -183,7 +183,7 @@ mkdir -p "$OD/state/exec_failed"; : > "$OD/state/exec_failed/$(ovn_item_hash "$P
 ok "on: a gap with an exec_failed marker is skipped - the next parked gap is offered" "[ \"\$(OVN_DOC_EXECUTOR=on rr)\" = '$PK2' ]"
 : > "$OD/state/exec_failed/$(ovn_item_hash "$PK2")"
 ok "on: every gap failed once => nothing offered" "[ -z \"\$(OVN_DOC_EXECUTOR=on rr)\" ]"
-rm -rf "$OD/state/exec_failed"
+rm -rf "${OD:?}/state/exec_failed"
 ok "on via state file doc:r1=on (no env): offered" "printf 'doc:r1=on\n' > '$OD/state/executor_mode'; [ \"\$(rr)\" = '$PK1' ]; rc=\$?; rm -f '$OD/state/executor_mode'; [ \$rc = 0 ]"
 ok "only ongoing-* lanes: a queued task id gets nothing" "[ -z \"\$(OVN_DOC_EXECUTOR=on rr t-123)\" ]"
 ok "OVN_DOC_REROUTE=off is a kill switch" "[ -z \"\$(OVN_DOC_EXECUTOR=on OVN_DOC_REROUTE=off rr)\" ]"
@@ -206,7 +206,7 @@ mkrepo r6 "$PROG"; OVN_DOC_EXECUTOR=on rr >/dev/null
 ok "on: the offer path writes no shadow evidence rows (those belong to the hook)" "[ \"\$(evc would-apply)\" = 0 ] && [ \"\$(evc skip)\" = 0 ]"
 mkrepo r7 "$PROG"; mkdir -p "$OD/state/exec_failed"; : > "$OD/state/exec_failed/$(ovn_item_hash "$PK1")"; rr >/dev/null
 ok "an exec_failed gap is not re-checked for shadow evidence (PK2 + annotated only: 2 calls)" "[ \"\$(calls)\" = 2 ]"
-rm -rf "$OD/state/exec_failed"
+rm -rf "${OD:?}/state/exec_failed"
 mkrepo r8 "$PK1"; STUB_CHECK=empty rr >/dev/null
 ok "round 3: a parked-gap check that prints nothing (timeout/crash) logs 'check-empty', NOT a permanent shadow 'skip' (and no would-apply)" "[ \"\$(evc check-empty)\" = 1 ] && [ \"\$(evc skip)\" = 0 ] && [ \"\$(evc would-apply)\" = 0 ]"
 STUB_CHECK=empty rr >/dev/null; STUB_CHECK=empty rr >/dev/null; STUB_CHECK=empty rr >/dev/null

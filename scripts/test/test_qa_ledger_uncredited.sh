@@ -9,7 +9,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"; QA="$ROOT/qa"
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 OVN="$tmp/ovn"; mkdir -p "$OVN/state" "$OVN/repos"
 run(){ env -i PATH="/usr/bin:/bin:$(dirname "$PY")" HOME="$tmp" NTFY_SERVER=http://127.0.0.1:9 OVN_DIR="$OVN" OVN_REPOS_DIR="$OVN/repos" "$@"; }
 "$PY" - "$OVN" <<'PYEOF' || { echo "  FAIL fixture build failed"; exit 1; }

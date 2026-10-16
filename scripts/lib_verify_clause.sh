@@ -187,6 +187,15 @@ _verify_fix_gut_exit(){
   printf '%s' "$c"
 }
 _verify_is_gut(){ case "$1" in *gut_cmdln*) return 0;; esac; return 1; }
+# 2026-10-16 (overnight review, xlite): the roadmap writes a bare `gut -gdir=tests -gselect=... -gexit` shorthand. No `gut` binary exists on the box (rc 127 on every run, 50 UNRUNNABLE rows
+# in one night), so the clause could never PASS and an ALREADY-DONE scout credit ran on an UNRUNNABLE verdict. The command word `gut` (at the start of the clause or after ; && || |)
+# becomes the GUT entry point, so the existing -gexit and -gdir/-gtest/-gselect repairs apply. OVN_GUT_ALIAS=off disables. `cd gut`, `gut_cmdln` and `grep gut` are untouched.
+_verify_gut_alias(){
+  local c="$1"
+  case "$c" in *gut_cmdln*) printf '%s' "$c"; return 0 ;; esac
+  if [ "${OVN_GUT_ALIAS:-on}" = off ]; then printf '%s' "$c"; return 0; fi
+  printf '%s' "$c" | sed -E 's/(^|[;&|][[:space:]]*)gut([[:space:]])/\1godot --headless -s addons\/gut\/gut_cmdln.gd\2/g'
+}
 # X2: prints the clause with GUT shapes that can never run rewritten (ovn_gut_clause.py); prints it unchanged for a non-GUT clause, when OVN_GUT_CLAUSE_NORMALIZE=off, or on any error.
 # The project root is the cwd (or the target of a leading `cd X &&`).
 _verify_normalize_gut(){
@@ -432,6 +441,20 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     fi
   fi
   vcmd="$(_resolve_tool_paths "$vcmd")"
+  # 2026-10-16 (review): the gut alias is SHADOW by default. The verdict keeps the clause as written. OVN_GUT_ALIAS=on applies the rewrite to the verdict;
+  # OVN_GUT_ALIAS=off does nothing. Any other value (unset included) runs the aliased form once for the record only (note row, no result= token).
+  local _gamode="${OVN_GUT_ALIAS:-shadow}" _gaws
+  if [ "$_gamode" = on ]; then
+    vcmd="$(_verify_gut_alias "$vcmd")"
+  elif [ "$_gamode" != off ]; then
+    _gaws="$(_verify_gut_alias "$vcmd")"
+    if [ -n "$_gaws" ] && [ "$_gaws" != "$vcmd" ]; then
+      local _gout _grc _gwould
+      _gout="$(_verify_run "${VERIFY_TIMEOUT_SECS:-60}" "$_gaws")"; _grc=$?
+      if [ "$_grc" -eq 0 ]; then _gwould=PASS; else _gwould=FAIL; fi
+      echo "$ts repo=$_REPO_LABEL line=$ln note=gut-alias mode=shadow would=$_gwould rc=$_grc aliased=$(printf '%s' "$_gaws" | head -c 200) cmd=$(printf '%s' "$vcmd" | head -c 200)" >> "$SHADOW_LOG"
+    fi
+  fi
   vcmd="$(_verify_fix_gut_exit "$vcmd")"
   vcmd="$(_verify_normalize_gut "$vcmd")"   # X2: -gdir=<file>.gd / bare -gtest=<name>.gd / -gselect=<function> -> a form GUT can run (OVN_GUT_CLAUSE_NORMALIZE=off disables)
   # A (verify-credit-runner): the python project root / PYTHONPATH this clause is judged under (see _verify_py_root); empty = run exactly as before

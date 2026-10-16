@@ -5,7 +5,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 V="$HERE/../../ovn_auto_research_validate.py"; [ -f "$V" ] || V="$HERE/../ovn_auto_research_validate.py"; [ -f "$V" ] || V="$HERE/ovn_auto_research_validate.py"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 M='{cat: backend; size: S; multifile: no; research: none}'

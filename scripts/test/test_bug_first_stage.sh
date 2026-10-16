@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 if ! sed --version >/dev/null 2>&1; then echo "  SKIP: needs GNU sed (the guard/helper use sed -i); run on the box"; exit 0; fi
 unset OVN_BUG_FIRST OVN_BUG_FOCUS OVN_BUG_ATTEMPT_CAP OVN_GUARD_ATTEMPTS NTFY_SERVER NTFY_TOPIC OVN_BUG_BRIEF_DIR OVN_ITEM_FAIL_CAP OVN_ITEM_NOOP_CAP OVN_ITEM_TOKEN_CAP
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"; osr_cleanup' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"; osr_cleanup' EXIT
 withlibs(){ cp "$REALQ/scripts/lib_item_select.sh" "$REALQ/scripts/lib_bug_escalate.sh" "$REALQ/scripts/ovn_repeat_ids.py" "$Q/scripts/"; }
 BUGPY='[T3] backend/app/foo.py — Manual-test bug (reported by Mark, flow f, 2026-10-02): the add button does nothing. First write a failing test that reproduces this, then fix it. VERIFY: `pytest backend/tests/test_foo.py` (cat:bugfix; multifile:no; src:manual) [feat:osr-20261002-manual-aaaa1111]'
 PLAN_STUCK1='[{"desc":"big step","files":["backend/app/foo.py"],"verify":"pytest"}]'
@@ -125,7 +125,7 @@ guard "$r" 'reverted(build-break)' "$st" ongoing-x; guard "$r" 'reverted(build-b
 t "helper present (shared lib): the guard still escalates the bug at 2 via ovn_bug_escalate" bash -c "grep -q '\[CLAUDE\] \[bug-escalated: 2 failed attempts (cap 2)' '$r/OVERNIGHT_PROGRESS.md' && [ \"\$(wc -l < '$st/bug_escalations.jsonl' | tr -d ' ')\" = 1 ]"
 
 echo "=== S: the real stage sweep (escalate_godot) ==="
-sw_new(){ T="$(mktemp -d)"; H="$T/home"; Q="$H/overnight-queue"; mkdir -p "$Q/state" "$Q/logs" "$Q/repos" "$T/bin"
+sw_new(){ T="$(mktemp -d)" || exit 1; H="$T/home"; Q="$H/overnight-queue"; mkdir -p "$Q/state" "$Q/logs" "$Q/repos" "$T/bin"
   printf '#!/usr/bin/env bash\necho "$*" >> "$HOME/overnight-queue/state/runner.calls"\nexit 0\n' > "$Q/ovn_stage_runner.sh"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$T/bin/pgrep"; printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/sleep"; chmod +x "$T/bin/pgrep" "$T/bin/sleep"; }
 sw_repo(){ local r="$1"; shift; local d="$Q/repos/$r" o="$T/origin-$r.git"

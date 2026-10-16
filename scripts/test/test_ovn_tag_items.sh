@@ -7,7 +7,7 @@ D="$HERE/.."; [ -f "$D/ovn_tag_items.py" ] || D="$HERE"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then echo "  ok   $1"; else echo "  WARN KNOWN-BUG: $1 (non-fatal)"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/s"; cp "$D/ovn_tag_items.py" "$D/ovn_classify.py" "$T/s/"
 S="$T/s/ovn_tag_items.py"; C="$T/s/ovn_classify.py"
 tagof(){ python3 "$C" --tag "$1"; }

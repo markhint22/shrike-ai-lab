@@ -3,7 +3,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export OVN_NTFY_GUARD_LOG="$T/guard.log"
 . "$HERE/ntfy_guard.sh"
 curl -s -m 2 -d hi https://ntfy.sh/some_topic; rc=$?

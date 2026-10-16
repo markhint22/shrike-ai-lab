@@ -11,7 +11,7 @@ for c in "$HERE/../ovn_tier_stats.py" "$HERE/../../scripts/ovn_tier_stats.py" "$
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 python3 - "$T" <<'PY'
 import json, os, sys, time

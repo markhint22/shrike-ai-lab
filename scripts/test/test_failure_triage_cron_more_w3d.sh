@@ -10,7 +10,7 @@ CRON="$SD/ovn_failure_triage_cron.sh"
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/home/overnight-queue"/{state,scripts,logs}
 Q="$tmp/home/overnight-queue"; BST="$Q/state"
 for f in ovn_failure_triage.py ovn_outcome_buckets.py lib_lock.sh; do cp "$SD/$f" "$Q/scripts/$f"; done

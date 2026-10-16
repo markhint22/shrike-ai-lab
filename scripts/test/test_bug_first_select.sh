@@ -24,7 +24,7 @@ P=0; F=0
 # (captured: 4 random FAILs of 12 parallel runs, each passing on retry). pipefail is switched off inside the condition only.
 ok(){ if ( set +o pipefail; eval "$2" ) >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (expected [$2] got [$3])"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 BUG1='- [ ] [T3] android/app/Foo.kt — Manual-test bug (reported by Mark, flow home-countries-filter, 2026-10-02): Qatar missing from the countries filter. First write a failing test that reproduces this, then fix it; if the cause is not in this file, say so. VERIFY: `cd android && ./gradlew testDebugUnitTest`. (cat:bugfix; multifile:no; src:manual) [feat:iptv_apps-20261002-manual-aaaa1111]'
 BUG2='- [ ] [T3] android/app/Bar.kt — Manual-test bug (reported by Mark, flow discover-add, 2026-10-02): the plus button does not add the channel. First write a failing test that reproduces this, then fix it. VERIFY: `true`. (cat:bugfix; multifile:no; src:manual) [feat:iptv_apps-20261002-manual-bbbb2222]'

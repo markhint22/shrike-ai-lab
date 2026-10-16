@@ -7,7 +7,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 [ -f "$ROOT/qa/phase0_report.py" ] || { echo "  SKIP: qa/phase0_report.py not found"; exit 0; }
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 rc=0; ok(){ echo "  ok   $1"; }; fail(){ echo "  FAIL $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/state"
 "$PY" "$HERE/test_qa_phase0_report.py" || fail "python suite"
 out="$(env -i PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:9 HOME="$tmp" "$PY" "$ROOT/qa/phase0_report.py" --state-dir "$tmp/state" --now 1792000000 2>"$tmp/err")"

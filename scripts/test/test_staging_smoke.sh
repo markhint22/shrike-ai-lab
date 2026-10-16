@@ -7,7 +7,7 @@ S="$HERE/../../staging_smoke.sh"; [ -f "$S" ] || S="$HERE/../staging_smoke.sh"; 
 [ -f "$S" ] || { echo "staging_smoke.sh not found"; exit 1; }
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 BIN="$T/bin"; mkdir -p "$BIN"; export CURL_LOG="$T/curl.log"
 cat > "$BIN/curl" <<'STUB'
 #!/usr/bin/env bash

@@ -8,7 +8,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_ro_aider2_fixture.sh"
 eval "$(declare -f mk_case | sed '1s/mk_case/_mk_case_orig/')"
-mk_case(){ _mk_case_orig "$@"; rm -rf "$TREE/state/nr_reverts" "$TREE"/state/baseline_fail_* "$TREE"/state/cycle_active_*; }
+mk_case(){ _mk_case_orig "$@"; rm -rf "${TREE:?}/state/nr_reverts" "${TREE:?}"/state/baseline_fail_* "${TREE:?}"/state/cycle_active_*; }
 
 FAILOUT='echo "FAILED tests/test_vod.py::test_vod - assert 3 == 4"; echo "== 1 failed, 4 passed in 0.50s =="'
 # verify: BEFORE tree (init) green; the model's commit "feat: p" is red; the amended commit "feat: p fixed" is green

@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; Q="$(cd "$HERE/../.." && pwd)"; RUN="$Q/run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
 # shellcheck disable=SC1090
 . "$S/lib_item_select.sh"; . "$S/lib_fixup.sh"
@@ -84,7 +84,7 @@ ovn_exhausted_clear iptv_apps "$SD"; ovn_exhausted_supply_kick iptv_apps "$SD" "
 ok "(c) after ovn_exhausted_clear (work came back) the next exhaustion launches again (3 calls)" "[ \"\$(calls)\" = 3 ]"
 ovn_exhausted_clear xlite "$SD"; OVN_EXHAUSTED_SUPPLY=off ovn_exhausted_supply_kick xlite "$SD" "$OD"; sleep 0.5
 ok "(c) kill switch OVN_EXHAUSTED_SUPPLY=off: no launch (still 3 calls) but the marker is written" "[ \"\$(calls)\" = 3 ] && [ -s '$SD/exhausted_since_xlite' ]"
-rm -rf "$W/ovn2"; mkdir -p "$W/ovn2"; ovn_exhausted_supply_kick gitlark "$SD" "$W/ovn2"; sleep 0.3
+rm -rf "${W:?}/ovn2"; mkdir -p "$W/ovn2"; ovn_exhausted_supply_kick gitlark "$SD" "$W/ovn2"; sleep 0.3
 ok "(c) a missing ovn_work_supply.py is skipped silently (marker only, rc 0)" "[ -s '$SD/exhausted_since_gitlark' ] && [ ! -e '$W/ovn2/logs/work_supply.log' ]"
 exec 200>&-
 

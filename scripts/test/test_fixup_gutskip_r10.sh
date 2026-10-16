@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export OVN_VERIFY_SHADOW_LOG="$tmp/shadow.log"
 ALERTS="$tmp/alerts.log"; : > "$ALERTS"
 emit_alert(){ printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$ALERTS"; }

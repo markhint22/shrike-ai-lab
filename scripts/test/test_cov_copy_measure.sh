@@ -12,10 +12,10 @@ python3 -c "import coverage" >/dev/null 2>&1 || { echo "  SKIP: python3 has no c
 [ -f "$COV/shim/env" ] || { echo "  FAIL: scripts/cov/shim/env missing"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 mkfix(){  # <name>: fixture Q with scripts/{foo,bar,never}.py, top_never.py, qa/{gate.py,q.sh} and a one-test suite
   local q="$T/$1/q"; mkdir -p "$q/scripts/test" "$q/qa" "$q/scripts/cov"
-  cp -R "$COV/." "$q/scripts/cov/"; rm -rf "$q/scripts/cov/__pycache__" "$q/scripts/cov/pysite/__pycache__"
+  cp -R "$COV/." "$q/scripts/cov/"; rm -rf "${q:?}/scripts/cov/__pycache__" "${q:?}/scripts/cov/pysite/__pycache__"
   cp "$HERE/ntfy_guard.sh" "$q/scripts/test/"
   printf 'import sys\ndef used(x):\n    return x + 1\n\ndef other(x):\n    return x * 2\n\nif __name__ == "__main__":\n    print(used(1))\n' > "$q/scripts/foo.py"
   printf 'def a():\n    return 1\ndef b():\n    return 2\nprint(a())\n' > "$q/scripts/bar.py"
@@ -27,9 +27,9 @@ mkfix(){  # <name>: fixture Q with scripts/{foo,bar,never}.py, top_never.py, qa/
   printf '#!/usr/bin/env bash\necho junk\n' > "$q/._junk.sh"; printf 'x = 1\n' > "$q/scripts/._junk.py"   # macOS AppleDouble leftovers (the box has several): never script rows
   cat > "$q/scripts/test/test_x.sh" <<'TX'
 #!/usr/bin/env bash
-D="$(mktemp -d)"; cp ../foo.py "$D/foo.py"; python3 "$D/foo.py"; rm -rf "$D"   # like the real tests: the copy is gone long before the report runs
+D="$(mktemp -d)" || exit 1; cp ../foo.py "$D/foo.py"; python3 "$D/foo.py"; rm -rf "$D"   # like the real tests: the copy is gone long before the report runs
 python3 ../bar.py
-G="$(mktemp -d)"; cp ../conftest.py "$G/conftest.py"; python3 "$G/conftest.py"; rm -rf "$G"   # an UNRELATED conftest.py run from outside the tree
+G="$(mktemp -d)" || exit 1; cp ../conftest.py "$G/conftest.py"; python3 "$G/conftest.py"; rm -rf "$G"   # an UNRELATED conftest.py run from outside the tree
 for i in 1 2 3; do python3 -c "pass"; done   # empty data files: they hash alike, and combine drops later files that hash like an earlier one (it dropped the no-op data until it got its own dir)
 env -i PATH="$PATH" python3 ../../qa/gate.py
 env -i PATH="$PATH" bash ../../qa/q.sh

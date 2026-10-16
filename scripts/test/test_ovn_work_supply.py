@@ -63,6 +63,7 @@ def skip_or_die(what, tool):
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
 
 FILES = {
+    "iptv-backend/app/core/limiter.py": "from slowapi import Limiter\nlimiter = Limiter(key_func=None)\n",   # 2026-10-16: the fixture repo DEFINES its limiter (the template now reads it)
     "iptv-backend/app/routers/limited.py": "from app.core.limiter import limiter\n@router.get('/a')\n@limiter.limit('5/minute')\ndef a(request):\n    return 1\n",
     "iptv-backend/app/routers/open_router.py": "@router.get('/x')\ndef x():\n    return 1\n@router.post('/y')\nasync def y(body):\n    return 2\n",
     "iptv-backend/app/routers/big_router.py": "".join("@router.get('/r%d')\ndef r%d():\n    return 1\n" % (i, i) for i in range(6)),
@@ -695,6 +696,35 @@ ok("B3 an ImportError while loading the module is skipped with a stderr line", r
 sys.path.remove(_ext_dir)
 sys.modules.pop("ovn_mutation_supply", None)
 os.environ.pop("OVN_SUPPLY_MUTATION", None)
+
+# --- 2026-10-16 (overnight review, test-automation-agent): the no-rate-limit template must use the repo's OWN limiter module, or skip the repo
+def _limiter_fixture(defines_limiter):
+    d = tempfile.mkdtemp(prefix="supply_limiter_")
+    def w(rp, body):
+        fp = os.path.join(d, rp)
+        os.makedirs(os.path.dirname(fp), exist_ok=True)
+        open(fp, "w").write(body)
+    if defines_limiter:
+        w("backend/app/core/rate_limiting.py", "from slowapi import Limiter\nlimiter = Limiter(key_func=None)\n")
+    w("backend/app/routers/auth.py", "from app.core.rate_limiting import limiter\nfrom fastapi import APIRouter\nrouter = APIRouter()\n@router.get('/a')\n@limiter.limit('5/minute')\ndef a(request):\n    return 1\n")
+    w("backend/app/routers/open.py", "from fastapi import APIRouter\nrouter = APIRouter()\n@router.get('/x')\ndef x():\n    return 1\n@router.post('/y')\ndef y():\n    return 2\n")
+    return d
+_lf = _limiter_fixture(True)
+try:
+    ok("limiter import: detected from the repo (app/core/rate_limiting.py), not the hardcoded app.core.limiter",
+       W.repo_limiter_import(_lf) == "from app.core.rate_limiting import limiter", W.repo_limiter_import(_lf))
+    _rl = list(W.c_rate_limit(_lf))
+    ok("limiter import: the no-rate-limit item names the detected import and never app.core.limiter",
+       len(_rl) == 1 and "from app.core.rate_limiting import limiter" in _rl[0]["text"] and "app.core.limiter import" not in _rl[0]["text"],
+       [x["text"][:200] for x in _rl])
+finally:
+    shutil.rmtree(_lf, ignore_errors=True)
+_lf2 = _limiter_fixture(False)
+try:
+    ok("limiter import: a repo with NO limiter module yields no no-rate-limit item (no guessed import)",
+       W.repo_limiter_import(_lf2) is None and list(W.c_rate_limit(_lf2)) == [], W.repo_limiter_import(_lf2))
+finally:
+    shutil.rmtree(_lf2, ignore_errors=True)
 
 print("\n%d passed, %d failed" % (P, F))
 sys.exit(1 if F else 0)

@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # the model's commit changes app.py and tests/test_app.py; BEFORE ("init") is green, the model's commit leaves the suite red (tests/test_app.py::test_app)
 eval "$(declare -f mk_case | sed '1s/mk_case/_mk_case_orig/')"
-mk_case(){ _mk_case_orig "$@"; rm -rf "$TREE/state/nr_reverts" "$TREE"/state/baseline_fail_* "$TREE"/state/cycle_active_*; }
+mk_case(){ _mk_case_orig "$@"; rm -rf "${TREE:?}/state/nr_reverts" "${TREE:?}"/state/baseline_fail_* "${TREE:?}"/state/cycle_active_*; }
 # setitem <progress line>: replace the Next Steps with ONE path-first item (the fixture's own items name no leading path) and publish it as BEFORE_SHA
 setitem(){
   printf '# Progress\n\n## Next Steps\n%s\n- [ ] [T2] other.py — a later unrelated item. (cat:python)\n\n## Completed\n' "$1" > "$REPO/OVERNIGHT_PROGRESS.md"

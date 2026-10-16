@@ -17,7 +17,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 TSF="$tmp/task_stats.log"
 now="$(date +%s)"
 run(){ TASK_STATS="$TSF" python3 "$SCRIPT" "$@"; }

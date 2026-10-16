@@ -10,7 +10,7 @@ ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((f
 has(){ if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1" 1; else ok "$1 (output: $(printf '%s' "$2" | head -c 200))" 0; fi; }
 kb(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   KNOWN-BUG (now fixed): $1"; else echo "  WARN KNOWN-BUG: $1 (non-fatal)"; fi; }
 hasnt(){ if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1 (unexpected: $3)" 0; else ok "$1" 1; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 now="$(date +%s)"
 

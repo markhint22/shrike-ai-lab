@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 if ! sed --version >/dev/null 2>&1; then echo "  SKIP: needs GNU sed; run on the box"; exit 0; fi
 unset OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP NTFY_SERVER NTFY_TOPIC
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"; osr_cleanup' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"; osr_cleanup' EXIT
 PLAN_STUCK2='[{"desc":"only one sub","files":["backend/app/foo.py"],"verify":"pytest"}]'
 # 2026-10-13 (N4 Part 2): a retry that fails IDENTICALLY (same blocked step on the same files) is now stopped by the same-signature check (test_stage_retry_signature.sh). This file tests the
 # retry BUDGET itself, so each stuck run plans a different target file => a different failure signature => the budget (not the signature stop) decides.

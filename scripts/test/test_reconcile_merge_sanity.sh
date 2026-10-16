@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REC="$HERE/../../reconcile_branches.sh"; [ -f "$REC" ] || REC="$HERE/../reconcile_branches.sh"; [ -f "$REC" ] || REC="$HERE/reconcile_branches.sh"
 [ -f "$REC" ] || { echo "  ❌ reconcile_branches.sh not found"; exit 1; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export NTFY_TOPIC="shrike_reconcile_selftest_ignore"
 git init -q --bare "$tmp/origin.git"; git clone -q "$tmp/origin.git" "$tmp/seed" 2>/dev/null
 ( cd "$tmp/seed"; git config user.email t@t; git config user.name t

@@ -14,7 +14,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SCRIPTS="$(cd "$HERE/.." && pwd)"; QROOT="$(cd "$SCRIPTS/.." && pwd)"
 RO="$QROOT/run_overnight.sh"; SR="$QROOT/ovn_stage_runner.sh"
 fail=0; ok(){ echo "  ok   - $1"; }; bad(){ echo "  FAIL - $1"; fail=1; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 echo "S1 run_overnight.sh: hook sits after the implement loop and before every verifying gate"
 ln_impl="$(grep -n 'implement attempt \${ATTEMPT}' "$RO" | head -1 | cut -d: -f1)"

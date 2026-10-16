@@ -9,7 +9,7 @@ SCRIPT="$HERE/../../supervisor.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HOME/overnight-
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 DIR="$tmp/ovn"
@@ -60,7 +60,7 @@ REP(){ ls -t "$DIR"/reports/supervisor-*.md 2>/dev/null | head -1; }
 
 mkrepo(){ # $1=name ; origin bare + clone with origin/main, origin/develop, origin/overnight/feature, local clone at repos/$1
   local n="$1" o="$tmp/o_$1.git"
-  rm -rf "$o" "$tmp/s_$1"
+  rm -rf "$o" "${tmp:?}/s_$1"
   git init -q --bare "$o"; git clone -q "$o" "$tmp/s_$1" 2>/dev/null
   ( cd "$tmp/s_$1" && echo base > f.txt && git add -A && git commit -q -m base && git branch -M main && git push -q origin main \
     && git branch develop && git push -q origin develop && git checkout -q -b overnight/feature && git push -q origin overnight/feature )

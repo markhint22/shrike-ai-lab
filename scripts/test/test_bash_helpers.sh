@@ -6,7 +6,7 @@ set -uo pipefail
 # state/verify_gate_shadow.log (387 rows by 10-11, inflating the shadow counts); state_guard.sh + test_state_guard_r11.sh now fail any test that does that again.
 SCRIPTS="${OVN_SCRIPTS:-}"
 if [ -z "$SCRIPTS" ]; then SCRIPTS="$(cd "$(dirname "$0")/.." && pwd)"; [ -f "$SCRIPTS/ovn_credit_already_satisfied.sh" ] || SCRIPTS="$HOME/overnight-queue/scripts"; fi
-_SHADOW_DIR="$(mktemp -d)"; trap 'rm -rf "$_SHADOW_DIR"' EXIT
+_SHADOW_DIR="$(mktemp -d)" || exit 1; trap 'rm -rf "$_SHADOW_DIR"' EXIT
 export OVN_VERIFY_SHADOW_LOG="$_SHADOW_DIR/verify_gate_shadow.log"
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
@@ -15,7 +15,7 @@ ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/n
 [ -f "$SCRIPTS/lib_item_select.sh" ] && . "$SCRIPTS/lib_item_select.sh"
 
 # ---- ovn_credit_already_satisfied.sh ----
-d=$(mktemp -d); ( cd "$d"
+d=$(mktemp -d) || exit 1; ( cd "$d"
   mkdir -p app; touch app/foo.py app/bar.py   # 2026-09-30 target-path gate: an 'already satisfied' credit needs its target to exist
   printf '# P\n\n## Next Steps\n- [ ] [HIGH] `app/foo.py` — add Query bounds. One file.\n- [ ] [MED] `app/bar.py` — add aria-label. One file.\n' > OVERNIGHT_PROGRESS.md
   printf 'app/foo.py\nLooking at it, Query is already imported and both params already use Query. This item is already done.\n' > tlog
@@ -32,7 +32,7 @@ ok "credit: does NOT check off a not-done item" "grep -qE '^- \[ \].*app/foo.py'
 rm -rf "$d"
 
 # ---- ovn_item_guard.sh ----
-d=$(mktemp -d); ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
+d=$(mktemp -d) || exit 1; ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
   mkdir -p state/failures
   printf '## Next Steps\n- [ ] [HIGH] `app/x.py` — do a thing. One file.\n' > OVERNIGHT_PROGRESS.md
   git add -A; git commit -qm init
@@ -52,7 +52,7 @@ rm -rf "$d"
 # The guard used to `exit 0` on every no-op, so an already-done / mis-targeted /
 # too-hard item that cleanly no-ops every cycle sat at the top of the list
 # forever, blocking everything below it. It must now park such an item.
-d=$(mktemp -d); ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
+d=$(mktemp -d) || exit 1; ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
   mkdir -p state/failures
   printf '## Next Steps\n- [ ] [HIGH] `app/z.py` — already done / mis-targeted. One file.\n' > OVERNIGHT_PROGRESS.md
   git add -A; git commit -qm init
@@ -73,7 +73,7 @@ rm -rf "$d"
 # ovn_item_guard.sh's own header comment). Build that marker for THIS item explicitly so the
 # "landing" call below actually lands the SAME item the no-ops were accumulating against.
 w_line='- [ ] [HIGH] `app/w.py` — occasionally no-ops. One file.'
-d=$(mktemp -d); ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
+d=$(mktemp -d) || exit 1; ( cd "$d"; git init -q; git config user.email t@t; git config user.name t
   mkdir -p state/failures
   printf '## Next Steps\n%s\n' "$w_line" > OVERNIGHT_PROGRESS.md
   git add -A; git commit -qm init

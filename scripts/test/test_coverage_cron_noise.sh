@@ -14,7 +14,7 @@ for f in scripts/ovn_coverage_cron.sh scripts/cov/run_coverage.sh scripts/cov/co
   [ -f "$OQ/$f" ] || { echo "  SKIP: $f not found"; exit 0; }; done
 command -v flock >/dev/null 2>&1 || { echo "  SKIP: no flock on this host (the cron script takes a flock)"; exit 0; }
 OQ="$(cd "$OQ" && pwd)"; CRON="$OQ/scripts/ovn_coverage_cron.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 T="$(cd "$T" && pwd -P)"   # /private/var vs /var on macOS
 # lib_lock.sh calls `flock -w 0`; the homebrew flock on macOS (discoteq 0.4.0) rejects a zero timeout. Map it to `-n` (same meaning) so the test runs on a Mac too.
 mkdir -p "$T/shim"; REALFLOCK="$(command -v flock)"

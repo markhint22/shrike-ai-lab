@@ -25,7 +25,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 PORT=18914
@@ -83,7 +83,7 @@ ok "A: briefing header names the source repo" "grep -q 'Repo: demo-repo' '$WD/$o
 ok "A: briefing header flags itself as 27B-generated / needs review" "grep -qi 'REVIEW' '$WD/$out'"
 
 # ============ B: the guard — a too-short (garbage) model response must NOT be written ============
-rm -rf "$WD/prework"/*
+rm -rf "${WD:?}/prework"/*
 printf 'nope' > "$tmp/resp.txt"   # 4 chars, well under the 200-char floor
 : > "$tmp/reqlog.txt"
 rc=0
@@ -93,7 +93,7 @@ ok "B: too-short response -> no briefing file written" "[ -z \"\$(ls -A '$WD/pre
 ok "B: too-short response -> logged as skipped" "grep -q 'model returned too little' '$WD/logs/ovn_prework.log'"
 
 # ============ C: queue mode respects OVN_PREWORK_MAX and requeues leftovers ============
-rm -rf "$WD/prework"/*
+rm -rf "${WD:?}/prework"/*
 longresp > "$tmp/resp.txt"
 printf 'demo-repo\tTask one for the queue\ndemo-repo\tTask two for the queue\ndemo-repo\tTask three for the queue\n' > "$WD/prework/queue.tsv"
 : > "$tmp/reqlog.txt"
@@ -104,7 +104,7 @@ ok "C: the leftover queue line is 'Task three' (untouched order)" "grep -q 'Task
 ok "C: 'Task one' and 'Task two' are NOT still queued (consumed)" "! grep -q 'Task one' '$WD/prework/queue.tsv' && ! grep -q 'Task two' '$WD/prework/queue.tsv'"
 
 # ============ D: queue mode — a model-call failure re-queues the task instead of dropping it ============
-rm -rf "$WD/prework"/*
+rm -rf "${WD:?}/prework"/*
 printf 'nope' > "$tmp/resp.txt"   # every call in this run fails (too short)
 printf 'demo-repo\tA task whose model call will fail\n' > "$WD/prework/queue.tsv"
 OVN_PREWORK_MAX=2 run
@@ -116,7 +116,7 @@ ok "D: no briefing was produced for the failed task" "[ -z \"\$(ls -A '$WD/prewo
 #     bare `return` (no explicit code), which inherits the preceding `say` call's exit status (0),
 #     making do_one look like a SUCCESS in queue mode — the task vanished from queue.tsv instead of
 #     waiting for the clone to exist. Fixed with an explicit `return 1`. ============
-rm -rf "$WD/prework"/*
+rm -rf "${WD:?}/prework"/*
 longresp > "$tmp/resp.txt"
 printf 'no-such-repo\tA task for a repo that has not been cloned yet\n' > "$WD/prework/queue.tsv"
 OVN_PREWORK_MAX=2 run

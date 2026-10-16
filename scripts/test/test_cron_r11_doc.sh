@@ -20,7 +20,7 @@ CRONTXT="$SRC/scripts/cron.txt"
 [ -f "$SNAP" ] || { echo "  FAIL: fixture $SNAP missing"; exit 1; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 # active (non-comment, non-blank) lines of the doc, split by section: A = before the 'SECTION B' header, B = between B and C
 awk '/^# SECTION B /{s="B"} /^# SECTION C /{s="C"} /^#/ || NF == 0 {next} {print (s==""?"A":s) "\t" $0}' "$DOC" > "$T/active.tsv"

@@ -19,7 +19,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/repos/demo" "$tmp/backlog" "$tmp/state" "$tmp/roadmap"
 export OVN_QUEUE_DIR="$tmp" OVN_REPOS_DIR="$tmp/repos" OVN_BACKLOG_DIR="$tmp/backlog" OVN_TASK_STATS="$tmp/state/task_stats.log" OVN_ROADMAP_DIR="$tmp/roadmap"
 

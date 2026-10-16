@@ -16,7 +16,7 @@ BLOCK="$(sed -n '/^  lineage_file="\$(printf/,/^  lineage_key="\$(printf/p' "$RP
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the lineage block from $RP"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = "$3" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1 (got '$2', want '$3')"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 rd="$tmp/repo"; mkdir -p "$rd/scripts" "$rd/addons/gut"
 ( cd "$rd" && git init -q && git config user.email t@t.com && git config user.name t && echo x > scripts/real.gd && echo x > addons/gut/gut_cmdln.gd && git add -A && git commit -q -m init )
 

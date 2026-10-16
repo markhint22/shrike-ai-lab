@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 RO="$HERE/../../run_overnight.sh"; [ -f "$RO" ] || RO="$HERE/../run_overnight.sh"; [ -f "$RO" ] || RO="$HERE/run_overnight.sh"
 [ -f "$RO" ] || { echo "  ❌ run_overnight.sh not found"; exit 1; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
 
 # Pull the live function body straight out of run_overnight.sh so this test breaks if the

@@ -12,7 +12,7 @@ AUDIT=""
 for c in "$HERE/../../ovn_pipeline_audit.sh" "$HERE/../ovn_pipeline_audit.sh"; do [ -f "$c" ] && { AUDIT="$c"; break; }; done
 [ -n "$AUDIT" ] || { echo "  SKIP: ovn_pipeline_audit.sh not found"; exit 0; }
 AUDIT="$(cd "$(dirname "$AUDIT")" && pwd)/$(basename "$AUDIT")"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 T="$(cd "$T" && pwd -P)"   # /private/var vs /var on macOS
 P=0; F=0
 # assertions are evaluated with pipefail OFF (no `x | grep -q` flakiness); conditions use grep -c / [ ] only

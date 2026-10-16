@@ -10,8 +10,8 @@ for c in "$HERE/../../queue_refill.py" "$HERE/../queue_refill.py" "$HERE/queue_r
 [ -n "$QR" ] || { echo "  SKIP: queue_refill.py not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-new(){ rm -rf "$T/r"; mkdir -p "$T/r"; PF="$T/r/OVERNIGHT_PROGRESS.md"; BL="$T/r/backlog.md"; DONE="$T/r/OVERNIGHT_DONE.md"; : > "$PF"; : > "$BL"; }
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+new(){ rm -rf "${T:?}/r"; mkdir -p "$T/r"; PF="$T/r/OVERNIGHT_PROGRESS.md"; BL="$T/r/backlog.md"; DONE="$T/r/OVERNIGHT_DONE.md"; : > "$PF"; : > "$BL"; }
 run(){ OUT="$(python3 "$QR" "$@" 2>"$T/err")"; RC=$?; }
 cnt(){ local c; c="$(grep -c -- "$1" "$2" 2>/dev/null)"; echo "${c:-0}"; }
 

@@ -18,7 +18,7 @@ fi
 [ -f "$M" ] || { echo "  SKIP: ovn_toks_monitor.sh not found"; exit 0; }
 
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/home/overnight-queue/state"
 cp "$M" "$tmp/home/overnight-queue/ovn_toks_monitor.sh"
 

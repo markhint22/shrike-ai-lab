@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 trap osr_cleanup EXIT
 
 sw_new(){   # fresh fake tree with stub runner/pgrep/sleep ahead of PATH
-  T="$(mktemp -d)"; H="$T/home"; Q="$H/overnight-queue"; mkdir -p "$Q/state" "$Q/logs" "$Q/repos" "$T/bin"
+  T="$(mktemp -d)" || exit 1; H="$T/home"; Q="$H/overnight-queue"; mkdir -p "$Q/state" "$Q/logs" "$Q/repos" "$T/bin"
   printf '#!/usr/bin/env bash\necho "$*" >> "$HOME/overnight-queue/state/runner.calls"\nr="$1"\nif grep -qx "$r" "$HOME/overnight-queue/state/runner.fail" 2>/dev/null; then exit 1; fi\nexit 0\n' > "$Q/ovn_stage_runner.sh"
   printf '#!/usr/bin/env bash\nn=$(( $(cat "%s/pg.n" 2>/dev/null || echo 0) + 1 )); echo $n > "%s/pg.n"\n[ "$n" -le "${OSR_PGREP_BUSY:-0}" ] && exit 0; exit 1\n' "$T" "$T" > "$T/bin/pgrep"
   printf '#!/usr/bin/env bash\necho "sleep $*" >> "%s/sleeps"\nexit 0\n' "$T" > "$T/bin/sleep"

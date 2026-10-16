@@ -9,7 +9,7 @@ QA="$ROOT/qa"
 [ -f "$QA/qa_ledger.py" ] || { echo "  SKIP: qa/qa_ledger.py not found"; exit 0; }
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 OVN="$tmp/ovn"; mkdir -p "$OVN/state" "$OVN/repos" "$tmp/bin"
 printf '#!/bin/sh\necho "$@" >> %s/curl.log\nexit 0\n' "$tmp" > "$tmp/bin/curl"; chmod +x "$tmp/bin/curl"
 MINPATH="$tmp/bin:/usr/bin:/bin:$(dirname "$PY")"

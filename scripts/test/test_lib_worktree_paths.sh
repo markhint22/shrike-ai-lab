@@ -10,12 +10,12 @@ for c in "$HERE/../lib_worktree.sh" "$HERE/lib_worktree.sh" "$HERE/../../scripts
 source "$LIB"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 git init -q --bare "$T/origin.git"
 git clone -q "$T/origin.git" "$T/main" 2>/dev/null
 ( cd "$T/main" && git checkout -q -b claude/feature && echo one > a.txt && echo two > b.txt && git add -A && git commit -q -m init && git push -q origin claude/feature )
-other(){ rm -rf "$T/other"; git clone -q -b claude/feature "$T/origin.git" "$T/other" 2>/dev/null; }
+other(){ rm -rf "${T:?}/other"; git clone -q -b claude/feature "$T/origin.git" "$T/other" 2>/dev/null; }
 # unique repo basename so we can assert no leftover /tmp/wt-<name>.* dirs
 REPO="$T/wtlibrepo_$$"; mv "$T/main" "$REPO"; RB="$(basename "$REPO")"
 
@@ -38,7 +38,7 @@ ok "wt_close removes the worktree" "$([ ! -d "$wt" ] && echo 1 || echo 0)"
 wt_close "$REPO" "$wt"; ok "wt_close twice / on a gone path is a harmless no-op" "$([ "$?" = 0 ] && echo 1 || echo 0)"
 wt_close "$REPO" "$T/never-existed"; ok "wt_close on a never-existing path is a no-op" "$([ "$?" = 0 ] && echo 1 || echo 0)"
 # flags given but the repo has neither dir; and flags absent even though dirs exist
-rm -rf "$REPO/.venv" "$REPO/node_modules"
+rm -rf "${REPO:?}/.venv" "${REPO:?}/node_modules"
 wt="$(wt_open "$REPO" claude/feature --link-venv --link-node-modules)"
 ok "link flags with no .venv/node_modules in the repo: nothing linked, still opens" "$([ -d "$wt" ] && [ ! -e "$wt/.venv" ] && [ ! -e "$wt/node_modules" ] && echo 1 || echo 0)"
 wt_close "$REPO" "$wt"

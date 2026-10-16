@@ -19,11 +19,11 @@ chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 ago(){ date -d "@$(( $(date +%s) - $1 ))" '+%F %T'; }   # seconds ago -> log timestamp
 H=3600
 STARVE='no [ready] roadmap feature (needs Claude research?)'
-mkhome(){ rm -rf "$T/h"; mkdir -p "$T/h/overnight-queue/logs" "$T/h/overnight-queue/state"; echo "$T/h"; }
+mkhome(){ rm -rf "${T:?}/h"; mkdir -p "$T/h/overnight-queue/logs" "$T/h/overnight-queue/state"; echo "$T/h"; }
 LOGF="$T/h/overnight-queue/logs/ovn_planner.log"
 STJ="$T/h/overnight-queue/state/research_trigger_starving.json"
 runpy(){ HOME="$T/h" python3 "$PY" "$@" 2>&1; }
@@ -126,7 +126,7 @@ EOF
 eqv "only invalid timestamp -> nothing" "" "$(runpy 2 "$LOGF")"
 
 # default log path + state dir auto-created under a fresh HOME
-rm -rf "$T/h2"; mkdir -p "$T/h2/overnight-queue/logs"
+rm -rf "${T:?}/h2"; mkdir -p "$T/h2/overnight-queue/logs"
 cat > "$T/h2/overnight-queue/logs/ovn_planner.log" <<EOF
 $(ago $((3*H))) zed: $STARVE
 EOF
@@ -138,13 +138,13 @@ out="$(runpy abc "$LOGF"; echo "rc=$?")"
 chk "non-numeric threshold -> python error (nonzero)" bash -c "! HOME='$T/h' python3 '$PY' abc '$LOGF' >/dev/null 2>&1"
 
 echo "== shell wrapper =="
-mkfake(){ rm -rf "$T/w"; mkdir -p "$T/w/overnight-queue/"{scripts,logs,state}; cp "$PY" "$T/w/overnight-queue/scripts/"; echo "$T/w"; }
+mkfake(){ rm -rf "${T:?}/w"; mkdir -p "$T/w/overnight-queue/"{scripts,logs,state}; cp "$PY" "$T/w/overnight-queue/scripts/"; echo "$T/w"; }
 WL="$T/w/overnight-queue/logs/ovn_research_trigger_check.log"
 WPL="$T/w/overnight-queue/logs/ovn_planner.log"
 WST="$T/w/overnight-queue/state"
 runsh(){ HOME="$T/w" bash "$SH" "$@" 2>&1; }
 
-rm -rf "$T/nohome"; mkdir -p "$T/nohome"
+rm -rf "${T:?}/nohome"; mkdir -p "$T/nohome"
 HOME="$T/nohome" bash "$SH" >/dev/null 2>&1; rc=$?
 eqv "no ~/overnight-queue -> exit 1" "1" "$rc"
 

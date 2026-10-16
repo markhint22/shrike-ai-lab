@@ -16,7 +16,7 @@ LIB="$(dirname "$SRC")/shrike_notify_lib.sh"
 [ -f "$SRC" ] || { echo "gitlark_control_consumer.sh not found"; exit 1; }
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig"; printf '[user]\n\temail = t@t\n\tname = t\n' > "$GIT_CONFIG_GLOBAL"; export GIT_CONFIG_NOSYSTEM=1
 
 BIN="$tmp/bin"; mkdir -p "$BIN"; cp "$SRC" "$BIN/gitlark_control_consumer.sh"; chmod +x "$BIN/gitlark_control_consumer.sh"
@@ -66,7 +66,7 @@ out="$(run --dry-run 2>&1)"; rc=$?
 ok "only --dry-run (no repos) -> usage, exit 2" "$([ $rc = 2 ] && printf '%s' "$out" | grep -q usage && echo 1 || echo 0)"
 out="$(run "$tmp/repos/ghost" 2>&1)"; rc=$?
 ok "repo dir without .git -> 'SKIP <name> (no checkout)', exit 0" "$([ $rc = 0 ] && printf '%s' "$out" | grep -q 'SKIP ghost (no checkout)' && echo 1 || echo 0)"
-ok "state dir is created on start (mkdir -p)" "$( ( rm -rf "$tmp/fresh"; OVERNIGHT_DIR="$tmp/fresh" "$BIN/gitlark_control_consumer.sh" "$tmp/repos/ghost" >/dev/null 2>&1; [ -d "$tmp/fresh/state" ] ) && echo 1 || echo 0)"
+ok "state dir is created on start (mkdir -p)" "$( ( rm -rf "${tmp:?}/fresh"; OVERNIGHT_DIR="$tmp/fresh" "$BIN/gitlark_control_consumer.sh" "$tmp/repos/ghost" >/dev/null 2>&1; [ -d "$tmp/fresh/state" ] ) && echo 1 || echo 0)"
 
 # ---- 1. no control file / branch / empty file ----
 make_repo noop_repo

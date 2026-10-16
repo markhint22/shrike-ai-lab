@@ -19,7 +19,7 @@ DOC="$HERE/../../../../docs/patches/cron-r10.txt"; [ -f "$DOC" ] || DOC="$HERE/.
 for t in flock timeout git python3 nice; do command -v $t >/dev/null 2>&1 || { echo "  SKIP: no $t"; exit 0; }; done
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
 GITQ=(git -c user.name=t -c user.email=t@t)
 cron_line(){ grep -v '^#' "$1" | grep -F -e "$2" | head -1; }    # active line of doc $1 containing $2
 L_SPEC="$(cron_line "$DOC" 'scripts/ovn_spec_gate.py scan')"; L_MUT="$(cron_line "$DOC" 'scripts/ovn_mutation_supply.py scan')"; L_CAP="$(cron_line "$DOC" 'scripts/ovn_log_cap.sh')"

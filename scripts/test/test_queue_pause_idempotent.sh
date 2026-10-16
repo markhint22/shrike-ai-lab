@@ -10,7 +10,7 @@ QSRC="$HERE/../../queue.sh"
 [ -f "$QSRC" ] || { echo "  FAIL: $QSRC missing"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/home/overnight-queue/state"
 cp "$QSRC" "$T/home/overnight-queue/queue.sh"
 Q="$T/home/overnight-queue"

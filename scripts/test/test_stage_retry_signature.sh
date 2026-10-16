@@ -8,7 +8,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 unset OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP OVN_STAGE_SAME_SIG_STOP OVN_STAGE_PRIORFAIL_STEP NTFY_SERVER NTFY_TOPIC
-W="$(mktemp -d)"; trap 'rm -rf "$W"; osr_cleanup' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"; osr_cleanup' EXIT
 sed -n '/^# >>> n4-stage-waste helpers: retry signature/,/^# <<< n4-stage-waste helpers: retry signature/p' "$RUNNER" > "$W/helpers.sh"
 [ -s "$W/helpers.sh" ] || { echo "  FAIL: the retry-signature helper block was not found in $RUNNER"; exit 1; }
 # shellcheck disable=SC1091

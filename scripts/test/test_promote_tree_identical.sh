@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ="$HERE/../.."; [ -f "$OQ/promote_to_prod.sh" ] || OQ="$HERE/.."
 for f in promote_to_prod.sh daily_promote.sh; do [ -f "$OQ/$f" ] || { echo "  SKIP: $f not found"; exit 0; }; done
 OQ="$(cd "$OQ" && pwd)"
-T="$(mktemp -d)"; trap 'cd /; rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'cd /; rm -rf "$T"' EXIT
 T="$(cd "$T" && pwd -P)"   # /private/var vs /var on macOS
 P=0; F=0
 # assertions are evaluated with pipefail OFF (no `x | grep -q` flakiness); conditions use grep -c / [ ] only
@@ -25,7 +25,7 @@ EXTRA=()
 
 # ---- fake queue dir + repos -------------------------------------------------------------------------------------------------------------------------
 setup(){  # $1=promote_to_prod.sh to test  $2=daily_promote.sh to test
-  rm -rf "$T/home" "$T/origin" "$T/seed"
+  rm -rf "${T:?}/home" "${T:?}/origin" "${T:?}/seed"
   export HOME="$T/home"; Q="$HOME/overnight-queue"; OUT="$T/out.log"
   mkdir -p "$Q/state" "$Q/repos" "$Q/logs" "$T/origin" "$T/seed"
   cp "$1" "$Q/promote_to_prod.sh"; cp "$2" "$Q/daily_promote.sh"; chmod +x "$Q/promote_to_prod.sh" "$Q/daily_promote.sh"

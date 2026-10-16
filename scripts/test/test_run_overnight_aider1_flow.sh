@@ -12,7 +12,7 @@ DRV="$HERE/lib_ro_aider1_driver.sh"
 pass=0; fail=0; warn=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   KNOWN-BUG fixed: $1"; else warn=$((warn+1)); echo "  WARN KNOWN-BUG: $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"; rm -f /tmp/ovn_progress_tail_ro_aider1_repo.md' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"; rm -f /tmp/ovn_progress_tail_ro_aider1_repo.md' EXIT
 
 run(){ timeout 150 bash "$DRV" "$1" "$T/$1" > "$T/$1.out" 2>&1; }   # one scenario = one fresh process + tree
 res(){ cat "$T/$1/result" 2>/dev/null; }

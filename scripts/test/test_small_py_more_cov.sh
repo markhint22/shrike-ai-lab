@@ -7,7 +7,7 @@ export PYTHONDONTWRITEBYTECODE=1
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 b(){ [ "$1" = "$2" ] && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 
 # ---------- ovn_park_sweep.py ----------

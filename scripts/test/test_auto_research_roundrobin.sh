@@ -13,7 +13,7 @@ VALIDATOR="$HERE/../../ovn_auto_research_validate.py"; [ -f "$VALIDATOR" ] || VA
 . "$HERE/lib_ar_fixture.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-MT="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
+MT="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
 META='{cat: backend; size: S; multifile: no; research: repo}'
 
 mutate(){   # <src> <dest> <anchor> <replacement>  (the anchor must exist, else the test itself is stale)
@@ -145,7 +145,7 @@ ar_cleanup; T=""
 echo "== validator: mechanical-gap proposals rejected, design proposals accepted =="
 vsuite(){   # <validator path> [env...] -> "1|name" / "0|name" lines
   local v="$1"; shift
-  local d; d="$(cd "$(mktemp -d)" && pwd -P)"
+  local d; d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   : > "$d/existing.md"
   cat > "$d/p.md" <<EOP
 - [ ] [P3] [ready] Add docstrings to the public functions in app/services/foo.py — app/services/foo.py has none $META
@@ -175,7 +175,7 @@ $res
 EOF
 # (review fix) real behaviour/bug titles that the first version of the gate rejected. Each must be ACCEPTED; the pure mechanical ones must still be rejected.
 vsuite2(){   # <validator path> -> "1|name" / "0|name" lines
-  local v="$1" d t; shift; d="$(cd "$(mktemp -d)" && pwd -P)"
+  local v="$1" d t; shift; d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   : > "$d/existing.md"
   : > "$d/p.md"
   while IFS='|' read -r title body; do
@@ -217,7 +217,7 @@ EOF
 # (round-3 review fix) the bug-evidence escape must not be a bypass: a bare 500-599 number (a line number / LOC count), the bare words 'raises', 'fail*', 'startup',
 # and 'Cleanup imports' / 'Add comments to the X module' phrasings used to let pure mechanical items through. Each must be REJECTED; concrete symptoms still escape.
 vsuite3(){   # <validator path> -> "1|name" / "0|name" lines
-  local v="$1" d n; shift; d="$(cd "$(mktemp -d)" && pwd -P)"
+  local v="$1" d n; shift; d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   : > "$d/existing.md"; : > "$d/p.md"
   while IFS='|' read -r title body; do
     [ -n "$title" ] || continue
@@ -252,7 +252,7 @@ while IFS='|' read -r v name; do [ -n "$name" ] && ok "$name" "[ $v = 1 ]"; done
 $res
 EOF
 
-d="$(cd "$(mktemp -d)" && pwd -P)"; : > "$d/e.md"
+d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; : > "$d/e.md"
 printf '%s\n' "- [ ] [P3] [ready] Add docstrings to the public functions in app/services/foo.py — app/services/foo.py has none $META" > "$d/p.md"
 OVN_AR_MECHANICAL_REJECT=off python3 "$VALIDATOR" "$d/p.md" "$d/e.md" 12 > "$d/out.txt" 2> "$d/err.txt"
 ok "kill switch OVN_AR_MECHANICAL_REJECT=off accepts it" "[ \"\$(grep -c 'Add docstrings' '$d/out.txt')\" = 1 ]"
@@ -273,7 +273,7 @@ mv_val "callers-analysis exemption ignored" 'and not CALLER_ANALYSIS_RE.search(t
 mv_val "patterns matched against the BODY too" 'if any(p.search(title) for p in MECH_PATTERNS):' 'if any(p.search(title + " " + body) for p in MECH_PATTERNS):'
 mv_val "wrong rejection reason" 'mechanical-gap: handled by supply' 'mechanical'
 mutate "$VALIDATOR" "$MT/v.py" 'if os.environ.get("OVN_AR_MECHANICAL_REJECT", "on") == "off":' 'if False:'
-d="$(cd "$(mktemp -d)" && pwd -P)"; : > "$d/e.md"
+d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; : > "$d/e.md"
 printf '%s\n' "- [ ] [P3] [ready] Add docstrings to the public functions in app/services/foo.py — app/services/foo.py has none $META" > "$d/p.md"
 OVN_AR_MECHANICAL_REJECT=off python3 "$MT/v.py" "$d/p.md" "$d/e.md" 12 > "$d/out.txt" 2>/dev/null
 ok "validator mutant 'kill switch ignored' is caught" "[ \"\$(grep -c 'Add docstrings' '$d/out.txt')\" = 0 ]"

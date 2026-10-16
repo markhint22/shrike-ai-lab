@@ -9,7 +9,7 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 both(){ [ "$1" = 1 ] && [ "$2" = 1 ] && echo 1 || echo 0; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 TAG='[AUTO-SKIP swift(no-fleet-verify)'
 
 ############ python script ############
@@ -68,10 +68,10 @@ Q
 chmod +x "$W/queue.sh"
 G(){ git -c user.email=t@t -c user.name=t "$@"; }
 mkrepo(){ # name, progress-content
-  local n="$1"; rm -rf "$O/$n.git" "$T/seed" "$W/repos/$n"
+  local n="$1"; rm -rf "${O:?}/$n.git" "${T:?}/seed" "${W:?}/repos/$n"
   git init -q --bare "$O/$n.git"; git clone -q "$O/$n.git" "$T/seed" 2>/dev/null
   ( cd "$T/seed" && G checkout -q -b overnight/feature && printf '%b' "$2" > OVERNIGHT_PROGRESS.md && G add -A && G commit -q -m seed && G push -q origin overnight/feature )
-  git clone -q -b overnight/feature "$O/$n.git" "$W/repos/$n" 2>/dev/null; rm -rf "$T/seed"; }
+  git clone -q -b overnight/feature "$O/$n.git" "$W/repos/$n" 2>/dev/null; rm -rf "${T:?}/seed"; }
 run(){ : > "$W/queue.calls"; ( cd "$W" && HOME="$H" bash ./ovn_swift_retag.sh "$@" ) > "$T/out" 2>&1; echo $?; }
 SW='- [ ] [T2] ios/A.swift — fix\n- [ ] [T1] app/a.py — py\n'
 cat > "$W/tasks.json" <<J

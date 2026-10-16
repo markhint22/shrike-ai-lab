@@ -16,7 +16,7 @@
 
 ar_setup(){
   local script="$1" validator="${2:-}" here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  T="$(cd "$(mktemp -d)" && pwd -P)"
+  T="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   STATE="$T/state"; CLONES="$T/clones"; FAKEBIN="$T/bin"; BOX="$T/box"; CAP="$T/capture"; SHARED_T="$T/shared"
   mkdir -p "$STATE" "$CLONES" "$FAKEBIN" "$BOX/roadmap" "$BOX/backlog" "$CAP" "$T/home" "$T/tmp" "$SHARED_T/scripts/overnight-queue"
   AR_SCRIPT="$SHARED_T/scripts/overnight-queue/ovn_auto_research.sh"

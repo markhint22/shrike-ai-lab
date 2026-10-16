@@ -9,7 +9,7 @@ SCRIPT="$HERE/../../ovn_auto_research.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/../
 . "$HERE/lib_ar_fixture.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-MT="$(cd "$(mktemp -d)" && pwd -P)"
+MT="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
 BG=""
 cleanup_all(){ for p in $BG; do kill "$p" 2>/dev/null; { wait "$p"; } 2>/dev/null; done; rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"; }
 trap cleanup_all EXIT
@@ -154,7 +154,7 @@ lock_checks(){
   cat > "$FAKEBIN/tee" <<'EOS'
 #!/usr/bin/env bash
 in="$(cat)"; printf '%s\n' "$in" | /usr/bin/tee "$@"
-case "$in" in *"${SWAP_ON:-@@never@@}"*) rm -rf "$SWAP_STATE/run.lock.d"; mkdir "$SWAP_STATE/run.lock.d"; [ -z "${SWAP_PID:-}" ] || echo "$SWAP_PID $(date +%s)" > "$SWAP_STATE/run.lock.d/holder";; esac
+case "$in" in *"${SWAP_ON:-@@never@@}"*) rm -rf "${SWAP_STATE:?}/run.lock.d"; mkdir "$SWAP_STATE/run.lock.d"; [ -z "${SWAP_PID:-}" ] || echo "$SWAP_PID $(date +%s)" > "$SWAP_STATE/run.lock.d/holder";; esac
 EOS
   chmod +x "$FAKEBIN/tee"
   fresh; spawn_live; pid="$LIVE_PID"; dead="$(reaped_pid)"; mklock "$dead" "$(epoch_ago 600)"

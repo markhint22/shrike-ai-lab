@@ -78,7 +78,7 @@ base_repo(){  # clone with app/foo.py app/bar.py CLAUDE.md OVERNIGHT_PROGRESS.md
   git -C "$O" symbolic-ref HEAD refs/heads/main
 }
 other(){  # fresh second clone at $D/c2 (used to advance origin from "someone else")
-  rm -rf "$D/c2"; git clone -q "$O" "$D/c2" 2>/dev/null
+  rm -rf "${D:?}/c2"; git clone -q "$O" "$D/c2" 2>/dev/null
 }
 progress(){ printf '%s' "$1" > "$R/OVERNIGHT_PROGRESS.md"; ( cd "$R" || exit 1; git add -A && git commit -q -m "prog" && git push -q origin main 2>/dev/null ); }
 scout(){ printf '%s\n' "$1" > "$SC/scout.out"; }

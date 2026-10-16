@@ -2,7 +2,7 @@
 # qa_mode.sh: on/off restores EXACTLY what it disabled; lane/unlane toggle one repo; never touches non-dev lanes; tasks.json stays valid.
 command -v jq >/dev/null 2>&1 || { echo "  SKIP: jq not installed"; exit 0; }
 Q="$(cd "$(dirname "$0")/../.." && pwd)"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 mkdir -p "$T/state"
 cat > "$T/tasks.json" <<'J'

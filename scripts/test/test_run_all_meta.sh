@@ -24,7 +24,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 # 2026-10-15: the sandbox run_all.sh sources lib_tmp_isolation.sh, which takes a single-flight lock under OVN_TEST_TMP_BASE (default $HOME/qtmp). When this
 # suite runs INSIDE a real run_all.sh, that outer run already holds the lock, so every sandbox was refused (exit 75) and all 12 assertions failed. Give the
 # sandboxes a private lock base so the meta test only tests run_all's aggregation, whoever else is running.
@@ -42,7 +42,7 @@ ok "extracted a non-empty footer containing the finish verdict and the rc-gated 
 ok "sandboxes use a lock base private to this meta run (not the shared run lock)" "case \"\$OVN_TEST_TMP_BASE\" in \"\$tmp\"/*) true;; *) false;; esac"
 
 build_sandbox() {  # $1 = body (the fake test invocation lines)
-  rm -rf "$tmp/sandbox"; mkdir -p "$tmp/sandbox"
+  rm -rf "${tmp:?}/sandbox"; mkdir -p "$tmp/sandbox"
   # 2026-10-14: the real header sources its helpers from its own directory (ntfy_guard, lib_live_repo_guard, lib_tmp_isolation); the sandbox must have them
   for _h in ntfy_guard.sh lib_live_repo_guard.sh lib_tmp_isolation.sh; do cp "$(dirname "$REAL")/$_h" "$tmp/sandbox/" 2>/dev/null; done
   { echo "$HEADER"; echo "NOTRUN=0"; echo "$FINISH_FN"; echo "$1"; echo "$FOOTER"; } > "$tmp/sandbox/run_all.sh"

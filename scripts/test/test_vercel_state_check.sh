@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vercel_state_check.py: prod not-live -> emergency push once; failing previews -> one note/day; healthy -> silent.
 cd "$(dirname "$0")/../.." || exit 1
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
 python3 - "$T" <<'PY'
 import importlib.util, json, os, sys, time
 T = sys.argv[1]

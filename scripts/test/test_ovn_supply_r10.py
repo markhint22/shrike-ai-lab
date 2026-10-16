@@ -130,7 +130,8 @@ def run_main(M, d, *flags, spec=None):
     return buf.getvalue()
 
 
-OPEN_ROUTER = {"iptv-backend/app/routers/limited.py": "from app.core.limiter import limiter\n@router.get('/a')\n@limiter.limit('5/minute')\ndef a(request):\n    return 1\n",
+OPEN_ROUTER = {"iptv-backend/app/core/limiter.py": "from slowapi import Limiter\nlimiter = Limiter(key_func=None)\n",   # 2026-10-16: the repo DEFINES its limiter; the no-rate-limit template only names an import that exists
+               "iptv-backend/app/routers/limited.py": "from app.core.limiter import limiter\n@router.get('/a')\n@limiter.limit('5/minute')\ndef a(request):\n    return 1\n",
                "iptv-backend/app/routers/open_router.py": "@router.get('/x')\ndef x():\n    return 1\n@router.post('/y')\nasync def y(body):\n    return 2\n"}   # exactly one no-rate-limit gap
 T_NORMAL = "- [ ] [T2] app/a.py — fix a. VERIFY: `false`. (cat:python; multifile:no; supply:swallowed-exception)"
 T_PARKED = "- [ ] [AUTO-SKIP after 2 no-op cycles] [T2] app/b.py — fix b. VERIFY: `false`. (cat:python)"

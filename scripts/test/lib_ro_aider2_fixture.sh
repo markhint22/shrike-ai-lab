@@ -27,7 +27,7 @@ eq(){ # desc actual expected
   if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (got [$2] want [$3])"; fi; }
 summary(){ echo "$P passed, $F failed${W_WARN:+, $W_WARN known-bug warning(s)}"; [ "$F" -eq 0 ]; }
 
-W="$(mktemp -d)"
+W="$(mktemp -d)" || exit 1
 trap 'rm -rf "$W"' EXIT
 REAL_HOME="$HOME"
 export HOME="$W/home"

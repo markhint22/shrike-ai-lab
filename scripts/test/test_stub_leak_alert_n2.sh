@@ -14,7 +14,7 @@ P=0; F=0
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1 (got [$2] want [$3])"; fi; }
 BLOCK="$(sed -n '/# stub-leak FLAG (r11, package stub; SHADOW)/,/^  # web build+test/p' "$BH" | sed '$d')"
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the stub-leak block from $BH"; exit 1; }
-W="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$W"' EXIT
+W="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$W"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1
 LOGF="$W/hygiene.log"; : > "$LOGF"
 log(){ echo "[branch-hygiene] $*" >> "$LOGF"; }
@@ -25,7 +25,7 @@ pass(){ SCRIPT_DIR="$SD" STATE_DIR="$STATE_DIR" gate_fn "$1" "$1" >/dev/null; }
 sf(){ echo "$STATE_DIR/stub_leak_streak/$1__overnight_feature"; }   # the overnight/feature lane's streak file for repo $1
 nal(){ local n; n="$(grep -c "stub-leak:$1" "$ALERTS" 2>/dev/null || true)"; echo "${n:-0}"; }
 M='Placeholder - the implement step fills this in.'
-mk(){ rm -rf "$W/$1"; mkdir -p "$W/$1/app"; ( cd "$W/$1" && git init -q -b main . && printf 'x=1\n' > app/real.py && git add -A && git commit -q -m init ); }
+mk(){ rm -rf "${W:?}/$1"; mkdir -p "$W/$1/app"; ( cd "$W/$1" && git init -q -b main . && printf 'x=1\n' > app/real.py && git add -A && git commit -q -m init ); }
 leak(){ local r="$1"; shift; for f in "$@"; do printf '// %s\n' "$M" > "$W/$r/$f"; done; ( cd "$W/$r" && git add -A && git commit -q -m "leak $*" ); }
 
 mk app; leak app app/A.kt app/B.kt
@@ -80,10 +80,10 @@ mk corrupt; leak corrupt app/A.kt; mkdir -p "$STATE_DIR/stub_leak_streak"; echo 
 for i in 1 2 3; do pass "$W/corrupt"; done
 eq "a corrupt streak file is treated as 0 (restarts, alerts at pass 3)" "$(nal corrupt)" "1"
 # the two hygiene lanes of ONE repo (same basename, different $FEAT) have independent counters
-mkdir -p "$W/lanes/a" "$W/lanes/b"; mk lanesrc; rm -rf "$W/lanes/a/lnx" "$W/lanes/b/lnx"
+mkdir -p "$W/lanes/a" "$W/lanes/b"; mk lanesrc; rm -rf "${W:?}/lanes/a/lnx" "${W:?}/lanes/b/lnx"
 cp -R "$W/lanesrc" "$W/lanes/a/lnx"; cp -R "$W/lanesrc" "$W/lanes/b/lnx"; leak "lanes/a/lnx" app/A.kt
 lane(){ ( FEAT="$1"; SCRIPT_DIR="$SD" STATE_DIR="$STATE_DIR" gate_fn "$2" "$2" >/dev/null ); }
-rm -rf "$STATE_DIR/stub_leak_streak"
+rm -rf "${STATE_DIR:?}/stub_leak_streak"
 lane overnight/feature "$W/lanes/a/lnx"
 lane claude/feature    "$W/lanes/b/lnx"      # clean lane between the leaky lane's passes
 lane overnight/feature "$W/lanes/a/lnx"

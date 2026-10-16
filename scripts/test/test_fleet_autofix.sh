@@ -17,6 +17,8 @@
 # and verified via the script's own log file + state (dedupe sig), not by intercepting curl.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# 2026-10-16: fail-closed sandbox helpers (a failed mktemp must abort, never turn HOME into /home and rm -rf it)
+. "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
 if [ -n "${OVN_FLEET_AUTOFIX:-}" ]; then
   G="$OVN_FLEET_AUTOFIX"
 else
@@ -28,13 +30,13 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || { echo "  FAIL: cannot create a safe temp dir - aborting before touching anything"; exit 1; }
+trap 'safe_rm_rf "$tmp"' EXIT
 export NTFY_TOPIC="shrike_fleetautofix_selftest_ignore"   # any alert goes to an unwatched junk topic
 
 reset_env(){
-  export HOME="$tmp/home"
-  rm -rf "$HOME"; mkdir -p "$HOME/overnight-queue/state" "$HOME/overnight-queue/logs" "$HOME/overnight-queue/scripts"
+  safe_set_sandbox_home "$tmp" || exit 1
+  safe_rm_rf "$HOME" || exit 1; mkdir -p "$HOME"; mkdir -p "$HOME/overnight-queue/state" "$HOME/overnight-queue/logs" "$HOME/overnight-queue/scripts"
   cp "$HERE/../lib_lock.sh" "$HOME/overnight-queue/scripts/lib_lock.sh"
   LOG="$HOME/overnight-queue/logs/fleet_autofix.log"
   export FAKE_RECONCILE_LOG="$tmp/reconcile.log"; export FAKE_REFILL_LOG="$tmp/refill.log"

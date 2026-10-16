@@ -135,7 +135,7 @@ for crash in raise exit1 garbage hang missing; do
     exit1)   printf 'import sys\nsys.exit(1)\n' > "$Q/qa/baseline_verify.py" ;;
     garbage) printf 'print("not json at all")\n' > "$Q/qa/baseline_verify.py" ;;
     hang)    printf 'import time\ntime.sleep(60)\n' > "$Q/qa/baseline_verify.py" ;;
-    missing) rm -rf "$Q/qa" ;;
+    missing) rm -rf "${Q:?}/qa" ;;
   esac
   t0=$(date +%s)
   osr_run "$OSR_REPO" "$ITEM_PY"

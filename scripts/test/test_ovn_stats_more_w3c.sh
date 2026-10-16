@@ -17,7 +17,7 @@ hasnt(){ if printf '%s' "$2" | grep -qF -- "$3"; then bad "$1 (unexpected [$3])"
 known(){ if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1"; else warnc=$((warnc+1)); echo "  WARN $1"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; mkdir -p "$H/overnight-queue/state"; LOG="$H/overnight-queue/state/task_stats.log"
 NOW="$(date +%s)"
 row(){ printf '%s\t%s\t%s\t%s\t%s\n' "$((NOW-$1))" "$2" "$3" "$4" "$5"; }   # age_s repo oc tag file

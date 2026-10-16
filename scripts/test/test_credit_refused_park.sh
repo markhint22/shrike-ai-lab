@@ -12,7 +12,7 @@ S="$HERE/.."; ROOT="$(cd "$HERE/../.." && pwd)"; RUN="$S/../run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 sedi(){ if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }   # portable in-place sed (BSD on the Mac, GNU on the box)
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"; SHADOW_LOG="$OVN_VERIFY_SHADOW_LOG"; _REPO_LABEL=t
@@ -113,13 +113,13 @@ mut(S + "/ovn_item_guard.sh", '    [ "$_rn" -ge "$_rp_at" ] || continue', '    :
 mut(S + "/lib_auto_credit.sh", '      if [ "$mode" = enforce ]; then\n        [ -n "$tl" ] && echo "--- verify-gate: ${label} REFUSED', '      if false; then\n        [ -n "$tl" ] && echo "--- verify-gate: ${label} REFUSED', W + "/m_gate.sh")
 PY
 # lib mutant: refusal counting removed => no counter after a refusal
-( . "$W/m_lib.sh"; rm -rf "$STATE/credit_refused"; R2="$W/repo2"; mkdir -p "$R2/app"; cd "$R2"; git init -q -b main; git config user.email t@t; git config user.name t
+( . "$W/m_lib.sh"; rm -rf "${STATE:?}/credit_refused"; R2="$W/repo2"; mkdir -p "$R2/app"; cd "$R2"; git init -q -b main; git config user.email t@t; git config user.name t
   printf 'v=0\n' > app/a.py; printf -- '- [ ] [T2] app/a.py — no verify here.\n' > OVERNIGHT_PROGRESS.md; git add -A; git commit -q -m b; B2="$(git rev-parse HEAD)"
   printf 'v=1\n' > app/a.py; git add -A; git commit -q -m c; A2="$(git rev-parse HEAD)"; : > "$W/t2.log"; ovn_auto_credit "$B2" "$A2" OVERNIGHT_PROGRESS.md "$W/t2.log" || true
   [ ! -d "$STATE/credit_refused" ] || [ -z "$(ls -A "$STATE/credit_refused" 2>/dev/null)" ] )
 ok "MUTATION: with the refusal bump removed from lib_auto_credit.sh no counter is written (so test A would fail)" "[ \$? = 0 ]"
 # guard mutant: threshold ignored => parks at count 1
-rm -rf "$STATE/credit_refused"; mkdir -p "$STATE/credit_refused"; R3="$W/repo3"; mkdir -p "$R3"; ( cd "$R3" && git init -q -b main && git config user.email t@t && git config user.name t && printf -- '- [ ] [T2] app/m.py — mutated guard item.\n' > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m i )
+rm -rf "${STATE:?}/credit_refused"; mkdir -p "$STATE/credit_refused"; R3="$W/repo3"; mkdir -p "$R3"; ( cd "$R3" && git init -q -b main && git config user.email t@t && git config user.name t && printf -- '- [ ] [T2] app/m.py — mutated guard item.\n' > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m i )
 printf '1\nno VERIFY clause\n- [ ] [T2] app/m.py — mutated guard item.\n' > "$STATE/credit_refused/repo3.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 bash "$W/m_guard.sh" "$R3" 'pushed(tests:pass)' "$STATE" itemG "$W/task.log" >/dev/null 2>&1
 ok "MUTATION: a guard without the threshold test parks at count 1 (the real guard needs 2: sanity via the count-1 control)" "grep -q 'credit refusals' '$R3/OVERNIGHT_PROGRESS.md'"

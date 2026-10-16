@@ -106,7 +106,7 @@ cleanup() {
   # keep the last 14 runs; videos/logcats only exist for failures so this stays small
   [ -n "$LOCKDIR" ] && rm -rf "$LOCKDIR"
   ls -1dt "$STATE"/runs/*/ 2>/dev/null | tail -n +15 | while IFS= read -r d; do rm -rf "$d"; done
-  find "$STATE/apk" -name '*.apk' -mtime +14 -delete 2>/dev/null
+  find "${STATE:?}/apk" -name '*.apk' -mtime +14 -delete 2>/dev/null
   # a signal/overall-timeout abort never reached a verdict: say so (UNVERIFIED), never leave the night without a line
   if [ -n "${DL_ABORTED:-}" ] && [ -z "$REPORTED" ]; then report_infra "run aborted (overall ${DL_OVERALL_TIMEOUT}s cap hit or signal) - partial result discarded"; fi
 }

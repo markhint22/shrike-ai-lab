@@ -8,7 +8,7 @@ PY="$HERE/../../ovn_outcome_gap.py"
 [ -f "$PY" ] || { echo "  FAIL: $PY missing"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 OUT="$T/outcomes.jsonl"; FLAG="$T/PAUSED"; LOG="$T/outcome_gap.log"
 # fixed clock: 2026-10-15T06:00:00Z
 NOW=$(python3 -c 'import calendar,time; print(calendar.timegm(time.strptime("2026-10-15T06:00:00","%Y-%m-%dT%H:%M:%S")))')

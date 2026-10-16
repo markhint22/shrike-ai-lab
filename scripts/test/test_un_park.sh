@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../un_park.py" "$HERE/../un_park.py" "$HERE/un_park.py"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "un_park.py not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 TAG='[HUMAN-ONLY BLOCKED ITEM after 3 fails]'
 F="$T/p.md"
 one(){ # $1 = body text -> prints resulting single line (file contains one tagged item)

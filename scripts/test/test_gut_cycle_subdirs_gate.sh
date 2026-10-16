@@ -163,7 +163,7 @@ BIN="$T/bin"; mkdir -p "$BIN"
 mkstub(){ printf '#!/usr/bin/env bash\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }
 mkstub curl 'echo "curl $*" >> "$T/curl.log"; exit 0'
 setupb(){
-  rm -rf "$T/home" "$T/origin" "$T/seed" "$T/repos" "$T/state" "$T/report.md"
+  rm -rf "${T:?}/home" "${T:?}/origin" "${T:?}/seed" "${T:?}/repos" "${T:?}/state" "${T:?}/report.md"
   mkdir -p "$HOME/overnight-queue/scripts" "$T/origin" "$T/seed" "$T/repos" "$STATE_DIR"
   cp "$HERE/../../scripts/ovn_extract_failure.sh" "$HOME/overnight-queue/scripts/" 2>/dev/null
   mkdir -p "$HOME/godot"; cat > "$HOME/godot/godot4" <<'G'

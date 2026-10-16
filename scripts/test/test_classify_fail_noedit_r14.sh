@@ -7,7 +7,7 @@ C="${OVN_CLASSIFY_FAIL:-$HERE/../../ovn_classify_fail.sh}"
 [ -f "$C" ] || { echo "  SKIP: $C not found"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/noedit.log" <<'T'
 I will assert that the helper is unused, then delete it. The test is expected to equal nothing after.
 /dev/null is not in the subpath of /repo

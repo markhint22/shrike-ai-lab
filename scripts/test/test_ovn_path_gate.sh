@@ -4,7 +4,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 G="$HERE/../ovn_path_gate.py"; [ -f "$G" ] || G="$HERE/ovn_path_gate.py"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"; mkdir -p src; touch src/here.py src/stale.py
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT; cd "$T"; mkdir -p src; touch src/here.py src/stale.py
 cat > P.md <<'P'
 ## Next Steps
 - [ ] [T2] src/here.py — Add a thing.

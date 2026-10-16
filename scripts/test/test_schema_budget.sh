@@ -47,7 +47,7 @@ eq "OVN_SCHEMA_BUDGET=off -> schema item gets the base" 4 "$(OVN_SCHEMA_BUDGET=o
 eq "OVN_SCHEMA_BUDGET=off beats an explicit override" 3 "$(OVN_SCHEMA_BUDGET=off OVN_BESTOF_N_SCHEMA=9 ovn_schema_budget bestn 3 "$S")"
 
 echo "== ovn_item_guard.sh: parking cycle, schema vs non-schema =="
-G="$Q/scripts/ovn_item_guard.sh"; tmp="$(mktemp -d)"
+G="$Q/scripts/ovn_item_guard.sh"; tmp="$(mktemp -d)" || exit 1
 new_repo(){ local r="$tmp/$1"; mkdir -p "$r"; ( cd "$r" && git init -q && git config user.email t@t && git config user.name t && printf '%s\n' "$2" > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m i ); echo "$r"; }
 # cycles_until_park <name> <item> <status> <ksent> <max> [ENV...] -> number of guard calls until the item is AUTO-SKIPped (0 = never within max)
 cycles_until_park(){

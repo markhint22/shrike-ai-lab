@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; SCRIPTS="$(cd "$HERE/.." && pwd)"
 PYX="${OVN_TEST_PY:-$HOME/overnight-queue/repos/test-automation-agent/backend/.venv/bin/python}"
 "$PYX" -c 'import alembic, sqlalchemy' 2>/dev/null || { echo "SKIP: no python with alembic+sqlalchemy ($PYX)"; exit 0; }
 fail=0; ok() { echo "  ok   - $1"; }; bad() { echo "  FAIL - $1"; fail=1; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 mkrepo() {  # $1 = repo dir name (basename matters: allowlist)
   local R; R="$(mktemp -d "$T/r.XXXXXX")/$1"; mkdir -p "$R/proj/app" "$R/proj/alembic/versions" "$R/proj/tests"; cd "$R" || exit 1

@@ -16,7 +16,7 @@ BLOCK="$(sed -n '/# stub-leak FLAG (r11, package stub; SHADOW)/,/^  # web build+
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the stub-leak block from $BH"; exit 1; }
 [ "$(printf '%s\n' "$BLOCK" | grep -c 'ovn_stub_guard.py" scan')" = 1 ] || { echo "  FAIL: expected exactly one scan call in the extracted block"; exit 1; }
 
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1
 LOGF="$W/hygiene.log"; : > "$LOGF"
 log(){ echo "[branch-hygiene] $*" >> "$LOGF"; }

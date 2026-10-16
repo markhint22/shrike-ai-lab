@@ -17,7 +17,7 @@ for c in "$HERE/../../ovn_test_watch.sh" "$HERE/../ovn_test_watch.sh" "$HERE/ovn
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; R="$H/overnight-queue"; ORG="$T/origins"; ALERTS="$T/alerts.txt"; PWDLOG="$T/pwd_seen.txt"
 mkdir -p "$R/state" "$R/repos" "$ORG" "$H/aider-venv/bin" "$H/godot"; : > "$ALERTS"; : > "$PWDLOG"; export ALERTS PWDLOG
 REALFLOCK=0; command -v flock >/dev/null 2>&1 && REALFLOCK=1

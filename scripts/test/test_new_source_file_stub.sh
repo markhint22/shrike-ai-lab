@@ -48,7 +48,7 @@ stub_comment_for() {  # $1=path -> the stub file content the deployed code would
   printf '%s' "$_ovn_stub_comment"
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp" || exit 1
 mkdir -p scripts/mission backend/app/models
 : > backend/app/models/existing.py   # an existing file, must never be touched

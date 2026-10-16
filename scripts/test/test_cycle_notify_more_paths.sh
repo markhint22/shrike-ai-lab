@@ -8,7 +8,7 @@ S=""; for c in "$HERE/../../cycle_notify.sh" "$HERE/../cycle_notify.sh"; do [ -f
 [ -n "$S" ] || { echo "  SKIP: cycle_notify.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 cp "$S" "$T/cycle_notify.sh"; ST="$T/state"; mkdir -p "$ST"
 run(){ ( cd "$T" && bash "$T/cycle_notify.sh" "$1" >/dev/null 2>&1 ); }
 row(){ echo "| ongoing-$1 | aider_fix | $2 | overnight/feature | $T/$1.log | 5s |"; }

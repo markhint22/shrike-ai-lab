@@ -9,7 +9,7 @@ PY="$(command -v python3.12 || command -v python3)"
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 t(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l" 1; else ok "$l" 0; fi; }
-SB="$(mktemp -d)"; BASE="$SB/base"; ALERTS="$SB/state/alerts.log"; mkdir -p "$SB/state"
+SB="$(mktemp -d)" || exit 1; BASE="$SB/base"; ALERTS="$SB/state/alerts.log"; mkdir -p "$SB/state"
 BGP=""
 cleanup(){ [ -z "$BGP" ] || kill $BGP 2>/dev/null; rm -rf "$SB"; }
 trap cleanup EXIT
@@ -77,12 +77,49 @@ t "D3 the leak is still removed" test ! -e "$(root_of D2)"
 
 echo "== E: stale-root sweep removes dead runs' roots and keeps live ones"
 mkdir -p "$BASE/run.99999999/x" "$BASE/not-a-run"; : > "$BASE/run.99999999/x/f"
-sleep 30 & SP=$!; mkdir -p "$BASE/run.$SP"
+# 2026-10-16: the sweep keeps anything modified in the last 10 minutes, so a root that is meant to be swept is backdated first
+backdate(){ find "$1" -exec touch -t 202001010000 {} + 2>/dev/null; }
+backdate "$BASE/run.99999999"
+sleep 30 & SP=$!; mkdir -p "$BASE/run.$SP"; backdate "$BASE/run.$SP"
 PRE=: BODY=: runit E
-t "E1 run.<dead pid> is swept" test ! -e "$BASE/run.99999999"
+t "E1 run.<dead pid> (old) is swept" test ! -e "$BASE/run.99999999"
 t "E2 run.<live pid> is kept" test -d "$BASE/run.$SP"
 t "E3 a non-run directory is never touched" test -d "$BASE/not-a-run"
-kill $SP 2>/dev/null; rm -rf "$BASE/run.$SP" "$BASE/not-a-run"
+kill $SP 2>/dev/null; rm -rf "${BASE:?}/run.$SP" "${BASE:?}/not-a-run"
+
+echo "== E2: 2026-10-16 hardening - a live or recently-modified run root is never swept (HOME-deletion incident: a vanished run root made every mktemp fail)"
+mkdir -p "$BASE/run.99999998/x"; : > "$BASE/run.99999998/x/f"          # dead pid, but modified just now (a run still writing, or another user's pid we cannot signal)
+mkdir -p "$BASE/run.99999997/x"; : > "$BASE/run.99999997/x/f"; backdate "$BASE/run.99999997"   # dead pid, old: swept
+sleep 30 & SP2=$!; mkdir -p "$BASE/run.$SP2"; printf '%s|%s\n' "$SP2" "$(ps -p $SP2 -o lstart= | sed 's/^ *//; s/ *$//')" > "$BASE/run.$SP2/.ovn_owner"; backdate "$BASE/run.$SP2"
+mkdir -p "$BASE/run.99999996"; printf '%s|%s\n' "$SP2" "$(ps -p $SP2 -o lstart= | sed 's/^ *//; s/ *$//')" > "$BASE/run.99999996/.ovn_owner"; backdate "$BASE/run.99999996"   # name pid dead, owner marker names a LIVE process
+PRE=: BODY=: runit E2
+t "E2a a dead-pid root modified in the last 10 minutes is kept" test -d "$BASE/run.99999998"
+t "E2b a dead-pid root older than 10 minutes is still swept" test ! -e "$BASE/run.99999997"
+t "E2c an old root whose owner marker names a live process is kept" test -d "$BASE/run.$SP2"
+t "E2d the owner marker (not just the dir-name pid) decides liveness" test -d "$BASE/run.99999996"
+OVN_TEST_SWEEP_MIN_AGE_MIN=0 PRE=: BODY=: runit E2b
+t "E2e OVN_TEST_SWEEP_MIN_AGE_MIN=0 lets the recent dead root go" test ! -e "$BASE/run.99999998"
+t "E2f ...but never a live-owner root" test -d "$BASE/run.$SP2"
+kill $SP2 2>/dev/null; rm -rf "${BASE:?}/run.$SP2" "${BASE:?}/run.99999996"
+
+echo "== M: two overlapping runs on one shared base - the live root survives the second run's start, sweep and exit; cleanup refuses another live run's root"
+LIB="$LIB" PRE=: BODY='sleep 20 & wait' bash "$SB/run.sh" > "$SB/MA.out" 2>&1 & BGP=$!
+waitfor "$BASE/.run_all.lock.pid" && sleep 0.5
+RMA="$(root_of MA)"
+t "M1 run A's root exists and carries its owner marker" test -f "$RMA/.ovn_owner"
+OVN_TEST_SWEEP_MIN_AGE_MIN=0 PRE=: BODY=: runit MB            # B is refused (75) before any sweep
+t "M2 run B is refused" test "$(rc_of MB)" = 75
+t "M3 run A's root is intact after B's attempt" test -d "$RMA"
+# the single-flight lock is bypassed (no flock on the Mac, or a replaced stale lock) so B really does start, sweep (min age 0) and exit
+rm -f "$BASE/.run_all.lock.pid" "$BASE/.run_all.lock"
+LIB="$LIB" PRE=: BODY=: OVN_TEST_SWEEP_MIN_AGE_MIN=0 bash "$SB/run.sh" > "$SB/MC.out" 2>&1; echo $? > "$SB/MC.rc"
+t "M4 run B (lock bypassed) started, ran and exited" test "$(cat "$SB/MC.rc")" = 0
+t "M5 run A's root survived B's sweep AND B's exit cleanup" test -d "$RMA"
+kill "$BGP" 2>/dev/null; wait "$BGP" 2>/dev/null; BGP=""
+mkdir -p "$BASE/run.88888888"; sleep 20 & SP3=$!; printf '%s|%s\n' "$SP3" "$(ps -p $SP3 -o lstart= | sed 's/^ *//; s/ *$//')" > "$BASE/run.88888888/.ovn_owner"
+PRE=: BODY='OVN_TMP_ROOT="$OVN_TEST_TMP_BASE/run.88888888"; __ovn_tmp_cleanup' runit MD
+t "M6 cleanup refuses a root another live run owns" test -d "$BASE/run.88888888"
+kill $SP3 2>/dev/null; rm -rf "${BASE:?}/run.88888888"
 
 echo "== F: a lock held by an ORPHAN (recorded holder dead) is stale and replaced - it must not wedge every later run"
 if [ -n "$(type -P flock)" ]; then

@@ -22,7 +22,7 @@ extract_kotlinc(){ # $1=task_log $2=pwd-to-strip
   grep -oE 'file://[^ ]+\.kt:[0-9]+:[0-9]+ .*' "$1" 2>/dev/null | sed "s#^file://$2/##" | sort -u | head -8 | tr '\n' ' ' | tr -s ' ' | cut -c1-400
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 repo_root="$tmp/repos/billwatch"
 mkdir -p "$repo_root"
 

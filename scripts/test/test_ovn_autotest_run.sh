@@ -12,7 +12,7 @@ for c in "$HERE/../ovn_autotest.sh" "$HERE/../../scripts/ovn_autotest.sh" "$HERE
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; BIN="$T/bin"; mkdir -p "$H/aider-venv/bin" "$H/godot" "$BIN"
 export NPX_LOG="$T/npx.log"
 # ---- stubs ----
@@ -35,7 +35,7 @@ gdtools(){ # $1 gdparse(pass|fail|none) $2 godot(clean|err|none) $3 gdlint(quiet
   chmod +x "$H/aider-venv/bin/"* "$H/godot/"* 2>/dev/null; return 0
 }
 newrepo(){ # $1=name ; empty committed repo
-  rm -rf "$T/$1"; mkdir -p "$T/$1"; ( cd "$T/$1" && git init -q && git config user.email t@t && git config user.name t && echo base > README.md && git add -A && git commit -q -m base ); R="$T/$1"
+  rm -rf "${T:?}/$1"; mkdir -p "$T/$1"; ( cd "$T/$1" && git init -q && git config user.email t@t && git config user.name t && echo base > README.md && git add -A && git commit -q -m base ); R="$T/$1"
 }
 at(){ OUT="$(cd "$T" && HOME="$H" PATH="$BIN:$PATH" env "$@" bash "$AT" "$R" 2>&1)"; RC=$?; }
 atc(){ OUT="$(cd "$R" && HOME="$H" PATH="$BIN:$PATH" bash "$AT" 2>&1)"; RC=$?; }  # default root "."

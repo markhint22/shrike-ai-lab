@@ -5,7 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../ovn_ws_strip.py"; [ -f "$S" ] || S="$HERE/ovn_ws_strip.py"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; cd "$T"; git init -q .; git config user.email t@t; git config user.name t
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT; cd "$T"; git init -q .; git config user.email t@t; git config user.name t
 mkdir -p node_modules/x
 printf 'def f():\n    x = 1   \n    \n    s = """keep\n    \n  inner"""\n\treturn x\n' | sed 's/^\treturn/    return/' > a.py
 printf 'const a = 1;\n  \n\t\nconst b = 2; \n' > b.ts

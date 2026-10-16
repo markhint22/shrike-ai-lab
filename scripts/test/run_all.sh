@@ -268,6 +268,7 @@ echo; echo "===== git identity guard (fixture local identity t<t@t> removed) ===
 echo; echo "===== QA enforcement plumbing (pre-push gate enforcement, flip file, deadlock-safe block) ====="; bash test_hygiene_enforce.sh || rc=1
 echo; echo "===== QA-blocked repos escalate via the hygiene-stuck check ====="; bash test_qa_blocked_stuck.sh || rc=1
 echo; echo "===== QA mode switch ====="; bash test_qa_mode.sh || rc=1
+echo; echo "===== QA gold set G9 (dep-removal replay) ====="; bash test_qa_gold_g9.sh || rc=1
 echo; echo "===== QA manual notes loop ====="; python3 test_qa_manual_notes.py || rc=1
 echo; echo "===== QA locator v2 (platform, agentic, hung-model budget) ====="; python3 test_qa_locator_v2.py || rc=1
 echo; echo "===== QA gate: acceptance card lint ====="; python3 test_qa_acceptance.py || rc=1
@@ -494,5 +495,9 @@ echo; echo "===== stage credit claim ====="; bash test_stage_credit_claim.sh || 
 echo; echo "===== verify malformed ====="; bash test_verify_malformed.sh || rc=1
 echo; echo "===== tmp leak attribution ====="; bash test_tmp_leak_attribution.sh || rc=1
 echo; echo "===== N4: tmp isolation (single-flight, private TMPDIR, cleanup, leak report, no leaking tests) ====="; bash test_tmp_isolation.sh || rc=1
+echo; echo "===== no unsafe rm (HOME-deletion incident lint + fail-closed sandbox helpers + mutant proof) ====="; bash test_no_unsafe_rm.sh || rc=1
+echo; echo "===== gut alias unrunnable r16b ====="; bash test_gut_alias_unrunnable_r16b.sh || rc=1
+echo; echo "===== box home backup (2026-10-16 wipe safeguard; hermetic, with mutants) ====="; bash test_box_home_backup.sh || rc=1
+echo; echo "===== box recover (2026-10-16 wipe; hermetic, dry-run + restore) ====="; bash test_box_recover.sh || rc=1
 echo; finish || rc=1
 exit $rc

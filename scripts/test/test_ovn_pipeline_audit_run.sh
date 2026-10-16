@@ -9,7 +9,7 @@ for c in "$HERE/../../ovn_pipeline_audit.sh" "$HERE/../ovn_pipeline_audit.sh" "$
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 NOW_ISO(){ date -u -d "$1" +%Y-%m-%dT%H:%M:%S.000000+00:00; }
 
 # ---- build a fake tree. $1 = name. Stubs read scenario files from $T/<name>/ctl ----

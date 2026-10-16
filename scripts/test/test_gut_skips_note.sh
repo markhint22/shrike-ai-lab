@@ -3,7 +3,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; LIB="$HERE/../lib_gut_xml.sh"
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT; mkdir -p "$T/state"
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT; mkdir -p "$T/state"
 source "$LIB"
 printf 'Running\nIgnoring script res://tests/a.gd because it does not extend GutTest\nPassing 3\n' > "$T/bad.log"
 printf 'Running\nPassing 3\n' > "$T/clean.log"

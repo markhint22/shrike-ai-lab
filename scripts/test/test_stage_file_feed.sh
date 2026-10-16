@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # --- Part U (unit, runs anywhere incl. the Mac): stage_feed_files extracted from the real runner, run under `set -o pipefail` against a repo whose `git ls-files` listing exceeds the 64 KB pipe buffer.
 # Regression for the pipefail trap: `printf "$lst" | grep -qxF "$tok"` returned 141 (SIGPIPE) once the listing was bigger than the pipe buffer and the match was early in it, so an architect-named EXACT path
 # was silently dropped in the big repos (iptv_apps ~70 KB, xlite ~75 KB). Small fixture repos can never show it.
-UW="$(mktemp -d)"; trap 'rm -rf "$UW"; osr_cleanup' EXIT
+UW="$(mktemp -d)" || exit 1; trap 'rm -rf "$UW"; osr_cleanup' EXIT
 { sed -n '/^# >>> n4-stage-waste helpers: scope-learn/,/^# <<< n4-stage-waste helpers: scope-learn/p' "$RUNNER"; sed -n '/^# >>> n4-stage-waste helpers: file-feed/,/^# <<< n4-stage-waste helpers: file-feed/p' "$RUNNER"; } > "$UW/h.sh"
 [ -s "$UW/h.sh" ] && grep -q '^stage_feed_files()' "$UW/h.sh" || { echo "  FAIL: file-feed helper block not found in $RUNNER"; exit 1; }
 # shellcheck disable=SC1091

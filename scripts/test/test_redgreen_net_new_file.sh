@@ -28,7 +28,7 @@ would_skip(){ # $1=before $2=src-files(space-sep)
   echo "ok-to-check"
 }
 
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 ( cd "$tmp" || exit 1; git init -q && git config user.email t@t && git config user.name t
   mkdir -p app && echo "def existing(): return 1" > app/existing.py
   git add -A && git commit -q -m base )

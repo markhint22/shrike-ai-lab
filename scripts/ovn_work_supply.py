@@ -276,9 +276,31 @@ def c_swallowed(root):
                "verify": verify_swallowed(r), "symbols": sym or ["L%d" % h.lineno for h in hs]}
 
 
+_LIMITER_DEF = re.compile(r"^limiter\s*=\s*\w*Limiter\(", re.M)
+
+
+def repo_limiter_import(root):
+    """The import line for the repo's own module-level `limiter = Limiter(...)` (2026-10-16: test-automation-agent defines it in app/core/rate_limiting.py, not app/core/limiter.py).
+    Returns None when no module under an `app` package defines one, so the no-rate-limit template is skipped instead of guessing an import that cannot exist."""
+    for p in sorted(walk(root, (".py",))):
+        r = rel(root, p)
+        if is_test_path(r) or not _LIMITER_DEF.search(read(p)):
+            continue
+        parts = r[:-3].split("/")
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        if "app" not in parts:
+            continue
+        return "from %s import limiter" % ".".join(parts[parts.index("app"):])
+    return None
+
+
 def c_rate_limit(root):
     files = [p for p in walk(root, (".py",)) if "/routers/" in p and not is_test_path(rel(root, p))]
     if not any("limiter.limit" in read(p) for p in files):
+        return
+    limiter_import = repo_limiter_import(root)
+    if not limiter_import:
         return
     for p in files:
         r = rel(root, p)
@@ -295,7 +317,7 @@ def c_rate_limit(root):
                "text": "Rate-limit every route in this router (%s). For each: the limiter decorator goes DIRECTLY BELOW the `@router.<method>(...)` line (above it the limit is "
                        "silently inert); the function needs a starlette `request: Request` parameter (import `Request` from fastapi) - if a body model is already named "
                        "`request`, rename the body to `payload` first. Limits: `@limiter.limit(\"120/minute\")` on GET routes, `@limiter.limit(\"30/minute\")` on POST/PUT/PATCH/DELETE "
-                       "(`from app.core.limiter import limiter`; see `app/routers/auth.py`). Do not change behaviour, response models or dependencies." % names,
+                       "(`%s`; see `app/routers/auth.py`). Do not change behaviour, response models or dependencies." % (names, limiter_import),
                "verify": verify_rate_limit(r), "symbols": [n.name for n in routes]}
 
 

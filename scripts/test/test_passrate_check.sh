@@ -11,7 +11,7 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then echo "  ok   $1"; else echo "  WARN KNOWN-BUG: $1 (non-fatal)"; fi; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 W="$T/tree"; mkdir -p "$W/state" "$W/scripts"; cp "$B" "$W/scripts/ovn_outcome_buckets.py"
 run(){ ( cd "$W" && python3 "$S" 2>&1 ); }
 row(){ printf '{"ts":"%s","repo":"%s","severity":%s}\n' "$1" "$2" "$3"; }

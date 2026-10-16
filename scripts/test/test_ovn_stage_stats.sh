@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../../ovn_stage_stats.py"; [ -f "$S" ] || S="$HERE/../ovn_stage_stats.py"; [ -f "$S" ] || S="$HERE/ovn_stage_stats.py"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
 lacks(){ printf '%s' "$1" | grep -qF -- "$2" && echo 0 || echo 1; }
 run(){ HOME="$1" python3 "$S" 2>&1; }

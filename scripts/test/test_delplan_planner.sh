@@ -10,7 +10,7 @@ EXD="$HERE/../ovn_delete_executor.py"
 if ! sed --version >/dev/null 2>&1 || ! command -v flock >/dev/null 2>&1; then echo "  SKIP: needs GNU sed + flock (run on the box)"; exit 0; fi
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)"; trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$tmp"' EXIT
 PORT=18931
 cat > "$tmp/mockserver.py" <<'PYEOF2'
 import http.server, json, sys
@@ -42,7 +42,7 @@ WD="$tmp/home/overnight-queue"
 mkdir -p "$WD"/{backlog,roadmap,repos,logs,scripts}; cp "$EXD" "$WD/scripts/ovn_delete_executor.py"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 mkrepo(){  # real git repo repos/xl with an orphan, a used file and a file deleted in history
-  rm -rf "$WD/repos/xl"; mkdir -p "$WD/repos/xl/scripts/battle" "$WD/repos/xl/scripts/save"; cd "$WD/repos/xl" || exit 1
+  rm -rf "${WD:?}/repos/xl"; mkdir -p "$WD/repos/xl/scripts/battle" "$WD/repos/xl/scripts/save"; cd "$WD/repos/xl" || exit 1
   git init -q . ; git config user.email t@t; git config user.name t
   printf 'extends Node\n' > scripts/battle/save_manager.gd
   printf 'extends Node\n' > scripts/save/save_manager.gd
@@ -54,7 +54,7 @@ mkrepo(){  # real git repo repos/xl with an orphan, a used file and a file delet
 }
 run(){ ( cd "$tmp" && HOME="$tmp/home" OVN_MODEL=m LITELLM_BASE="http://127.0.0.1:$PORT" OVN_PLAN_THRESHOLD=10 OVN_PLAN_MAX_PER_RUN=4 "$@" bash "${PLANNER:-$PL}" xl >/dev/null 2>>"$tmp/run.log" ); }
 setup(){  # $1 = feature text
-  mkrepo; : > "$tmp/reqlog.txt"; : > "$WD/logs/ovn_planner.log"; rm -rf "$WD/state"
+  mkrepo; : > "$tmp/reqlog.txt"; : > "$WD/logs/ovn_planner.log"; rm -rf "${WD:?}/state"
   printf '# backlog\n' > "$WD/backlog/xl.md"
   printf '# roadmap\n- [ ] [P2] [ready] %s\n- [ ] [P3] [ready] Another feature stays untouched\n' "$1" > "$WD/roadmap/xl.md"
 }

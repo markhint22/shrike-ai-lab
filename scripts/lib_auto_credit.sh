@@ -450,6 +450,16 @@ ovn_credit_verify_gate() {
       [ -n "$tl" ] && echo "--- verify-gate: ${label} at line ${ln} would be REFUSED (VERIFY: clause FAILED) - OVN_VERIFY_GATE_MODE=${mode}, crediting anyway ---" >> "$tl"
       return 0 ;;
     TIMEOUT|UNRUNNABLE)
+      # 2026-10-16 (overnight review, xlite): an UNRUNNABLE VERIFY (rc 127 - the clause's tool is absent) is not evidence that the item is done, and the scout ALREADY-DONE credit
+      # ran on it anyway (50 rows in one night). OVN_UNRUNNABLE_CREDIT_GATE: shadow (default: log 'would be REFUSED' and credit as before) | enforce (refuse; the item stays open) | off.
+      # New enforcement ships shadow-only; flip to enforce after a soak. TIMEOUT is unchanged.
+      if [ "${_LAST_VERIFY_RESULT}" = UNRUNNABLE ] && [ "$label" = "scout ALREADY-DONE credit" ] && [ "${OVN_UNRUNNABLE_CREDIT_GATE:-shadow}" != off ]; then
+        if [ "${OVN_UNRUNNABLE_CREDIT_GATE:-shadow}" = enforce ]; then
+          [ -n "$tl" ] && echo "--- verify-gate: ${label} REFUSED at line ${ln} - VERIFY UNRUNNABLE (${_LAST_VERIFY_WHY:-no verdict}); item left open ---" >> "$tl"
+          return 1
+        fi
+        [ -n "$tl" ] && echo "--- verify-gate: ${label} at line ${ln} would be REFUSED (VERIFY UNRUNNABLE: ${_LAST_VERIFY_WHY:-no verdict}) - OVN_UNRUNNABLE_CREDIT_GATE=shadow, crediting anyway ---" >> "$tl"
+      fi
       [ -n "$tl" ] && echo "--- verify-gate: ${label} at line ${ln}: VERIFY indeterminate (${_LAST_VERIFY_WHY:-no verdict}); not a failure, crediting as before ---" >> "$tl"
       return 0 ;;
   esac

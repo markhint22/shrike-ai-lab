@@ -23,7 +23,7 @@ done
 pass=0; fail=0; warn=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   KNOWN-BUG (now fixed): $1"; else warn=$((warn+1)); echo "  WARN KNOWN-BUG: $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"
 export OVN_REC="$T/rec.txt"; unset DATABASE_URL ANTHROPIC_API_KEY
 
@@ -32,7 +32,7 @@ export OVN_REC="$T/rec.txt"; unset DATABASE_URL ANTHROPIC_API_KEY
 #   tmplmode: normal | emptyup (upgrade body always `pass`) | nohead (down_revision always None)
 #   basemode: good | bad (baseline upgrade raises)
 mkproj() {
-  local envm="$1" tm="$2" bm="$3" hid="${4:-0001_baseline}" P; P="$(mktemp -d "$T/p.XXXXXX")"; mkdir -p "$P/app" "$P/alembic/versions"
+  local envm="$1" tm="$2" bm="$3" hid="${4:-0001_baseline}" P; P="$(mktemp -d "$T/p.XXXXXX")" || exit 1; mkdir -p "$P/app" "$P/alembic/versions"
   printf '[alembic]\nscript_location = alembic\nprepend_sys_path = .\n' > "$P/alembic.ini"
   : > "$P/app/__init__.py"
   cat > "$P/app/models.py" <<'PY'
@@ -114,7 +114,7 @@ md5f() { md5sum < "$1" 2>/dev/null || md5 -q "$1"; }
 P="$(mkproj sync normal good)"
 out="$(cd "$P" && "$PYX" "$PYS" 2>&1)"; rc=$?
 ok "missing --message -> argparse error, exit 2" "$([ $rc = 2 ] && printf '%s' "$out" | grep -q 'required: --message' && echo 1 || echo 0)"
-E="$(mktemp -d "$T/empty.XXXX")"; out="$(runpy "$E" --message x)"; rc=$?
+E="$(mktemp -d "$T/empty.XXXX")" || exit 1; out="$(runpy "$E" --message x)"; rc=$?
 ok "no alembic.ini in cwd -> 'REFUSE no alembic.ini', exit 11" "$([ $rc = 11 ] && printf '%s' "$out" | grep -q '^REFUSE no alembic.ini in cwd' && echo 1 || echo 0)"
 
 # ---- NODRIFT ----

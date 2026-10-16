@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SWEEP="$HERE/../ovn_backup_branch_sweep.sh"; [ -f "$SWEEP" ] || SWEEP="$HERE/ovn_backup_branch_sweep.sh"
 [ -f "$SWEEP" ] || { echo "  ❌ ovn_backup_branch_sweep.sh not found"; exit 1; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 git init -q --bare "$tmp/origin.git"
 git clone -q "$tmp/origin.git" "$tmp/seed" 2>/dev/null

@@ -7,10 +7,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; LIB="$HERE/../lib_gut_xml.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$T"' EXIT
 source "$LIB"
 unset OVN_GUT_SKIPS_NEW
-fresh(){ rm -rf "$T/state"; mkdir -p "$T/state"; }
+fresh(){ rm -rf "${T:?}/state"; mkdir -p "$T/state"; }
 alertf(){ cat "$T/state/alerts.log" 2>/dev/null; }
 
 # ---- all names are printed

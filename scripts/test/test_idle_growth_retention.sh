@@ -15,7 +15,7 @@ P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 SECT="${IDLE_TEST_SECTIONS:-A,B,C,D,E,M}"
 want(){ case ",$SECT," in *",$1,"*) return 0;; esac; return 1; }
-W="$(mktemp -d)"; W="$(cd "$W" && pwd -P)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; W="$(cd "$W" && pwd -P)"; trap 'rm -rf "$W"' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
 # shellcheck disable=SC1090
 . "$S/lib_item_select.sh"; . "$S/lib_fixup.sh"
@@ -75,7 +75,7 @@ if want C; then
 echo "== C. log cap retention (run dirs + reports) =="
 TOOL="$S/ovn_log_cap.sh"
 mkq(){ # fresh fixture
-  rm -rf "$W/q"; mkdir -p "$W/q/logs/archive" "$W/q/logs/hygiene_gate" "$W/q/logs/notes" "$W/q/reports" "$W/q/state" "$W/q/repos/r"
+  rm -rf "${W:?}/q"; mkdir -p "$W/q/logs/archive" "$W/q/logs/hygiene_gate" "$W/q/logs/notes" "$W/q/reports" "$W/q/state" "$W/q/repos/r"
   echo keep > "$W/q/state/x"; echo keep > "$W/q/repos/r/x"
 }
 mkrun(){ local d="$W/q/logs/$1"; mkdir -p "$d"; echo log > "$d/ongoing-x.log"; touch -t "$2" "$d"; }
@@ -122,7 +122,7 @@ ok "C10 with the floor at 0, old ones go by the days rule alone" "[ ! -d '$W/q/l
 mkq; mkrun "$RECENT" "$(date +%Y%m%d%H%M)"; mkrep "$RECENT.md" "$(date +%Y%m%d%H%M)"
 cap env OVN_LOG_CAP=on OVN_LOG_RUN_KEEP_NEWEST=0 OVN_REPORT_KEEP_NEWEST=0
 ok "C11 a RECENT run dir / report is never removed by age, even with a zero floor" "[ -d '$W/q/logs/$RECENT' ] && [ -f '$W/q/reports/$RECENT.md' ]"
-mkq; rm -rf "$W/q/reports"; cap env OVN_LOG_CAP=on
+mkq; rm -rf "${W:?}/q/reports"; cap env OVN_LOG_CAP=on
 ok "C12 no reports/ dir: clean run, exit 0" "[ \"\$(cat '$W/rc')\" = 0 ]"
 fi
 
@@ -156,7 +156,7 @@ else
   idlepass(){ # idlepass <repo> [ENV=..]: one ongoing-<repo> pass
     local nm="$1"; shift
     ro_tasks "$(jq -nc --arg R "$R" --arg n "$nm" '[{id:("ongoing-"+$n),repo:($R+"/"+$n),prompt:"Work the single top not-yet-done item in the overnight progress log."}]')"
-    rm -rf "$T/tree/reports"/* "$RO_STUB/aider_n" "$RO_STUB/aider_kinds" "$RO_STUB/sleep.log"; printf 'IMPL_SEQ=none\n' > "$RO_STUB/scn"
+    rm -rf "${T:?}/tree/reports"/* "${RO_STUB:?}/aider_n" "${RO_STUB:?}/aider_kinds" "${RO_STUB:?}/sleep.log"; printf 'IMPL_SEQ=none\n' > "$RO_STUB/scn"
     ro_run_main "$@"
   }
   # the REAL wait: ovn_idle_wait sleeps in 5 s steps and the sleep stub logs every call, so the number of 'sleep 5' lines is wait/5 (the log line alone only proves what was PRINTED)

@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; Q="$(cd "$HERE/../.." && pwd)"; RUN="$Q/run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
 export HOME="$W/home"; mkdir -p "$HOME"
 HAVE_FLOCK=0; type -P flock >/dev/null 2>&1 && HAVE_FLOCK=1
 # shellcheck disable=SC1090
@@ -94,7 +94,7 @@ if [ "$HAVE_FLOCK" = 1 ]; then
   ovn_qwen_explore_kick iptv_apps "$SD" "$OD" exhausted; waitcalls 7
   ok "kick: lock free again => launches (7 calls)" "[ \"\$(calls)\" = 7 ]"
 fi
-rm -rf "$W/ovn_missing"; ovn_qwen_explore_kick iptv_apps "$W/nostate" "$W/ovn_missing" exhausted; rc=$?
+rm -rf "${W:?}/ovn_missing"; ovn_qwen_explore_kick iptv_apps "$W/nostate" "$W/ovn_missing" exhausted; rc=$?
 ok "kick: a missing ovn dir / state dir is rc 0 (never fails the pass)" "[ $rc = 0 ]"
 ok "kick: garbage in the stamp file is treated as 'no stamp'" "( mk_od; mkdir -p '$QD'; echo garbage > '$QD/next_iptv_apps'; ovn_qwen_explore_kick iptv_apps '$SD' '$OD' exhausted; waitcalls 1 )"
 

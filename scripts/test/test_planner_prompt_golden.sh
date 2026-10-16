@@ -17,7 +17,7 @@ command -v flock >/dev/null 2>&1 || { echo "  SKIP: flock not installed"; exit 0
 P=0; F=0
 # assertions are evaluated with pipefail OFF (under pipefail `A | grep -q X` is flaky: grep -q exits at its first hit and A may take SIGPIPE)
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)"; tmp="$(cd "$tmp" && pwd -P)"
+tmp="$(mktemp -d)" || exit 1; tmp="$(cd "$tmp" && pwd -P)"
 trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 cat > "$tmp/golden_old.txt" <<'GOLDEN_EOT'
@@ -74,7 +74,7 @@ for i in $(seq 1 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/" && break
 # ---- sandbox live dir (the planner does `cd "$HOME/overnight-queue"`)
 WD="$tmp/home/overnight-queue"
 fresh(){  # <planner script> -> re-creates the sandbox
-  rm -rf "$tmp/home"; mkdir -p "$WD"/{backlog,roadmap,repos/demo/scripts,logs,scripts,state}
+  rm -rf "${tmp:?}/home"; mkdir -p "$WD"/{backlog,roadmap,repos/demo/scripts,logs,scripts,state}
   echo "def f(): pass" > "$WD/repos/demo/scripts/existing.py"
   printf '# roadmap\n- [ ] [P2] [ready] Golden feature\n' > "$WD/roadmap/demo.md"
   : > "$WD/backlog/demo.md"

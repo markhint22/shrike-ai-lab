@@ -8,7 +8,7 @@ OPS="$HERE/../../ops/fleet_review"
 [ -f "$OPS/run_review.sh" ] || { echo "  SKIP: ops/fleet_review not present"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 b(){ if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
 has(){ grep -qF -- "$2" <<<"$1" && echo 1 || echo 0; }
 hasnt(){ grep -qF -- "$2" <<<"$1" && echo 0 || echo 1; }

@@ -14,7 +14,7 @@ has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
 cnt(){ grep -cF -- "$2" "$1" 2>/dev/null || true; }
 # line count without wc: BSD wc pads its output with spaces, which broke the numeric compares on macOS
 nlines(){ grep -c "" "$1" 2>/dev/null || echo 0; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
 FX="$T/fx"; mkdir -p "$FX"; export FX
 
 # ---- stubs (exported functions) ----
@@ -75,7 +75,7 @@ vercel(){ echo "vercel $*" >> "$FX/vc.log"
   esac; }
 export -f curl ssh vercel
 
-newhome(){ rm -rf "$T/home" "$FX"/*; mkdir -p "$T/home"; unset RW_STATUS RW_ID RW_LOG RW_LINK_FAIL HC_CODE MON_JSON MON_FAIL SSH_RC VC_STATUS VC_LOG VC_LS_EMPTY DRYRUN SHRIKE_MONITOR_URL SHRIKE_MONITOR_TOKEN SHRIKE_NOTIFY_URL SHRIKE_NOTIFY_TOKEN; unset RWS_31f8e4dd RWS_58dcc554 RWS_de12ff53 VCS_billwatch VCS_chickadee VCS_gitlark VCS_social_media_manager VCS_shrike_labs_website; }
+newhome(){ rm -rf "${T:?}/home" "${FX:?}"/*; mkdir -p "$T/home"; unset RW_STATUS RW_ID RW_LOG RW_LINK_FAIL HC_CODE MON_JSON MON_FAIL SSH_RC VC_STATUS VC_LOG VC_LS_EMPTY DRYRUN SHRIKE_MONITOR_URL SHRIKE_MONITOR_TOKEN SHRIKE_NOTIFY_URL SHRIKE_NOTIFY_TOKEN; unset RWS_31f8e4dd RWS_58dcc554 RWS_de12ff53 VCS_billwatch VCS_chickadee VCS_gitlark VCS_social_media_manager VCS_shrike_labs_website; }
 run(){ HOME="$T/home" NTFY_TOPIC=selftest bash "$DW" > "$FX/out.log" 2>&1; echo $? > "$FX/rc"; }
 ST="$T/home/.deploy_watch"
 
