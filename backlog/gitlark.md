@@ -268,3 +268,15 @@
 # --- deterministic work supply 2026-10-17 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- 27B-decomposed from roadmap [2026-10-17]: `enforce_token_budget` compares cumulative monthly tokens against per-request ceiling — fa (review + tweak) [feat:gitlark-20261017-enforce-token-budget-compares-cumulative] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fleet Activity tab silently 404s in production — `notificationsFeed.ts` double-`/api` pref (review + tweak) [feat:gitlark-20261017-fleet-activity-tab-silently-404s-in-prod] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Duplicate `redact_secrets` in `core/security.py` is dead code with its own test — `backend (review + tweak) [feat:gitlark-20261017-duplicate-redact-secrets-in-core-securit] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fleet introduced a dead `feature_flag_service.py` stub alongside the 2026-10-02 singleton  (review + tweak) [feat:gitlark-20261017-fleet-introduced-a-dead-feature-flag-ser] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: `conversation_service.py`'s `should_invoke_control_plane` is dead — not wired to any produ (review + tweak) [feat:gitlark-20261017-conversation-service-py-s-should-invoke-] ---
+- [ ] [T1] backend/tests/test_conversation_service.py — Remove the import and all test cases for `should_invoke_control_plane`. VERIFY: `grep -rn "should_invoke_control_plane" backend/tests/test_conversation_service.py` returns no results. (cat:test; multifile:no) [feat:gitlark-20261017-conversation-service-py-s-should-invoke-]
+- [ ] [T2] backend/app/services/conversation_service.py — Delete the `should_invoke_control_plane` function definition and any unused imports it required. VERIFY: `grep -rn "def should_invoke_control_plane" backend/app/services/conversation_service.py` returns no results. (cat:python; multifile:no) [feat:gitlark-20261017-conversation-service-py-s-should-invoke-]
+- [ ] [T3] backend/app/services/conversation_service.py — Verify the module still loads correctly after removal by importing it in a Python shell or running a basic import test. VERIFY: `python -c "import backend.app.services.conversation_service"` completes without error. (cat:python; multifile:no) [feat:gitlark-20261017-conversation-service-py-s-should-invoke-]
+- [ ] [T4] backend/tests/test_conversation_service.py — Add a regression test ensuring `conversation_service` does not expose `should_invoke_control_plane`. VERIFY: `pytest backend/tests/test_conversation_service.py -k "not_exposed"` passes. (cat:test; multifile:no) [feat:gitlark-20261017-conversation-service-py-s-should-invoke-]

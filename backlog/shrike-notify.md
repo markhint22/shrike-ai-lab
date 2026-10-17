@@ -194,3 +194,13 @@
 # --- 27B-decomposed from roadmap [2026-10-02]: `_limiter` in `publish.py` is frozen at module import time — `backend/app/routers/publish. (review + tweak) [feat:shrike-notify-20261002-limiter-in-publish-py-is-frozen-at-modul] ---
 
 # --- deterministic work supply 2026-10-14 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: ⚠️ CORRECTION: invalid NOTIFY_QUIET_HOURS_TZ still 500s every publish — `broker.py:142` ca (review + tweak) [feat:shrike-notify-20261017-correction-invalid-notify-quiet-hours-tz] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: ⚠️ CORRECTION: `Broker.is_actionable()` silently drops severity="high" messages — `broker. (review + tweak) [feat:shrike-notify-20261017-correction-broker-is-actionable-silently] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Delete dead `AuthManager.revoke()` with untracked fire-and-forget task — `auth.py:262` def (review + tweak) [feat:shrike-notify-20261017-delete-dead-authmanager-revoke-with-untr] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Delete dead `SELECT Token` in `TokenStore.revoke_token()` — `persistence.py:283-285` execu (review + tweak) [feat:shrike-notify-20261017-delete-dead-select-token-in-tokenstore-r] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Delete `test_requirements_pin.py` and `utils/versions.py` — `test_requirements_pin.py:9-12 (review + tweak) [feat:shrike-notify-20261017-delete-test-requirements-pin-py-and-util] ---
