@@ -499,5 +499,6 @@ echo; echo "===== no unsafe rm (HOME-deletion incident lint + fail-closed sandbo
 echo; echo "===== gut alias unrunnable r16b ====="; bash test_gut_alias_unrunnable_r16b.sh || rc=1
 echo; echo "===== box home backup (2026-10-16 wipe safeguard; hermetic, with mutants) ====="; bash test_box_home_backup.sh || rc=1
 echo; echo "===== box recover (2026-10-16 wipe; hermetic, dry-run + restore) ====="; bash test_box_recover.sh || rc=1
+echo; echo "===== run all sandboxed ====="; bash test_run_all_sandboxed.sh || rc=1
 echo; finish || rc=1
 exit $rc

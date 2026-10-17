@@ -17,7 +17,10 @@ ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/n
 echo "== A: ovn_cycle_net_zero (unit, real function extracted from run_overnight.sh)"
 FN="$(sed -n '/^ovn_cycle_net_zero() {/,/^}/p' "$RO")"; [ -n "$FN" ] || { echo "  FAIL: could not extract ovn_cycle_net_zero"; exit 1; }
 eval "$FN"
-tmp="$(mktemp -d)" || exit 1; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+. "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
+tmp="$(safe_mktemp_dir)" || exit 1
+trap 'safe_rm_rf "$tmp"' EXIT   # 2026-10-16: the Linux path (B/C) reached the end without removing $tmp -> 100 entries left in the private TMPDIR per run
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 R="$tmp/r"; mkdir -p "$R"; cd "$R" || exit 1; git init -q -b main . 2>/dev/null || git init -q .
 printf 'import os\nx = os.getenv("A")\n' > svc.py; printf '# prog\n- [ ] [T1] svc.py — do it\n' > OVERNIGHT_PROGRESS.md
 git add -A; git commit -q -m seed; B0="$(git rev-parse HEAD)"
@@ -62,6 +65,8 @@ cd "$HERE" || exit 1
 PRE_P=$P; PRE_F=$F
 . "$HERE/lib_ro_aider2_fixture.sh"   # defines its own P/F/ok/eq (same call shape as ok above): carry the A/D counts over
 P=$PRE_P; F=$PRE_F
+# lib_ro_aider2_fixture.sh installs its own EXIT trap (rm -rf "$W"), replacing ours: restore removal of BOTH sandboxes
+trap 'rm -rf "${W:?}"; safe_rm_rf "$tmp"' EXIT
 churn='printf "def hello():\n    return 1\n# x\n" > app.py; git add -A; git commit -q -m "feat: remove import"; git revert --no-edit HEAD >/dev/null 2>&1'
 run_id(){  # like run_case but with a chosen task id (the ongoing-* lanes get the supply re-check)
   local id="$1" prompt="${2:-$PROMPT_DEFAULT}"

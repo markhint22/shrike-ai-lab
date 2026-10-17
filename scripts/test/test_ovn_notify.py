@@ -1,5 +1,9 @@
 """ovn_notify.py: classification, buffering, caps/dedupe, forwarding (against a local fake ntfy), the relay server, the hourly update and the emergency checks."""
 import importlib.util, io, json, os, sys, tempfile, threading, time, urllib.request, urllib.error
+import os as _tt_os, sys as _tt_sys
+_tt_sys.path.insert(0, _tt_os.path.dirname(_tt_os.path.abspath(__file__)))
+import tmp_track
+tmp_track.install()   # 2026-10-16: every tempfile.mkdtemp() below is removed at exit (these tests left dirs in the private TMPDIR)
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 ROOT = os.environ.get("OVN_ROOT") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))

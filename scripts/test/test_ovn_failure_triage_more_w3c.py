@@ -3,6 +3,9 @@
 and via subprocess CLI). Hermetic: temp state/logs dirs only. Exit 0 = all pass."""
 import builtins, importlib.util, io, json, os, subprocess, sys, tempfile, time, contextlib
 from datetime import datetime, timezone, timedelta
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tmp_track
+tmp_track.install()   # 2026-10-16: w3c-ft-* (and every fresh() dir) left behind in the private TMPDIR; swept at exit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "ovn_failure_triage.py")

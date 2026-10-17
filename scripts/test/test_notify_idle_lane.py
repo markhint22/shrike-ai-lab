@@ -5,6 +5,10 @@ Fixture: a real-shaped outcomes.jsonl read as BYTES (two NUL-byte lines in the m
 real attempts, a fake root with tasks.json + per-repo OVERNIGHT_PROGRESS.md, and an injected clock (N.now). Nothing here touches the network: urlopen is a counter.
 usage: test_notify_idle_lane.py   env: OVN_NOTIFY_SRC=<path to a (mutated) ovn_notify.py> (used by the .sh wrapper's mutation checks)"""
 import calendar, importlib.util, json, os, sys, tempfile, time
+import os as _tt_os, sys as _tt_sys
+_tt_sys.path.insert(0, _tt_os.path.dirname(_tt_os.path.abspath(__file__)))
+import tmp_track
+tmp_track.install()   # 2026-10-16: every tempfile.mkdtemp() below is removed at exit (these tests left dirs in the private TMPDIR)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("OVN_ROOT") or os.path.abspath(os.path.join(HERE, "..", ".."))

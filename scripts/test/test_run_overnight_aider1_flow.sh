@@ -20,6 +20,9 @@ rd(){ echo "$T/$1/repos/ro_aider1_repo"; }
 og(){ echo "$T/$1/origin.git"; }
 tlog(){ cat "$T/$1/task.log" 2>/dev/null; }
 alerts(){ cat "$T/$1/sd/state/alerts.log" 2>/dev/null; }
+# gq: quiet grep that drains ALL of stdin. `grep -q` exits at the first match, the upstream `git log` then dies of SIGPIPE and under
+# `set -o pipefail` the pipeline reports failure (a ~4% flake when the box is loaded, 2026-10-16). Use gq for every `git log ... | gq pattern`.
+gq(){ grep "$@" >/dev/null; }
 has(){ grep -qF -- "$2" <<<"$1" && echo 1 || echo 0; }
 hasre(){ grep -qE -- "$2" <<<"$1" && echo 1 || echo 0; }
 hasline(){ grep -qxF -- "$2" <<<"$1" && echo 1 || echo 0; }
@@ -46,7 +49,7 @@ ok "CLAUDE.md pre-loaded read-only when skip_agents_md is false" "$(has "$(scout
 ok "default map-tokens 3072 when none given" "$(has "$(scoutcall br_default)" '3072')"
 ok "model-metadata file passed" "$(has "$(scoutcall br_default)" 'model-metadata.json')"
 run br_persist_local
-ok "persistent + branch exists locally: checked out as-is" "$([ "$(cur br_persist_local)" = claude/feature ] && git -C "$(rd br_persist_local)" log --oneline | grep -q localwork && echo 1 || echo 0)"
+ok "persistent + branch exists locally: checked out as-is" "$([ "$(cur br_persist_local)" = claude/feature ] && git -C "$(rd br_persist_local)" log --oneline | gq localwork && echo 1 || echo 0)"
 run br_persist_remote
 ok "persistent + branch only on origin: created from origin/<branch>" "$([ "$(cur br_persist_remote)" = claude/feature ] && echo 1 || echo 0)"
 run br_fallback
@@ -64,7 +67,7 @@ ok "diverged but origin==main: clone reset to merged baseline (straggler gone)" 
 run sync_div_recover
 a="$(alerts sync_div_recover)"
 ok "diverged, queue-only local commit: auto-RECOVERED alert" "$(has "$a" 'auto-RECOVERED')"
-ok "recovered commit replayed onto origin (pushed)" "$(git -C "$(og sync_div_recover)" log claude/feature --format=%s | grep -q 'local queue-only' && echo 1 || echo 0)"
+ok "recovered commit replayed onto origin (pushed)" "$(git -C "$(og sync_div_recover)" log claude/feature --format=%s | gq 'local queue-only' && echo 1 || echo 0)"
 ok "a backup-diverged branch is kept" "$(git -C "$(rd sync_div_recover)" branch | grep -q backup-diverged && echo 1 || echo 0)"
 run sync_div_conflict
 a="$(alerts sync_div_conflict)"
@@ -77,16 +80,16 @@ ok "push-fail: clone equals origin afterwards" "$([ "$(git -C "$(rd sync_div_pus
 run sync_div_other
 a="$(alerts sync_div_other)"
 ok "diverged touching a code file: backup branch + NOT auto-recovered alert" "$(has "$a" 'NOT auto-recovered')"
-ok "code-file divergence: backup branch holds the local commit" "$(git -C "$(rd sync_div_other)" log --all --format=%s | grep -q 'local code edit' && echo 1 || echo 0)"
+ok "code-file divergence: backup branch holds the local commit" "$(git -C "$(rd sync_div_other)" log --all --format=%s | gq 'local code edit' && echo 1 || echo 0)"
 
 echo "== placeholder / new-file stubs =="
 export OVN_STUB_UNDO=off   # r11: an UNFILLED stub is now removed on the way out of a cycle (test_stub_guard_e2e.sh); disabled here to inspect the stub content itself
 run stub_progress
-ok "missing OVERNIGHT_PROGRESS.md named in prompt -> stub committed" "$(git -C "$(rd stub_progress)" log --format=%s | grep -q 'stub OVERNIGHT_PROGRESS.md' && echo 1 || echo 0)"
+ok "missing OVERNIGHT_PROGRESS.md named in prompt -> stub committed" "$(git -C "$(rd stub_progress)" log --format=%s | gq 'stub OVERNIGHT_PROGRESS.md' && echo 1 || echo 0)"
 ok "stub has no doable items -> skip(exhausted)" "$([ "$(res stub_progress)" = 'skip(exhausted)' ] && echo 1 || echo 0)"
 run stub_alembic
 f="$(rd stub_alembic)/backend/alembic/versions/0007_sessions.py"
-ok "new Alembic migration file stubbed + committed" "$([ -f "$f" ] && git -C "$(rd stub_alembic)" log -1 --format=%s | grep -q 'stub new Alembic' && echo 1 || echo 0)"
+ok "new Alembic migration file stubbed + committed" "$([ -f "$f" ] && git -C "$(rd stub_alembic)" log -1 --format=%s | gq 'stub new Alembic' && echo 1 || echo 0)"
 run stub_py;   ok ".py stub is a docstring placeholder" "$(has "$(cat "$(rd stub_py)/app/brand_new.py")" '"""Placeholder')"
 run stub_gd;   ok ".gd stub is a # comment placeholder" "$(has "$(cat "$(rd stub_gd)/scripts/mission/brand_new.gd")" '# Placeholder')"
 run stub_testts
@@ -108,15 +111,15 @@ r="$(rd selfheal)"
 ok "marked placeholder-only test file repaired into a skipped suite" "$(has "$(cat "$r/web/a.test.ts")" 'describe.skip(')"
 ok "comment-only test file WITHOUT our marker is left alone" "$([ "$(cat "$r/web/b.test.ts")" = '// just a comment, not ours' ] && echo 1 || echo 0)"
 ok "real test file is untouched" "$(has "$(cat "$r/web/c.test.ts")" "it('real'")"
-ok "self-heal commit message names the repaired count" "$(git -C "$r" log --format=%s | grep -q 'make 1 placeholder-only test file' && echo 1 || echo 0)"
+ok "self-heal commit message names the repaired count" "$(git -C "$r" log --format=%s | gq 'make 1 placeholder-only test file' && echo 1 || echo 0)"
 
 echo "== maintenance commits (sanitizer / self-gen / exhausted) =="
 run sanitizer
 r="$(rd sanitizer)"
-ok "sanitizer retires the vague no-file item and commits" "$(git -C "$r" log --format=%s | grep -q 'retire vague no-file items' && echo 1 || echo 0)"
+ok "sanitizer retires the vague no-file item and commits" "$(git -C "$r" log --format=%s | gq 'retire vague no-file items' && echo 1 || echo 0)"
 ok "vague item no longer an open top-level item" "$(b2i "$(has "$(grep -E '^- \[ \]' "$r/OVERNIGHT_PROGRESS.md")" 'Improve overall code quality')")"
 run selfgen
-ok "self-gen tops up a low-water repo and commits" "$(git -C "$(rd selfgen)" log --format=%s | grep -q 'auto-generate safe mechanical items' && echo 1 || echo 0)"
+ok "self-gen tops up a low-water repo and commits" "$(git -C "$(rd selfgen)" log --format=%s | gq 'auto-generate safe mechanical items' && echo 1 || echo 0)"
 run exhausted
 ok "no doable items -> skip(exhausted)" "$([ "$(res exhausted)" = 'skip(exhausted)' ] && echo 1 || echo 0)"
 ok "exhausted skip leaves a log line and never calls aider" "$([ "$(has "$(tlog exhausted)" '0 doable items')" = 1 ] && [ ! -d "$T/exhausted/scn/calls" ] && echo 1 || echo 0)"
@@ -171,14 +174,14 @@ run sc_alreadydone
 r="$(rd sc_alreadydone)"
 ok "ALREADY-DONE credits the matching item ([x] (already-done, scout-verified))" "$(has "$(cat "$r/OVERNIGHT_PROGRESS.md")" '- [x] (already-done, scout-verified) [T1] app/foo.py')"
 ok "credit skips .md + non-matching tokens and matches foo.py" "$(has "$(tlog sc_alreadydone)" 'matched foo.py')"
-ok "credit commit pushed to origin branch" "$(git -C "$(og sc_alreadydone)" log ovn/t1 --format=%s | grep -q 'credit already-done item' && echo 1 || echo 0)"
+ok "credit commit pushed to origin branch" "$(git -C "$(og sc_alreadydone)" log ovn/t1 --format=%s | gq 'credit already-done item' && echo 1 || echo 0)"
 ok "status no-op(ALREADY-DONE)" "$([ "$(res sc_alreadydone)" = 'no-op(ALREADY-DONE)' ] && echo 1 || echo 0)"
 run sc_ad_nomatch
 ok "ALREADY-DONE naming a file no item mentions: nothing credited" "$([ "$(headmsg sc_ad_nomatch)" = base ] && echo 1 || echo 0)"
 run sc_ad_noplan
 ok "ALREADY-DONE with no PLAN line: no credit, no crash" "$([ "$(headmsg sc_ad_noplan)" = base ] && [ "$(res sc_ad_noplan)" = 'no-op(ALREADY-DONE)' ] && echo 1 || echo 0)"
 run sc_ad_pushrebase
-ok "credit push rejected -> pull --rebase + retry succeeds (origin has both commits)" "$([ "$(has "$(tlog sc_ad_pushrebase)" 'rebasing onto origin/ovn/t1')" = 1 ] && git -C "$(og sc_ad_pushrebase)" log ovn/t1 --format=%s | grep -q 'credit already-done item' && echo 1 || echo 0)"
+ok "credit push rejected -> pull --rebase + retry succeeds (origin has both commits)" "$([ "$(has "$(tlog sc_ad_pushrebase)" 'rebasing onto origin/ovn/t1')" = 1 ] && git -C "$(og sc_ad_pushrebase)" log ovn/t1 --format=%s | gq 'credit already-done item' && echo 1 || echo 0)"
 run sc_ad_pushfail
 ok "credit push failing after rebase-retry is logged (credit may be lost)" "$(has "$(tlog sc_ad_pushfail)" 'credit-push failed after rebase-retry')"
 ok "failed credit push leaves no stuck rebase state" "$([ ! -d "$(rd sc_ad_pushfail)/.git/rebase-merge" ] && [ ! -d "$(rd sc_ad_pushfail)/.git/rebase-apply" ] && echo 1 || echo 0)"
@@ -186,7 +189,7 @@ run sc_ad_commitfail
 ok "credit commit failing (hook) -> nothing pushed, still returns no-op(ALREADY-DONE)" "$([ "$(res sc_ad_commitfail)" = 'no-op(ALREADY-DONE)' ] && ! git -C "$(og sc_ad_commitfail)" rev-parse -q --verify ovn/t1 >/dev/null && echo 1 || echo 0)"
 kb "log must not claim 'credited already-done item' when the credit commit failed (run_overnight.sh ~line 1640 echoes unconditionally)" "$(b2i "$(has "$(tlog sc_ad_commitfail)" 'credited already-done item')")"
 run sc_credit_changes
-ok "any-verdict already-satisfied credit: CREDITED>=1 -> commit + push" "$(git -C "$(og sc_credit_changes)" log ovn/t1 --format=%s | grep -q 'credit already-satisfied item (scout verdict path)' && echo 1 || echo 0)"
+ok "any-verdict already-satisfied credit: CREDITED>=1 -> commit + push" "$(git -C "$(og sc_credit_changes)" log ovn/t1 --format=%s | gq 'credit already-satisfied item (scout verdict path)' && echo 1 || echo 0)"
 run sc_credit_nochange
 ok "CREDITED>=1 but nothing staged: commit fails, nothing pushed, verdict still reported" "$([ "$(has "$(res sc_credit_nochange)" 'no-op(NEEDS-DECISION)')" = 1 ] && ! git -C "$(og sc_credit_nochange)" rev-parse -q --verify ovn/t1 >/dev/null && echo 1 || echo 0)"
 # KNOWN-BUG: a failed `git commit -q` (nothing to commit) still prints 'On branch ...' to STDOUT, which is the function's status string.
@@ -239,7 +242,7 @@ ok "OK + green verify: deleted, credited, pushed -> 'pushed(tests:pass) delete-e
 ok "progress item credited on origin" "$(has "$(git -C "$(og de_pass)" show main:OVERNIGHT_PROGRESS.md)" '- [x] (deleted by delete-executor, verified) [T1] app/dead_mod.py')"
 ok "executor path never calls aider" "$([ ! -d "$T/de_pass/scn/calls" ] && echo 1 || echo 0)"
 run de_push_retry
-ok "direct push rejected -> pull --rebase + push succeeds" "$([ "$(res de_push_retry)" = 'pushed(tests:pass) delete-executor' ] && git -C "$(og de_push_retry)" log main --format=%s | grep -q '^adv$' && git -C "$(og de_push_retry)" log main --format=%s | grep -q 'credit deterministic delete' && echo 1 || echo 0)"
+ok "direct push rejected -> pull --rebase + push succeeds" "$([ "$(res de_push_retry)" = 'pushed(tests:pass) delete-executor' ] && git -C "$(og de_push_retry)" log main --format=%s | gq '^adv$' && git -C "$(og de_push_retry)" log main --format=%s | gq 'credit deterministic delete' && echo 1 || echo 0)"
 # 2026-10-15: diagnostics for the one-in-many red seen only inside the full run_all (box): when this check fails, show what the scenario did
 # (result, the task log tail, origin main history) instead of only the boolean. Assertions are unchanged.
 if [ "$(res de_push_retry)" != "pushed(tests:pass) delete-executor" ]; then

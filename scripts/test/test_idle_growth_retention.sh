@@ -140,10 +140,12 @@ echo "== D. the runner (real run_overnight.sh, hermetic tree) =="
 . "$HERE/lib_ro_core.sh"
 # lib_ro_core.sh defines its own ok() (value-based); restore this file's command-based one
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-if ! ( _p="$(mktemp)"; exec 9>"$_p"; flock -w 0 9 ) 2>/dev/null || ! sed --version >/dev/null 2>&1; then
+if ! ( _p="$(mktemp)"; trap 'rm -f "$_p"' EXIT; exec 9>"$_p"; flock -w 0 9 ) 2>/dev/null || ! sed --version >/dev/null 2>&1; then
   echo "  SKIP: needs util-linux flock and GNU sed (run on the box)"
 else
   ro_init
+  # 2026-10-16: ro_init installs its own `trap 'rm -rf "$T"' EXIT`, which REPLACED line 18's trap, so $W (the scratch copy of the whole tree for section M, 168,912 entries on the box where repos/ is populated) was never removed. Remove both.
+  trap 'rm -rf "${T:?}" "${W:?}"' EXIT
   ro_hook_stubs
   ro_link update_progress.py dedupe_progress_headers.py dedupe_gd_duplicate_functions.py dedupe_python_duplicate_defs.py scripts/ovn_classify.py scripts/ovn_progress_slice.py \
           scripts/ovn_credit_already_satisfied.sh scripts/ovn_retire_vague.py scripts/ovn_extract_failure.sh scripts/lib_verify_clause.sh scripts/lib_auto_credit.sh scripts/lib_parked_pattern.sh \
@@ -222,7 +224,7 @@ ok "M6 MUTATION: matching run dirs by age only (no exact-name rule) removes arch
 mutate scripts/ovn_log_cap.sh '| grep -E "$REPORT_ERE" | grep -vxFf "$tk" > "$tc"' '| grep -vxFf "$tk" > "$tc"'
 nest C; restore scripts/ovn_log_cap.sh
 ok "M9 MUTATION: a name-blind *.md report rule (the first shipped behaviour) deletes the groom.sh proposals (C4b and C1 fail)" "grep -q 'FAIL C4b' '$W/mut.out' && grep -q 'FAIL C1 ' '$W/mut.out'"
-if ( _p="$(mktemp)"; exec 9>"$_p"; flock -w 0 9 ) 2>/dev/null && sed --version >/dev/null 2>&1; then
+if ( _p="$(mktemp)"; trap 'rm -f "$_p"' EXIT; exec 9>"$_p"; flock -w 0 9 ) 2>/dev/null && sed --version >/dev/null 2>&1; then
   mutate run_overnight.sh '  ovn_idle_clear "$STATE_DIR"   # a pass with work ends the all-idle streak: the next idle pass starts at the base wait again' '  :'
   nest D; restore run_overnight.sh
   ok "M7 MUTATION: not clearing the streak after a pass with work fails D6/D7" "grep -q 'FAIL D6' '$W/mut.out' && grep -q 'FAIL D7' '$W/mut.out'"

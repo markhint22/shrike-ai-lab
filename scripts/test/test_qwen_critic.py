@@ -484,6 +484,10 @@ for _name, _v in REAL.items():
 
 # ---- MUTATION PROOFS
 import tempfile  # noqa: E402
+import os as _tt_os, sys as _tt_sys
+_tt_sys.path.insert(0, _tt_os.path.dirname(_tt_os.path.abspath(__file__)))
+import tmp_track
+tmp_track.install()   # 2026-10-16: every tempfile.mkdtemp() below is removed at exit (these tests left dirs in the private TMPDIR)
 MUT_ROOT = tempfile.mkdtemp(prefix="qc-mut-")
 
 

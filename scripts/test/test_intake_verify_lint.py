@@ -17,6 +17,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SD = os.path.abspath(os.path.join(HERE, ".."))
 sys.path.insert(0, SD)
+sys.path.insert(0, HERE)
+import tmp_track
+tmp_track.install()   # 2026-10-16: seedgodot-* (and any other mkdtemp) left behind in the private TMPDIR; swept at exit
 import ovn_backlog_eligibility as E  # noqa: E402
 import ovn_gut_clause as G  # noqa: E402
 import ovn_spec_classify as C  # noqa: E402

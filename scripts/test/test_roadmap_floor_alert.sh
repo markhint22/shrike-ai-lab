@@ -16,6 +16,8 @@ PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+# 2026-10-16: the embedded python heredocs call tempfile.mkdtemp(); point TMPDIR inside $tmp so the EXIT trap removes those dirs too (they were left in the private TMPDIR)
+mkdir -p "$tmp/pytmp" && export TMPDIR="$tmp/pytmp"
 
 echo "== A: the floor alert (ovn_research_trigger_check.py, throwaway HOME)"
 cat > "$tmp/floor_check.py" <<'PYEOF'
