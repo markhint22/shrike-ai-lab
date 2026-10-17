@@ -51,7 +51,11 @@ canary_py(){ # name rd wt sub
   if [ -z "$pytest" ]; then for p in "$rd/$sub/.venv/bin/pytest" "$rd/.venv/bin/pytest"; do [ -x "$p" ] && pytest="$p" && break; done; fi
   [ -n "$pytest" ] && [ -x "$pytest" ] || { log "$name: infra (no pytest) - skipped, no alert"; return 0; }
   d="$(mktemp)"; c="$(mktemp)"
-  ( cd "$wt" && git ls-files -- "$sub" ) | grep -E '(^|/)(test_[^/]*|[^/]*_test)\.py$' | grep -vE '(^|/)(node_modules|\.venv|venv)/' | sed "s#^${sub%/}/##" > "$d"
+  # 2026-10-17: only files that DEFINE a test count as ghosts. test-automation-agent has real application modules named test_*.py (routers/test_plans.py, models/test_run.py,
+  # utils/test_selection.py ...: the domain is "tests"), which pytest never needs to collect; counting them made every pass a false alert.
+  ( cd "$wt" && git ls-files -- "$sub" ) | grep -E '(^|/)(test_[^/]*|[^/]*_test)\.py$' | grep -vE '(^|/)(node_modules|\.venv|venv)/' | while IFS= read -r f; do
+    grep -qE '^[[:space:]]*(async[[:space:]]+)?def[[:space:]]+test_|^class[[:space:]]+Test' "$wt/$f" 2>/dev/null && printf '%s\n' "$f"
+  done | sed "s#^${sub%/}/##" > "$d"
   args=""; [ "${OVN_COLLECT_APP_TESTS:-off}" = "on" ] && args="app"
   out="$( cd "$wt/$sub" && PYTHONDONTWRITEBYTECODE=1 timeout 240 $NICE "$pytest" --collect-only -q -p no:cacheprovider -o addopts="" $args 2>&1 )"; rc=$?
   case "$rc" in 0|1|2|5) : ;; *) log "$name: infra (pytest rc=$rc) - skipped, no alert"; rm -f "$d" "$c"; return 0 ;; esac
@@ -78,7 +82,8 @@ canary_gd(){ # name rd wt
   report "$name" "$d" "$c"; rm -f "$d" "$c" "$xml"
 }
 
-for spec in ${OVN_CANARY_REPOS:-iptv_apps:py:iptv-backend xlite:gd:.}; do
+# 2026-10-17: test-automation-agent added (5 ghost test files sat under backend/app/ for two weeks, incl. quota-enforcement tests, because this list only covered iptv+xlite)
+for spec in ${OVN_CANARY_REPOS:-iptv_apps:py:iptv-backend xlite:gd:. test-automation-agent:py:backend}; do
   name="${spec%%:*}"; rest="${spec#*:}"; kind="${rest%%:*}"; sub="${rest#*:}"
   rd="$REPOS/$name"
   [ -d "$rd/.git" ] || [ -f "$rd/.git" ] || { log "$name: infra (no clone at $rd) - skipped"; continue; }

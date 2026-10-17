@@ -105,10 +105,10 @@ mkdir -p "$W/victim3"; echo v > "$W/victim3/f"
 SD="$W/sdrive/box-backups"; mkdir -p "$SD"; ln -s "$W/victim3" "$SD/daily"
 BB_HOME="$H" BB_DEST="$SD" BB_ALLOW_SAME_FS=1 BB_DAY=Mon bash "$SCRIPT" daily >/dev/null 2>&1; r=$?
 ok "DEST/daily symlink: refused, target dir untouched (still only f)" "[ $r != 0 ] && [ \"\$(ls -A '$W/victim3')\" = f ] && grep -q 'symlink' '$SD/alerts.log'"
-find "$SD/daily" -maxdepth 0 -type l -delete; mkdir -p "$SD/daily"; ln -s "$W/victim3" "$SD/hourly"
+find "${SD:?}/daily" -maxdepth 0 -type l -delete; mkdir -p "$SD/daily"; ln -s "$W/victim3" "$SD/hourly"
 BB_HOME="$H" BB_DEST="$SD" BB_ALLOW_SAME_FS=1 BB_HOUR=2026101612 bash "$SCRIPT" hourly >/dev/null 2>&1; r=$?
 ok "DEST/hourly symlink: refused, target dir untouched" "[ $r != 0 ] && [ \"\$(ls -A '$W/victim3')\" = f ]"
-find "$SD/hourly" -maxdepth 0 -type l -delete; ln -s "$W/victim3" "$SD/daily/Mon"
+find "${SD:?}/hourly" -maxdepth 0 -type l -delete; ln -s "$W/victim3" "$SD/daily/Mon"
 BB_HOME="$H" BB_DEST="$SD" BB_ALLOW_SAME_FS=1 BB_DAY=Mon bash "$SCRIPT" daily >/dev/null 2>&1; r=$?
 ok "snapshot name is a symlink: refused, target dir untouched, link kept" "[ $r != 0 ] && [ \"\$(ls -A '$W/victim3')\" = f ] && [ -L '$SD/daily/Mon' ]"
 
@@ -223,28 +223,28 @@ else
   mkdir -p "$W/homefs_dest"; ln -s "$W/homefs_dest" "$OFS/linkdest"
   BB_HOME="$H" BB_DEST="$OFS/linkdest" BB_DAY=Mon bash "$SCRIPT" daily >/dev/null 2>&1; r=$?
   ok "DEST that is a symlink (on the other fs) to a dir on the HOME fs is refused: the resolved target decides" "[ $r != 0 ] && [ -z \"\$(ls -A '$W/homefs_dest' | grep -v '^alerts.log\$')\" ] && [ ! -e '$W/homefs_dest/daily' ]"
-  find "$RD/daily" -mindepth 1 -delete; rmdir "$RD/daily"; mkdir -p "$W/homefs_daily"; ln -s "$W/homefs_daily" "$RD/daily"
+  find "${RD:?}/daily" -mindepth 1 -delete; rmdir "$RD/daily"; mkdir -p "$W/homefs_daily"; ln -s "$W/homefs_daily" "$RD/daily"
   BB_HOME="$H" BB_DEST="$RD" BB_DAY=Mon bash "$SCRIPT" daily >/dev/null 2>&1; r=$?
   ok "DEST on the other fs but DEST/daily a symlink to the home fs: refused, nothing written there" "[ $r != 0 ] && [ -z \"\$(ls -A '$W/homefs_daily')\" ]"
-  find "$RD/daily" -maxdepth 0 -type l -delete
+  find "${RD:?}/daily" -maxdepth 0 -type l -delete
 fi
 
 echo "== MUTANTS of the new guards must be caught"
 mfs(){ BB_HOME="$H" BB_DEST="$W/mfsdrive/box-backups" bash "$1" daily >/dev/null 2>&1; }   # no BB_ALLOW_SAME_FS: same-fs DEST must be refused
-refuses_samefs(){ mkdir -p "$W/mfsdrive/box-backups"; find "$W/mfsdrive/box-backups" -mindepth 1 -delete 2>/dev/null; ! mfs "$1" && [ ! -d "$W/mfsdrive/box-backups/daily/$(date +%a)" ]; }
+refuses_samefs(){ mkdir -p "$W/mfsdrive/box-backups"; find "${W:?}/mfsdrive/box-backups" -mindepth 1 -delete 2>/dev/null; ! mfs "$1" && [ ! -d "$W/mfsdrive/box-backups/daily/$(date +%a)" ]; }
 sed 's|^    \[ "\$dh" != "\$dd" \] \|\| die .*|    :|' "$SCRIPT" > "$W/mutFS.sh"
 ok "mutant FS differs from the original and still parses" "! cmp -s '$SCRIPT' '$W/mutFS.sh' && bash -n '$W/mutFS.sh'"
 ok "the real script refuses a same-filesystem DEST" "refuses_samefs '$SCRIPT'"
 ok "MUTANT (separate-filesystem check removed) is CAUGHT: it accepts a same-fs DEST" "! refuses_samefs '$W/mutFS.sh'"
 sed -e '/is a symlink: refusing (snapshots/d' -e '/is not a real directory: refusing/d' "$SCRIPT" > "$W/mutSL.sh"
-refuses_symlink(){ local d="$W/msl/box-backups"; find "$W/msl" -mindepth 1 -delete 2>/dev/null; mkdir -p "$d" "$W/msl_v"; find "$W/msl_v" -mindepth 1 -delete; ln -s "$W/msl_v" "$d/daily"
+refuses_symlink(){ local d="$W/msl/box-backups"; find "${W:?}/msl" -mindepth 1 -delete 2>/dev/null; mkdir -p "$d" "$W/msl_v"; find "${W:?}/msl_v" -mindepth 1 -delete; ln -s "$W/msl_v" "$d/daily"
   BB_HOME="$H" BB_DEST="$d" BB_ALLOW_SAME_FS=1 BB_DAY=Mon bash "$1" daily >/dev/null 2>&1; [ -z "$(ls -A "$W/msl_v")" ]; }
 mkdir -p "$W/msl"
 ok "mutant SL differs and parses" "! cmp -s '$SCRIPT' '$W/mutSL.sh' && bash -n '$W/mutSL.sh'"
 ok "the real script never writes through a symlinked daily" "refuses_symlink '$SCRIPT'"
 ok "MUTANT (real-dir/symlink check removed) is CAUGHT: it writes through the symlink" "! refuses_symlink '$W/mutSL.sh'"
 sed '/BB_KEEP_HOURLY must be a positive integer/d' "$SCRIPT" > "$W/mutKP.sh"
-keeps_dirs(){ local d="$W/mkp/box-backups"; find "$W/mkp" -mindepth 1 -delete 2>/dev/null; mkdir -p "$d/hourly/2026111500" "$d/hourly/2026111501" "$d/daily"
+keeps_dirs(){ local d="$W/mkp/box-backups"; find "${W:?}/mkp" -mindepth 1 -delete 2>/dev/null; mkdir -p "$d/hourly/2026111500" "$d/hourly/2026111501" "$d/daily"
   BB_HOME="$H" BB_DEST="$d" BB_ALLOW_SAME_FS=1 BB_HOUR=2026111502 BB_KEEP_HOURLY=abc bash "$1" hourly >/dev/null 2>&1; [ -d "$d/hourly/2026111500" ] && [ -d "$d/hourly/2026111501" ]; }
 mkdir -p "$W/mkp"
 ok "mutant KP differs and parses" "! cmp -s '$SCRIPT' '$W/mutKP.sh' && bash -n '$W/mutKP.sh'"

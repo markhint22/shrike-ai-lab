@@ -4,8 +4,8 @@
 #
 # Usage: ovn_classify_fail.sh <task_log> <status>   -> prints one of:
 #   context-exceeded | diff-not-applied | no-edit | api-mismatch | syntax-error |
-#   test-red | build-red | migration-fork | ts-regression | plan-only | timeout | oversized |
-#   needs-decision | model-api-error | queue-exhausted | stage-unverified | scout-unworkable | net-zero | landed | verify-malformed | unknown
+#   test-red | verify-timeout | build-red | migration-fork | ts-regression | plan-only | timeout | oversized |
+#   needs-decision | model-api-error | queue-exhausted | stage-unverified | scout-unworkable | net-zero | comment-only | landed | verify-malformed | unknown
 #
 # Ordered most-specific-first; the FIRST signature that hits wins. Signatures are drawn from real
 # aider/gate output. Keep this cheap (greps only) — it runs once per item in record_outcome.
@@ -38,7 +38,10 @@ case "$status" in
   # (34 + 22 = 56 records landed in fail_reason=unknown despite the status saying exactly what
   # happened). Trust the status text the same way model-api-error already does above.
   *"reverted(build-break)"*)          echo "build-red"; exit 0;;
-  *"reverted-red"*)                   echo "test-red"; exit 0;;
+  # 2026-10-17 (iptv review): a revert whose verify ended rc=124 (the 600s cap in run_overnight.sh killed the suite) is NOT evidence of red. After the home-dir-wipe rebuild
+  # iptv's venv lacked pytest-xdist, the serial suite took ~14min, and all 29 cycles were reverted/held as "test-red" (items then parked). Its own tag keeps it out of
+  # the code-quality bucket and makes the env gap visible. Only the rc=124 marker (written by _ovn_red_mark) triggers it; any other red stays test-red.
+  *"reverted-red"*)                   if grep -aqE 'verify-suite-red: .* rc=124( |$)' "$tl" 2>/dev/null; then echo "verify-timeout"; else echo "test-red"; fi; exit 0;;
   # 2026-09-15: found while investigating gitlark's "test-red" spike — every single one of 12
   # occurrences was actually status=reverted(migration-fork) (the alembic migration-safety gate
   # catching a colliding/forked revision id), misclassified as test-red because alembic's error
@@ -60,6 +63,8 @@ case "$status" in
   *"no-op(stage-unverified)"*)        echo "stage-unverified"; exit 0;;
   # 2026-10-10 (harness R10, IPTV-3): the cycle's commits cancelled out (empty net code diff); the runner reset it. The status names the cause.
   *"no-op(net-zero)"*)                echo "net-zero"; exit 0;;
+  # 2026-10-17: the cycle's whole net diff was blank/comment lines for a non-doc item (xlite `# Verified:` landings); the runner reset it. The status names the cause.
+  *"no-op(comment-only)"*)            echo "comment-only"; exit 0;;
   # 2026-10-02: the scout-file guard (run_overnight.sh) refused to run aider on a plan that needs a banned/oversize file; the status names the cause.
   *"no-op(scout-unworkable"*)         echo "scout-unworkable"; exit 0;;
   # 2026-10-02 (harness Y2): the scout's planned files were all fictional/ambiguous (ovn_scout_ground.py); the status names the cause.

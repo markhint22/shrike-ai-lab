@@ -190,6 +190,7 @@ echo; echo "===== ovn_toks_monitor_run ====="; bash test_ovn_toks_monitor_run.sh
 echo; echo "===== ovn_worktree_sweep ====="; bash test_ovn_worktree_sweep.sh || rc=1
 echo; echo "===== passrate_check ====="; bash test_passrate_check.sh || rc=1
 echo; echo "===== pipeline_lint ====="; bash test_pipeline_lint.sh || rc=1
+echo; echo "===== cron_scripts_executable ====="; bash test_cron_scripts_executable.sh || rc=1
 echo; echo "===== probe_tsc_cmd ====="; bash test_probe_tsc_cmd.sh || rc=1
 echo; echo "===== promote_to_prod_run ====="; bash test_promote_to_prod_run.sh || rc=1
 echo; echo "===== promote gate + release flow ====="; [ -f test_promote_gate.sh ] && { bash test_promote_gate.sh || rc=1; } || echo "  SKIP: test_promote_gate.sh missing"
@@ -272,6 +273,8 @@ echo; echo "===== QA gold set G9 (dep-removal replay) ====="; bash test_qa_gold_
 echo; echo "===== QA manual notes loop ====="; python3 test_qa_manual_notes.py || rc=1
 echo; echo "===== QA locator v2 (platform, agentic, hung-model budget) ====="; python3 test_qa_locator_v2.py || rc=1
 echo; echo "===== QA gate: acceptance card lint ====="; python3 test_qa_acceptance.py || rc=1
+echo; echo "===== QA gate: S0 card pilot (shadow run, caps, idle check, report, mutants) ====="; python3 test_qa_card_pilot.py || rc=1
+echo; echo "===== QA gate: S0 card pilot - S2 credit shadow hook ====="; bash test_qa_card_pilot.sh || rc=1
 echo; echo "===== QA gate: anti-gaming diff ====="; python3 test_qa_antigaming.py || rc=1
 echo; echo "===== QA gate: scanners ====="; python3 test_qa_scanners.py || rc=1
 echo; echo "===== QA gate: baseline-relative verify ====="; python3 test_qa_baseline.py || rc=1
@@ -392,6 +395,7 @@ echo; echo "===== r10: implement credit api error ====="; bash test_implement_cr
 echo; echo "===== r10: iptv daily verify patch ====="; bash test_iptv_daily_verify_patch.sh || rc=1
 echo; echo "===== r10: lint comm sort ====="; bash test_lint_comm_sort.sh || rc=1
 echo; echo "===== r10: netzero and supply recheck ====="; bash test_netzero_and_supply_recheck.sh || rc=1
+echo; echo "===== xlite review 10-17: comment-only landing guard ====="; bash test_comment_only_guard.sh || rc=1
 echo; echo "===== r10: outcome attribution strict ====="; bash test_outcome_attribution_strict.sh || rc=1
 echo; echo "===== r10: ovn doc postcheck ====="; bash test_ovn_doc_postcheck.sh || rc=1
 echo; echo "===== r10: ovn failure ack candidates ====="; bash test_ovn_failure_ack_candidates.sh || rc=1
@@ -462,6 +466,7 @@ echo; echo "===== r17: stage guards runner ====="; bash test_stage_guards_runner
 echo; echo "===== r17: stub guard newdir n2 ====="; bash test_stub_guard_newdir_n2.sh || rc=1
 echo; echo "===== r17: stub leak alert n2 ====="; bash test_stub_leak_alert_n2.sh || rc=1
 echo; echo "===== r17: udiff unanchored ====="; bash test_udiff_unanchored.sh || rc=1
+echo; echo "===== udiff python docstring/re-declaration misplacement (any file size) ====="; bash test_udiff_py_misplacement.sh || rc=1
 echo; echo "===== r17: verify polarity compound shadow ====="; bash test_verify_polarity_compound_shadow.sh || rc=1
 echo; echo "===== r17: stage guards ====="; python3 test_stage_guards.py || rc=1
 echo; echo "===== r17: verify polarity compound ====="; python3 test_verify_polarity_compound.py || rc=1
@@ -474,6 +479,8 @@ echo; echo "===== auto-research escalate ====="; bash test_auto_research_escalat
 echo; echo "===== supply ledger ====="; bash test_supply_ledger.sh || rc=1
 echo; echo "===== supply ledger (py) ====="; python3 test_supply_ledger.py || rc=1
 echo; echo "===== qa mutation spike ====="; python3 test_qa_spike_mutation.py || rc=1
+echo; echo "===== S7 gate_mutation (per-range mutation advisory, daily-only, shadow; with failure-injection mutants) ====="; bash test_qa_gate_mutation.sh || rc=1
+echo; echo "===== S8 qa_gate_precision (reviewer label bar + monthly verdict-rule table; with mutants) ====="; bash test_qa_gate_precision.sh || rc=1
 echo; echo "===== spec gate repos ====="; bash test_spec_gate_repos.sh || rc=1
 echo; echo "===== spec rule R18 ====="; bash test_spec_rule_r18.sh || rc=1
 echo; echo "===== spec rule R19 ====="; bash test_spec_rule_r19.sh || rc=1
@@ -499,6 +506,13 @@ echo; echo "===== no unsafe rm (HOME-deletion incident lint + fail-closed sandbo
 echo; echo "===== gut alias unrunnable r16b ====="; bash test_gut_alias_unrunnable_r16b.sh || rc=1
 echo; echo "===== box home backup (2026-10-16 wipe safeguard; hermetic, with mutants) ====="; bash test_box_home_backup.sh || rc=1
 echo; echo "===== box recover (2026-10-16 wipe; hermetic, dry-run + restore) ====="; bash test_box_recover.sh || rc=1
+echo; echo "===== Phase 5: QA WIP-cap observer (shadow; OVN_QA_WIP_CAP=off|shadow|soft|hard, soft/hard not wired; mutant: raised cap) ====="; bash test_qa_wip_cap.sh || rc=1
+echo; echo "===== Phase 5: GPU-seconds-per-stage ledger (shadow; reconciles to the raw logs within 1%; mutants) ====="; bash test_qa_gpu_ledger.sh || rc=1
+echo; echo "===== Phase 5: promote manifest + rollback drill (shadow; HOLD on FAIL, prior prod tag, byte-for-byte restore; mutants) ====="; bash test_qa_promote_manifest.sh || rc=1
 echo; echo "===== run all sandboxed ====="; bash test_run_all_sandboxed.sh || rc=1
+echo; echo "===== QA Phase 4: contract fuzz registry (billwatch/gitlark), tool installer, cron proposal ====="; bash test_qa_contract_fuzz_registry.sh || rc=1
+echo; echo "===== QA Phase 4: broken-deploy drill (fixtures; 4/4 classes would hold, CORS mutant) ====="; bash test_qa_deploy_drill.sh || rc=1
+echo; echo "===== QA Phase 4: soak probe + summary + shadow promote_gate read ====="; bash test_qa_soak_probe.sh || rc=1
+echo; echo "===== qa tool health (P1 gate tool sentinel + installer; hermetic, with mutants) ====="; bash test_qa_tool_health.sh || rc=1
 echo; finish || rc=1
 exit $rc

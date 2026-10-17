@@ -210,6 +210,19 @@ hyg_infra_skip_reset() {   # <repo name> <feature branch>: a pass that was NOT a
   rm -f "$STATE_DIR/hygiene_infra_skip/${1:-?}__${feat//[^A-Za-z0-9._-]/_}" 2>/dev/null
   return 0
 }
+# 2026-10-17: the home-dir wipe rebuild left no $HOME/android-sdk, so `./gradlew test` died with "SDK location not found" on EVERY pass and held billwatch claude/feature
+# (green 1631-test pytest, 5 commits, none touching billwatch-android) out of develop for 6 consecutive passes (crit hygiene-gate-streak alert). A missing SDK is a host gap,
+# not a red commit. hyg_gradle_sdk_skip <gate worktree> <gradle dir> -> 0 = skip the gradle gate (SDK dir absent AND the branch did not touch that gradle dir vs origin/$mt),
+# 1 = run it (SDK present, the branch touched it, or the diff is unknown: fail closed). HYG_ANDROID_SDK overrides the SDK dir (tests).
+hyg_gradle_sdk_skip() {
+  [ -d "${HYG_ANDROID_SDK:-$HOME/android-sdk}" ] && return 1
+  local wt="${1:-}" gd="${2:-}" rel changed
+  rel="${gd#"$wt"/}"; [ -n "$rel" ] && [ "$rel" != "$gd" ] || return 1
+  changed="$(git -C "$wt" diff --name-only "origin/${mt:-develop}...HEAD" 2>/dev/null)" || return 1
+  [ -n "$changed" ] || return 1
+  case $'\n'"$changed" in *$'\n'"${rel}/"*) return 1;; esac
+  return 0
+}
 hyg_infra_decide() {   # <repo name> <feature branch> <1 = the failure output already matched | 0> -> 0 = infra: skip this pass unscored | 1 = score it normally
   [ "${OVN_HYG_INFRA_SKIP:-on}" = off ] && return 1
   local nm="${1:-?}" feat="${2:-?}" hit="${3:-0}" sdir f n max
@@ -520,6 +533,14 @@ run_gate() {
   while IFS= read -r -d '' gradlew; do
     gdir="$(dirname "$gradlew")"
     if [ -f "$gdir/settings.gradle.kts" ] || [ -f "$gdir/settings.gradle" ]; then
+      if hyg_gradle_sdk_skip "$dir" "$gdir"; then
+        log "  gate: WARN ./gradlew test SKIPPED in $gdir - Android SDK missing on this host and the branch did not touch it (host gap, not a red commit)"
+        if [ "$DRY_RUN" != 1 ] && [ ! -e "$STATE_DIR/android_sdk_missing.alerted" ]; then
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] warn | android-sdk-missing | \$HOME/android-sdk absent: hygiene gate skips gradle for branches that do not touch android (first seen in $repo); Kotlin-touching branches stay blocked until the SDK is reprovisioned" >> "$STATE_DIR/alerts.log" 2>/dev/null
+          : > "$STATE_DIR/android_sdk_missing.alerted" 2>/dev/null
+        fi
+        continue
+      fi
       log "  gate: ./gradlew test in $gdir"
       # 2026-09-19: also capture output to a tempfile (in addition to the normal
       # stream to the log) so we can detect the known "Gradle build daemon

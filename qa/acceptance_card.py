@@ -299,6 +299,13 @@ def run_sandboxed(cmd, cwd, env, timeout):
             pass
         out, _ = p.communicate()
         rc = 124
+    except BaseException:
+        # SystemExit from the SIGTERM handler (an outer `timeout`), KeyboardInterrupt: the verify runs in its OWN session, so it would otherwise survive us
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        raise
     text = (out or b"")[-20000:].decode("utf-8", "replace")
     return rc, text, int((time.time() - t0) * 1000)
 
@@ -344,14 +351,14 @@ def classify_outcome(rc, out, wt):
     return "failed", "nonzero-exit-%s" % rc
 
 
-def exec_check(repo, ref, cmd, venv_bin=None, timeout=EXEC_TIMEOUT):
+def exec_check(repo, ref, cmd, venv_bin=None, timeout=EXEC_TIMEOUT, wt_timeout=120, probe_timeout=60):
     """Run `cmd` in a detached worktree of `ref` (scrubbed env, nice, no network). Returns dict {outcome, reason, rc, ms, tail}."""
     path = qc.repo_dir(repo) if not os.path.isdir(repo) else repo
     if not path:
         return {"outcome": "infra", "reason": "repo-not-found", "rc": None, "ms": 0, "tail": ""}
     linked = []
     home = None
-    with qc.worktree(path, ref) as wt:
+    with qc.worktree(path, ref, add_timeout=wt_timeout) as wt:
         if wt is None:
             return {"outcome": "infra", "reason": "worktree-failed", "rc": None, "ms": 0, "tail": ""}
         try:
@@ -366,7 +373,7 @@ def exec_check(repo, ref, cmd, venv_bin=None, timeout=EXEC_TIMEOUT):
             if re.search(r"\bpytest\b", cmd):
                 key = (venv_bin, env["PATH"])
                 if key not in _PROBE_CACHE:
-                    rc, out, _ = run_sandboxed("python -m pytest --version", wt, env, 60)
+                    rc, out, _ = run_sandboxed("python -m pytest --version", wt, env, probe_timeout)
                     _PROBE_CACHE[key] = rc == 0
                 if not _PROBE_CACHE[key]:
                     return {"outcome": "infra", "reason": "pytest-unavailable-in-env", "rc": None, "ms": 0, "tail": ""}

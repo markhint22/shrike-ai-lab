@@ -62,6 +62,13 @@ for t in "${TARGETS[@]}"; do
       # its SSE tests). The fleet's ORIGINAL venv there had current versions; a rebuild from the pins produced a non-working test env and
       # red hygiene gates. Repos listed here get the test toolchain + fastapi/starlette upgraded after the pinned install (the repo's own
       # requirements.txt, which a test asserts on, is left untouched).
+      # 2026-10-17: the post-wipe rebuild left iptv_apps' venv WITHOUT pytest-xdist (it lives only in requirements-dev.txt, which this script never
+      # installed), so the full suite ran serial: 860s under load vs the 600s verify cap -> every iptv tier-1 cycle hit rc=124 and was reverted as
+      # "red" (10 of 10 reverts 04:50Z-15:00Z, 0 landings) and the 900s hygiene gate sat at its cap. Repos on the xdist allowlist
+      # (lib_pytest_parallel.sh, default iptv_apps) get pytest-xdist here; .ovn-verify.sh / branch_hygiene.sh import-guard it and use it automatically.
+      case " ${OVN_XDIST_REPOS:-iptv_apps} " in
+        *" $repo "*) .venv/bin/pip install --quiet "pytest-xdist>=3.5.0" >> "$LOG" 2>&1 || STATUS=$? ;;
+      esac
       case " ${OVN_PROVISION_UPGRADE_REPOS:-shrike-notify} " in
         *" $repo "*) .venv/bin/pip install --quiet -U fastapi starlette pytest pytest-asyncio pytest-cov httpx >> "$LOG" 2>&1 || STATUS=$? ;;
       esac

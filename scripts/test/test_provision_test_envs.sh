@@ -24,6 +24,7 @@ if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then
   mkdir -p "$3/bin"
   cat > "$3/bin/pip" <<'PIPEOF'
 #!/usr/bin/env bash
+[ -n "${FAKE_PIP_LOG:-}" ] && echo "$PWD $*" >> "$FAKE_PIP_LOG"
 exit "${FAKE_PIP_EXIT:-0}"
 PIPEOF
   chmod +x "$3/bin/pip"
@@ -150,6 +151,17 @@ RUN >/dev/null 2>&1
 ok "a real, resolvable node_modules directory is untouched" "[ -d '$TDIR2/node_modules/some-real-package' ]"
 ok "no false-positive self-heal log line for a healthy directory" \
    "! grep -q 'unresolvable symlink' \"$tmp/home/overnight-queue/provision-logs/billwatch__billwatch-web.log\""
+
+# --- J: xdist-allowlisted repo (iptv_apps) gets pytest-xdist installed; a non-allowlisted one does not ---
+reset_home
+mkdir -p "$tmp/home/overnight-queue/repos/iptv_apps/iptv-backend" "$tmp/home/overnight-queue/repos/gitlark/backend"
+echo "fastapi" > "$tmp/home/overnight-queue/repos/iptv_apps/iptv-backend/requirements.txt"
+echo "fastapi" > "$tmp/home/overnight-queue/repos/gitlark/backend/requirements.txt"
+PL="$tmp/pip.log"; : > "$PL"
+FAKE_PIP_LOG="$PL" RUN >/dev/null 2>&1
+ok "iptv_apps backend venv gets pytest-xdist" "grep 'iptv-backend' '$PL' | grep -q 'pytest-xdist'"
+ok "gitlark (not on the xdist allowlist) does not" "! grep 'gitlark/backend' '$PL' | grep -q 'pytest-xdist'"
+ok "OVN_XDIST_REPOS override is honored" "FAKE_PIP_LOG='$PL' OVN_XDIST_REPOS='gitlark' RUN >/dev/null 2>&1; grep 'gitlark/backend' '$PL' | grep -q 'pytest-xdist'"
 
 rm -rf "$tmp"
 echo "provision_test_envs: $P passed, $F failed"

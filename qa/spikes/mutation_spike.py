@@ -36,7 +36,7 @@ import qa_common as qc  # noqa: E402
 
 GATE = "mutation_spike"
 STATUS = {1: "killed", 3: "killed", 0: "survived", 5: "no_tests", 33: "no_tests", 34: "skipped", 35: "suspicious",
-          36: "timeout", 24: "timeout", -24: "timeout", 152: "timeout", 37: "caught_by_typecheck", 2: "interrupted", None: "not_checked"}
+          36: "timeout", 24: "timeout", -24: "timeout", 152: "timeout", 255: "timeout", -11: "crashed", -9: "crashed", 37: "caught_by_typecheck", 2: "interrupted", None: "not_checked"}
 SKIP_ENTRIES = {".venv", "venv", "env", "mutants", "__pycache__", ".git", "htmlcov", "node_modules", ".pytest_cache", ".mypy_cache",
                 ".ruff_cache", ".coverage", "mutmut-run.log"}
 PHASES = [("Generating mutants", "generate"), ("Running stats", "stats"), ("Running clean tests", "clean"),
@@ -45,9 +45,9 @@ PHASES = [("Generating mutants", "generate"), ("Running stats", "stats"), ("Runn
 
 # ---------------------------------------------------------------- arg parsing
 def parse(argv):
-    o = {"cap": 600, "max_children": 4, "service": "", "python": "", "keep": "", "survivors": 10, "report": "", "repo": "", "unwrap_decorators": 0, "select_tests": 0, "pytest_arg": [], "paths": "",
+    o = {"cap": 600, "max_children": 4, "service": "", "python": "", "keep": "", "survivors": 10, "report": "", "repo": "", "unwrap_decorators": 0, "select_tests": 0, "require_selection": 0, "pytest_arg": [], "paths": "",
          "base": "", "head": ""}
-    flags = {"no-record", "unwrap-decorators", "select-tests"}
+    flags = {"no-record", "unwrap-decorators", "select-tests", "require-selection"}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -56,6 +56,8 @@ def parse(argv):
                 o["unwrap_decorators"] = 1
             if a[2:] == "select-tests":
                 o["select_tests"] = 1
+            if a[2:] == "require-selection":  # used by qa/gate_mutation.py for over-cap repos: no matching tests -> UNVERIFIED, never a doomed full-suite run
+                o["require_selection"] = 1
             i += 1
         elif a == "--pytest-arg" and i + 1 < len(argv):
             o["pytest_arg"].append(argv[i + 1])
@@ -207,10 +209,20 @@ def venv_python(rd, service, forced=""):
 
 
 def qa_site_packages():
-    base = os.environ.get("QA_VENV") or os.path.expanduser("~/qa-venv")
+    """(venv base, site-packages or None) of the QA venv that holds mutmut. QA_VENV (explicit) is the only candidate when set; otherwise the first of
+    ~/qa-venv, <OVN_DIR>/qa-tools/.venv (what ops/qa_tools_install.sh builds) that actually contains mutmut, else the first that has a site-packages."""
     import glob
-    g = sorted(glob.glob(os.path.join(base, "lib", "python3*", "site-packages")))
-    return (base, g[0]) if g else (base, None)
+    explicit = os.environ.get("QA_VENV")
+    cands = [explicit] if explicit else [os.path.expanduser("~/qa-venv"), os.path.join(qc.ovn_dir(), "qa-tools", ".venv")]
+    first = None
+    for base in cands:
+        g = sorted(glob.glob(os.path.join(base, "lib", "python3*", "site-packages")))
+        if not g:
+            continue
+        if os.path.isdir(os.path.join(g[0], "mutmut")):
+            return base, g[0]
+        first = first or (base, g[0])
+    return first or (cands[0], None)
 
 
 def py_minor(python):
@@ -241,8 +253,15 @@ def pytest_cmd(python, sp, args):
 
 
 # ---------------------------------------------------------------- process control
+def _on_term(signum, frame):
+    raise qc.Terminated("signal %d" % signum)
+
+
 def run_group(cmd, cwd, timeout, env=None, log_path=None, markers=None):
-    """Run cmd niced in its own process group; kill the whole group on timeout. Returns (rc, tail, timed_out, phase_times)."""
+    """Run cmd niced in its own process group; kill the whole group on timeout. Returns (rc, tail, timed_out, phase_times).
+    The group is ALSO killed when this process is interrupted (SIGTERM from qa_timeout.py's grace period, Ctrl-C, any BaseException):
+    mutmut and its pytest workers live in their OWN session, so a signal aimed at the gate's process group never reaches them. When the caller
+    has not installed its own SIGTERM handler, one is installed for the duration of the call (raises qc.Terminated)."""
     e = dict(os.environ)
     e.update(env or {})
     e["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -251,51 +270,83 @@ def run_group(cmd, cwd, timeout, env=None, log_path=None, markers=None):
     c0 = os.times()
     phase = {}
     buf = {"data": b""}
-    try:
-        p = subprocess.Popen(full, cwd=cwd, env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                             start_new_session=True)
-    except FileNotFoundError as ex:
-        return 127, str(ex), False, {}
-    logf = open(log_path, "wb") if log_path else None
-
-    def reader():
-        tail = b""
-        while True:
-            chunk = p.stdout.read1(65536) if hasattr(p.stdout, "read1") else p.stdout.read(65536)
-            if not chunk:
-                break
-            if logf:
-                logf.write(chunk)
-            tail = (tail + chunk)[-8192:]
-            for mk, name in (markers or []):
-                if name not in phase and mk.encode() in tail:
-                    phase[name] = round(time.time() - t0, 1)
-            buf["data"] = tail
-
-    th = threading.Thread(target=reader, daemon=True)
-    th.start()
+    prev = None
+    installed = False
+    if threading.current_thread() is threading.main_thread():
+        try:
+            if signal.getsignal(signal.SIGTERM) == signal.SIG_DFL:
+                prev = signal.signal(signal.SIGTERM, _on_term)
+                installed = True
+        except (ValueError, OSError):
+            installed = False
+    p = None
+    logf = None
     timed_out = False
     try:
-        p.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(p.pid, sig)
-            except ProcessLookupError:
-                break
-            try:
-                p.wait(timeout=8)
-                break
-            except subprocess.TimeoutExpired:
-                continue
         try:
-            os.killpg(p.pid, signal.SIGKILL)  # belt and braces for orphaned workers
-        except (ProcessLookupError, PermissionError):
-            pass
-    th.join(timeout=5)
-    if logf:
-        logf.close()
+            p = subprocess.Popen(full, cwd=cwd, env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 start_new_session=True)
+        except FileNotFoundError as ex:
+            return 127, str(ex), False, {}
+        logf = open(log_path, "wb") if log_path else None
+
+        def reader():
+            tail = b""
+            while True:
+                chunk = p.stdout.read1(65536) if hasattr(p.stdout, "read1") else p.stdout.read(65536)
+                if not chunk:
+                    break
+                if logf:
+                    try:
+                        logf.write(chunk)
+                    except ValueError:      # log closed by an interrupted caller
+                        pass
+                tail = (tail + chunk)[-8192:]
+                for mk, name in (markers or []):
+                    if name not in phase and mk.encode() in tail:
+                        phase[name] = round(time.time() - t0, 1)
+                buf["data"] = tail
+
+        th = threading.Thread(target=reader, daemon=True)
+        th.start()
+        try:
+            p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(p.pid, sig)
+                except ProcessLookupError:
+                    break
+                try:
+                    p.wait(timeout=8)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            try:
+                os.killpg(p.pid, signal.SIGKILL)  # belt and braces for orphaned workers
+            except (ProcessLookupError, PermissionError):
+                pass
+        th.join(timeout=5)
+    except BaseException:
+        if p is not None:       # interrupted (qc.Terminated / KeyboardInterrupt / SystemExit): no orphan may outlive us
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            try:
+                p.wait(timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        raise
+    finally:
+        if installed:
+            try:
+                signal.signal(signal.SIGTERM, prev if prev is not None else signal.SIG_DFL)
+            except (ValueError, OSError):
+                pass
+        if logf:
+            logf.close()
     phase["total"] = round(time.time() - t0, 1)
     c1 = os.times()
     # CPU seconds consumed by the reaped process tree: immune to box contention, unlike wall time
@@ -509,7 +560,7 @@ def check(argv):
                 return qc.verdict("UNVERIFIED", GATE, repo, ref, "no service venv for %s/%s and no QA venv at %s" % (repo, service, qbase), det)
         elif not can_import_mutmut(py):
             if sp is None:
-                return qc.verdict("UNVERIFIED", GATE, repo, ref, "mutmut not installed (no QA venv at %s)" % qbase, det)
+                return qc.verdict("UNVERIFIED", GATE, repo, ref, "mutmut not installed (no QA venv with mutmut at %s; run ops/qa_tools_install.sh)" % qbase, det)
             m1, m2 = py_minor(py), py_minor(qa_py) if os.path.exists(qa_py) else None
             if not m1 or m1 != m2:
                 return qc.verdict("UNVERIFIED", GATE, repo, ref, "service python %s != QA venv python %s; mutmut cannot be borrowed" % (m1, m2), det)
@@ -542,6 +593,9 @@ def check(argv):
             mods = [(r[:-3].replace(os.sep, ".")[:-9] if r.endswith("__init__.py") else r[:-3].replace(os.sep, ".")) for r in mod_files]
             sel = select_tests(sdir, mods, sorted({f[1][2] for f in funcs}))
         det["tests_selected"] = sel if sel else "all"
+        if o["require_selection"] and not sel:
+            return qc.verdict("UNVERIFIED", GATE, repo, ref, "no test file references the changed module(s)/function(s) and the full suite does not fit the "
+                              "%ss wall cap for this repo; test selection by touched module found nothing to run" % o["cap"], det)
         xd = [a for a in o["pytest_arg"] if a.startswith(("-n", "--numprocesses", "--dist"))]
         if xd:
             return qc.verdict("UNVERIFIED", GATE, repo, ref, "pytest-xdist args %s are refused: workers hide mutmut's per-function test "
@@ -553,17 +607,20 @@ def check(argv):
         def remaining():
             return deadline - time.time()
 
+        # the wall cap covers the WHOLE check, survivor diffs included: mutmut gets cap minus a small reserve, each `mutmut show` is bounded by what is left
+        diff_reserve = min(45, max(3, int(o["cap"] * 0.1)))
+
         attempts = 0
         deselected = [x.replace("%%", "%") for x in re.findall(r"^\s*(--(?:deselect|ignore)=\S.*)$", open(os.path.join(sdir, "setup.cfg")).read(), re.M)]
         user_args = [cfg_escape(x) for x in o["pytest_arg"]]
         res_rows, phases, timed_out, rc, tail = [], {}, False, 0, ""
         while True:
             attempts += 1
-            if remaining() < 20:
+            if remaining() - diff_reserve < 20:
                 return qc.verdict("UNVERIFIED", GATE, repo, ref, "cap of %ss exhausted before mutmut could run" % o["cap"], det)
             logp = os.path.join(sdir, "mutmut-run.log")
             rc, tail, timed_out, phases = run_group(mutmut_cmd(py, sp_use, ["run", "--max-children", str(o["max_children"])] + globs),
-                                                    sdir, remaining(), env={"PYTHONPATH": ""}, log_path=logp,
+                                                    sdir, remaining() - diff_reserve, env={"PYTHONPATH": ""}, log_path=logp,
                                                     markers=[(m, n) for m, n in PHASES])
             baseline_red = re.search(r"failed to collect stats|Failed to run clean test", tail) is not None
             if baseline_red and not timed_out:
@@ -619,8 +676,12 @@ def check(argv):
         det["counts"] = counts
         det["mutants_total"] = len(res_rows)
         tested = sum(v for k, v in counts.items() if k not in ("not_checked", "no_tests"))
-        killed = counts.get("killed", 0) + counts.get("caught_by_typecheck", 0)
+        # a mutant that makes the suite hang (CPU-limit timeout) or crash the interpreter (segfault) is DETECTED (mutmut counts them the same way);
+        # only exit codes mutmut itself calls "suspicious" stay undecided
+        killed = counts.get("killed", 0) + counts.get("caught_by_typecheck", 0) + counts.get("timeout", 0) + counts.get("crashed", 0)
         survived = counts.get("survived", 0)
+        undecided = counts.get("suspicious", 0) + counts.get("skipped", 0) + counts.get("interrupted", 0)
+        det["undecided_mutants"] = undecided
         det["mutation_score_pct"] = round(100.0 * killed / tested, 1) if tested else None
         if not timed_out and "could not find any test case for any mutant" in tail:
             # mutmut aborts when NO test executes any mutated code: every changed function is untested
@@ -643,7 +704,10 @@ def check(argv):
         notest = sorted({k.split("__mutmut_")[0] for k, st, _c in res_rows if st == "no_tests"})
         shown = []
         for name in surv[: max(0, o["survivors"])]:
-            d = show_diff(py, sp_use, sdir, name)
+            if remaining() < 3:   # out of wall budget: name the survivor, skip its diff
+                shown.append({"mutant": name, "label": "unknown", "diff": "(diff not fetched: wall cap reached)"})
+                continue
+            d = show_diff(py, sp_use, sdir, name, timeout=max(2, min(20, remaining())))
             body = "\n".join(l for l in d.splitlines()[1:] if not l.startswith(("---", "+++")))
             shown.append({"mutant": name, "label": classify(body), "diff": redact(body)[:400]})
         det["survivors_shown"] = shown
@@ -658,6 +722,9 @@ def check(argv):
                 pass
         sfx = (" [%d red tests deselected]" % len(deselected) if deselected else "") + \
               (" [test selection: %d files, survivors may be over-reported]" % len(sel) if sel else "")
+        if undecided and not surv and not notest:
+            return qc.verdict("UNVERIFIED", GATE, repo, ref, "%d of %d mutants are undecided (unusual test exit codes: suspicious/skipped/interrupted); "
+                              "no survivors among the rest, so no PASS" % (undecided, len(res_rows)), det)
         if surv or notest:
             return qc.verdict("FLAG", GATE, repo, ref, "%d survived, %d untested function(s) of %d mutants in %d changed function(s), score %s%%%s" %
                               (len(surv), len(notest), len(res_rows), len(funcs), det["mutation_score_pct"], sfx), det)

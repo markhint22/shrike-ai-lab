@@ -365,7 +365,7 @@ def cmd_report(argv):
     except Exception as ex:  # noqa: BLE001 - the report must never crash on a hostile shadow row
         lines.append("staging e2e: UNVERIFIED (%s while reading the shadow rows)" % type(ex).__name__)
     ev_types = collections.Counter(e["type"] for e in evs if now - e.get("epoch", 0) <= days * DAY and (not repo or e.get("repo") == repo))
-    unattr = collections.Counter(e["type"] for e in evs if not e.get("rec") and e["type"] != "escape" and now - e.get("epoch", 0) <= days * DAY
+    unattr = collections.Counter(e["type"] for e in evs if not e.get("rec") and e["type"] in ESCAPE_TYPES and e["type"] != "escape" and now - e.get("epoch", 0) <= days * DAY
                                  and (not repo or e.get("repo") == repo))
     lines.append("events in window: " + (", ".join("%s=%d" % kv for kv in sorted(ev_types.items())) or "none") +
                  "   repo-level EMERGENCY/test-watch events with no attributable feature: " + (", ".join("%s=%d" % kv for kv in sorted(unattr.items())) or "none"))

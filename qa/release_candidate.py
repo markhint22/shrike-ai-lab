@@ -37,7 +37,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import qa_common as qc  # noqa: E402
 
 GATE = "release_candidate"
-NON_CODE_GATES = {"release_candidate", "staging_check", "staging_smoke"}  # their FAILs describe environments, not commits
+NON_CODE_GATES = {"release_candidate", "staging_check", "staging_smoke",
+                  "rollback_drill", "wip_cap", "gpu_ledger", "promote_manifest"}  # their FAILs describe environments / operator drills, not commits (Phase 5 tools included)
 MAX_WALK = int(os.environ.get("QA_RELEASE_MAX_WALK", "60"))
 GREEN_RE = re.compile(r"gate=tests-green")
 NOGATE_RE = re.compile(r"gate=no-tests")

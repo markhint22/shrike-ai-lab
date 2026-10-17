@@ -1,0 +1,15 @@
+# qa/phase4_cron.proposed.txt - PROPOSED cron lines for QA Phase 4. NOT installed by the commit that added them. The lead installs after reading the order below.
+# Everything here is SHADOW: no line can hold a promote. Kill switches: OVN_CONTRACT_FUZZ=off, OVN_QA_SOAK=off.
+#
+# ORDER (do not skip a step):
+#  1. Tooling:   bash qa/fuzz_tool_install.sh --apply        (P1 installer narrowed to schemathesis: ops/qa_tools_install.sh into $OVN_DIR/qa-tools/.venv; the 2026-10-16 wipe removed the old ~/qa-venv)
+#  2. Manual first fuzz per repo, read the signatures, triage real 5xx to the Claude queue, then --accept-baseline: qa/contract_fuzz.ACCEPT_BASELINE.md
+#  3. Provision the staging URLs + qa_creds (state/staging_url_<repo>, state/qa_creds/<repo>.json) that the wipe removed: without them the soak rows are UNVERIFIED (honest, but useless)
+#  4. Install the lines below (the box crontab is edited by the lead only).
+#
+# Nightly contract fuzz of origin/develop (iptv_apps + billwatch + gitlark; each capped at OVN_FUZZ_TIMEOUT_S=600, sequential, skips when paused/busy):
+20 4 * * * cd ~/overnight-queue && bash qa/contract_fuzz_cron.sh >> logs/contract_fuzz.log 2>&1
+# Soak probe every 15 minutes (one synthetic journey per repo against STAGING; rows to state/qa_shadow/soak.jsonl; promote_gate reads them in SHADOW):
+*/15 * * * * cd ~/overnight-queue && bash qa/soak_probe_cron.sh >> logs/soak_probe.log 2>&1
+# Drill (optional, weekly, fixtures only, never touches staging or prod; proves the gate chain would hold a broken deploy; appends to state/qa_shadow/deploy_drill.jsonl):
+35 5 * * 0 cd ~/overnight-queue && python3 qa/deploy_drill.py run >> logs/deploy_drill.log 2>&1

@@ -471,6 +471,44 @@ ovn_cycle_net_zero() {
   [ -n "$(git log --name-only --format= "$b..$a" -- . ':(exclude)OVERNIGHT_PROGRESS.md' ':(exclude)OVERNIGHT_DONE.md' 2>/dev/null)" ]   # some commit actually touched a code file (churn), not empty commits (captured, not piped into grep -q: SIGPIPE + pipefail)
 }
 
+# COMMENT-ONLY cycle (2026-10-17, xlite "Verify X exists and passes" items): 0 when the NET code diff BEFORE..AFTER (progress files excluded) is non-empty but consists ONLY of added/removed
+# blank lines and comment lines, in files whose comment syntax is known (# for gd/py/sh/rb, // /* * for ts/js/kt/java/swift/c/go/rs/...), AND the item text (3rd arg) does not itself ask for
+# comment/doc work. xlite 10-17 03:00-04:00 CDT: the 27B could not "verify" tests/test_roster_load_hardening.gd, so it appended `# Verified: File exists and contains required tests...` and a
+# stray blank line (d720e965, b1607752): both recorded `landed pushed(tests:pass)` for zero behaviour change. Unknown file types, deletions, binary diffs and an unresolved item (empty text) are
+# NOT comment-only: when in doubt the cycle lands as before. OVN_COMMENTONLY_GUARD=off disables, =shadow only logs.
+ovn_cycle_comment_only() {
+  local b="${1:-}" a="${2:-}" item="${3:-}"
+  [ -n "$b" ] && [ -n "$a" ] && [ "$b" != "$a" ] || return 1
+  [ -n "$item" ] || return 1
+  case "$(printf '%s' "$item" | tr 'A-Z' 'a-z')" in
+    *comment*|*docstring*|*documentation*|*"doc "*|*"docs"*|*"##"*|*annotat*|*explain*|*describe*|*license*|*"header"*|*typo*|*whitespace*|*"blank line"*|*indent*|*format*|*lint*) return 1 ;;
+  esac
+  git diff --quiet "$b" "$a" -- . ':(exclude)OVERNIGHT_PROGRESS.md' ':(exclude)OVERNIGHT_DONE.md' 2>/dev/null && return 1   # no net change at all (net-zero / empty) is not this guard's case
+  git diff -U0 --no-color --no-ext-diff "$b" "$a" -- . ':(exclude)OVERNIGHT_PROGRESS.md' ':(exclude)OVERNIGHT_DONE.md' 2>/dev/null | awk '
+    BEGIN { bad = 0; seen = 0; hdr = 0; style = "" }
+    /^diff --git / { hdr = 1; style = ""; next }
+    /^Binary files / { bad = 1; next }
+    /^@@/ { hdr = 0; next }
+    hdr && /^\+\+\+ / {
+      if ($0 ~ /\/dev\/null/) { bad = 1; next }
+      f = $0; sub(/^\+\+\+ (b\/)?/, "", f); ext = f; sub(/^.*\./, "", ext); ext = tolower(ext)
+      if (ext ~ /^(gd|py|sh|bash|rb)$/) style = "hash"
+      else if (ext ~ /^(ts|tsx|js|jsx|mjs|kt|kts|java|swift|c|cc|cpp|h|hpp|go|rs|dart|cs)$/) style = "slash"
+      else { style = ""; bad = 1 }
+      next
+    }
+    hdr && /^--- / { if ($0 ~ /\/dev\/null/) next; next }
+    hdr { next }
+    /^[+-]/ {
+      seen = 1; line = substr($0, 2)
+      if (line ~ /^[ \t\r]*$/) next
+      if (style == "hash" && line ~ /^[ \t]*#/) next
+      if (style == "slash" && line ~ /^[ \t]*(\/\/|\/\*|\*)/) next
+      bad = 1
+    }
+    END { exit (bad || !seen) ? 1 : 0 }'
+}
+
 # CREDIT-ONLY cycle (2026-10-11, r11 acct, iptv F7): 0 when the NET diff BEFORE..AFTER is non-empty and touches nothing but OVERNIGHT_PROGRESS.md / OVERNIGHT_DONE.md. iptv_apps 10-11 01:29Z: two
 # 'aider attempt verdict: no-edit-unfenced', then 'chore(queue): credit item(s) the implement pass found already satisfied in code' (progress file only) was pushed and recorded `landed
 # pushed(tests:pass)` - a TRUE credit but zero code, inflating the landing count. The caller tags the status '[credit-only]'; record_outcome files it as class credit-only (neutral). Net-diff
@@ -2815,6 +2853,15 @@ $(ovn_udiff_nudge_text)"
       del_did=0; _ovn_del_gone=0; _ovn_del_other=0
       while IFS= read -r dp; do
         [ -z "$dp" ] && continue
+        # 2026-10-17 (xlite cell_ring): a `DELETE: X.gd.uid` / `X.png.import` trailer is a SIDECAR of X. When X was REFUSED (importer guard) or is otherwise still present, removing only its sidecar
+        # is a bogus partial delete: it was the lone net diff of 3 cycles, recorded `landed pushed(tests:pass)` for a change that deleted nothing real. Skip it while the owner file exists.
+        case "$dp" in
+          *.uid|*.import)
+            if [ "${OVN_DELETE_SIDECAR_OWNER_GUARD:-on}" != off ] && [ -f "${dp%.*}" ]; then
+              echo "--- DELETE trailer: ${dp} is a sidecar of ${dp%.*}, which is still present - skipped (a sidecar never goes before its owner) ---" >> "$task_log"
+              _ovn_del_other=$((_ovn_del_other + 1)); continue
+            fi ;;
+        esac
         if [ -f "$dp" ] && [ "${OVN_DELETE_TRAILER_IMPORTER_GUARD:-on}" != off ] && [ -f "${SCRIPT_DIR:-.}/scripts/ovn_delete_executor.py" ] && git ls-files --error-unmatch -- "$dp" >/dev/null 2>&1 \
            && _ovn_dt_chk="$(timeout 60 python3 "${SCRIPT_DIR:-.}/scripts/ovn_delete_executor.py" importers "$PWD" "$dp" $(printf '%s\n' "$DEL_PATHS" | grep -vxF -- "$dp") 2>/dev/null)" \
            && case "$_ovn_dt_chk" in "SKIP"*referenced\ by:*) true;; *) false;; esac; then
@@ -3074,6 +3121,23 @@ $(ovn_udiff_nudge_text)"
           emit_alert warn "$id" "net-zero cycle: the commits cancelled out (empty net code diff); reset, not pushed"
           echo "no-op(net-zero)"
           return
+        fi
+      fi
+      # COMMENT-ONLY GUARD (2026-10-17): a "landing" whose whole net diff is blank/comment lines for an item that did not ask for comments/docs (the 27B "verifies" by appending
+      # `# Verified: ...`) is not a landing: reset, push nothing, report no-op(comment-only) (counts toward the item's no-op cap like net-zero). OVN_COMMENTONLY_GUARD=shadow|off.
+      if [ "${OVN_COMMENTONLY_GUARD:-on}" != off ] && declare -F ovn_fixup_item_line >/dev/null 2>&1; then
+        _ovn_co_item="$(ovn_fixup_item_line "$BEFORE_SHA" "$task_log" 2>/dev/null)"
+        if ovn_cycle_comment_only "$BEFORE_SHA" "$AFTER_SHA" "${_ovn_co_item#*:}"; then
+          if [ "${OVN_COMMENTONLY_GUARD:-on}" = shadow ]; then
+            echo "--- COMMENT-ONLY GUARD (shadow): ${BEFORE_SHA:0:12}..${AFTER_SHA:0:12} changed only blank/comment lines for an item that did not ask for comments - would reset and report no-op(comment-only) ---" >> "$task_log"
+          else
+            echo "--- COMMENT-ONLY GUARD: ${BEFORE_SHA:0:12}..${AFTER_SHA:0:12} changed only blank/comment lines and the item did not ask for comments/docs (zero behaviour change) - resetting, nothing pushed ---" >> "$task_log"
+            git reset --hard "$BEFORE_SHA" --quiet
+            git clean -fd --quiet 2>/dev/null
+            emit_alert warn "$id" "comment-only cycle: the net diff was blank/comment lines only for a non-doc item; reset, not pushed"
+            echo "no-op(comment-only)"
+            return
+          fi
         fi
       fi
       # Auto-regenerate a frozen OpenAPI contract (2026-09-17), if this repo has adopted
@@ -3600,7 +3664,12 @@ All files you need are already in the chat. You cannot run commands or call tool
         fi
         git reset --hard "$BEFORE_SHA" --quiet
         git clean -fd --quiet 2>/dev/null
-        emit_alert warn "$id" "reverted a commit that left tests red (${_redkind}); feature kept green for hygiene"
+        # 2026-10-17 (iptv review): rc=124 = the verify cap killed the suite; the revert proves nothing about the commit. Say so (a venv missing pytest-xdist made every iptv verify do this).
+        if tail -c 4000 "$task_log" 2>/dev/null | grep -aqE 'verify-suite-red: .* rc=124( |$)'; then
+          emit_alert warn "$id" "verify TIMED OUT (rc=124, suite exceeded its cap) - the revert is NOT evidence the commit was red; check pytest-xdist/venv/box load"
+        else
+          emit_alert warn "$id" "reverted a commit that left tests red (${_redkind}); feature kept green for hygiene"
+        fi
         echo "no-op(reverted-red)"
         return
       fi

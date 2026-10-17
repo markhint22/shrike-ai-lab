@@ -61,7 +61,8 @@ BLOCKING_RUFF = {"F821", "F822", "F823", "E902", "syntax-error"}
 
 # ---------------------------------------------------------------- tool discovery
 def find_tool(name):
-    """env QA_TOOL_<NAME> > ~/qa-venv/bin > ~/qa-tools/bin > PATH. None when missing."""
+    """env QA_TOOL_<NAME> > ~/qa-venv/bin > ~/qa-tools/bin > PATH > <OVN_DIR>/qa-tools/.venv/bin (ops/qa_tools_install.sh). None when missing.
+    The install venv is LAST on purpose: it only fills a gap (a wiped box), it never changes which tool an already-working gate used."""
     ov = os.environ.get("QA_TOOL_" + name.upper().replace("-", "_"))
     if ov:
         return ov if os.path.exists(ov) else None
@@ -69,7 +70,11 @@ def find_tool(name):
         p = os.path.join(d, name)
         if os.path.isfile(p) and os.access(p, os.X_OK):
             return p
-    return shutil.which(name)
+    w = shutil.which(name)
+    if w:
+        return w
+    p = os.path.join(qc.ovn_dir(), "qa-tools", ".venv", "bin", name)
+    return p if os.path.isfile(p) and os.access(p, os.X_OK) else None
 
 
 # ---------------------------------------------------------------- findings

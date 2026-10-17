@@ -1,0 +1,29 @@
+{
+  "_comment": "Config of the S0 acceptance-card SHADOW pilot (qa/card_pilot_run.py). Phase 2 of docs/QA_PLAN_2026-10-01.md: TAA backlog + the iptv entitlement/paywall/RevenueCat area. path_allow is a list of regexes that the item's target path must match; keyword_allow (optional) is a list of regexes of which the item's path OR description must match at least one; path_deny wins over path_allow. Items the S0 scope check excludes (GDScript, Swift, Kotlin, Vue/TSX/CSS/HTML, non-code, audit items) never reach the model whatever this file says. Edit via PR only; the pilot never writes this file.",
+  "max_cards": 6,
+  "max_requests_per_night": 12,
+  "exec_timeout": 120,
+  "lock_file": "run.lock",
+  "gpu_busy_markers": ["coder_window.hold"],
+  "extra_locks": ["hygiene.lock"],
+  "busy_process_patterns": ["ovn_planner\\.sh", "queue_refill\\.(sh|py)", "ovn_work_supply\\.py", "ovn_qwen_explore\\.py", "art_runner\\.py"],
+  "gpu_util_log": "gpu_util.log",
+  "gpu_util_busy_pct": 25,
+  "gpu_util_max_age_s": 1200,
+  "max_attempts": 3,
+  "base_refs": ["origin/claude/feature", "origin/develop", "HEAD"],
+  "llm": {"default_url": "http://127.0.0.1:4000", "model": "qwen-dflash-27B"},
+  "repos": {
+    "test-automation-agent": {
+      "progress_files": ["OVERNIGHT_PROGRESS.md"],
+      "path_allow": ["^backend/.*\\.py$"],
+      "path_deny": ["(^|/)alembic/env\\.py$"]
+    },
+    "iptv_apps": {
+      "progress_files": ["OVERNIGHT_PROGRESS.md"],
+      "path_allow": ["^iptv-backend/.*\\.py$"],
+      "path_deny": [],
+      "keyword_allow": ["(?i)entitle", "(?i)paywall", "(?i)revenuecat", "(?i)subscription", "(?i)premium", "(?i)purchase", "(?i)receipt", "(?i)billing"]
+    }
+  }
+}

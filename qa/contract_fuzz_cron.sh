@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # contract_fuzz_cron.sh - BOX: nightly hermetic contract fuzz of the release candidate (QA-N2, SHADOW only; see qa/contract_fuzz.README.md).
 # Runs `contract_fuzz.py check --repo iptv_apps` (candidate = origin/develop by default) and appends ONE summary line to logs/contract_fuzz.log.
-# Cron (NOT installed; install only after the first manual run and a reviewed --accept-baseline):
+# Cron (NOT installed; install only after the first manual run and a reviewed --accept-baseline; see qa/phase4_cron.proposed.txt and qa/contract_fuzz.ACCEPT_BASELINE.md):
 #   20 4 * * * cd ~/overnight-queue && bash qa/contract_fuzz_cron.sh >> logs/contract_fuzz.log 2>&1
 # Safe by construction: own path resolved BEFORE any cd, minimal PATH, ONE instance (flock -n on state/contract_fuzz.lock; mkdir fallback where
 # there is no flock), skips while the fleet is paused (state/PAUSED) or the box is busy (1-min load average > OVN_FUZZ_LOAD_MAX, default 6),
 # CPU-polite (nice 15 inside contract_fuzz.py; no GPU), never takes run.lock or a verify lock, never touches a live clone's working tree
 # (detached worktree only), never pushes/notifies, ALWAYS exits 0 (a broken fuzz run must not become a cron alert).
-# Kill switch: OVN_CONTRACT_FUZZ=off.  Tunables: OVN_FUZZ_REPOS (default "iptv_apps"), OVN_FUZZ_REF (default origin/develop),
+# Kill switch: OVN_CONTRACT_FUZZ=off.  Tunables: OVN_FUZZ_REPOS (default "iptv_apps billwatch gitlark": the repos in contract_fuzz.REPOS + qa/contract_fuzz_repos.json), OVN_FUZZ_REF (default origin/develop),
 # OVN_FUZZ_TIMEOUT_S (default 600, passed through to contract_fuzz.py), OVN_FUZZ_LOAD_MAX.
 set -u
 SELF="${BASH_SOURCE[0]:-$0}"
@@ -51,7 +51,7 @@ fi
 CAP="${OVN_FUZZ_TIMEOUT_S:-600}"; export OVN_FUZZ_TIMEOUT_S="$CAP"
 TO=""; command -v timeout >/dev/null 2>&1 && TO="timeout $((CAP + 180))"; command -v gtimeout >/dev/null 2>&1 && [ -z "$TO" ] && TO="gtimeout $((CAP + 180))"
 REF="${OVN_FUZZ_REF:-origin/develop}"
-for r in ${OVN_FUZZ_REPOS:-iptv_apps}; do
+for r in ${OVN_FUZZ_REPOS:-iptv_apps billwatch gitlark}; do
   case "$r" in *[!A-Za-z0-9._-]*|"") say "skipped bad repo name"; continue ;; esac
   t0=$(date +%s)
   out="$($TO "$PY" "$HERE/contract_fuzz.py" check --repo "$r" --ref "$REF" 2>>"$LOG" | tail -n 1)"

@@ -118,14 +118,14 @@ ok "fresh heartbeat => no alert" "[ ! -s '$RH/overnight-queue/logs/box_backup_al
 touch -t 202001010000 "$W/hbdrive/heartbeat-daily.log"
 sh -c "$HBLINE" >/dev/null 2>&1
 ok "stale heartbeat (2020) => STALE alert line" "grep -q 'heartbeat STALE' '$RH/overnight-queue/logs/box_backup_alert.log'"
-find "$RH/overnight-queue/logs" -type f -name box_backup_alert.log -delete; find "$W/hbdrive" -name heartbeat-daily.log -delete
+find "${RH:?}/overnight-queue/logs" -type f -name box_backup_alert.log -delete; find "${W:?}/hbdrive" -name heartbeat-daily.log -delete
 sh -c "$HBLINE" >/dev/null 2>&1
 ok "missing heartbeat (drive unmounted) => STALE alert line" "grep -q 'heartbeat STALE' '$RH/overnight-queue/logs/box_backup_alert.log'"
-find "$RH/overnight-queue/logs" -type f -name box_backup_alert.log -delete; : > "$W/hbdrive/heartbeat-daily.log"; touch -t "$(date -v-25H +%Y%m%d%H%M 2>/dev/null || date -d '25 hours ago' +%Y%m%d%H%M)" "$W/hbdrive/heartbeat-daily.log"
+find "${RH:?}/overnight-queue/logs" -type f -name box_backup_alert.log -delete; : > "$W/hbdrive/heartbeat-daily.log"; touch -t "$(date -v-25H +%Y%m%d%H%M 2>/dev/null || date -d '25 hours ago' +%Y%m%d%H%M)" "$W/hbdrive/heartbeat-daily.log"
 sh -c "$HBLINE" >/dev/null 2>&1
 ok "25h-old heartbeat is still fine (limit is 26h)" "[ ! -s '$RH/overnight-queue/logs/box_backup_alert.log' ]"
 # the hourly line: fresh/stale/missing are judged on its own file, independent of the daily one
-find "$RH/overnight-queue/logs" -type f -name box_backup_alert.log -delete; : > "$W/hbdrive/heartbeat-daily.log"; : > "$W/hbdrive/heartbeat-hourly.log"
+find "${RH:?}/overnight-queue/logs" -type f -name box_backup_alert.log -delete; : > "$W/hbdrive/heartbeat-daily.log"; : > "$W/hbdrive/heartbeat-hourly.log"
 sh -c "$HBHLINE" >/dev/null 2>&1
 ok "fresh hourly heartbeat => no alert" "[ ! -s '$RH/overnight-queue/logs/box_backup_alert.log' ]"
 touch -t "$(date -v-4H +%Y%m%d%H%M 2>/dev/null || date -d '4 hours ago' +%Y%m%d%H%M)" "$W/hbdrive/heartbeat-hourly.log"
@@ -133,7 +133,7 @@ sh -c "$HBLINE" >/dev/null 2>&1
 ok "a fresh DAILY heartbeat does not mask a stale HOURLY one: the daily check stays silent" "[ ! -s '$RH/overnight-queue/logs/box_backup_alert.log' ]"
 sh -c "$HBHLINE" >/dev/null 2>&1
 ok "4h-old hourly heartbeat => HOURLY STALE alert" "grep -q 'HOURLY heartbeat STALE' '$RH/overnight-queue/logs/box_backup_alert.log'"
-find "$RH/overnight-queue/logs" -type f -name box_backup_alert.log -delete; touch -t 202001010000 "$W/hbdrive/heartbeat-daily.log"; : > "$W/hbdrive/heartbeat-hourly.log"
+find "${RH:?}/overnight-queue/logs" -type f -name box_backup_alert.log -delete; touch -t 202001010000 "$W/hbdrive/heartbeat-daily.log"; : > "$W/hbdrive/heartbeat-hourly.log"
 sh -c "$HBLINE" >/dev/null 2>&1; sh -c "$HBHLINE" >/dev/null 2>&1
 ok "stale DAILY with a fresh HOURLY heartbeat => DAILY STALE alert (a succeeding hourly cannot hide a dead daily)" "grep -q 'DAILY heartbeat STALE' '$RH/overnight-queue/logs/box_backup_alert.log' && ! grep -q 'HOURLY heartbeat STALE' '$RH/overnight-queue/logs/box_backup_alert.log'"
 ok "cron.proposed.txt ships the same two lines ACTIVE (uncommented)" "grep -q '^53 6 \* \* \* .*heartbeat-daily.log.*-mmin -1560\\|^53 6 \* \* \* .*-mmin -1560.*heartbeat-daily.log' '$HERE/../../ops/cron.proposed.txt' && grep -q '^54 6 \* \* \* .*heartbeat-hourly.log' '$HERE/../../ops/cron.proposed.txt'"

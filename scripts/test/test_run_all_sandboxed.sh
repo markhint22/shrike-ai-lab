@@ -102,7 +102,7 @@ ok "A2e TMPBASE outside qtmp and /tmp (/usr/rasb-nope) refused" "$(b refused "$W
 ok "A2f TMPBASE that is a symlink (even to an allowed /tmp dir) refused" "$(b refused "$W" OVN_SANDBOX_TMPBASE="$X1/link")"
 rmdir "$DH/qtmp" 2>/dev/null; ln -s "$SB/real_q" "$DH/qtmp"
 ok "A2g the default qtmp being a symlink is refused" "$(b refused "$W")"
-find "$DH/qtmp" -maxdepth 0 -type l -delete
+find "${DH:?}/qtmp" -maxdepth 0 -type l -delete
 ok "A2h TMPBASE strictly under /tmp is accepted and bound writable" "$(b accepted "$W" OVN_SANDBOX_TMPBASE="$X1/real")"
 ok "A2i ... and appears as a writable bind of its canonical path" "$(case "$(joined)" in *"--bind $(canon "$X1/real") $(canon "$X1/real") "*) echo 1;; *) echo 0;; esac)"
 mkdir -p "$DH/qtmp"

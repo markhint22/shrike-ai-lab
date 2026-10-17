@@ -238,6 +238,22 @@ _ovn_ac_settle_tree() {
   return 0
 }
 
+# S2 SHADOW ADVISORY (QA plan Phase 2, package P2-phase2-s0-card-pilot-wiring): after an item is auto-credited, log to state/qa_shadow/card_credit.jsonl whether an S0 acceptance card existed
+# for it (credit_without_card) and whether the card's verify_cmd passes at the credited head. NO behaviour change: detached, niced, time-boxed, run.lock fd closed, always rc 0.
+# OVN_QA_CARD_CREDIT=off|shadow (default shadow; there is no enforce path). OVN_QA_CARD_CREDIT_SYNC=1 runs it in the foreground (tests only).
+ovn_card_credit_shadow() {  # <progress line of the credited item> <credited head sha>
+  [ "${OVN_QA_CARD_CREDIT:-shadow}" = "off" ] && return 0
+  [ -f "$_AC_DIR/../qa/card_pilot_run.py" ] || return 0
+  local _cc_sd="${QA_STATE_DIR:-${OVN_STATE_DIR:-${STATE_DIR:-$HOME/overnight-queue/state}}}"
+  [ -d "$_cc_sd" ] || return 0   # no state dir = nowhere to log (and never create one from a hook)
+  if [ "${OVN_QA_CARD_CREDIT_SYNC:-}" = 1 ]; then
+    ( export QA_STATE_DIR="$_cc_sd"; OVN_CC_ITEM="$1" timeout -k 30 180 python3 "$_AC_DIR/../qa/card_pilot_run.py" credit --repo "$(basename "$PWD")" --repo-path "$PWD" --head "$2" --no-stdout ) >/dev/null 2>&1 200>&- 201>&- 202>&- || true
+    return 0
+  fi
+  ( export QA_STATE_DIR="$_cc_sd"; OVN_CC_ITEM="$1" nohup nice -n 15 timeout -k 30 180 python3 "$_AC_DIR/../qa/card_pilot_run.py" credit --repo "$(basename "$PWD")" --repo-path "$PWD" --head "$2" --no-stdout ) >/dev/null 2>&1 200>&- 201>&- 202>&- &
+  return 0
+}
+
 ovn_auto_credit() {
   local before="$1" after="$2" prog="$3" _AC_TASK_LOG="${4:-}"
   OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"
@@ -356,7 +372,7 @@ ovn_auto_credit() {
     fi
     _ac_before_text="$(sed -n "${ln}p" "$prog")"
     res="$(python3 "$_AC_DIR/ovn_credit_items.py" tick "$prog" "$ln" 2>/dev/null)"
-    if [ "$res" = "TICKED" ]; then ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; ovn_credit_twins "$prog" "$ln" "$_AC_TASK_LOG"; fi
+    if [ "$res" = "TICKED" ]; then ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; ovn_credit_twins "$prog" "$ln" "$_AC_TASK_LOG"; ovn_card_credit_shadow "$_ac_before_text" "$after"; fi
   done
   [ "$OVN_AC_CREDITED" -gt 0 ] || return 0
 

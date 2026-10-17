@@ -7,6 +7,9 @@
 # staging FAIL (behind / diverged / latest deploy FAILED) writes ONE alerts.log WARN per (repo, candidate sha), deduped via state/qa_shadow_alerted/, so a
 # shadow-gate FAIL reaches the digest instead of sitting in a jsonl nobody reads. Still observation only (no push, no block).
 # 2026-10-09 (QA-N1): the full (daily) run ALSO runs qa/staging_smoke.py for billwatch gitlark iptv_apps (shadow, see the smoke block at the end; QA_DAILY_SMOKE_REPOS overrides).
+# 2026-10-17 (S7): the full run ALSO runs qa/gate_mutation.py daily (per-RANGE mutation advisory; last block, after every other gate). `--mutation-only` runs just that block (separate cron).
+# Skipped (logged; also appended to state/qa_gate_skips.jsonl) when mutmut is not installed in the QA venv (ops/qa_tools_install.sh) or the 1-min load > OVN_MUT_LOAD_MAX (default 6).
+# run.lock is NOT a guard by default (OVN_MUT_RUN_LOCK=ignore; the queue holds it all day, so honouring it meant the pass never ran; =skip restores that). OVN_QA_MUTATION=off disables; enforce is a documented no-op.
 # Cron: 50 8 * * *  $HOME/overnight-queue/qa/qa_daily_shadow.sh >> $HOME/overnight-queue/logs/qa_daily_shadow.out 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export OVN_DIR="${OVN_DIR:-$(cd "$HERE/.." && pwd)}"
@@ -21,8 +24,15 @@ verdict(){ printf '%s' "$1" | "$PY" -c 'import sys,json
 try:
     d=json.loads(sys.stdin.read()); print(d.get("verdict","?"), "|", str(d.get("summary",""))[:150])
 except Exception: print("NO-OUTPUT")' 2>/dev/null; }
+verdict_or_skip(){ printf '%s' "$1" | "$PY" -c 'import sys,json
+try:
+    d=json.loads(sys.stdin.read())
+    if "skipped" in d and "verdict" not in d: print("SKIPPED", d.get("repo",""), "|", str(d["skipped"])[:150])
+    else: print(d.get("repo","?"), d.get("verdict","?"), "|", str(d.get("summary",""))[:150])
+except Exception: print("NO-OUTPUT")' 2>/dev/null; }
 [ "${OVN_QA_DAILY:-on}" = "off" ] && { log "disabled (OVN_QA_DAILY=off)"; exit 0; }
 ONLY=0; [ "${1:-}" = "--staging-only" ] && ONLY=1
+MUT_ONLY=0; [ "${1:-}" = "--mutation-only" ] && MUT_ONLY=1
 STATE_D="${QA_STATE_DIR:-$OVN_DIR/state}"
 alert_once(){ # $1=repo $2=staging_check json: ONE alerts.log WARN per (repo, candidate) when the verdict is FAIL
   local line
@@ -38,6 +48,7 @@ except Exception: pass' 2>/dev/null)"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN | qa-staging-check | $1 candidate $ref: staging_check FAIL: ${line#*|}" >> "$STATE_D/alerts.log"
 }
 [ "$ONLY" = 1 ] && RELEASE_REPOS=""
+[ "$MUT_ONLY" = 1 ] && { RELEASE_REPOS=""; STAGING_REPOS=""; }
 for r in $RELEASE_REPOS; do
   out="$("$PY" "$HERE/qa_timeout.py" "$T" "$PY" "$HERE/release_candidate.py" plan --repo "$r" --fetch 2>>"$LOG" | tail -1)"
   log "release_candidate $r: $(verdict "$out")"
@@ -54,6 +65,7 @@ done
 # QA_E2E_LOCK_WAIT_S (default 120 s), then that repo's smoke is SKIPPED this round (logged), never run concurrently.
 SMOKE_REPOS="${QA_DAILY_SMOKE_REPOS:-billwatch gitlark iptv_apps}"
 [ "$ONLY" = 1 ] && SMOKE_REPOS=""
+[ "$MUT_ONLY" = 1 ] && SMOKE_REPOS=""
 [ -f "$HERE/staging_smoke.py" ] || SMOKE_REPOS=""
 E2E_LOCK="$STATE_D/staging_e2e.lock"
 lock_take(){ # $1 = max wait seconds; 0 = got it, 1 = busy
@@ -85,5 +97,17 @@ for r in $SMOKE_REPOS; do
   log "staging_smoke $r: $(verdict "$out")"
   smoke_alert_once "$r" "$out"
 done
+# 2026-10-17 (S7): per-range mutation advisory, AFTER every other gate. gate_mutation.py daily applies the guards itself (mode off, load > OVN_MUT_LOAD_MAX, run.lock held ->
+# {"skipped": reason}); one JSON line per repo (the gate row, also appended to state/qa_shadow/mutation.jsonl). Never FAILs, never blocks. Hard wall = budget + 180 s; the gate itself only starts a repo when the remaining budget covers its wall cap + margin, and on the wall's
+# SIGTERM (QA_TIMEOUT_TERM_GRACE_S, default 30 s here) it kills the in-flight mutmut process group and removes its worktree before the SIGKILL.
+MUT_B="${OVN_MUT_DAILY_BUDGET_S:-1800}"
+if [ "$ONLY" != 1 ] && [ -f "$HERE/gate_mutation.py" ]; then
+  mut_out="$(QA_TIMEOUT_TERM_GRACE_S="${OVN_MUT_TERM_GRACE_S:-30}" "$PY" "$HERE/qa_timeout.py" "$((MUT_B + 180))" "$PY" "$HERE/gate_mutation.py" daily 2>>"$LOG")"
+  if [ -z "$mut_out" ]; then log "mutation: NO-OUTPUT (timeout or crash)"; fi
+  printf '%s\n' "$mut_out" | while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    log "mutation: $(verdict_or_skip "$l")"
+  done
+fi
 log "done"
 exit 0

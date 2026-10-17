@@ -20,7 +20,22 @@ Env (set by the cron wrapper; DB url lives in a gitignored state file, never com
   MAX_SECONDS        default 600
 """
 import os, sys, json, time, urllib.request
-import psycopg2
+
+# 2026-10-17: the post-wipe rebuild left ~/aider-venv (the cron's interpreter) without psycopg2 and wiped state/billwatch_db_url, so the
+# 03:10 run died with a bare ModuleNotFoundError traceback. Say what is actually missing (HUMAN: the DB url is a prod secret only Mark can
+# re-provision from Railway; it must never be invented), and fall back to the billwatch backend venv's interpreter, which ships psycopg2.
+if not os.environ.get("BILLWATCH_DB_URL", "").strip():
+    print(f"{time.strftime('%F %T')} ERROR: BILLWATCH_DB_URL not set - state/billwatch_db_url is missing (HUMAN: re-provision from Railway billwatch Postgres public-proxy URL, mode 600)", flush=True)
+    sys.exit(1)
+try:
+    import psycopg2
+except ImportError:
+    _alt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "repos", "billwatch", "billwatch-backend", ".venv", "bin", "python")
+    if os.path.exists(_alt) and os.path.realpath(_alt) != os.path.realpath(sys.executable) and not os.environ.get("_BWB_REEXEC"):
+        os.environ["_BWB_REEXEC"] = "1"
+        os.execv(_alt, [_alt] + sys.argv)
+    print(f"{time.strftime('%F %T')} ERROR: psycopg2 not importable under {sys.executable} and no billwatch venv fallback ({_alt})", flush=True)
+    sys.exit(1)
 
 DB      = os.environ.get("BILLWATCH_DB_URL")
 LITELLM = os.environ.get("LITELLM_BASE", "http://localhost:4000")

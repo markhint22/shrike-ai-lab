@@ -88,4 +88,18 @@ ok "stale lib: the canary's GUT run STILL carries -ginclude_subdirs (unguarded: 
 reset; rm -f "$T/arglog"; run OVN_GUT_SUBDIRS=off GODOT_ARGLOG="$T/arglog" GODOT_SUITES="tests/test_a.gd" OVN_CANARY_REPOS="xl2:gd:." >/dev/null
 ok "stale lib: the kill switch still drops the flag" "$(grep -q 'gdir=res://tests -gexit' "$T/arglog" 2>/dev/null && ! grep -q include_subdirs "$T/arglog" && echo 1 || echo 0)"
 CAN="$REAL_CAN"
+
+# 2026-10-17 (test-automation-agent): app modules NAMED test_*.py (no test functions) are not ghosts; real ghosts under app/ still alert; the default list covers the repo
+mkrepo tpy backend/tests/test_a.py backend/app/routers/test_plans.py backend/app/routers/test_runs.py backend/app/models/test_run.py backend/app/utils/test_selection.py backend/app/services/test_plan_selection.py
+for m in backend/app/routers/test_plans.py backend/app/routers/test_runs.py backend/app/models/test_run.py backend/app/utils/test_selection.py backend/app/services/test_plan_selection.py; do printf 'from fastapi import APIRouter\nrouter = APIRouter()\n' > "$T/repos/tpy/$m"; done
+git -C "$T/repos/tpy" add -A >/dev/null; git -C "$T/repos/tpy" -c user.name=t -c user.email=t@t commit -q -m mods
+printf 'tests/test_a.py::t\n' > "$T/c5"
+reset; run FAKE_COLLECTED="$T/c5" OVN_CANARY_REPOS="tpy:py:backend" >/dev/null
+ok "python BENIGN: 5 application modules named test_*.py (no test functions) => no alert" "$([ "$(alerts tpy)" = 0 ] && echo 1 || echo 0)"
+mkrepo tpy2 backend/tests/test_a.py backend/app/services/test_g1.py backend/app/services/test_g2.py backend/app/utils/test_g3.py backend/app/utils/test_g4.py backend/app/routers/test_plans.py
+printf 'from fastapi import APIRouter\n' > "$T/repos/tpy2/backend/app/routers/test_plans.py"; git -C "$T/repos/tpy2" add -A >/dev/null; git -C "$T/repos/tpy2" -c user.name=t -c user.email=t@t commit -q -m mod
+reset; run FAKE_COLLECTED="$T/c5" OVN_CANARY_REPOS="tpy2:py:backend" >/dev/null
+ok "python NEGATIVE: 4 real ghost test files under backend/app => alert naming them, the app module is not named" "$([ "$(alerts tpy2)" = 1 ] && grep -q 'app/services/test_g1.py' "$T/state/alerts.log" && ! grep -q 'routers/test_plans.py' "$T/state/alerts.log" && echo 1 || echo 0)"
+ok "default repo list includes test-automation-agent:py:backend" "$(grep -q 'iptv_apps:py:iptv-backend xlite:gd:. test-automation-agent:py:backend' "$CAN" && echo 1 || echo 0)"
+
 echo; echo "collect canary tests: $pass passed, $fail failed"; [ "$fail" = 0 ]

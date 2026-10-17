@@ -47,6 +47,9 @@ except Exception: sys.exit(0)' "${QA_REPOS_JSON:-$HERE/qa_repos.json}" "$repo" 2
 for g in "$HERE"/gate_*.py; do
   [ -f "$g" ] || continue
   name="$(basename "$g" .py)"; name="${name#gate_}"
+  # 2026-10-17 (S7): DAILY-ONLY gates are named gate_*.py for the registry/mode key but must never run per merge (mutation = per-range, minutes of CPU;
+  # it runs from qa_daily_shadow.sh behind a load/run.lock guard).
+  case "$name" in mutation) continue ;; esac
   [ "${OVN_QA_MODE_ALL:-}" = "off" ] && continue
   applies "$name" || { log "$name: skipped (repo has no applicable target)"; continue; }
   t0=$(date +%s)

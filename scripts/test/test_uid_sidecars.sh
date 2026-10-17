@@ -181,6 +181,29 @@ ok "C5 DELETE: trailer removes the .gd AND its .gd.uid in ONE commit" "$(printf 
 out="$(run_trailer "export OVN_DELETE_SIDECARS=off")"; cd "$T/r" || exit 1
 ok "C6 (kill switch) trailer removes only the .gd - the old orphan" "$([ ! -e tests/test_aoe_destructible.gd ] && [ -f tests/test_aoe_destructible.gd.uid ] && echo 1 || echo 0)"
 
+# C6b/C6c: a lone `DELETE: X.gd.uid` trailer while X.gd still exists (the real xlite cell_ring case: owner REFUSED by the importer guard, sidecar trailer went through and was the
+# only net diff of a cycle that then counted as `landed`). The sidecar must stay until its owner goes.
+run_trailer_uid_only(){  # $1 = env assignment
+  mkrepo; cd "$T/r" || exit 1
+  cat > "$T/harness3b.sh" <<H
+set -u
+$1
+task_log="$T/task3b.log"; printf 'blah\nDELETE: tests/test_aoe_destructible.gd.uid\n' > "\$task_log"
+. "$LIB"
+f(){
+BEFORE_SHA="\$(git rev-parse HEAD)"; AFTER_SHA="\$BEFORE_SHA"
+$tblk
+echo "AFTER=\$AFTER_SHA BEFORE=\$BEFORE_SHA"
+}
+f
+H
+  bash "$T/harness3b.sh" 2>&1
+}
+out="$(run_trailer_uid_only "")"; cd "$T/r" || exit 1
+ok "C6b lone sidecar trailer with the owner .gd still present: nothing removed, no commit" "$([ -f tests/test_aoe_destructible.gd.uid ] && [ -f tests/test_aoe_destructible.gd ] && printf '%s' "$out" | grep -qE 'AFTER=([0-9a-f]+) BEFORE=\1' && grep -q 'sidecar of tests/test_aoe_destructible.gd, which is still present' "$T/task3b.log" && echo 1 || echo 0)"
+out="$(run_trailer_uid_only "export OVN_DELETE_SIDECAR_OWNER_GUARD=off")"; cd "$T/r" || exit 1
+ok "C6c (kill switch) the old behaviour: the orphaning sidecar-only delete goes through" "$([ ! -e tests/test_aoe_destructible.gd.uid ] && [ -f tests/test_aoe_destructible.gd ] && echo 1 || echo 0)"
+
 # C7: UID-FIXUP gate block
 gblk="$(awk '/# UID-FIXUP \(2026-10-12/{f=1} /# Tier-2 grounded fix-up \(2026-09-16\)/{f=0} f{print}' "$RO")"
 ok "C7a UID-FIXUP block extracted" "$([ -n "$gblk" ] && echo 1 || echo 0)"

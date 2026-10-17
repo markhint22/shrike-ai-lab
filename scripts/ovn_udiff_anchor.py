@@ -174,9 +174,78 @@ def intended_append(header, nlines):
     return start + length >= nlines - 3
 
 
+def _added_text(body):
+    return "\n".join(l[1:] for l in body if l.startswith("+"))
+
+
+def py_docstring_only(path, body):
+    """True when every added line of a pure-addition .py hunk is a bare string-literal statement (docstring text and blank lines only)."""
+    if not path.endswith(".py"):
+        return False
+    import textwrap
+    txt = textwrap.dedent(_added_text(body)).strip("\n")
+    if not txt.strip():
+        return False
+    try:
+        tree = ast.parse(txt + "\n")
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return False
+    return bool(tree.body) and all(isinstance(n, ast.Expr) and isinstance(getattr(n, "value", None), ast.Constant) and isinstance(n.value.value, str) for n in tree.body)
+
+
+def py_redefines_existing(path, body, repo, rev):
+    """True when a pure-addition .py hunk re-declares something the file already defines at --rev.
+    Module-level `def`/`class NAME`: NAME already a top-level name (appended at EOF that SHADOWS the real one; gitlark reactions.py 2026-10-17: `class MessageReactionResponse(BaseModel):`
+    re-added after get_message_reactions).  Indented non-dunder `def`: the identical stripped signature line already exists in the file (gitlark billing.py 2026-10-17: a second
+    `def price_for_tier(self, tier: str) -> str:` + docstring-only body inserted into BillingService; it shadowed the real method and returned None)."""
+    if not path.endswith(".py"):
+        return False
+    top, nested = [], []
+    for l in body:
+        if not l.startswith("+"):
+            continue
+        t = l[1:]
+        m = re.match(r"^(\s*)(async\s+def|def|class)\s+([A-Za-z_]\w*)", t)
+        if not m:
+            continue
+        if not m.group(1):
+            top.append(m.group(3))
+        elif not m.group(3).startswith("__") and m.group(2) != "class":
+            nested.append(t.strip())
+    if not top and not nested:
+        return False
+    try:
+        if rev:
+            r = subprocess.run(["git", "-C", repo, "show", "%s:%s" % (rev, path)], capture_output=True, timeout=30)
+            if r.returncode != 0:
+                return False
+            src = r.stdout.decode("utf-8", "replace")
+        else:
+            src = open(repo.rstrip("/") + "/" + path, errors="replace").read()
+        tree = ast.parse(src)
+    except Exception:
+        return False
+    have = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+    if any(n in have for n in top):
+        return True
+    lines = {x.strip() for x in src.split("\n")}
+    return any(sig in lines for sig in nested)
+
+
 def scan(text, repo, rev, min_lines):
     seen, found = set(), []
+    py_small_ok = (os.environ.get("OVN_UDIFF_PY_DOCSTRING_ANY_SIZE", "on") or "on").lower() != "off"
     for path, header, body, old in parse_hunks(text):
+        # 2026-10-17 (gitlark review): size-independent python misplacement.  A context-free hunk is appended at EOF by aider whatever the file size; on a < 300-line file that is
+        # harmless for code (the build fails) but SILENT for (a) docstring text (a bare string after the last statement: tests stay green, the docstring is never attached) and
+        # (b) a re-declared top-level def/class (shadows the real one).  Both landed on gitlark 10-17 (project_config.py router, reactions.py) and cost ~3h of repair cycles.
+        if py_small_ok and old != "/dev/null" and not is_test_path(path) and is_unanchored(body) and (py_docstring_only(path, body) or py_redefines_existing(path, body, repo, rev)):
+            n = file_line_count(repo, path, rev)
+            key = (path, header)
+            if n is not None and key not in seen:
+                seen.add(key)
+                found.append((path, n, header))
+            continue
         if old == "/dev/null" or is_test_path(path) or not is_unanchored(body) or py_eof_tolerant(path, body):
             continue
         n = file_line_count(repo, path, rev)

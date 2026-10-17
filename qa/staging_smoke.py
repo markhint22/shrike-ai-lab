@@ -77,7 +77,10 @@ def http(method, url, headers=None, body=None, form=None, timeout=20):
 def http_retry(*a, **k):
     r = http(*a, **k)
     if r[0] == 0:  # one retry for transient network trouble only
-        time.sleep(2)
+        try:
+            time.sleep(max(0.0, float(os.environ.get("QA_SMOKE_RETRY_S", "2"))))   # the drill sets 0: its stub "down" mode would otherwise cost 2 s per request
+        except ValueError:
+            time.sleep(2)
         r = http(*a, **k)
     return r
 
@@ -338,7 +341,7 @@ class Run:
                 if "{" in c["path"]:
                     self.add("write_read: cleanup", "fail", "could not build cleanup path (write response lacked the id)", t1)
                 else:
-                    cs, _, _, cerr = http(c["method"], self.url(c["path"]), headers=self.auth_h(), timeout=self.timeout)
+                    cs, _, _, cerr = http(c["method"], self.url(c["path"]), headers=self.auth_h(), body=c.get("body"), timeout=self.timeout)   # body: a RESTORE of a shared field
                     ok = 200 <= cs < 300
                     self.add("write_read: cleanup", "ok" if ok else ("unverified" if cs == 0 else "fail"), "HTTP %d" % cs if cs else "no response (%s)" % cerr, t1)
 

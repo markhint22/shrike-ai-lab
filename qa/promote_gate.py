@@ -24,6 +24,13 @@ Prints ONE JSON line and ALWAYS exits 0 (promote_to_prod.sh treats any crash / e
            (reason E2E_FAIL:<cells>). UNVERIFIED, no match, stale, a missing / corrupt file or any internal error NEVER block and never crash the promote.
            No e2e file at all => no e2e line (the log lines are byte-identical to before this feature existed).
 
+  soak_*   SOAK evidence (Phase 4, SHADOW only; qa/soak_probe.py summarises state/qa_shadow/soak.jsonl for THIS candidate): soak_verdict PASS|FLAG|FAIL|UNVERIFIED,
+           soak_decision OK|HOLD|UNVERIFIED, soak_hours (clean streak), soak_min_hours (OVN_QA_SOAK_MIN_HOURS, default 2.0), soak_new_signatures, soak_block.
+           Gate key `soak`: env OVN_QA_SOAK=off|shadow|enforce (default shadow; off = no soak line, no read). SHADOW logs "soak would HOLD" and never holds.
+           ENFORCE changes that logged line into a real HOLD (block, reason SOAK_HOLD) ONLY for repos in the explicit allow-list (env OVN_QA_SOAK_ENFORCE_REPOS=a,b or
+           state/qa_soak_enforce_repos, default EMPTY): enforce with an empty allow-list still only logs. UNVERIFIED (no attributable sample / no signal) NEVER holds and is
+           never reported as PASS. No soak.jsonl rows for the repo at all => no soak line (the log lines are byte-identical to before this feature existed).
+
 Mode resolution (2026-10-03, A3: staging_check is ENFORCING by default at promote time):
   env OVN_PROMOTE_STAGING_GATE (shadow|enforce|off; the promote-specific rollback) > env OVN_QA_STAGING_CHECK > state/qa_gate_modes.json (when present;
   top-level key, or under "modes"/"gates") > qa_common.mode() when it has an explicit source > ENFORCE.
@@ -182,6 +189,50 @@ def e2e_evaluate(sources, bad, candidate, is_anc, now, mode):
     return out
 
 
+# ---------------------------------------------------------------- soak evidence (Phase 4; shadow by default, enforce only for an explicit allow-list)
+SOAK_GATE = "soak"
+
+
+def soak_allow_list():
+    """Repos for which OVN_QA_SOAK=enforce may actually hold a promote: env OVN_QA_SOAK_ENFORCE_REPOS (comma/space separated) plus state/qa_soak_enforce_repos
+    (one per line, # comments). Default EMPTY."""
+    names = set(x for x in os.environ.get("OVN_QA_SOAK_ENFORCE_REPOS", "").replace(",", " ").split() if x)
+    try:
+        with open(os.path.join(qc.state_dir(), "qa_soak_enforce_repos")) as f:
+            for ln in f:
+                ln = ln.split("#", 1)[0].strip()
+                if ln:
+                    names.add(ln)
+    except OSError:
+        pass
+    return names
+
+
+def decide_soak_block(mode, decision, repo, allow):
+    """Pure decision (unit-tested): the soak holds ONLY when mode == enforce, the summary decision is HOLD and the repo is in the explicit allow-list.
+    UNVERIFIED / OK / shadow / off / a repo outside the allow-list never block."""
+    return bool(mode == "enforce" and decision == "HOLD" and repo in (allow or ()))
+
+
+def _apply_soak(out, repo, candidate, is_anc):
+    import time
+    m = qc.mode(SOAK_GATE)
+    if m == "off" or not candidate:
+        return
+    import soak_probe as sp  # absent in minimal fixture trees: the ImportError is caught by the caller and costs nothing
+    rows = sp.read_rows(repo)
+    if not rows:
+        return
+    s = sp.summarize(rows, repo, candidate, time.time(), is_anc)
+    allow = soak_allow_list()
+    out.update(soak_present=True, soak_mode=m, soak_verdict=s["verdict"], soak_decision=s["decision"], soak_hours=s["clean_hours"], soak_min_hours=s["min_hours"],
+               soak_samples=s["samples"], soak_new_signatures=s["new_signatures"], soak_summary=s["summary"][:240], soak_allowed=repo in allow)
+    out["soak_block"] = decide_soak_block(m, s["decision"], repo, allow)
+    if out["soak_block"] and not out["block"]:
+        out["block"] = True
+        out["reason"] = "SOAK_HOLD: " + s["summary"][:140]
+
+
 def _is_ancestor_in(rd, a, b):
     """True/False/None(unknown to the clone): the same test staging_check.cmd_check uses."""
     if not rd or qc.git(rd, "cat-file", "-e", a + "^{commit}")[0] != 0 or qc.git(rd, "cat-file", "-e", b + "^{commit}")[0] != 0:
@@ -220,7 +271,8 @@ def _check(argv):
     out = {"repo": repo, "mode": "shadow", "block": False, "candidate": "", "candidate_verdict": "", "release_branch": "",
            "ff_main_possible": None, "held_back": 0, "relation": "", "staging_verdict": "UNVERIFIED", "staging_commit": "",
            "provider": "", "summary": "", "unverified": True, "reason": "", "evidence": "", "alembic_verdict": "", "alembic_summary": "",
-           "e2e_present": False, "e2e_mode": "", "e2e_verdict": "", "e2e_commit": "", "e2e_age_s": None, "e2e_match": None, "e2e_block": False}
+           "e2e_present": False, "e2e_mode": "", "e2e_verdict": "", "e2e_commit": "", "e2e_age_s": None, "e2e_match": None, "e2e_block": False,
+           "soak_present": False, "soak_mode": "", "soak_verdict": "", "soak_decision": "", "soak_block": False}
     try:
         out["mode"] = gate_mode()
         import release_candidate as rc
@@ -256,6 +308,13 @@ def _check(argv):
             _apply_e2e(out, repo, plan["candidate"])
         except Exception as ex:  # noqa: BLE001
             out.update(e2e_present=True, e2e_verdict="UNVERIFIED", e2e_block=False, e2e_summary="staging_e2e crashed: %s" % type(ex).__name__)
+        try:  # soak evidence (Phase 4): SHADOW unless OVN_QA_SOAK=enforce AND the repo is in the allow-list; an error here never blocks and never crashes the promote
+            rd2 = qc.repo_dir(repo)
+            _apply_soak(out, repo, plan["candidate"], lambda a, b: _is_ancestor_in(rd2, a, b))
+        except ImportError:
+            pass
+        except Exception as ex:  # noqa: BLE001
+            out.update(soak_present=True, soak_verdict="UNVERIFIED", soak_decision="UNVERIFIED", soak_block=False, soak_summary="soak crashed: %s" % type(ex).__name__)
     except Exception as ex:  # noqa: BLE001 - never block (or crash a promote) on our own bug
         out.update(block=False, staging_verdict="UNVERIFIED", summary="promote_gate crashed: %s: %s" % (type(ex).__name__, ex))
     return out
@@ -303,6 +362,17 @@ def log_lines(o):
             o.get("e2e_mode") or "?", o.get("e2e_verdict") or "?", (" fail=" + ",".join(o["e2e_fail_cells"])) if o.get("e2e_fail_cells") else "",
             (o.get("e2e_commit") or "?")[:10], ("%dm" % (age // 60)) if isinstance(age, int) else "?", {True: "yes", False: "no"}.get(o.get("e2e_match"), "?"),
             o.get("e2e_source") or "?", eact, (" (%s)" % o["e2e_cells"]) if o.get("e2e_cells") else (" (%s)" % o["e2e_summary"] if o.get("e2e_summary") else "")))
+    if o.get("soak_present"):
+        dec = o.get("soak_decision")
+        if dec == "HOLD":
+            sact = "HOLD" if o.get("soak_block") else ("soak would HOLD (shadow)" if o.get("soak_mode") != "enforce" else "soak would HOLD (enforce, repo not in the allow-list)")
+        elif dec == "UNVERIFIED":
+            sact = "proceed (soak UNVERIFIED: no signal, never holds)"
+        else:
+            sact = "proceed"
+        out.append("  [staging-soak] mode=%s soak=%s clean=%sh/%sh samples=%s new_sigs=%d -> %s (%s)" % (
+            o.get("soak_mode") or "?", o.get("soak_verdict") or "?", o.get("soak_hours"), o.get("soak_min_hours"), o.get("soak_samples", "?"),
+            len(o.get("soak_new_signatures") or []), sact, (o.get("soak_summary") or "")[:140]))
     if o.get("alembic_verdict"):
         out.append("  [prod-alembic] %s (shadow): %s" % (o["alembic_verdict"], o["alembic_summary"]))
     return out

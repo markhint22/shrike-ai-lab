@@ -25,6 +25,11 @@ VERDICTS = ("PASS", "FAIL", "FLAG", "NA", "UNVERIFIED")
 MODES = ("off", "shadow", "enforce")
 
 
+class Terminated(BaseException):
+    """Raised by a gate's SIGTERM handler (qa_timeout.py with QA_TIMEOUT_TERM_GRACE_S sends SIGTERM first). A BaseException so that no
+    `except Exception` swallows it; `finally` blocks (worktree removal, killing child process groups) run while it unwinds."""
+
+
 def ovn_dir():
     return os.environ.get("OVN_DIR") or os.path.expanduser("~/overnight-queue")
 
@@ -206,17 +211,64 @@ def ensure_commits(repo_path, refs, attempts=3, wait=15):
 
 
 @contextlib.contextmanager
-def worktree(repo_path, ref):
-    """Detached worktree of `ref` in a temp dir; ALWAYS removed. Yields the path (or None if it could not be created)."""
+def worktree(repo_path, ref, add_timeout=120):
+    """Detached worktree of `ref` in a temp dir; ALWAYS removed (also on SystemExit from a SIGTERM handler). Yields the path (or None if it could not be created)."""
     tmp = tempfile.mkdtemp(prefix="qa-wt-")
     wt = os.path.join(tmp, "wt")
-    rc, _, err = git(repo_path, "worktree", "add", "-q", "--detach", wt, ref, timeout=120)
     try:
+        rc, _, err = git(repo_path, "worktree", "add", "-q", "--detach", wt, ref, timeout=add_timeout)
         yield wt if rc == 0 else None
     finally:
-        git(repo_path, "worktree", "remove", "--force", wt, timeout=60)
-        git(repo_path, "worktree", "prune", timeout=30)
+        git(repo_path, "worktree", "remove", "--force", wt, timeout=30)
+        git(repo_path, "worktree", "prune", timeout=15)
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+SCRATCH_PREFIXES = ("qa-wt-", "qa-acc-home-")
+
+
+def sweep_stale_scratch(prefixes=SCRATCH_PREFIXES, max_age_s=7200, repo_paths=(), now=None):
+    """Remove leftover scratch dirs (`qa-wt-*` full checkouts, `qa-acc-home-*`) of runs that were SIGKILLed (a SIGTERM now unwinds the `finally`), then
+    `git worktree prune` the given repos so their dead worktree entries go too. Only our own real directories (not symlinks, same uid) older than max_age_s
+    (default 2 h, far longer than any run lives) are touched, so a concurrent run is never affected. Returns the number removed; never raises."""
+    base = tempfile.gettempdir()
+    cutoff = (time.time() if now is None else now) - int(max_age_s)
+    n = 0
+    try:
+        names = os.listdir(base)
+    except OSError:
+        names = []
+    for nm in names:
+        if not nm.startswith(tuple(prefixes)):
+            continue
+        d = os.path.join(base, nm)
+        try:
+            st = os.lstat(d)
+            if os.path.islink(d) or not os.path.isdir(d) or st.st_uid != os.getuid() or st.st_mtime >= cutoff:
+                continue
+            shutil.rmtree(d, ignore_errors=True)
+            n += 1
+        except OSError:
+            continue
+    for rp in repo_paths or ():
+        try:
+            git(rp, "worktree", "prune", timeout=15)
+        except Exception:  # noqa: BLE001
+            pass
+    return n
+
+
+def install_term_handlers():
+    """SIGTERM/SIGHUP -> SystemExit so every `finally` (worktree removal, temp HOME) runs when `timeout` or a cron wrapper stops us."""
+    import signal
+
+    def _h(signum, _frame):
+        raise SystemExit(128 + signum)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, _h)
+        except (ValueError, OSError):
+            pass
 
 
 def changed_files(repo_path, base, head):

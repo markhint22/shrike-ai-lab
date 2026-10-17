@@ -482,3 +482,13 @@
 # --- 27B-decomposed from roadmap [2026-10-17]: Fix `stream_discovery_service.py:60` naive `datetime.utcnow()` against timezone-aware `Wat (review + tweak) [feat:iptv_apps-20261017-fix-stream-discovery-service-py-60-naive] ---
 
 # --- 27B-decomposed from roadmap [2026-10-17]: Wire `search_query_tokenize.normalize_query()` into `build_token_filters` to consolidate t (review + tweak) [feat:iptv_apps-20261017-wire-search-query-tokenize-normalize-que] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: fix naive datetime in get_trending_channels — `stream_discovery_service.py:60` calls `date (review + tweak) [feat:iptv_apps-20261017-fix-naive-datetime-in-get-trending-chann] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: fix naive datetime in cleanup_job run_cleanup — `cleanup_job.py:67` uses `datetime.utcnow( (review + tweak) [feat:iptv_apps-20261017-fix-naive-datetime-in-cleanup-job-run-cl] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: genres endpoint always returns zero channel counts — `discovery_api.py:288-312` `GET /api/ (review + tweak) [feat:iptv_apps-20261017-genres-endpoint-always-returns-zero-chan] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: fix naive datetime in get_watch_statistics filters — `watch_history.py:612` uses `datetime (review + tweak) [feat:iptv_apps-20261017-fix-naive-datetime-in-get-watch-statisti] ---
+
+# --- deterministic work supply 2026-10-17 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---

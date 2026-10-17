@@ -40,13 +40,17 @@ import qa_common as qc  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+DAILY_ONLY = ("mutation",)   # keep in sync with qa/gate_mutation.py DAILY_ONLY
+
+
 def gates_dir():
     return os.environ.get("QA_GATES_DIR") or HERE
 
 
 def all_gates():
     try:
-        return sorted(f[5:-3] for f in os.listdir(gates_dir()) if re.match(r"^gate_[A-Za-z0-9_]+\.py$", f))
+        # DAILY_ONLY gates (S7 mutation: per-range, advisory, no enforce path) are never per-commit enforce candidates, whatever their mode says
+        return sorted(f[5:-3] for f in os.listdir(gates_dir()) if re.match(r"^gate_[A-Za-z0-9_]+\.py$", f) and f[5:-3] not in DAILY_ONLY)
     except OSError:
         return []
 

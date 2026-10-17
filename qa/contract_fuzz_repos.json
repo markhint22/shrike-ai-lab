@@ -1,0 +1,192 @@
+{
+ "_comment": "Phase 4 registry of repos the Schemathesis contract fuzz (qa/contract_fuzz.py) can run on, besides the in-code iptv_apps entry. Same schema as contract_fuzz.REPOS (clone, app_dir, venv_python[], app, openapi_path, env{} NON-SECRET placeholders ({tmp} = per-run temp dir), auth{register,login}, exclude_paths[[regex, reason]], optional auth_loss_max). An entry missing a required key is ignored (the repo then reports NA). Adding a repo = add an entry here, then follow qa/contract_fuzz.README.md 'Onboarding a repo' (manual first run, triage, --accept-baseline, then add it to OVN_FUZZ_REPOS in the cron). Rule for exclude_paths: any route that can open a socket to anything but the app's own DB is excluded, with the reason. Entries below were written from the repos' route tables and Settings classes (billwatch: app imports and serves 148 paths with exactly this env on the Mac, 2026-10-17); a FIRST RUN on the box is still required before the baseline.",
+ "billwatch": {
+  "clone": "billwatch",
+  "app_dir": "billwatch-backend",
+  "venv_python": [
+   ".venv/bin/python",
+   "venv/bin/python"
+  ],
+  "app": "app.main:app",
+  "openapi_path": "/openapi.json",
+  "env": {
+   "DATABASE_URL": "sqlite+aiosqlite:///{tmp}/fuzz.db",
+   "ENVIRONMENT": "development",
+   "SECRET_KEY": "contract-fuzz-dummy-secret-key-0123456789abcdef",
+   "CONGRESS_API_KEY": "",
+   "OPEN_STATES_API_KEY": "",
+   "FEC_API_KEY": "",
+   "GOOGLE_CIVIC_API_KEY": "",
+   "FIREBASE_CREDENTIALS_PATH": "",
+   "FIREBASE_CREDENTIALS_JSON": "",
+   "SMTP_USER": "",
+   "SMTP_PASSWORD": "",
+   "SENDGRID_API_KEY": "",
+   "STRIPE_SECRET_KEY": "",
+   "STRIPE_PUBLISHABLE_KEY": "",
+   "STRIPE_WEBHOOK_SECRET": "",
+   "STRIPE_PREMIUM_PRICE_ID": "",
+   "ANTHROPIC_API_KEY": "",
+   "SENTRY_DSN": ""
+  },
+  "auth": {
+   "register": {
+    "path": "/api/auth/register",
+    "json": {
+     "email": "contract-fuzz@example.com",
+     "password": "Fuzz!Pass-123456",
+     "display_name": "contract fuzz"
+    }
+   },
+   "login": {
+    "path": "/api/auth/login",
+    "form": {
+     "username": "contract-fuzz@example.com",
+     "password": "Fuzz!Pass-123456"
+    },
+    "token_field": "access_token"
+   }
+  },
+  "exclude_paths": [
+   [
+    "^/api/bills/sync",
+    "pulls bills / sponsors from congress.gov"
+   ],
+   [
+    "^/api/legislators/sync",
+    "pulls legislators / stats from congress.gov"
+   ],
+   [
+    "^/api/civic/",
+    "Google Civic API"
+   ],
+   [
+    "^/api/finance/",
+    "OpenFEC API"
+   ],
+   [
+    "^/api/legislators/\\{legislator_id\\}/(finance|disclosures)$",
+    "OpenFEC / disclosure fetches"
+   ],
+   [
+    "^/api/feedback$",
+    "sends mail"
+   ],
+   [
+    "^/api/auth/forgot-password$",
+    "sends mail"
+   ],
+   [
+    "^/api/billing/(checkout|portal|webhook)$",
+    "Stripe API"
+   ],
+   [
+    "^/api/analytics/summaries/generate-batch$",
+    "Anthropic API"
+   ],
+   [
+    "^/api/bills/\\{bill_id\\}/chat$",
+    "Anthropic API"
+   ],
+   [
+    "^/api/bills/\\{bill_id\\}/background$",
+    "Anthropic / congress.gov background generation"
+   ],
+   [
+    "^/api/articles/rank$",
+    "fetches article URLs"
+   ],
+   [
+    "^/api/(share-image|bills/\\{bill_id\\}/share-image)$",
+    "may fetch remote images"
+   ],
+   [
+    "^/api/export/account$",
+    "deletes the throwaway user whose token the run uses"
+   ]
+  ]
+ },
+ "gitlark": {
+  "clone": "gitlark",
+  "app_dir": "backend",
+  "venv_python": [
+   ".venv/bin/python",
+   "venv/bin/python"
+  ],
+  "app": "app.main:app",
+  "openapi_path": "/openapi.json",
+  "env": {
+   "DATABASE_URL": "sqlite+aiosqlite:///{tmp}/fuzz.db",
+   "ENVIRONMENT": "development",
+   "SECRET_KEY": "contract-fuzz-dummy-secret-key-0123456789abcdef",
+   "GITHUB_CLIENT_ID": "contract-fuzz-dummy-client-id",
+   "GITHUB_CLIENT_SECRET": "",
+   "GITHUB_WEBHOOK_SECRET": "",
+   "GITHUB_WEBHOOK_TOKEN": "",
+   "NOTIFICATIONS_INGEST_TOKEN": "",
+   "GITHUB_APP_ENABLED": "false",
+   "GITHUB_APP_ID": "",
+   "GITHUB_APP_PRIVATE_KEY": "",
+   "GITHUB_APP_CLIENT_ID": "",
+   "GITHUB_APP_CLIENT_SECRET": "",
+   "GITHUB_PAT_SHRIKE_LABS_MARK": "",
+   "ANTHROPIC_API_KEY": "",
+   "LOCAL_LLM_API_KEY": "",
+   "STRIPE_SECRET_KEY": "",
+   "STRIPE_WEBHOOK_SECRET": ""
+  },
+  "auth": null,
+  "auth_loss_max": 1.01,
+  "exclude_paths": [
+   [
+    "^/api/auth/github",
+    "GitHub OAuth token exchange"
+   ],
+   [
+    "^/api/github",
+    "GitHub API + webhooks"
+   ],
+   [
+    "^/api/billing",
+    "Stripe API"
+   ],
+   [
+    "^/api/connectors",
+    "third-party connector calls"
+   ],
+   [
+    "^/api/connector-credentials",
+    "third-party connector calls"
+   ],
+   [
+    "^/api/repo-analysis",
+    "clones / reads remote repos and calls the LLM"
+   ],
+   [
+    "^/api/code-reviews",
+    "calls the LLM / GitHub"
+   ],
+   [
+    "^/api/review",
+    "calls the LLM"
+   ],
+   [
+    "^/api/conversations",
+    "calls the LLM"
+   ],
+   [
+    "^/(api/)?conversations",
+    "calls the LLM"
+   ],
+   [
+    "^/api/memory",
+    "embeddings / LLM calls"
+   ],
+   [
+    "^/api/ws/",
+    "websocket upgrade paths"
+   ]
+  ],
+  "_notes": "gitlark authenticates ONLY via GitHub OAuth (no password login, no test-account endpoint), so the fuzz runs UNAUTHENTICATED: authenticated routes answer 401 before their handlers run, so this covers public routes and the auth guard only (auth_loss_max 1.01 turns off the 'lost its auth' UNVERIFIED rule, a 401 wall is the normal state here). Reaching the authenticated surface needs a mintable throwaway token (a test-only login or a JWT signed with the dummy SECRET_KEY): documented follow-up, not guessed here."
+ }
+}

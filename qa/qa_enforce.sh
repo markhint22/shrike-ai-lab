@@ -88,9 +88,10 @@ PY
     # refuse to enforce a gate that is not installed (a typo must not look like a successful flip); shadow/off are always allowed (rollback)
     # staging_check is a PROMOTE-time gate (qa/promote_gate.py), not a gate_*.py hygiene gate
     # staging_e2e is promote-time too (promote_gate.py reads the live-staging e2e evidence)
+    # soak (2026-10-17, Phase 4) is promote-time too (promote_gate.py reads state/qa_shadow/soak.jsonl); enforce additionally needs the repo in the soak allow-list
     # antigaming_frozen / antigaming_testfiles (2026-10-10) are second keys INSIDE gate_antigaming.py (severity of D_FROZEN_EDIT; A_TESTFILE_EMPTIED + E_TEST_NOT_COLLECTED for new files)
     # antigaming_emptied / antigaming_newpath (2026-10-13, package qa): A_TESTFILE_EMPTIED alone; N_NEWPATH_LOOKALIKE (new file in a directory that doubles / typos an existing one)
-    if [ "$m" = enforce ] && [ ! -f "$GD/gate_$g.py" ] && ! { { [ "$g" = staging_check ] || [ "$g" = staging_e2e ]; } && [ -f "$HERE/promote_gate.py" ]; } \
+    if [ "$m" = enforce ] && [ ! -f "$GD/gate_$g.py" ] && ! { { [ "$g" = staging_check ] || [ "$g" = staging_e2e ] || [ "$g" = soak ]; } && [ -f "$HERE/promote_gate.py" ]; } \
        && ! { case "$g" in antigaming_frozen|antigaming_testfiles|antigaming_emptied|antigaming_newpath) [ -f "$GD/gate_antigaming.py" ] ;; *) false ;; esac; }; then echo "qa_enforce: no such gate: $GD/gate_$g.py" >&2; exit 2; fi
     QA_WHO="$(who)" QA_G="$g" QA_M="$m" HERE_PY="$HERE" "$PY" - <<'PY' || exit 1
 import os, sys
@@ -101,6 +102,10 @@ print("%s: %s -> %s (by %s)" % (os.environ["QA_G"], prev or "default(shadow)", o
 PY
     if [ "$g" = staging_e2e ]; then
       [ "$m" = enforce ] && echo "ENFORCING: a FAIL of the live-staging e2e for the commit being promoted (evidence < 12 h old, commit-matched) now holds that repo at promote_to_prod.sh; UNVERIFIED / stale / non-matching evidence never blocks. Rollback: $0 $g shadow"
+      exit 0
+    fi
+    if [ "$g" = soak ]; then
+      [ "$m" = enforce ] && echo "ENFORCING the soak gate mode: it only HOLDS a promote for repos in the explicit allow-list (OVN_QA_SOAK_ENFORCE_REPOS=a,b or state/qa_soak_enforce_repos, default EMPTY = still only logs 'soak would HOLD'); UNVERIFIED never holds. Rollback: $0 $g shadow"
       exit 0
     fi
     # 2026-10-10: was `[ "$m" = enforce ] && echo ...` as the LAST command, so a successful flip to shadow/off exited 1

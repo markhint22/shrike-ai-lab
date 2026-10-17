@@ -236,7 +236,8 @@ for pth in ("/api/streams/import", "/api/streams/import/m3u", "/api/streams/rela
 for pth in ("/api/streams", "/api/favorites/{stream_id}", "/api/settings", "/api/epg/sources", "/health", "/api/subscription/revenuecat/webhook"):
     ok("NEGATIVE: %s is still fuzzed" % pth, not any(re.search(rx, pth) for rx in ex))
 ok("unknown repo => None", cf.config("no-such-repo") is None)
-ok("every other repo is 'not configured' for now", all(cf.config(r) is None for r in ("billwatch", "gitlark", "xlite", "test-automation-agent")))
+ok("repos outside the code table + the Phase 4 registry (billwatch, gitlark) are 'not configured' for now", all(cf.config(r) is None for r in ("xlite", "test-automation-agent"))
+   and cf.config("billwatch") is not None and cf.config("gitlark") is not None)
 override = os.path.join(fresh("cfg"), "c.json")
 with open(override, "w") as f:
     json.dump({"zzz": {"clone": "zzz", "app_dir": "a", "venv_python": ["/x"], "app": "m:app", "exclude_paths": ["^/a", ["^/b", "why"]]}}, f)

@@ -65,7 +65,7 @@ Everything else, including inbound webhooks, is fuzzed.
 |---|---|
 | `PASS` | run completed and no signature outside the accepted baseline. `fixed` signatures (in the baseline, gone now) are listed in `details.fixed`. Also the verdict of the `--accept-baseline` run itself (summary `baseline accepted`) |
 | `FLAG` | `no baseline: N signatures observed` (first run), or `N new signature(s) vs baseline: ...` (`details.new`, up to 10). Never FAIL: shadow |
-| `NA` | repo not configured (everything except `iptv_apps` for now) or `OVN_CONTRACT_FUZZ=off` |
+| `NA` | repo not configured (not in `contract_fuzz.REPOS` or `qa/contract_fuzz_repos.json`) or `OVN_CONTRACT_FUZZ=off` |
 | `UNVERIFIED` | could not judge: no clone / no venv / schemathesis missing / unresolvable ref / app failed to start (redacted log tail) / app died during the fuzz / auth bootstrap failed / timeout (`OVN_FUZZ_TIMEOUT_S`, default 600, total wall clock) / schemathesis crashed or did not complete / baseline recorded with different fuzz parameters |
 
 Shadow rows go to `state/qa_shadow/contract_fuzz.jsonl` (first-run rows carry the full signature list in `details.signatures`, capped at 300).
@@ -115,3 +115,12 @@ and 23 schema-conformance ones.
 * Tests: `scripts/test/test_contract_fuzz.py` (fixtures in `scripts/test/fixtures/contract_fuzz/`, regenerate with `OVN_TEST_GEN_FIXTURES=<dir>`). Box only for the stub-app cases:
   needs `~/qa-venv/bin/schemathesis` and a python with fastapi+uvicorn for the stub (the iptv_apps repo venv is used; `~/qa-venv` has no fastapi). Without them it prints
   `SKIP: <module> missing` and exits 0, unless `OVN_REQUIRE_QA_VENV` is set.
+
+
+## Phase 4: more repos, scheduling, tooling (2026-10-17)
+- **Repo registry**: `qa/contract_fuzz_repos.json` declares billwatch and gitlark with the same schema as `REPOS` (in-code `REPOS` wins on a name clash; an entry missing a required key is ignored; a corrupt file is ignored). `OVN_FUZZ_REGISTRY=<path>` points at another file (tests).
+  Login can be a JSON body (`auth.login.json`) or a form body (`auth.login.form`, OAuth2PasswordRequestForm: billwatch). `auth_loss_max` per repo overrides the 0.5 "lost its auth" threshold (gitlark: OAuth only, fuzzed unauthenticated, 1.01).
+- **First real trial** (Mac, scratch copy of billwatch origin/develop 26bfffb1, HOME/TMPDIR scratch, `-n 5`, 14 s): started, `blocked_outbound` 0, 28 of 163 operations excluded, 491 responses (6 were 401), 18 signatures, **4 real 5xx**: `GET /api/alerts`, `PATCH /api/alerts/{alert_id}`, `GET /api/legislators/{bioguide_id}/sponsored-bills`, `POST /api/bills/{bill_id}/favorite`
+  (the rest are `response_schema_conformance`). Triage them before accepting any baseline. Gitlark could not be trial-run on the Mac (no backend venv); its first run on the box is manual, see below.
+- **Hermetic note for billwatch**: its lifespan starts jobs (bill sync, AI summaries) that only bail out because the keys are blank; the registry blanks every outbound key and the outbound guard still counts attempts.
+- **Tooling**: `qa/fuzz_tool_install.sh` (dry-run default, `--check`, `--apply`): a wrapper that runs the P1 installer `ops/qa_tools_install.sh` for schemathesis only (QA_TOOLS_SKIP for the rest); `qa/qa_tool_health.py` is what notices when it is missing. **Schedule + baseline procedure**: `qa/phase4_cron.proposed.txt`, `qa/contract_fuzz.ACCEPT_BASELINE.md`.

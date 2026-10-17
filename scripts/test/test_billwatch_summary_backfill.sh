@@ -174,4 +174,10 @@ ok "unwritable ledger dir -> OSError swallowed, exit 0, insert still done" "$([ 
 # 6. LLM unreachable
 run LITELLM_BASE="http://127.0.0.1:1" FAKE_REMAINING=1
 ok "LLM unreachable -> error logged per bill, no inserts, exit 0" "$([ $rc = 0 ] && grep -q 'bill 1: LLM error' "$T/out" && [ -z "$(inserts)" ] && echo 1 || echo 0)"
+
+# 7. missing prerequisites are reported plainly (2026-10-17 post-wipe: empty state/billwatch_db_url + venv without psycopg2)
+run BILLWATCH_DB_URL=""
+ok "empty BILLWATCH_DB_URL -> ERROR line naming the state file, exit 1, no traceback, no DB connect" "$([ $rc = 1 ] && grep -q 'state/billwatch_db_url is missing' "$T/out" && ! grep -q Traceback "$T/err" && [ ! -s "$T/db.log" ] && echo 1 || echo 0)"
+env PYTHONPATH="" BILLWATCH_DB_URL="postgres://stub/db" _BWB_REEXEC=1 python3 -I "$SUT" > "$T/out" 2> "$T/err"; rc=$?
+ok "psycopg2 missing and no fallback -> clear ERROR, exit 1, no traceback" "$([ $rc = 1 ] && grep -q 'psycopg2 not importable' "$T/out" && ! grep -q Traceback "$T/err" && echo 1 || echo 0)"
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

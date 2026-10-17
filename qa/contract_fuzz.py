@@ -35,6 +35,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -100,10 +101,33 @@ REPOS = {
 }
 
 
+REGISTRY_FILE = os.path.join(HERE, "contract_fuzz_repos.json")
+REQUIRED_KEYS = ("clone", "app_dir", "venv_python", "app", "openapi_path", "env", "exclude_paths")
+
+
+def load_registry(path=None):
+    """Repos declared in qa/contract_fuzz_repos.json (Phase 4: billwatch, gitlark). -> {repo: cfg}. Keys starting with "_" are comments. An entry missing a required key
+    or not an object is DROPPED (the repo then reports NA "repo not configured"), a corrupt file yields {}: a bad registry can never crash the fuzz or the cron.
+    The in-code REPOS table wins over the registry for the same name."""
+    try:
+        with open(path or os.environ.get("OVN_FUZZ_REGISTRY") or REGISTRY_FILE) as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if not k.startswith("_") and isinstance(v, dict) and all(r in v for r in REQUIRED_KEYS) and isinstance(v.get("env"), dict) \
+                    and isinstance(v.get("venv_python"), list):
+                out[k] = v
+    return out
+
+
 def config(repo):
-    """The configuration for `repo` or None. OVN_FUZZ_CONFIG_JSON (a path to a JSON object {repo: cfg}) adds/overrides entries (tests, trials);
-    exclude_paths there may be plain regex strings or [regex, reason] pairs."""
-    table = dict(REPOS)
+    """The configuration for `repo` or None. Sources, later wins: the registry file (qa/contract_fuzz_repos.json), the in-code REPOS table, then OVN_FUZZ_CONFIG_JSON
+    (a path to a JSON object {repo: cfg}; adds/overrides entries for tests and trials). exclude_paths may be plain regex strings or [regex, reason] pairs."""
+    table = dict(load_registry())
+    table.update(REPOS)
     extra = os.environ.get("OVN_FUZZ_CONFIG_JSON")
     if extra:
         with open(extra) as f:
@@ -182,10 +206,14 @@ def free_port():
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # never through an ambient proxy: loopback only
 
 
-def http(method, url, body=None, headers=None, timeout=10):
-    """(status, bytes) over loopback; an HTTP error status is returned, a connection problem raises OSError."""
+def http(method, url, body=None, headers=None, timeout=10, form=None):
+    """(status, bytes) over loopback; an HTTP error status is returned, a connection problem raises OSError. `form` (a dict) sends application/x-www-form-urlencoded
+    (OAuth2PasswordRequestForm logins, e.g. billwatch) instead of JSON."""
     data = json.dumps(body).encode() if body is not None else None
     h = {"Content-Type": "application/json", "Accept": "application/json"}
+    if form is not None:
+        data = urllib.parse.urlencode(form).encode()
+        h["Content-Type"] = "application/x-www-form-urlencoded"
     h.update(headers or {})
     req = urllib.request.Request(url, data=data, method=method, headers=h)
     try:
@@ -233,7 +261,9 @@ def kill_group(proc, grace=5):
 
 
 def find_schemathesis():
-    cands = [os.environ.get("OVN_FUZZ_SCHEMATHESIS"), os.path.expanduser("~/qa-venv/bin/schemathesis"), shutil.which("schemathesis")]
+    # the install venv (ops/qa_tools_install.sh) is LAST: it only fills a gap, it never replaces a schemathesis the fuzz already used
+    cands = [os.environ.get("OVN_FUZZ_SCHEMATHESIS"), os.path.expanduser("~/qa-venv/bin/schemathesis"), shutil.which("schemathesis"),
+             os.path.join(qc.ovn_dir(), "qa-tools", ".venv", "bin", "schemathesis")]
     for c in cands:
         if c and os.path.isfile(c) and os.access(c, os.X_OK):
             return c
@@ -636,7 +666,10 @@ def check(argv):
                     if reg:
                         http("POST", base + reg["path"], reg.get("json"), timeout=15)
                     lg = auth["login"]
-                    code, body = http("POST", base + lg["path"], lg.get("json"), timeout=15)
+                    if lg.get("form"):
+                        code, body = http("POST", base + lg["path"], form=lg["form"], timeout=15)
+                    else:
+                        code, body = http("POST", base + lg["path"], lg.get("json"), timeout=15)
                     token = json.loads(body).get(lg.get("token_field", "access_token")) if code == 200 else None
                 except (OSError, ValueError, AttributeError):
                     token = None
@@ -708,7 +741,7 @@ def check(argv):
             details["operations_selected"] = parsed["operations_selected"]
             details["scenarios"] = parsed["scenarios"]
             details["responses"], details["responses_401"] = parsed["responses"], parsed["unauthorized"]
-            lost, share401 = auth_loss(parsed)
+            lost, share401 = auth_loss(parsed, max_share=cfg.get("auth_loss_max"))   # gitlark (OAuth-only, no throwaway login) sets 1.01: a 401 wall is its normal state
             if lost:
                 return V("UNVERIFIED", "the fuzz lost its auth: %d of %d responses were 401 (%.0f%%), so authenticated routes were not exercised and the %d signature(s) are not "
                          "trustworthy; a fuzzed route probably revokes the throwaway user's token (exclude it in REPOS[...]['exclude_paths'])" %
