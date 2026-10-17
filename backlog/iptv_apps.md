@@ -468,3 +468,17 @@
 # --- 27B-decomposed from roadmap [2026-10-16]: Fix `data_retention_job.py` passing deprecated naive `datetime.utcnow()` to the auth-row p (review + tweak) [feat:iptv_apps-20261016-fix-data-retention-job-py-passing-deprec] ---
 
 # --- 27B-decomposed from roadmap [2026-10-16]: Fix _extract_year to return correct 4-digit year from title — `iptv-backend/app/services/t (review + tweak) [feat:iptv_apps-20261016-fix-extract-year-to-return-correct-4-dig] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fix `apply_continue_watching_boost` int/str type mismatch: personalized recommendations bo (review + tweak) [feat:iptv_apps-20261017-fix-apply-continue-watching-boost-int-st] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fix `discovery_api.py` wrongly annotates all 10 `db` parameters as `AsyncSession` while `g (review + tweak) [feat:iptv_apps-20261017-fix-discovery-api-py-wrongly-annotates-a] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fix 6 naive `datetime.utcnow()` writes to timezone-aware `WatchHistory.last_watched_at` in (review + tweak) [feat:iptv_apps-20261017-fix-6-naive-datetime-utcnow-writes-to-ti] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fix `parental_lockout.py:28` naive datetime against timezone-aware `PINAttempt.attempted_a (review + tweak) [feat:iptv_apps-20261017-fix-parental-lockout-py-28-naive-datetim] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fix `trending.py:22` naive `datetime.utcnow()` against timezone-aware `Stream.created_at`  (review + tweak) [feat:iptv_apps-20261017-fix-trending-py-22-naive-datetime-utcnow] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Fix `stream_discovery_service.py:60` naive `datetime.utcnow()` against timezone-aware `Wat (review + tweak) [feat:iptv_apps-20261017-fix-stream-discovery-service-py-60-naive] ---
+
+# --- 27B-decomposed from roadmap [2026-10-17]: Wire `search_query_tokenize.normalize_query()` into `build_token_filters` to consolidate t (review + tweak) [feat:iptv_apps-20261017-wire-search-query-tokenize-normalize-que] ---
