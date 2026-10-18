@@ -349,4 +349,4 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `validate_cast_device_info` — Add unit tests for `validate_cast_device_info` in `iptv-backend/app/models/stream.py:13` to verify valid/invalid device info handling {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-18 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `update_watch_progress` endpoint — Add a test for `update_watch_progress` in `iptv-backend/app/routers/watch_history.py:245` to verify progress tracking and ownership checks {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `update_watch_progress` endpoint — Add a test for `update_watch_progress` in `iptv-backend/app/routers/watch_history.py:245` to verify progress tracking and ownership checks {cat: test; size: S; multifile: no; research: none}

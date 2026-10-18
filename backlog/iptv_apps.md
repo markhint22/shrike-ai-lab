@@ -510,3 +510,19 @@
 # --- 27B-decomposed from roadmap [2026-10-18]: Test parental time-window logic — Add unit tests for `get_local_hour` and `is_within_time_ (review + tweak) [feat:iptv_apps-20261018-test-parental-time-window-logic-add-unit] ---
 
 # --- deterministic work supply 2026-10-18 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-18 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix `check_time_restrictions` never enforcing hours when `restricted_days=[]` — `iptv-back (review + tweak) [feat:iptv_apps-20261018-fix-check-time-restrictions-never-enforc] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix `check_content_allowed` never checking time restrictions — `iptv-backend/app/routers/p (review + tweak) [feat:iptv_apps-20261018-fix-check-content-allowed-never-checking] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Wire `timezone_offset_minutes` into daily-limit date bucketing — `iptv-backend/app/routers (review + tweak) [feat:iptv_apps-20261018-wire-timezone-offset-minutes-into-daily-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix `check_time_restrictions` always using UTC hour rather than user's local hour — `iptv- (review + tweak) [feat:iptv_apps-20261018-fix-check-time-restrictions-always-using] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Test `validate_cast_device_info` — Add unit tests for `validate_cast_device_info` in `iptv (review + tweak) [feat:iptv_apps-20261018-test-validate-cast-device-info-add-unit-] ---
+
+# --- deterministic work supply 2026-10-18 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Test `update_watch_progress` endpoint — Add a test for `update_watch_progress` in `iptv-ba (review + tweak) [feat:iptv_apps-20261018-test-update-watch-progress-endpoint-add-] ---
