@@ -494,3 +494,19 @@
 # --- deterministic work supply 2026-10-17 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- 27B-decomposed from roadmap [2026-10-17]: rewire Android FavoritesRepository into correct package — `FavoritesRepository.kt` was gen (review + tweak) [feat:iptv_apps-20261017-rewire-android-favoritesrepository-into-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: parental pin-session check crashes on Postgres with naive/aware TypeError — `iptv-backend/ (review + tweak) [feat:iptv_apps-20261018-parental-pin-session-check-crashes-on-po] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: parental time-restriction enforcement uses UTC clock instead of user local time — `iptv-ba (review + tweak) [feat:iptv_apps-20261018-parental-time-restriction-enforcement-us] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: VOD progress model assigns naive datetime to timezone-aware completed_at column — `iptv-ba (review + tweak) [feat:iptv_apps-20261018-vod-progress-model-assigns-naive-datetim] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: delete dead concurrent-stream-limit helpers and their false-confidence tests — `iptv-backe (review + tweak) [feat:iptv_apps-20261018-delete-dead-concurrent-stream-limit-help] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Roku channel hardcodes production API base URL with no staging path — `iptv-roku/source/Co (review + tweak) [feat:iptv_apps-20261018-roku-channel-hardcodes-production-api-ba] ---
+
+# --- deterministic work supply 2026-10-18 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Test parental time-window logic — Add unit tests for `get_local_hour` and `is_within_time_ (review + tweak) [feat:iptv_apps-20261018-test-parental-time-window-logic-add-unit] ---
+
+# --- deterministic work supply 2026-10-18 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---

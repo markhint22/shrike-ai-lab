@@ -6,11 +6,12 @@
 # Fixture (temp git repo): BEFORE = tests/test_old.py (test_old_a) + tests/test_new.py (placeholder stub only) + backend/tests/test_sub.py;
 # the model's commit fills the stub (test_new_b), adds test_old_added + test_old_a_extra to test_old.py and creates tests/test_brand_new.py.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/../lib_fixup.sh"; RUN="$HERE/../../run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 # shellcheck disable=SC1090
 source "$LIB"
 R="$tmp/repo"; mkdir -p "$R/tests" "$R/backend/tests" "$R/src" "$R/a/tests" "$R/b/tests"

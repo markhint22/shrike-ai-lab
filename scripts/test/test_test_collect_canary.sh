@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Tests for scripts/ovn_test_collect_canary.sh (ghost-test canary). Fake pytest / godot shims, temp git repos, no network. Every alert case has a benign control.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 CAN="$ROOT/scripts/ovn_test_collect_canary.sh"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export NTFY_SERVER="http://127.0.0.1:9/x" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 mkdir -p "$T/repos" "$T/state" "$T/logs" "$T/bin"
 mkrepo(){ # name files...   (file contents: test_ => python test / .gd => GUT)

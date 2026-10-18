@@ -7,13 +7,14 @@
 # Runs the REAL ovn_pipeline_audit.sh end to end in a hermetic fake $HOME with stub systemctl (state sequence), stub curl (records every call) and no network,
 # then runs the same scenarios against 5 mutants of the script, each of which must be caught.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AUDIT=""
 for c in "$HERE/../../ovn_pipeline_audit.sh" "$HERE/../ovn_pipeline_audit.sh"; do [ -f "$c" ] && { AUDIT="$c"; break; }; done
 [ -n "$AUDIT" ] || { echo "  SKIP: ovn_pipeline_audit.sh not found"; exit 0; }
 AUDIT="$(cd "$(dirname "$AUDIT")" && pwd)/$(basename "$AUDIT")"
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-T="$(cd "$T" && pwd -P)"   # /private/var vs /var on macOS
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+   # /private/var vs /var on macOS
 P=0; F=0
 # assertions are evaluated with pipefail OFF (no `x | grep -q` flakiness); conditions use grep -c / [ ] only
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $SUITE: $1"; fi; }

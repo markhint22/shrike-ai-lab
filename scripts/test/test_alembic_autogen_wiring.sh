@@ -11,10 +11,11 @@
 # Needs a python with alembic+sqlalchemy for B/C-integration/W: $OVN_TEST_PY, else the test-automation-agent venv;
 # those sections SKIP (static ones still run) if none exists.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; SCRIPTS="$(cd "$HERE/.." && pwd)"; QROOT="$(cd "$SCRIPTS/.." && pwd)"
 RO="$QROOT/run_overnight.sh"; SR="$QROOT/ovn_stage_runner.sh"
 fail=0; ok(){ echo "  ok   - $1"; }; bad(){ echo "  FAIL - $1"; fail=1; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 echo "S1 run_overnight.sh: hook sits after the implement loop and before every verifying gate"
 ln_impl="$(grep -n 'implement attempt \${ATTEMPT}' "$RO" | head -1 | cut -d: -f1)"
@@ -41,7 +42,7 @@ PYX="${OVN_TEST_PY:-$HOME/overnight-queue/repos/test-automation-agent/backend/.v
 "$PYX" -c 'import alembic, sqlalchemy' 2>/dev/null || { echo "SKIP B/C/W: no python with alembic+sqlalchemy ($PYX)"; [ "$fail" = 0 ] && echo "ALL PASS (static only)" || { echo FAILURES; exit 1; }; exit 0; }
 
 mkrepo() {  # $1 = repo dir name (basename matters: allowlist)
-  local R; R="$(mktemp -d "$T/r.XXXXXX")/$1"; mkdir -p "$R/proj/app" "$R/proj/alembic/versions" "$R/proj/tests"; cd "$R" || exit 1
+  local R; R="$(safe_mktemp_dir_in "$T" r)" || exit 1; R="$R/$1"; mkdir -p "$R/proj/app" "$R/proj/alembic/versions" "$R/proj/tests"; cd "$R" || exit 1
   git init -q . && git config user.email t@t && git config user.name t
   ln -s "$(dirname "$(dirname "$PYX")")" proj/.venv
   printf '[alembic]\nscript_location = alembic\nprepend_sys_path = .\n' > proj/alembic.ini

@@ -13,6 +13,10 @@
 #   returns 0 = green OR nothing to run OR infrastructure trouble (timeout / missing tool / usage error / internal error: PROCEED),
 #           1 = a new/changed test file ran and FAILED (pytest rc 1/2, GUT junit not green).  Never raises.
 # Kill switch: OVN_RUN_NEW_TESTS=off (checked by the caller AND here). Max files per run: OVN_NEW_TESTS_MAX (default 25; more => the first 25).
+# OVN_NEW_TESTS_OUTSIDE_PKG=enforce|shadow|off (default enforce): a new/changed python test file OUTSIDE the pytest package dir (PKG != '.') is never collected by the FULL verify and
+# never run by this helper, so it "passes" as a ghost. 2026-10-18 landing audit (test-automation-agent): the staged runner credited tests/test_run_status.py (repo root, package is backend/)
+# for an item whose VERIFY was UNRUNNABLE - it cannot even import `app`, and the tautological test it held passed nowhere. enforce = NEW-TESTS RED naming the file(s) (the repair loop reads it
+# and moves the test under PKG); shadow = log only.
 ovn_new_test_files() {
   local wt="$1" before="$2"
   [ -d "$wt" ] || return 0
@@ -24,17 +28,24 @@ ovn_run_new_tests() {
   local wt="$1" pkg="${2:-.}" pytest="${3:-}" godot="${4:-}" before="${5:-HEAD}" log="${6:-/dev/null}"
   [ "${OVN_RUN_NEW_TESTS:-on}" = "off" ] && return 0
   [ -d "$wt" ] || return 0
-  local max="${OVN_NEW_TESTS_MAX:-25}" files py=() gd=() f rel rc
+  local max="${OVN_NEW_TESTS_MAX:-25}" files py=() gd=() ghost=() f rel rc
   files="$(ovn_new_test_files "$wt" "$before" | head -n "$max")"
   [ -n "$files" ] || return 0
   while IFS= read -r f; do
     [ -f "$wt/$f" ] || continue
     case "$f" in
-      *.py) if [ "$pkg" = "." ]; then py+=("$f"); else case "$f" in "$pkg"/*) py+=("${f#"$pkg"/}");; esac; fi ;;
+      *.py) if [ "$pkg" = "." ]; then py+=("$f"); else case "$f" in "$pkg"/*) py+=("${f#"$pkg"/}");; *) ghost+=("$f");; esac; fi ;;
       *.gd) grep -qE '^extends[[:space:]]+(GutTest|"res://addons/gut/test.gd")' "$wt/$f" 2>/dev/null && gd+=("res://$f") ;;
     esac
   done <<< "$files"
-  local bad=0
+  local bad=0 gmode="${OVN_NEW_TESTS_OUTSIDE_PKG:-enforce}"
+  if [ "${#ghost[@]}" -gt 0 ] && [ -n "$pytest" ] && [ "$gmode" != off ]; then
+    if [ "$gmode" = shadow ]; then
+      echo "-- new-tests (shadow): python test file(s) outside the pytest package dir '$pkg' would never be collected: ${ghost[*]} --" >> "$log"
+    else
+      echo "-- NEW-TESTS RED: python test file(s) outside the pytest package dir '$pkg' are never collected by the suite (ghost tests): ${ghost[*]} - put the test under $pkg/ (e.g. $pkg/tests/) --" >> "$log"; bad=1
+    fi
+  fi
   if [ "${#py[@]}" -gt 0 ] && [ -n "$pytest" ] && [ -x "$pytest" ]; then
     echo "-- new/changed python tests (explicit run): ${py[*]} --" >> "$log"
     ( cd "$wt/$pkg" && timeout "${OVN_NEW_TESTS_TIMEOUT:-300}" "$pytest" -q -o addopts="" -p no:cacheprovider "${py[@]}" ) >> "$log" 2>&1; rc=$?

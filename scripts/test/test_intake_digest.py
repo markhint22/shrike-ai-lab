@@ -3,8 +3,10 @@
 state/verify_gate_shadow.log is every VERIFY EXECUTION, so raw FAIL rows inflate the picture (116 FAIL of 153 rows: ~54 of them three unwinnable clauses retried every 10-20 minutes, and
 many commands go FAIL then PASS = a healthy red-before / green-after). Rows from non-fleet repo labels (a test run that wrote into the live state dir) are labelled, never counted.
 Mutation proofs: ordering by (ts, seq) replaced by file order, the fleet filter removed, `last` taken from the first row."""
+import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,6 +37,7 @@ def iso(h_ago):
 
 
 st = tempfile.mkdtemp(prefix="digest-intake-")
+atexit.register(shutil.rmtree, st, True)   # 2026-10-17: both mkdtemp dirs were left behind
 with open(os.path.join(st, "outcomes.jsonl"), "w") as f:
     f.write(json.dumps({"ts": iso(1), "repo": "xlite", "class": "landed", "status": "pushed(tests:pass)"}) + "\n")
 G = "godot --headless -s addons/gut/gut_cmdln.gd -gtest=res://tests/test_x.gd -gexit"
@@ -84,6 +87,7 @@ ok("[mut] the foreign FAIL row is not in the FAIL count and its command is not a
 ok("a repo seen in the outcomes is a fleet repo even when it is not in the built-in list",
    D.build(st, 24, NOW, 10)["verify_shadow"]["foreign_labels"].get("xlite") is None)
 st2 = tempfile.mkdtemp(prefix="digest-intake2-")
+atexit.register(shutil.rmtree, st2, True)
 with open(os.path.join(st2, "outcomes.jsonl"), "w") as f:
     f.write(json.dumps({"ts": iso(1), "repo": "newrepo", "class": "landed", "status": "pushed(tests:pass)"}) + "\n")
 with open(os.path.join(st2, "verify_gate_shadow.log"), "w") as f:

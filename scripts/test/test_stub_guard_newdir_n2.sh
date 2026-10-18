@@ -5,12 +5,13 @@
 # or within edit distance 2) while the collapsed path exists, or that is within distance 2 of an existing sibling directory. SHADOW by default (stub anyway + one line in
 # logs/stub_guard.log); OVN_STUB_NEWDIR_GUARD=enforce refuses (SKIP|new-dir-...); =off skips. The stub step itself resolves paths against the repo root correctly (verified).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 G="${OVN_STUB_GUARD:-$HERE/../ovn_stub_guard.py}"
 [ -f "$G" ] || { echo "  FAIL: $G not found"; exit 1; }
 P=0; F=0
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1 (got [$2] want [$3])"; fi; }
-W="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$W"' EXIT
+W="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "${W:?}"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 LOG="$W/stub_guard.log"; export OVN_STUB_GUARD_LOG="$LOG"
 unset OVN_STUB_NEWDIR_GUARD

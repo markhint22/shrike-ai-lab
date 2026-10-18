@@ -2,6 +2,7 @@
 # Wave-3c coverage tests (real scripts executed in place): ovn_noop_detail.py, ovn_batch_scorecard.py,
 # ovn_derive_legacy_logs.py, check_migrations.py. Hermetic: temp HOME/TASK_STATS/state dirs only.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 D="$HERE/.."; [ -f "$D/check_migrations.py" ] || D="$HERE"
 export PYTHONDONTWRITEBYTECODE=1
@@ -10,8 +11,8 @@ ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((f
 has(){ if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1" 1; else ok "$1 (output: $(printf '%s' "$2" | head -c 200))" 0; fi; }
 kb(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   KNOWN-BUG (now fixed): $1"; else echo "  WARN KNOWN-BUG: $1 (non-fatal)"; fi; }
 hasnt(){ if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1 (unexpected: $3)" 0; else ok "$1" 1; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export HOME="$T/home"; mkdir -p "$HOME"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME"
 now="$(date +%s)"
 
 # ============================================================== ovn_noop_detail

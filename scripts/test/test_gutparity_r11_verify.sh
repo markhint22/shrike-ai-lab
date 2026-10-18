@@ -35,7 +35,7 @@ chmod +x "$HOME/godot/godot4"
 
 task_log="$T/verify.task.log"; : > "$task_log"
 V="$T/v"
-newrepo(){ rm -rf "$V"; mkdir -p "$V/addons/gut" "$V/tests"; cd "$V" || exit 1; git init -q; echo x > project.godot; echo x > addons/gut/gut_cmdln.gd; echo base > README; touch red_old.flag
+newrepo(){ rm -rf "${V:?}"; mkdir -p "$V/addons/gut" "$V/tests"; cd "$V" || exit 1; git init -q; echo x > project.godot; echo x > addons/gut/gut_cmdln.gd; echo base > README; touch red_old.flag
   git add -A; git commit -q -m base; BEFORE_SHA="$(git rev-parse HEAD)"; : > "$task_log"; rm -rf "${T:?}/tree/state"; mkdir -p "$T/tree/state"; }
 commit_all(){ git add -A; git commit -q -m c; AFTER_SHA="$(git rev-parse HEAD)"; }
 ST="$T/tree/state"

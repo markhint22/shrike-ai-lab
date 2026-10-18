@@ -7,13 +7,14 @@
 # Hermetic (lib_ar_fixture.sh): temp HOME/state, stub ssh/scp/claude, the "box" is a temp dir. The real claude CLI and ~/.ovn_auto_research are never touched.
 # Assertions about the prompt read the file the stub `claude` captured, never the script source. Mutation checks at the bottom.
 # No `x | grep -q` (pipefail-safe: no pipefail anyway), no kill -0, no greps that can match comments (all greps run on captured output/prompt files).
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../../ovn_auto_research.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/../ovn_auto_research.sh"
 VALIDATOR="$HERE/../../ovn_auto_research_validate.py"; [ -f "$VALIDATOR" ] || VALIDATOR="$HERE/../ovn_auto_research_validate.py"
 . "$HERE/lib_ar_fixture.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-MT="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
+MT="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "${MT:?}"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
 META='{cat: backend; size: S; multifile: no; research: repo}'
 
 mutate(){   # <src> <dest> <anchor> <replacement>  (the anchor must exist, else the test itself is stale)
@@ -26,7 +27,7 @@ open(dest, "w").write(s.replace(a, b, 1))
 PY
 }
 order_of(){ grep -a "starting research pass" "$T/out.txt" | sed 's/^[^ ]* [^ ]* \([^:]*\):.*/\1/' | tr '\n' ' '; }
-fresh_state(){ rm -rf "$STATE" "$CAP"; mkdir -p "$STATE" "$CAP"; : > "$BOX/ssh.log"; }
+fresh_state(){ rm -rf "${STATE:?}" "${CAP:?}"; mkdir -p "$STATE" "$CAP"; : > "$BOX/ssh.log"; }
 seed_roadmaps(){ for r in iptv_apps xlite billwatch shrike-notify shrike-monitor; do ar_roadmap "$r" "- [x] [P1] [done] Old feature of $r — app/old.py $META"; done; }
 
 # ---- round-robin scenarios; prints "1|name" / "0|name" lines. All 1 for the real script; every mutant must produce at least one 0.
@@ -145,7 +146,7 @@ ar_cleanup; T=""
 echo "== validator: mechanical-gap proposals rejected, design proposals accepted =="
 vsuite(){   # <validator path> [env...] -> "1|name" / "0|name" lines
   local v="$1"; shift
-  local d; d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
+  local d; d="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   : > "$d/existing.md"
   cat > "$d/p.md" <<EOP
 - [ ] [P3] [ready] Add docstrings to the public functions in app/services/foo.py — app/services/foo.py has none $META
@@ -167,7 +168,7 @@ EOP
   [ "$(grep -c 'Delete dead calculate_backoff_delay helper' "$d/out.txt")" = 1 ] && echo "1|a dead-code delete WITH a callers analysis (grep, zero callers) is accepted" || echo "0|a dead-code delete WITH a callers analysis (grep, zero callers) is accepted"
   [ "$(grep -c 'Handle the IntegrityError race' "$d/out.txt")" = 1 ] && echo "1|the word 'docstring' in the BODY of a real bug is not a mechanical gap" || echo "0|the word 'docstring' in the BODY of a real bug is not a mechanical gap"
   [ "$(grep -c '^accepted 3/8$' "$d/err.txt")" = 1 ] && echo "1|exactly 3 of 8 accepted" || echo "0|exactly 3 of 8 accepted [$(tail -1 "$d/err.txt")]"
-  rm -rf "$d"
+  rm -rf "${d:?}"
 }
 res="$(vsuite "$VALIDATOR")"
 while IFS='|' read -r v name; do [ -n "$name" ] && ok "$name" "[ $v = 1 ]"; done <<EOF
@@ -175,7 +176,7 @@ $res
 EOF
 # (review fix) real behaviour/bug titles that the first version of the gate rejected. Each must be ACCEPTED; the pure mechanical ones must still be rejected.
 vsuite2(){   # <validator path> -> "1|name" / "0|name" lines
-  local v="$1" d t; shift; d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
+  local v="$1" d t; shift; d="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   : > "$d/existing.md"
   : > "$d/p.md"
   while IFS='|' read -r title body; do
@@ -207,7 +208,7 @@ Delete unused helper functions in app/services/foo.py
 EOT
   env "$@" python3 "$v" "$d/p2.md" "$d/existing.md" 12 > "$d/out2.txt" 2> "$d/err2.txt"
   [ "$(grep -c 'mechanical-gap: handled by supply' "$d/err2.txt")" = 6 ] && echo "1|all 6 pure mechanical titles are still rejected" || echo "0|all 6 pure mechanical titles are still rejected [$(tail -1 "$d/err2.txt")]"
-  rm -rf "$d"
+  rm -rf "${d:?}"
 }
 res="$(vsuite2 "$VALIDATOR")"
 while IFS='|' read -r v name; do [ -n "$name" ] && ok "$name" "[ $v = 1 ]"; done <<EOF
@@ -217,7 +218,7 @@ EOF
 # (round-3 review fix) the bug-evidence escape must not be a bypass: a bare 500-599 number (a line number / LOC count), the bare words 'raises', 'fail*', 'startup',
 # and 'Cleanup imports' / 'Add comments to the X module' phrasings used to let pure mechanical items through. Each must be REJECTED; concrete symptoms still escape.
 vsuite3(){   # <validator path> -> "1|name" / "0|name" lines
-  local v="$1" d n; shift; d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
+  local v="$1" d n; shift; d="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   : > "$d/existing.md"; : > "$d/p.md"
   while IFS='|' read -r title body; do
     [ -n "$title" ] || continue
@@ -245,20 +246,20 @@ Add docstrings to the helpers|app/h.py raises an uncaught exception on every req
 EOT
   env "$@" python3 "$v" "$d/p2.md" "$d/existing.md" 12 > "$d/out2.txt" 2> "$d/err2.txt"
   [ "$(grep -c . "$d/out2.txt")" = 4 ] && echo "1|concrete failing symptoms (HTTP 503, traceback, circular import, uncaught exception) still escape the gate" || echo "0|concrete failing symptoms (HTTP 503, traceback, circular import, uncaught exception) still escape the gate [$(grep -a 'reject\|accepted' "$d/err2.txt" | tr '\n' '~')]"
-  rm -rf "$d"
+  rm -rf "${d:?}"
 }
 res="$(vsuite3 "$VALIDATOR")"
 while IFS='|' read -r v name; do [ -n "$name" ] && ok "$name" "[ $v = 1 ]"; done <<EOF
 $res
 EOF
 
-d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; : > "$d/e.md"
+d="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; : > "$d/e.md"
 printf '%s\n' "- [ ] [P3] [ready] Add docstrings to the public functions in app/services/foo.py — app/services/foo.py has none $META" > "$d/p.md"
 OVN_AR_MECHANICAL_REJECT=off python3 "$VALIDATOR" "$d/p.md" "$d/e.md" 12 > "$d/out.txt" 2> "$d/err.txt"
 ok "kill switch OVN_AR_MECHANICAL_REJECT=off accepts it" "[ \"\$(grep -c 'Add docstrings' '$d/out.txt')\" = 1 ]"
 python3 "$VALIDATOR" "$d/p.md" "$d/e.md" 12 > "$d/out.txt" 2> "$d/err.txt"
 ok "NEGATIVE control: with the default setting the same line is rejected" "[ \"\$(grep -c 'Add docstrings' '$d/out.txt')\" = 0 ]"
-rm -rf "$d"
+rm -rf "${d:?}"
 
 echo "== mutation checks: break each rule, the suites above must notice =="
 nfail(){ printf '%s\n' "$1" | grep -c '^0|'; }
@@ -273,11 +274,11 @@ mv_val "callers-analysis exemption ignored" 'and not CALLER_ANALYSIS_RE.search(t
 mv_val "patterns matched against the BODY too" 'if any(p.search(title) for p in MECH_PATTERNS):' 'if any(p.search(title + " " + body) for p in MECH_PATTERNS):'
 mv_val "wrong rejection reason" 'mechanical-gap: handled by supply' 'mechanical'
 mutate "$VALIDATOR" "$MT/v.py" 'if os.environ.get("OVN_AR_MECHANICAL_REJECT", "on") == "off":' 'if False:'
-d="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; : > "$d/e.md"
+d="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; : > "$d/e.md"
 printf '%s\n' "- [ ] [P3] [ready] Add docstrings to the public functions in app/services/foo.py — app/services/foo.py has none $META" > "$d/p.md"
 OVN_AR_MECHANICAL_REJECT=off python3 "$MT/v.py" "$d/p.md" "$d/e.md" 12 > "$d/out.txt" 2>/dev/null
 ok "validator mutant 'kill switch ignored' is caught" "[ \"\$(grep -c 'Add docstrings' '$d/out.txt')\" = 0 ]"
-rm -rf "$d"
+rm -rf "${d:?}"
 
 mv_val2(){   # <name> <anchor> <replacement>  (review-fix regressions: the OLD over-broad rules must be caught)
   mutate "$VALIDATOR" "$MT/v.py" "$2" "$3"

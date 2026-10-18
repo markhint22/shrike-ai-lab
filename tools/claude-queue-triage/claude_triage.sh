@@ -7,7 +7,7 @@ git worktree remove --force "$WT" 2>/dev/null; git worktree add -q --detach "$WT
 trap 'cd "$Q/repos/$r" && git worktree remove --force "$WT" 2>/dev/null; git worktree prune' EXIT
 [ -d "$Q/repos/$r/iptv-backend/.venv" ] && ln -s "$Q/repos/$r/iptv-backend/.venv" "$WT/iptv-backend/.venv" 2>/dev/null
 cd "$WT" || exit 1
-export PROG="$WT/OVERNIGHT_PROGRESS.md" SHADOW_LOG="/tmp/ct_$r.shadow.log" _REPO_LABEL="$r" HOME="$HOME"
+export PROG="$WT/OVERNIGHT_PROGRESS.md" SHADOW_LOG="/tmp/ct_$r.shadow.log" _REPO_LABEL="$r"
 export VERIFY_TIMEOUT_SECS=90 VERIFY_TIMEOUT_HEAVY_SECS=240 _VC_MEMO_ON=1
 source "$Q/scripts/lib_verify_clause.sh"
 n=0

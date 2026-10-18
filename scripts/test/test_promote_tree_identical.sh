@@ -6,12 +6,13 @@
 # the old behaviour. Runs the REAL scripts against temp bare origins + clones in a hermetic fake HOME (env -i, curl is a recording shim: nothing can reach a
 # network, ntfy.sh or a real deploy), then runs the same scenarios against 5 mutants, each of which must be caught.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ="$HERE/../.."; [ -f "$OQ/promote_to_prod.sh" ] || OQ="$HERE/.."
 for f in promote_to_prod.sh daily_promote.sh; do [ -f "$OQ/$f" ] || { echo "  SKIP: $f not found"; exit 0; }; done
 OQ="$(cd "$OQ" && pwd)"
-T="$(mktemp -d)" || exit 1; trap 'cd /; rm -rf "$T"' EXIT
-T="$(cd "$T" && pwd -P)"   # /private/var vs /var on macOS
+T="$(safe_mktemp_dir)" || exit 1; trap 'cd /; rm -rf "$T"' EXIT
+   # /private/var vs /var on macOS
 P=0; F=0
 # assertions are evaluated with pipefail OFF (no `x | grep -q` flakiness); conditions use grep -c / [ ] only
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $SUITE: $1"; fi; }
@@ -26,7 +27,7 @@ EXTRA=()
 # ---- fake queue dir + repos -------------------------------------------------------------------------------------------------------------------------
 setup(){  # $1=promote_to_prod.sh to test  $2=daily_promote.sh to test
   rm -rf "${T:?}/home" "${T:?}/origin" "${T:?}/seed"
-  export HOME="$T/home"; Q="$HOME/overnight-queue"; OUT="$T/out.log"
+  safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; OUT="$T/out.log"
   mkdir -p "$Q/state" "$Q/repos" "$Q/logs" "$T/origin" "$T/seed"
   cp "$1" "$Q/promote_to_prod.sh"; cp "$2" "$Q/daily_promote.sh"; chmod +x "$Q/promote_to_prod.sh" "$Q/daily_promote.sh"
   : > "$T/curl.log"; EXTRA=()

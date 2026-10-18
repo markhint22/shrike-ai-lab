@@ -4,6 +4,7 @@
 #   repairs R01-R03 apply ONLY for rules in OVN_SPEC_GATE_ENFORCE_RULES; R04/R05/R07/R10/PB quarantine, R06 holds, R08 is never enforced; unjudged policy;
 #   6h TTL; quarantine file format; restore round-trip (sticky); the ingest ban filter (A2); the vacuous-echo count (A3); kill switches.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
 QR="${OVN_QUEUE_REFILL_PY:-$HERE/../../queue_refill.py}"
@@ -11,7 +12,7 @@ QR="${OVN_QUEUE_REFILL_PY:-$HERE/../../queue_refill.py}"
 P=0; F=0
 # assertions are evaluated with pipefail OFF (under pipefail `A | grep -q X` is flaky: grep -q exits at its first hit and A may take SIGPIPE)
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; tmp="$(cd "$tmp" && pwd -P)"; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 NOW=2026-10-09T12:00:00Z
 STALE=2026-10-09T05:00:00Z   # 7h before NOW: past the 6h TTL
 
@@ -57,23 +58,23 @@ out="$(refill "$D" 10 OVN_SPEC_GATE_ENFORCE_RULES=)"
 prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"
 ok "nothing enforced (OVN_SPEC_GATE_ENFORCE_RULES set empty): all four lines pulled byte-for-byte unchanged" "[ \"\$(grep -c '^- \\[ \\] \\[T' '$prog')\" = 4 ] && grep -qF -- '$L_BARE' '$prog' && grep -qF -- '$L_VAC' '$prog' && grep -qF -- '$L_NARR' '$prog'"
 ok "... and the vacuous-echo line is only COUNTED (VACUOUS_ECHO=1, no REPAIRED)" "printf '%s' '$out' | grep -c 'VACUOUS_ECHO=1' | grep -qx 1 && [ \"\$(printf '%s' '$out' | grep -c 'REPAIRED')\" = 0 ]"
-rm -rf "$D"; D="$(fresh repair1)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
+rm -rf "${D:?}"; D="$(fresh repair1)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
 out="$(refill "$D" 10 OVN_SPEC_GATE_ENFORCE_RULES=R01)"
 ok "R01 only: the bare VERIFY is backticked; the vacuous and narrated lines are untouched" "grep -qF 'VERIFY: \`grep -q old f.txt\` (cat:' '$prog' && grep -qF -- '$L_VAC' '$prog' && grep -qF -- '$L_NARR' '$prog'"
 ok "R01 only: REPAIRED is not reported (that field counts R02 repairs)" "[ \"\$(printf '%s' '$out' | grep -c 'REPAIRED=')\" = 0 ]"
-rm -rf "$D"; D="$(fresh repair2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
+rm -rf "${D:?}"; D="$(fresh repair2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
 out="$(refill "$D" 10 OVN_SPEC_GATE_ENFORCE_RULES=R02)"
 ok "R02 only: the vacuous idiom is repaired to ! ( cmd ); bare and narrated lines untouched" "grep -qF 'VERIFY: \`! ( grep -q old g.txt )\`' '$prog' && grep -qF -- '$L_BARE' '$prog' && grep -qF -- '$L_NARR' '$prog'"
 ok "R02: REPAIRED=1 and VACUOUS_ECHO=1 reported" "printf '%s' '$out' | grep -c 'REPAIRED=1' | grep -qx 1 && printf '%s' '$out' | grep -c 'VACUOUS_ECHO=1' | grep -qx 1"
 ok "the backlog copies were removed by their ORIGINAL text (nothing left to re-pull)" "[ \"\$(grep -c '^- \\[ \\]' '$D/backlog/demo.md')\" = 0 ]"
-rm -rf "$D"; D="$(fresh repair3)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
+rm -rf "${D:?}"; D="$(fresh repair3)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
 refill "$D" 10 OVN_SPEC_GATE_ENFORCE_RULES=R03 >/dev/null
 ok "R03 only: the narrated failure becomes ! cmd" "grep -qF 'VERIFY: \`! grep -q old h.txt\`' '$prog' && grep -qF -- '$L_BARE' '$prog' && grep -qF -- '$L_VAC' '$prog'"
 ok "the plain line is never touched by any repair" "grep -qF -- '$L_PLAIN' '$prog'"
-rm -rf "$D"; D="$(fresh repair4)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
+rm -rf "${D:?}"; D="$(fresh repair4)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n%s\n%s\n' "$L_BARE" "$L_VAC" "$L_NARR" "$L_PLAIN" > "$D/backlog/demo.md"
 refill "$D" 10 OVN_SPEC_GATE_ENFORCE_RULES=R01,R02,R03 >/dev/null
 ok "R01,R02,R03: all three repaired" "grep -qF 'VERIFY: \`grep -q old f.txt\` (cat:' '$prog' && grep -qF '! ( grep -q old g.txt )' '$prog' && grep -qF '\`! grep -q old h.txt\`' '$prog'"
-rm -rf "$D"; D="$(fresh repair5)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n' "$L_VAC" "$L_BARE" > "$D/backlog/demo.md"
+rm -rf "${D:?}"; D="$(fresh repair5)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n' "$L_VAC" "$L_BARE" > "$D/backlog/demo.md"
 refill "$D" 10 OVN_SPEC_GATE=off OVN_SPEC_GATE_ENFORCE_RULES=R01,R02,R03 >/dev/null
 ok "KILL SWITCH OVN_SPEC_GATE=off: nothing repaired even with rules enforced" "grep -qF -- '$L_VAC' '$prog' && grep -qF -- '$L_BARE' '$prog'"
 # mutation: a queue_refill whose gate ignores the (empty) enforce list repairs by default - the 'nothing enforced' assertion above would catch it
@@ -128,7 +129,7 @@ vrow "$D" "$Q_R05" "$(FIND R05)" null >/dev/null; vrow "$D" "$Q_R07" "$(FIND R07
 vrow "$D" "$P_PB" '[]' '{"verdict":"passes-before","sub":"","rc":0,"ms":5}' >/dev/null
 refill "$D" 20 OVN_SPEC_GATE_ENFORCE_RULES=R07 >/dev/null
 ok "R07 enforced alone: only the R07 line is quarantined; R05, R06 (not held) and passes-before lines are pulled" "[ \"\$(grep -c . '$D/backlog/quarantine/demo.md')\" = 1 ] && grep -c 'spec-gate:R07' '$D/backlog/quarantine/demo.md' | grep -qx 1 && [ \"\$(paths '$prog')\" = 'a.py,d.py,k.py,' ]"
-rm -rf "$D"; D="$(fresh partial2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"
+rm -rf "${D:?}"; D="$(fresh partial2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"
 printf '%s\n' "$Q_R05" "$P_PB" > "$D/backlog/demo.md"; vrow "$D" "$Q_R05" "$(FIND R05)" null >/dev/null; vrow "$D" "$P_PB" '[]' '{"verdict":"passes-before","sub":"","rc":0,"ms":5}' >/dev/null
 refill "$D" 20 OVN_SPEC_GATE_ENFORCE_RULES=PB >/dev/null
 ok "PB enforced alone: only the passes-before line is quarantined" "[ \"\$(grep -c . '$D/backlog/quarantine/demo.md')\" = 1 ] && grep -c 'spec-gate:PB' '$D/backlog/quarantine/demo.md' | grep -qx 1 && [ \"\$(paths '$prog')\" = 'a.py,' ]"
@@ -159,7 +160,7 @@ echo "== unjudged policy"
 D="$(fresh unjudged)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n%s\n' "$U_NOV" "$Q_R05" > "$D/backlog/demo.md"; vrow "$D" "$Q_R05" '[]' null >/dev/null
 out="$(refill "$D" 20 OVN_SPEC_GATE_ENFORCE_RULES=R05 OVN_SPEC_GATE_UNJUDGED=hold)"
 ok "OVN_SPEC_GATE_UNJUDGED=hold: the line with no verdict stays in the backlog, the judged clean line is pulled" "grep -qF -- '$U_NOV' '$D/backlog/demo.md' && [ \"\$(paths '$prog')\" = 'a.py,' ] && printf '%s' '$out' | grep -c 'HELD=1' | grep -qx 1"
-rm -rf "$D"; D="$(fresh unjudged2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n' "$U_NOV" > "$D/backlog/demo.md"
+rm -rf "${D:?}"; D="$(fresh unjudged2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"; printf '%s\n' "$U_NOV" > "$D/backlog/demo.md"
 refill "$D" 20 OVN_SPEC_GATE_ENFORCE_RULES=R01 OVN_SPEC_GATE_UNJUDGED=hold >/dev/null
 ok "'hold' only matters when a verdict-based rule is enforced (R01 alone: pulled)" "[ \"\$(paths '$prog')\" = 'u.py,' ]"
 
@@ -172,12 +173,12 @@ printf '# banned\nscripts/battle/battle.gd\ntests/test_mission_select\n' > "$D/r
 out="$(refill "$D" 5)"
 ok "37 banned lines are quarantined with R04 markers (35 addons/ + 1 listed); the good line is pulled despite 36 lines ahead of it (not counted against SCAN_CAP)" "printf '%s' '$out' | grep -c 'QUARANTINED=36' | grep -qx 1 && [ \"\$(grep -c 'spec-gate:R04' '$D/backlog/quarantine/demo.md')\" = 36 ] && [ \"\$(paths '$prog')\" = 'scripts/ok.gd,' ]"
 ok "a banned PATH appearing only in the body/VERIFY does not quarantine (scripts/ok.gd pulled)" "grep -c 'scripts/ok.gd' '$prog' | grep -qx 1"
-rm -rf "$D"; D="$(fresh ban2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"
+rm -rf "${D:?}"; D="$(fresh ban2)"; prog="$D/repos/demo/OVERNIGHT_PROGRESS.md"
 printf '# banned\naddons/\n' > "$D/repos/demo/.queue-hard-banned-files"
 printf -- '- [ ] [T2] addons/gut/x.gd — vendored. VERIFY: `true`. (cat:python)\n' > "$D/backlog/demo.md"
 refill "$D" 5 OVN_INGEST_BAN_FILTER=off >/dev/null
 ok "OVN_INGEST_BAN_FILTER=off: the vendored line is pulled as before" "[ \"\$(paths '$prog')\" = 'addons/gut/x.gd,' ] && [ ! -e '$D/backlog/quarantine' ]"
-rm -rf "$D"; D="$(fresh ban3)"
+rm -rf "${D:?}"; D="$(fresh ban3)"
 printf -- '- [ ] [T2] addons/gut/x.gd — vendored. VERIFY: `true`. (cat:python)\n' > "$D/backlog/demo.md"
 refill "$D" 5 >/dev/null
 printf -- '- [ ] [T2] addons/gut/x.gd — vendored. VERIFY: `true`. (cat:python)\n' > "$D/backlog/demo.md"

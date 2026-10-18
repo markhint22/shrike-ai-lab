@@ -21,15 +21,22 @@ __OVN_TMP_LIBDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 __ovn_tmp_lower(){ printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 __ovn_tmp_started(){ ps -p "$1" -o lstart= 2>/dev/null | sed 's/^ *//; s/ *$//'; }   # process start time ("" when the pid is not running)
 # rc 0 when the pid recorded in the pid file ("<pid>|<start>") is a LIVE process that is the same one that wrote it (a reused pid has a different start time)
+# 2026-10-17: pid namespace of this process ("" where /proc has none). Two bwrap sandboxes (the cron suite and an agent/manual run_all_sandboxed.sh) both see their run_all as pid 2 and
+# cannot see each other's pids, so the pid+start check read a LIVE holder in the other sandbox as dead, "replaced the stale lock" and ran concurrently in the SAME $BASE/run.2: each run's
+# leak report then counted the other run's files (the 654 / 1166-entry "leaks") and its sweep/cleanup removed the other's root. A holder recorded from a DIFFERENT pid namespace cannot be
+# verified from here, so while its flock is still held it counts as alive (refuse, exit 75).
+__ovn_tmp_ns(){ readlink /proc/self/ns/pid 2>/dev/null; }
 __ovn_tmp_holder_alive(){
-  local rec pid st cur
-  rec="$(cat "$1" 2>/dev/null)"; pid="${rec%%|*}"; st="${rec#*|}"
+  local rec pid st cur rest ns
+  rec="$(cat "$1" 2>/dev/null)"; pid="${rec%%|*}"; rest="${rec#*|}"; st="${rest%%|*}"; ns=""
+  case "$rest" in *\|*) ns="${rest#*|}";; esac
   case "$pid" in ''|*[!0-9]*) return 1;; esac
+  [ -n "$ns" ] && [ "$ns" != "$(__ovn_tmp_ns)" ] && return 0
   kill -0 "$pid" 2>/dev/null || return 1
   cur="$(__ovn_tmp_started "$pid")"
   [ -n "$cur" ] && [ "$cur" = "$st" ]
 }
-__ovn_tmp_write_pid(){ printf '%s|%s\n' "$$" "$(__ovn_tmp_started $$)" > "$1.pid"; }
+__ovn_tmp_write_pid(){ printf '%s|%s|%s\n' "$$" "$(__ovn_tmp_started $$)" "$(__ovn_tmp_ns)" > "$1.pid"; }
 
 
 # 2026-10-16 (HOME-deletion incident hardening). A pid is ALIVE when kill -0 succeeds OR ps can see it: kill -0 fails with EPERM for another user's process, which the old
@@ -79,6 +86,12 @@ __ovn_tmp_cleanup(){   # idempotent: leak report, then remove the root
     [ -d "$ad" ] && printf '[%s] WARN | test-tmp-leak | the test suite left %s entries in its private TMPDIR (warn threshold %s): a test is not cleaning up after itself\n' \
       "$(date '+%Y-%m-%d %H:%M:%S')" "$n" "${OVN_TEST_LEAK_WARN:-5000}" >> "$af" 2>/dev/null
   fi
+  # 2026-10-17: a leak this big is a defect the run must not hide: over OVN_TEST_LEAK_FAIL (default 20000, 0 = never fail) the run is NOT green. The 654-entry leak of
+  # 2026-10-16 was only reported (and correctly did not decide the verdict: A/B failures did); the 413k-entry leak of 2026-10-14 must fail. Warn stays at OVN_TEST_LEAK_WARN.
+  if [ "${OVN_TEST_LEAK_FAIL:-20000}" -gt 0 ] 2>/dev/null && [ "$n" -gt "${OVN_TEST_LEAK_FAIL:-20000}" ] 2>/dev/null; then
+    OVN_TMP_LEAK_FAILED=1
+    echo "tmp-leak: FAIL - $n entries is over the failure limit OVN_TEST_LEAK_FAIL=${OVN_TEST_LEAK_FAIL:-20000} (the tmp-leak-top lines above name the leakers)"
+  fi
   # never remove a root another live run owns (pid reuse / a stray OVN_TMP_ROOT): our own marker says "$$"
   if [ -f "$root/.ovn_owner" ] && [ "$(cut -d'|' -f1 "$root/.ovn_owner" 2>/dev/null)" != "$$" ] && __ovn_tmp_root_owner_alive "$root"; then
     echo "tmp-isolation: $root is owned by another live run - not removing it" >&2; OVN_TMP_ROOT=""; return 0
@@ -91,6 +104,7 @@ __ovn_tmp_on_exit(){
   trap - EXIT INT TERM
   [ -z "$OVN_TMP_PREV_EXIT" ] || eval "$OVN_TMP_PREV_EXIT"
   __ovn_tmp_cleanup
+  [ "$rc" -eq 0 ] && [ -n "${OVN_TMP_LEAK_FAILED:-}" ] && { echo "❌ SOME QUEUE TESTS FAILED (tmp leak over the failure limit)"; rc=1; }
   [ -n "${OVN_TMP_LOCKPID_OWNED:-}" ] && rm -f "$OVN_TMP_LOCKPID_OWNED" 2>/dev/null
   exit "$rc"
 }
@@ -125,7 +139,7 @@ ovn_tmp_isolate(){
         echo "tmp-isolation: another run_all.sh is in progress (pid $(cut -d'|' -f1 "$lock.pid" 2>/dev/null)) - refusing to start a second one (exit 75)" >&2; exit 75
       fi
       # the recorded holder is dead (or unknown) but the lock is still held: an orphan inherited the fd. Replace the lock file under a mutex so two starters cannot both "recover".
-      find "$lock.recover" -maxdepth 0 -mmin +2 -exec rmdir {} \; 2>/dev/null
+      find "${lock:?}.recover" -maxdepth 0 -mmin +2 -exec rmdir {} \; 2>/dev/null
       if ! mkdir "$lock.recover" 2>/dev/null; then
         echo "tmp-isolation: another run is recovering a stale lock - refusing to start (exit 75)" >&2; exit 75
       fi

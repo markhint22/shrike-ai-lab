@@ -3,11 +3,12 @@
 # (exit 0, "NOTHING WAS TESTED"), and with OVN_TEST_REQUIRE_DOCS=1 the same situation is a FAILURE; premerge_docs_tests.sh turns any SKIP into a failure. Copies each test into a
 # private tree that has no docs/ and runs it both ways.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/scripts/test"; for t in test_cron_r10.sh test_gitignore_live_dir.sh; do cp "$HERE/$t" "$T/scripts/test/"; done
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/scripts/test"; for t in test_cron_r10.sh test_gitignore_live_dir.sh lib_safe_tmp.sh; do cp "$HERE/$t" "$T/scripts/test/"; done   # lib_safe_tmp.sh: the copied suites source it from their own dir
 cp "$HERE/../../ovn_git_sync.sh" "$T/ovn_git_sync.sh" 2>/dev/null || cp "$HERE/../ovn_git_sync.sh" "$T/ovn_git_sync.sh" 2>/dev/null
 for t in test_cron_r10.sh test_gitignore_live_dir.sh; do
   out="$(env -u OVN_TEST_REQUIRE_DOCS bash "$T/scripts/test/$t" 2>&1)"; rc=$?

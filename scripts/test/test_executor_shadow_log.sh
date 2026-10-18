@@ -9,13 +9,14 @@
 #   ovn_doc_reroute_item (parked credit-refusal doc gaps are offered only in ON mode); ovn_doc_postcheck_gate shadow / enforce / off;
 #   mutation controls. Real git repos, stub executor, no network, no model.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; Q="$(cd "$HERE/../.." && pwd)"; RUN="$Q/run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
-W="$(cd "$W" && pwd -P)"
-export HOME="$W/home"; mkdir -p "$HOME"
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"' EXIT
+
+safe_set_sandbox_home "$W" || exit 1; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"
 emit_alert(){ :; }

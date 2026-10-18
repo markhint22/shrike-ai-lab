@@ -12,7 +12,7 @@ set +e
 
 task_log="$T/verify.task.log"; : > "$task_log"
 V="$T/v"
-newrepo(){ rm -rf "$V"; mkdir -p "$V"; cd "$V" || exit 1; git init -q; echo base > README; git add -A; git commit -q -m base; BEFORE_SHA="$(git rev-parse HEAD)"; : > "$task_log"; }
+newrepo(){ rm -rf "${V:?}"; mkdir -p "$V"; cd "$V" || exit 1; git init -q; echo base > README; git add -A; git commit -q -m base; BEFORE_SHA="$(git rev-parse HEAD)"; : > "$task_log"; }
 commit_files(){ git add -A; git commit -q -m c; } # after creating files
 fakebin(){ # fakebin PATH EXITCODE [echo-text]
   mkdir -p "$(dirname "$1")"; printf '#!/bin/bash\necho "%s ran in $(pwd) args: $*" >> "%s/bins.log"\n%s\nexit %s\n' "$(basename "$(dirname "$(dirname "$1")")")/$(basename "$1")" "$RO_STUB" "${3:+echo "$3"}" "$2" > "$1"; chmod +x "$1"; }
@@ -164,7 +164,7 @@ eq "pytest green + npm green -> pass" pass "$(run_repo_verification)"
 
 echo "--- run_redgreen_check ---"
 rg_repo(){ # rg_repo SUBDIR  (venv + tests + src live under SUBDIR, '.' for root)
-  local d="$1"; rm -rf "$V"; mkdir -p "$V"; cd "$V" || exit 1; git init -q
+  local d="$1"; rm -rf "${V:?}"; mkdir -p "$V"; cd "$V" || exit 1; git init -q
   mkdir -p "$d"; [ "$d" = "." ] || true
   echo 'def f(): return "broken"' > "$d/mod.py"; : > "$d/__init__.py"
   fakebin "$d/.venv/bin/pytest" 0
@@ -200,7 +200,7 @@ eq "net-new source file (nothing to revert) -> n/a" n/a "$(run_redgreen_check "$
 has "net-new skip is logged" "$(cat "$task_log")" "did not exist at"
 
 echo "--- run_lint_check ---"
-lint_repo(){ rm -rf "$V"; mkdir -p "$V"; cd "$V" || exit 1; git init -q; echo base > README; git add -A; git commit -q -m base; LB="$(git rev-parse HEAD)"; }
+lint_repo(){ rm -rf "${V:?}"; mkdir -p "$V"; cd "$V" || exit 1; git init -q; echo base > README; git add -A; git commit -q -m base; LB="$(git rev-parse HEAD)"; }
 rm -f "$T/home/aider-venv/bin/ruff"
 lint_repo; echo 'x=1' > a.py; git add -A; git commit -q -m a; LA="$(git rev-parse HEAD)"
 eq "python change, no ruff anywhere -> 0 issues" 0 "$(run_lint_check "$LB" "$LA")"

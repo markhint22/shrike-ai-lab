@@ -2,12 +2,13 @@
 # Regression tests for staging_smoke.sh (the pre-promote staging gate): health code, JSON content-type, CORS preflight.
 # Hermetic: curl is a stub that answers from env vars (STUB_CODE / STUB_CT / STUB_HDRS) and logs every call; no network.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../../staging_smoke.sh"; [ -f "$S" ] || S="$HERE/../staging_smoke.sh"; [ -f "$S" ] || S="$HERE/staging_smoke.sh"
 [ -f "$S" ] || { echo "staging_smoke.sh not found"; exit 1; }
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 BIN="$T/bin"; mkdir -p "$BIN"; export CURL_LOG="$T/curl.log"
 cat > "$BIN/curl" <<'STUB'
 #!/usr/bin/env bash

@@ -6,20 +6,21 @@
 # and a stage status WITHOUT them bills nothing (exit 0, like bug-handled). Tests: guard counters, parking, landing, record_outcome item_hash, kill switch, wiring,
 # mutation controls.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; Q="$(cd "$HERE/../.." && pwd)"; RUN="$Q/run_overnight.sh"; GUARD="$S/ovn_item_guard.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 sedi(){ if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }   # portable in-place sed (BSD on the Mac, GNU on the box)
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
-export HOME="$W/home"; mkdir -p "$HOME"
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"' EXIT
+safe_set_sandbox_home "$W" || exit 1; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 # shellcheck disable=SC1090
 . "$S/lib_item_select.sh"
 
 A='- [ ] [T2] app/top.py — the stuck top-of-file item that the stage runner never touches. VERIFY: `true`'
 B='- [ ] [T4] [feat:iptv-20261009-stage-thing] app/stage_thing.py — the item the stage runner decomposed. VERIFY: `true`'
-mkrepo(){ local r="$W/$1"; rm -rf "$r"; mkdir -p "$r"
+mkrepo(){ local r="$W/$1"; rm -rf "${r:?}"; mkdir -p "$r"
   ( cd "$r" && git init -q -b main && git config user.email t@t && git config user.name t && printf '## Next Steps\n%s\n%s\n' "$A" "$B" > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m init ); printf '%s' "$r"; }
 HA="$(ovn_item_hash "$A")"; HB="$(ovn_item_hash "$B")"
 BTXT="${B#- \[ \] }"

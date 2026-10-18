@@ -115,6 +115,7 @@ ok("does not add a fastapi import when Request already comes from starlette", n4
 
 # --check mode on a real-shaped file
 import tempfile, subprocess
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); import tmp_track; tmp_track.install()   # 2026-10-17: every mkdtemp() below is removed at exit (the suite leaked these dirs)
 d = tempfile.mkdtemp()
 p = os.path.join(d, "r.py")
 open(p, "w").write(SRC)

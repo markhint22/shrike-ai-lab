@@ -107,11 +107,20 @@ stage_named_tests_check(){
 # Its probe rows go to their OWN log (OVN_STAGE_IV_SHADOW_LOG, default state/stage_item_verify_shadow.log), never into verify_gate_shadow.log: the pre-change probe is FAIL by design and would inflate the
 # daily digest's verify_shadow red counts
 stage_item_verify_run(){
-  local dir="$1" item="$2" tmp r
+  local dir="$1" item="$2" tmp r rdir vbin=""
   [ -f "$_SG_DIR/lib_verify_clause.sh" ] || { printf 'NO_VERIFY_CLAUSE|lib missing'; return 0; }
+  # 2026-10-18 (gitlark landing audit): the stage WORKTREE has no .venv (gitignored), so shadow_check's `find .venv/bin/python` found nothing and a bare `python` clause ran under the box's aider-venv
+  # python (no pytest, no jose): every python item VERIFY was FAIL both before AND after the change (`No module named pytest` / `No module named 'jose'`), so the item_verify verdict was noise.
+  # Put the REPO clone's venv bin first on PATH for the probe (no tree write, so stage_tree_restore has nothing to undo). OVN_STAGE_REPO_DIR overrides; default repos/<OVN_STAGE_REPO>.
+  rdir="${OVN_STAGE_REPO_DIR:-repos/${OVN_STAGE_REPO:-}}"
+  if [ -d "$rdir" ]; then
+    vbin="$(find -L "$rdir" -maxdepth 4 \( -path '*/.venv/bin/python3' -o -path '*/.venv/bin/python' \) 2>/dev/null | head -1)"
+    [ -n "$vbin" ] && vbin="$(cd "$(dirname "$vbin")" 2>/dev/null && pwd)"
+  fi
   tmp="$(mktemp)"; printf '%s\n' "- [ ] ${item}" > "$tmp"
   r="$( cd "$dir" 2>/dev/null && {
       set +u
+      [ -n "$vbin" ] && export PATH="$vbin:$PATH" VIRTUAL_ENV="${vbin%/bin}"
       PROG="$tmp"; SHADOW_LOG="${OVN_STAGE_IV_SHADOW_LOG:-${HOME}/overnight-queue/state/stage_item_verify_shadow.log}"; _REPO_LABEL="stage-$(basename "${OVN_STAGE_REPO:-repo}")"
       VERIFY_TIMEOUT_SECS="${OVN_STAGE_ITEM_VERIFY_TIMEOUT:-90}"; VERIFY_TIMEOUT_HEAVY_SECS="$VERIFY_TIMEOUT_SECS"; _VC_MEMO=""; _VC_MEMO_ON=0
       mkdir -p "$(dirname "$SHADOW_LOG")" 2>/dev/null
@@ -124,6 +133,40 @@ stage_item_verify_run(){
   rm -f "$tmp"
   [ -n "$r" ] || r="NO_VERIFY_CLAUSE|no verdict"
   printf '%s' "$r"
+}
+
+# stage_ctx_exceeded <aider output file> -> rc 0 when the 27B context window was blown. 2026-10-18 (xlite audit): the runner's own regex only knew 'context size has been exceeded' / 'context length',
+# but litellm reports 'ContextWindowExceededError ... request (73789 tokens) exceeds the available context size (65536 tokens)': three xlite attempts were filed as fail_reason=no-edit, so the
+# shrink-and-retry (map/2, drop architect+AGENTS.md) never ran and the same oversized prompt was resent (3 identical overflows per attempt pair, item escalated for the wrong reason).
+stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|context_length|prompt is too long|exceed_context|contextwindowexceeded|exceeds the available context size|exceeds the context (window|size)' "${1:-/dev/null}" 2>/dev/null; }
+
+# stage_item_verify_textonly <item> -> rc 0 when the item's FIRST backticked VERIFY command is a pure text/file probe (grep / test / [ / !-negated grep), with no runner, interpreter or build tool in it.
+# 2026-10-18 (xlite landing audit): such a probe is deterministic and environment-independent, so a RED verdict after the change is a real "the item was not done" - unlike a pytest/gradle/godot
+# VERIFY, whose FAIL can be an env gap. The xlite items 'delete generate_intent / intent_label' (a repair round re-added both), 'return "" for unknown directives' and 'if ... directive_label in
+# mission_hub.gd' were ticked [x] while their own grep was RED (item_verify decision=refuse, but shadow mode only journals). The runner enforces the RED-after refusal for these (OVN_STAGE_ITEM_VERIFY_TEXT).
+stage_item_verify_textonly(){
+  local cmd
+  cmd="$(printf '%s' "$1" | grep -oE 'VERIFY: `[^`]+`' | head -1 | sed -E 's/^VERIFY: `//; s/`$//')"
+  cmd="$(printf '%s' "$cmd" | sed -E 's/ *&& *echo +[A-Za-z0-9_"]+ *$//')"   # `test ! -f x && echo PASS`: the echo only prints the verdict
+  [ -n "$cmd" ] || return 1
+  case "$cmd" in grep\ *|egrep\ *|test\ *|'['\ *|'! grep '*|'!grep '*) ;; *) return 1;; esac
+  if printf '%s' "$cmd" | grep -qiE '(^|[^A-Za-z0-9_])(python3?|pytest|godot|gdparse|gradle|gradlew|npm|npx|node|vitest|jest|swift|swiftc|xcodebuild|docker|make|cargo|go|bash|sh|eval|exec|curl|ruby|php|java|kotlinc)([^A-Za-z0-9_]|$)'; then return 1; fi
+  case "$cmd" in *'$('*|*'`'*|*';'*|*'&&'*|*'||'*) return 1;; esac
+  return 0
+}
+
+# stage_layout_listing <wt> -> the "Real source paths" block of the decomposer prompt. 2026-10-18 (gitlark landing audit): the old inline `find ... | sort | head -100` was filled by the
+# alphabetically-first 100 files (backend/alembic x26, alembic.backup, backend/app x71) so backend/tests never reached the planner; it invented repo-root `tests/...` paths ("declared file is empty
+# - write the full content: tests/test_memory_router.py" x6 in one gitlark run, plus ghost root tests that pytest never collects). Now: migration/backup trees are dropped, source files get 70
+# lines (max 25 per directory so one big package cannot crowd out web/ etc.), and every directory that holds test files is listed with its file count so the planner knows where tests live. Bounded (<= ~90 lines).
+stage_layout_listing(){
+  local wt="$1" all src tdirs
+  all="$(cd "$wt" 2>/dev/null && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' -o -name '*.kt' \) -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' -not -path '*/alembic*/*' -not -path '*/migrations/*' 2>/dev/null | sed 's#^\./##' | sort)"
+  src="$(printf '%s\n' "$all" | grep -vE '(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]*$|_test\.py$|\.(test|spec)\.[a-z]+$' | awk '{d=$0; sub(/\/[^\/]*$/,"",d); if (++n[d] <= 25) print}' | head -70)"
+  tdirs="$(printf '%s\n' "$all" | grep -E '(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]*$|_test\.py$|\.(test|spec)\.[a-z]+$' | sed -E 's#/[^/]*$##' | sort | uniq -c | sort -rn | head -15 | awk '{printf "%s/  (%s test files)\n", $2, $1}')"
+  printf '%s\n' "$src"
+  [ -n "$tdirs" ] && printf '%s\n%s\n' "Test directories (put NEW tests in one of these existing directories, never in a new repo-root tests/):" "$tdirs"
+  return 0
 }
 
 # stage_tree_restore <wt> <snapshot of `git status --porcelain -uall` taken before a read-only probe ran> - undo whatever the probe (an item VERIFY run) left behind: untracked files that were not in the
@@ -164,7 +207,9 @@ stage_red_before_check(){
   [ -n "$srcs" ] || { echo "RB skipped-no-source-change"; return 0; }
   nodes="$(timeout 30 python3 "$_SG_PY" new-tests "$wt" "$base" 2>/dev/null)"
   [ -n "$nodes" ] || { echo "RB skipped-no-new-python-test"; return 0; }
-  tmp="$(mktemp -d /tmp/stage-rb.XXXXXX)"
+  tmp="$(mktemp -d /tmp/stage-rb.XXXXXX)" || { echo "RB skipped-mktemp-failed"; return 0; }
+  [ -n "$tmp" ] && [ -d "$tmp" ] || { echo "RB skipped-mktemp-failed"; return 0; }   # 2026-10-16: an empty tmp made "$tmp/t" = /t
+  : > "$tmp/weak"     # 2026-10-18: absent when every new test failed as it should; `tr < $tmp/weak` then printed "No such file or directory" into the stage log on every healthy run
   if ! git -C "$wt" worktree add -q --detach "$tmp/t" HEAD >/dev/null 2>&1; then rm -rf "$tmp"; echo "RB skipped-worktree-failed"; return 0; fi
   # revert ONLY the non-test python source files of the change to their pre-change state (new files are removed)
   while IFS= read -r f; do

@@ -19,7 +19,13 @@ DRYRUN="${DRYRUN:-0}"
 # DRYRUN must NEVER touch the live dedup state (clearing it makes the next REAL run
 # re-alert every known issue — the #1 self-inflicted cause of alert spam). Use a
 # throwaway state dir when dry-running so testing is fully isolated.
-if [ "$DRYRUN" = 1 ]; then STATE="$(mktemp -d)"; else STATE="$HOME/.deploy_health"; fi
+if [ "$DRYRUN" = 1 ]; then
+  STATE="$(mktemp -d)" || { echo "deploy_health: mktemp -d failed - abort" >&2; exit 1; }
+  [ -n "$STATE" ] && [ -d "$STATE" ] || { echo "deploy_health: mktemp -d returned no usable directory - abort" >&2; exit 1; }   # 2026-10-16
+  # 2026-10-17: the throwaway state dir was never removed (every DRYRUN left a tmp.XXXXXXXXXX dir behind: the test suite leaked 14-36 entries per run). Only a dir mktemp made under the temp root is removed.
+  _tdr="${TMPDIR:-/tmp}"; _tdr="${_tdr%/}"
+  case "$STATE" in "$_tdr"/*|"$_tdr"//*) trap '[ -n "${STATE:-}" ] && [ -d "$STATE" ] && rm -rf "${STATE:?}"' EXIT;; esac
+else STATE="$HOME/.deploy_health"; fi
 mkdir -p "$STATE"
 # Suppression list: keys here are LOGGED but never ntfy'd (known human-gated issues).
 SUPPRESS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/alert_suppress.txt"

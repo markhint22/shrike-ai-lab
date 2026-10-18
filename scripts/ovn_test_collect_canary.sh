@@ -88,6 +88,7 @@ for spec in ${OVN_CANARY_REPOS:-iptv_apps:py:iptv-backend xlite:gd:. test-automa
   rd="$REPOS/$name"
   [ -d "$rd/.git" ] || [ -f "$rd/.git" ] || { log "$name: infra (no clone at $rd) - skipped"; continue; }
   wt="$(mktemp -d "/tmp/wt-collectcanary-$name.XXXX")" || continue
+  [ -n "$wt" ] && [ -d "$wt" ] || continue   # 2026-10-16
   if ! git -C "$rd" worktree add --quiet --detach "$wt" "$REF" >/dev/null 2>&1; then
     rmdir "$wt" 2>/dev/null; log "$name: infra (worktree of $REF failed) - skipped"; continue
   fi

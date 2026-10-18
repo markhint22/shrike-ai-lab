@@ -4,6 +4,7 @@
 # Covers: usage, skip paths, nothing-to-promote, dry-run, smoke pass/fail/--force, migration gate, typed confirmation vs --yes,
 # merge + push + prod tag + rollback tag, merge conflict, push failure, origin/HEAD fallback; plus every staging_smoke branch.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P2P="$HERE/../../promote_to_prod.sh"; [ -f "$P2P" ] || P2P="$HERE/../promote_to_prod.sh"
 SMK="$HERE/../../staging_smoke.sh";   [ -f "$SMK" ] || SMK="$HERE/../staging_smoke.sh"
@@ -12,9 +13,9 @@ command -v timeout >/dev/null || { echo "  SKIP: no timeout(1)"; exit 0; }
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
-export HOME="$T/home"; Q="$HOME/overnight-queue"; OUT="$T/out.log"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; OUT="$T/out.log"
 curl(){ echo "curl $*" >> "$T/curl.log"
   case "$*" in
     *http_code*) printf '%s' "${SM_CODE:-200}";;

@@ -6,6 +6,7 @@
 # `env -i` with a minimal PATH and NTFY_SERVER pointing at a closed local port (nothing here can reach ntfy.sh or any network).
 # Overridable for "does this test fail on the OLD code" proofs: OVN_PROMOTE_TO_PROD=<path> (and OVN_DAILY_PROMOTE=<path>).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ="$HERE/../.."; [ -f "$OQ/promote_to_prod.sh" ] || OQ="$HERE/.."
 P2P="${OVN_PROMOTE_TO_PROD:-$OQ/promote_to_prod.sh}"; DPR="${OVN_DAILY_PROMOTE:-$OQ/daily_promote.sh}"; QA="$OQ/qa"
@@ -13,9 +14,9 @@ P2P="${OVN_PROMOTE_TO_PROD:-$OQ/promote_to_prod.sh}"; DPR="${OVN_DAILY_PROMOTE:-
 PYB="$(command -v python3.12 || command -v python3)"; [ -n "$PYB" ] || { echo "  SKIP: no python3"; exit 0; }
 pass=0; fail=0
 ck(){ if eval "$2" >/dev/null 2>&1; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-export HOME="$T/home"; Q="$HOME/overnight-queue"; OUT="$T/out.log"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; OUT="$T/out.log"
 # macOS has no timeout(1) and the promote script calls it: a pass-through shim (only when the real one is missing) keeps this test runnable on the Mac.
 mkdir -p "$T/shim"
 command -v timeout >/dev/null || { printf '#!/bin/sh\nshift\nexec "$@"\n' > "$T/shim/timeout"; chmod +x "$T/shim/timeout"; }

@@ -3,12 +3,13 @@
 # none, and we must never reach a real prod DB) that serves bills from a JSON file and records every INSERT; the LLM is a
 # throw-away 127.0.0.1 http.server that answers according to the bill title. HOME is a temp dir (token ledger lands there).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../billwatch_summary_backfill.py" "$HERE/../billwatch_summary_backfill.py" "$HERE/billwatch_summary_backfill.py"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "billwatch_summary_backfill.py not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; SRV=""; trap '[ -n "$SRV" ] && kill "$SRV" 2>/dev/null; rm -rf "$T"' EXIT
-export HOME="$T/home"; mkdir -p "$HOME" "$T/stub"
+T="$(safe_mktemp_dir)" || exit 1; SRV=""; trap '[ -n "$SRV" ] && kill "$SRV" 2>/dev/null; rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME" "$T/stub"
 
 # ---- stub psycopg2 ----
 cat > "$T/stub/psycopg2.py" <<'PY'

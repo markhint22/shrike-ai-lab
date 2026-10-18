@@ -5,6 +5,7 @@
 # tsc, own-file vs pre-existing errors, OVN_TSC_MIDCYCLE=0), and the pytest backend path with the OVN_GATE_STRICT
 # "test must exercise the change" gate, sibling-test discovery, nested venv, full-suite fallback, exit-code propagation.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AT=""
 for c in "$HERE/../ovn_autotest.sh" "$HERE/../../scripts/ovn_autotest.sh" "$HERE/ovn_autotest.sh"; do [ -f "$c" ] && { AT="$c"; break; }; done
@@ -12,7 +13,7 @@ for c in "$HERE/../ovn_autotest.sh" "$HERE/../../scripts/ovn_autotest.sh" "$HERE
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; BIN="$T/bin"; mkdir -p "$H/aider-venv/bin" "$H/godot" "$BIN"
 export NPX_LOG="$T/npx.log"
 # ---- stubs ----

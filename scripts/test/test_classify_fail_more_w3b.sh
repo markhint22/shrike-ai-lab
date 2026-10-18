@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Extra coverage for ovn_classify_fail.sh: every status shortcut and every log-signature branch.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 C=""
 for c in "$HERE/../../ovn_classify_fail.sh" "$HERE/../ovn_classify_fail.sh" "$HOME/overnight-queue/ovn_classify_fail.sh"; do [ -f "$c" ] && { C="$c"; break; }; done
 [ -n "$C" ] || { echo "SKIP: ovn_classify_fail.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (got '$2' want '$3')"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mk(){ printf '%s\n' "$2" > "$tmp/$1.log"; }
 cl(){ bash "$C" "$tmp/$1.log" "${2:-}"; }
 

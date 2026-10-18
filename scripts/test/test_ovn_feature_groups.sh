@@ -7,6 +7,7 @@
 # target file when absent (an explicitly-labeled approximation, never used for completion
 # pushes). Runs entirely against a fixture OVN_QUEUE_DIR so it never touches production data.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 SCRIPTS="${OVN_SCRIPTS_DIR:-$HOME/overnight-queue/scripts}"
 SCRIPT="$SCRIPTS/ovn_feature_groups.py"
 P=0; F=0
@@ -19,7 +20,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/repos/demo" "$tmp/backlog" "$tmp/state" "$tmp/roadmap"
 export OVN_QUEUE_DIR="$tmp" OVN_REPOS_DIR="$tmp/repos" OVN_BACKLOG_DIR="$tmp/backlog" OVN_TASK_STATS="$tmp/state/task_stats.log" OVN_ROADMAP_DIR="$tmp/roadmap"
 

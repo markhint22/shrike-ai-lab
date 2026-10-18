@@ -10,13 +10,14 @@
 # alerts (ntfy title/tags/priority/body), shrike-notify dual publish + lib absent, failing promote still advances,
 # multi-repo runs, dry-run on promote, state dir auto-create, 120-char truncation of malformed lines.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/../../gitlark_control_consumer.sh"; [ -f "$SRC" ] || SRC="$HERE/../gitlark_control_consumer.sh"; [ -f "$SRC" ] || SRC="$HERE/gitlark_control_consumer.sh"
 LIB="$(dirname "$SRC")/shrike_notify_lib.sh"
 [ -f "$SRC" ] || { echo "gitlark_control_consumer.sh not found"; exit 1; }
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig"; printf '[user]\n\temail = t@t\n\tname = t\n' > "$GIT_CONFIG_GLOBAL"; export GIT_CONFIG_NOSYSTEM=1
 
 BIN="$tmp/bin"; mkdir -p "$BIN"; cp "$SRC" "$BIN/gitlark_control_consumer.sh"; chmod +x "$BIN/gitlark_control_consumer.sh"

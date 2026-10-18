@@ -13,6 +13,7 @@
 # would still report "ok" here — this test would still catch it by checking origin's
 # real content).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/../lib_worktree.sh"; [ -f "$LIB" ] || LIB="$HERE/lib_worktree.sh"
 [ -f "$LIB" ] || { echo "  SKIP: lib_worktree.sh not found"; exit 0; }
@@ -23,7 +24,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-TMPROOT="$(mktemp -d)" || exit 1
+TMPROOT="$(safe_mktemp_dir)" || exit 1
 trap 'rm -rf "$TMPROOT"' EXIT
 cd "$TMPROOT" || exit 1
 
@@ -162,7 +163,7 @@ if command -v rsync >/dev/null 2>&1; then
   ok "wt_seed_godot: live clone's cache untouched" "[ -f work/game/.godot/imported/a.bin ]"
 else echo "  SKIP wt_seed_godot (no rsync)"; fi
 
-wt_close work "$dwt"; rm -rf "$dwt"
+wt_close work "$dwt"; rm -rf "${dwt:?}"
 ok "closing the worktree removes the links but NEVER the live envs they point at" "[ -f work/backend/.venv/bin/pytest ] && [ -f work/web/node_modules/m/i.js ] && [ -f work/node_modules/top/i.js ]"
 ok "closed worktree no longer registered" "! git -C work worktree list | grep -q 'wt-mytag-work'"
 # benign: callers that pass no new flags behave exactly as before (branch checked out inside the worktree)

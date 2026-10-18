@@ -5,6 +5,7 @@
 # Optional: when the real iptv_apps history is on this machine (OVN_REAL_IPTV_REPO, default ~/LocalProjects/iptv_apps) the actual conflict between
 # fb07d121d1 (develop) and c2204cc7d9 (overnight/feature) is replayed and the merged TREE must equal the hand resolution c7be7d3c.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PM="$HERE/../ovn_progress_merge.py"; FIX="$HERE/fixtures/progress_merge"
 [ -f "$PM" ] || { echo "  FAIL: ovn_progress_merge.py not found"; exit 1; }
@@ -13,8 +14,8 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 b(){ if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }   # command succeeded -> 1
 REAL_HOME_DIR="$HOME"
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export HOME="$T/home"; mkdir -p "$HOME"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export OVN_PM_LOG="$T/pm.log"
 unset OVN_PROGRESS_MERGE OVN_PM_DEFER

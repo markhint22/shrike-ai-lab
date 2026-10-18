@@ -4,6 +4,7 @@
 # Reads state/task_stats.log (the same file ovn_stats.py already reads) against a
 # fixture $HOME so it never touches production data.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 SCRIPTS="${OVN_SCRIPTS_DIR:-$HOME/overnight-queue/scripts}"
 SCRIPT="$SCRIPTS/ovn_landed_detail.py"
 P=0; F=0
@@ -16,7 +17,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)" || exit 1; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
+tmp="$(safe_mktemp_dir)" || exit 1; safe_set_sandbox_home "$tmp" || exit 1; mkdir -p "$HOME/overnight-queue/state"
 TSF="$HOME/overnight-queue/state/task_stats.log"
 now="$(date +%s)"
 

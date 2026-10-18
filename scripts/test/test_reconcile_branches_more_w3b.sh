@@ -4,6 +4,7 @@
 # push/worktree failures), merge_sanity_ok variants, DRY_RUN, fetch failures, alerts (curl stubbed).
 # Fully hermetic: fixture HOME, bare origins in a temp dir, stub curl/aider/timeout/git shim on PATH.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REC=""; for c in "$HERE/../../reconcile_branches.sh" "$HERE/../reconcile_branches.sh"; do [ -f "$c" ] && { REC="$c"; break; }; done
 LIBTG=""; for c in "$HERE/../lib_tree_guard.sh" "$HERE/lib_tree_guard.sh"; do [ -f "$c" ] && { LIBTG="$c"; break; }; done
@@ -11,14 +12,14 @@ LIBTG=""; for c in "$HERE/../lib_tree_guard.sh" "$HERE/lib_tree_guard.sh"; do [ 
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1
+tmp="$(safe_mktemp_dir)" || exit 1
 cleanup(){ rm -rf "$tmp" /tmp/reconcile-w3b-* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 REALGIT="$(type -P git)"
 
-export HOME="$tmp/home"
+safe_set_sandbox_home "$tmp" || exit 1
 OQ="$HOME/overnight-queue"
 mkdir -p "$OQ/repos" "$OQ/logs" "$OQ/scripts" "$OQ/state" "$HOME/aider-venv/bin" "$tmp/shim"
 # copy of the real script; ONLY the PATH line is neutralised so the stub curl/timeout/git win over /usr/bin

@@ -5,13 +5,14 @@
 #  F4  the normaliser also runs for shapes that cannot run AT ALL: `cd /path/to/<repo> && godot ... gut_cmdln` (the cd never succeeds) and `cd tests && godot -s <GutTest>.gd` (not a SceneTree script).
 # A fake `godot` (installed where the lib resolves it: $HOME/godot/godot4) stands in for the engine and logs its argv.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIBDIR="${OVN_LIB_DIR:-$HERE/..}"
 [ -f "$LIBDIR/lib_verify_clause.sh" ] || { echo "  SKIP: lib_verify_clause.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
-tmp="$(cd "$tmp" && pwd -P)"
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+
 mkdir -p "$tmp/home/godot" "$tmp/work/addons/gut" "$tmp/work/tests"
 printf 'x' > "$tmp/work/addons/gut/gut_cmdln.gd"
 printf 'extends GutTest\nfunc test_a():\n\tpass\n' > "$tmp/work/tests/test_a.gd"
@@ -27,7 +28,7 @@ chmod +x "$tmp/home/godot/godot4"
 run_sc(){  # $1 = item line -> RESULT|WHY|RC
   printf '%s\n' "$1" > "$tmp/prog.md"
   ( cd "$tmp/work" || exit 9
-    export HOME="$tmp/home"
+    safe_set_sandbox_home "$tmp" || exit 1
     PROG="$tmp/prog.md"; SHADOW_LOG="$tmp/shadow.log"; _REPO_LABEL=t; _VC_MEMO_ON=0; : > "$SHADOW_LOG"
     # shellcheck disable=SC1091
     . "$LIBDIR/lib_verify_clause.sh"

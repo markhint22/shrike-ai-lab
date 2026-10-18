@@ -2,11 +2,12 @@
 # Tests for scripts/ovn_churn_guard.sh + ovn_churn_guard.py (fleet churn-loop guard, 2026-10-07).
 # Real git: a bare origin per repo, a "fleet" working clone that pushes history to origin/overnight/feature, and a "live" clone (what the guard reads
 # and must NEVER modify). Commit dates are relative to now so they fall inside the 3h window. No network. Every parking case has a benign control.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 G="$ROOT/scripts/ovn_churn_guard.sh"; PY="$ROOT/scripts/ovn_churn_guard.py"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T" /tmp/wt-churnguard-* 2>/dev/null' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T" /tmp/wt-churnguard-* 2>/dev/null' EXIT
 PY2=1
 export NTFY_SERVER="http://127.0.0.1:9/x" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=fleet GIT_AUTHOR_EMAIL=f@f GIT_COMMITTER_NAME=fleet GIT_COMMITTER_EMAIL=f@f

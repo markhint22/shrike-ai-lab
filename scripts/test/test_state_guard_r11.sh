@@ -4,6 +4,7 @@
 # Sections: A the guard (state_guard.sh) unit, B the mechanism replayed in a sandbox HOME (the credit script's default log IS the live path), C test_bash_helpers.sh is clean under the
 # guard and its pre-fix shape is caught, D MUTATION controls. Everything runs in a throwaway HOME; the real ~/overnight-queue is never read or written.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 G="$HERE/state_guard.sh"
@@ -11,7 +12,7 @@ unset OVN_STATE_GUARD OVN_GUARD_LIVE_REPOS OVN_GUARD_LIVE_DIR   # hermetic: a ca
 [ -f "$G" ] || { echo "  FAIL: state_guard.sh missing"; exit 1; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 echo "== A: state_guard.sh"
 LIVE="$tmp/live"; mkdir -p "$LIVE/state" "$LIVE/repos/iptv_apps" "$LIVE/repos/xlite"
@@ -65,9 +66,10 @@ ok "C1 the fixed test_bash_helpers.sh leaves the live shadow log untouched (guar
 ok "C2 ... also WITHOUT OVN_SCRIPTS (it defaults to the repo copy beside the test, not \$HOME/overnight-queue/scripts)" "( . '$G'; ovn_state_guard_begin; HOME='$SB' timeout 200 bash '$HERE/test_bash_helpers.sh' >/dev/null 2>&1; ovn_state_guard_end )"
 # the pre-fix shape: same test with the OVN_VERIFY_SHADOW_LOG export removed
 grep -v '^export OVN_VERIFY_SHADOW_LOG=' "$HERE/test_bash_helpers.sh" > "$tmp/helpers_prefix.sh"
+cp "$HERE/lib_safe_tmp.sh" "$tmp/lib_safe_tmp.sh"     # test_bash_helpers.sh sources the lib from beside itself: the mutant must live beside a copy, or it dies before writing any row (a vacuous control)
 : > "$SLOG"
 ( . "$G"; ovn_state_guard_begin; HOME="$SB" OVN_SCRIPTS="$Q/scripts" timeout 200 bash "$tmp/helpers_prefix.sh" >/dev/null 2>&1; ovn_state_guard_end ) >"$tmp/c3.out" 2>&1; C3=$?
-ok "C3 MUTATION: the test without the OVN_VERIFY_SHADOW_LOG export (the pre-fix shape) IS caught: guard rc 1 with repo=tmp. rows" "[ $C3 = 1 ] && grep -q 'repo=tmp\\.' '$tmp/c3.out'"
+ok "C3 MUTATION: the test without the OVN_VERIFY_SHADOW_LOG export (the pre-fix shape) IS caught: guard rc 1 with repo=<mktemp label>. rows" "[ $C3 = 1 ] && grep -qE 'repo=(tmp|ovn)\\.' '$tmp/c3.out'"
 _l_exp="$(grep -n '^export OVN_VERIFY_SHADOW_LOG=' "$HERE/test_bash_helpers.sh" | head -1 | cut -d: -f1)"; _l_use="$(grep -n 'bash "\$SCRIPTS/ovn_credit_already_satisfied.sh"' "$HERE/test_bash_helpers.sh" | head -1 | cut -d: -f1)"
 ok "C4 the fixed test exports OVN_VERIFY_SHADOW_LOG to a temp path BEFORE its first use of the credit script" "[ -n '$_l_exp' ] && [ -n '$_l_use' ] && [ '$_l_exp' -lt '$_l_use' ] && grep -q 'OVN_VERIFY_SHADOW_LOG=\"\$_SHADOW_DIR/' '$HERE/test_bash_helpers.sh'"
 

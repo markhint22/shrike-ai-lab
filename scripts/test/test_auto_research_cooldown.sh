@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ovn_auto_research.sh cooldown policy: long after an EMPTY pass (repo may be complete), short after a PRODUCTIVE pass (fleet burns the items, repo starves again).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; SRC="$HERE/../../ovn_auto_research.sh"
 [ -f "$SRC" ] || SRC="$HERE/../ovn_auto_research.sh"
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 sed -n '/^COOLDOWN_EMPTY_H=/,/^}/p' "$SRC" > "$T/fn.sh"
 [ -s "$T/fn.sh" ] || { echo "  FAIL: could not extract ar_cooldown_s"; echo "auto research cooldown: 0 passed, 1 failed"; exit 1; }
 source "$T/fn.sh"

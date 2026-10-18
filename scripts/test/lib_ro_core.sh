@@ -9,6 +9,7 @@
 #   $T/repos/<name>          fake work repos (clone of $T/origin/<name>.git)
 # The REAL run_overnight.sh is always the code under test (never copied) so coverage is attributed to it.
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RO_SCRIPT="$RO_HERE/../../run_overnight.sh"; [ -f "$RO_SCRIPT" ] || RO_SCRIPT="$RO_HERE/../run_overnight.sh"
 RO_SCRIPT="$(cd "$(dirname "$RO_SCRIPT")" && pwd)/run_overnight.sh"
@@ -43,10 +44,10 @@ ro_stub(){ # ro_stub NAME <<'EOF' ... EOF   (body from stdin) -> $HOME/aider-ven
 . "$RO_HERE/lib_live_repo_guard.sh"
 
 ro_init(){
-  T="$(mktemp -d)" || exit 1; export T
+  T="$(safe_mktemp_dir)" || exit 1; export T
   trap 'rm -rf "$T"' EXIT
   ro_git_env
-  export HOME="$T/home" RO_STUB="$T/stub"
+  safe_set_sandbox_home "$T" || exit 1; export RO_STUB="$T/stub"
   mkdir -p "$T/home/aider-venv/bin" "$T/stub" "$T/tree/scripts" "$T/repos" "$T/origin"
   # libs the real script sources unconditionally / uses in the record_outcome + verification paths
   ro_link scripts/lib_lock.sh scripts/lib_item_select.sh scripts/lib_bug_escalate.sh scripts/lib_gut_xml.sh scripts/lib_autotest_base.sh scripts/lib_fixup.sh

@@ -8,13 +8,14 @@
 #            `godot -s tests/test_roster_coercion.gd`, a file nothing creates.
 # Sections: A R11 golden, B R12 (real git repo as the ref), C default enforce in queue_refill.py, D default enforce in `ovn_spec_gate.py lint`, E scan rows carry R11/R12.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; [ -f "$S/ovn_spec_rules.py" ] || S="$HERE"
 Q="$(cd "$S/.." && pwd)"; QR="$Q/queue_refill.py"
 [ -f "$S/ovn_spec_rules.py" ] || { echo "  SKIP: ovn_spec_rules.py not found"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 echo "== A: R11 (gut_cli.gd -> gut_cmdln.gd)"
 cat > "$tmp/a.py" <<'PY'
@@ -104,7 +105,7 @@ for k in cd-prefixed-pytest-on-an-existing-file-passes subshell-cd-pytest-with-n
 done
 
 echo "== C: queue_refill.py default enforce (UNSET = R01,R11; set-but-empty = nothing)"
-mkq(){ local d="$1"; rm -rf "$d"; mkdir -p "$d/repos/demo" "$d/backlog" "$d/state" "$d/scripts"; cp "$S"/*.py "$d/scripts/" 2>/dev/null; cp "$QR" "$d/queue_refill.py"
+mkq(){ local d="$1"; rm -rf "${d:?}"; mkdir -p "$d/repos/demo" "$d/backlog" "$d/state" "$d/scripts"; cp "$S"/*.py "$d/scripts/" 2>/dev/null; cp "$QR" "$d/queue_refill.py"
   printf '# Progress\n## Next Steps\n' > "$d/repos/demo/OVERNIGHT_PROGRESS.md"; : > "$d/repos/demo/OVERNIGHT_DONE.md"; }
 L_BARE='- [ ] [T2] f.txt — rename old. VERIFY: grep -q old f.txt (cat:python; multifile:no)'
 L_GUTCLI='- [ ] [T2] tests/t.gd — add a case. VERIFY: `godot --headless -s addons/gut/cli/gut_cli.gd -gdir=tests -gexit`. (cat:test; multifile:no)'

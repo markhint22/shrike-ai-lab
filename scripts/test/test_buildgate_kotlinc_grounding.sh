@@ -8,6 +8,7 @@
 # change or guessed wrong. Extracts the real kotlinc file:line:col diagnostic out of the
 # FULL task_log instead. Mirrors the deployed extraction exactly so this can't drift.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
@@ -22,7 +23,7 @@ extract_kotlinc(){ # $1=task_log $2=pwd-to-strip
   grep -oE 'file://[^ ]+\.kt:[0-9]+:[0-9]+ .*' "$1" 2>/dev/null | sed "s#^file://$2/##" | sort -u | head -8 | tr '\n' ' ' | tr -s ' ' | cut -c1-400
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 repo_root="$tmp/repos/billwatch"
 mkdir -p "$repo_root"
 

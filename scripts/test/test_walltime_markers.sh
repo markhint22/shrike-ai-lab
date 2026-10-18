@@ -5,6 +5,7 @@
 # Sections: A the REAL run_repo_verification writes the verify marker on each exit path, B ovn_cycle_walltime.py parses the markers (real script, throwaway state/logs), C wiring greps
 # (3 fix-up aider calls), D MUTATION controls.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 unset OVN_WT_BACKFILL_H OVN_WT_MAX_ROWS OVN_WT_PREFILL_TPS OVN_WT_DECODE_TPS   # hermetic
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"; R="$Q/run_overnight.sh"; W="$Q/scripts/ovn_cycle_walltime.py"
@@ -12,7 +13,7 @@ Q="$(cd "$HERE/../.." && pwd)"; R="$Q/run_overnight.sh"; W="$Q/scripts/ovn_cycle
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 # 2026-10-16: the embedded python heredocs call tempfile.mkdtemp(); point TMPDIR inside $tmp so the EXIT trap removes those dirs too (they were left in the private TMPDIR)
 mkdir -p "$tmp/pytmp" && export TMPDIR="$tmp/pytmp"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1

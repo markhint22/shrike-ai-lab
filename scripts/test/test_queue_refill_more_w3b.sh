@@ -3,6 +3,7 @@
 # path (bare origin), push-retry via rebase, push failure, git-sync failure, nothing-moved,
 # FORCE_PULL, recovery/reminder/cooldown handling. queue_refill.py and queue.sh are stubbed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 export QR_LOG_REPEAT_S=0   # these cases run the same dry lane back to back and assert on the per-pass log line (queue_refill.sh rate-limits repeats by default: see test_queue_refill_log_ratelimit.sh)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q=""
@@ -11,7 +12,7 @@ for c in "$HERE/../../queue_refill.sh" "$HERE/../queue_refill.sh" "$HOME/overnig
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 wd="$tmp/overnight-queue"
 mkdir -p "$wd/repos" "$wd/backlog" "$wd/roadmap" "$wd/state" "$tmp/aider-venv/bin"
 cp "$Q" "$wd/queue_refill.sh"

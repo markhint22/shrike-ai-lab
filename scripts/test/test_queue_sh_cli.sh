@@ -3,6 +3,7 @@
 # status (service up/down, paused, reports, disabled tasks manual vs safety-valve, holds, alerts, docker),
 # pause/resume (only ever the FAKE state/PAUSED), report/log/list/enable/disable/repos/add/remove/hold/release/alerts/ack, usage.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 QS=""
 for c in "$HERE/../../queue.sh" "$HERE/../queue.sh" "$HERE/queue.sh"; do [ -f "$c" ] && { QS="$c"; break; }; done
@@ -10,7 +11,7 @@ for c in "$HERE/../../queue.sh" "$HERE/../queue.sh" "$HERE/queue.sh"; do [ -f "$
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 HOME_="$T/home"; D="$HOME_/overnight-queue"; BIN="$T/bin"
 mkdir -p "$D/state/failures" "$D/reports" "$D/logs/2026-09-29" "$D/logs/2026-09-30" "$D/repos/alpha/.git" "$D/repos/beta" "$BIN"
 cat > "$D/tasks.json" <<'EOF'

@@ -4,12 +4,13 @@
 # The polarity reader used to answer 'unknown' for it, so shadow_check (the one function every credit path goes through) credited the item on the grep's exit 0 = the symbol still present.
 # Now the narration head ('returns nothing') is the verdict on the first command: PASS only when the grep finds nothing (rc 1).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIBDIR="${OVN_LIB_DIR:-$HERE/..}"
 [ -f "$LIBDIR/lib_verify_clause.sh" ] || { echo "  SKIP: lib_verify_clause.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT; tmp="$(cd "$tmp" && pwd -P)"
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/work/app"
 printf 'class ParentalControlsService:\n    pass\n' > "$tmp/work/app/pc.py"
 it(){ printf -- '- [ ] [T4] app/pc.py — Remove it. VERIFY: %s (cat:refactor; multifile:yes)' "$1"; }

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # gut_log_skips_note (lib_gut_xml.sh): shadow warning when GUT silently skips/ fails to parse test scripts but exits green. Never blocks.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; LIB="$HERE/../lib_gut_xml.sh"
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT; mkdir -p "$T/state"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT; mkdir -p "$T/state"
 source "$LIB"
 printf 'Running\nIgnoring script res://tests/a.gd because it does not extend GutTest\nPassing 3\n' > "$T/bad.log"
 printf 'Running\nPassing 3\n' > "$T/clean.log"

@@ -3,6 +3,7 @@
 # + pass_rate = good/(good+bad) overall and per repo. The script is cwd-relative (state/, scripts/), so it is driven from a
 # fake tree. NOTE: passrate_check.py currently exists only on the box (not in the Mac mirror); the test skips if absent.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S=""; for c in "$HERE/../../passrate_check.py" "$HERE/../passrate_check.py" "$HERE/passrate_check.py"; do [ -f "$c" ] && { S="$c"; break; }; done
 B="$HERE/../ovn_outcome_buckets.py"; [ -f "$B" ] || B="$HERE/ovn_outcome_buckets.py"
@@ -11,7 +12,7 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then echo "  ok   $1"; else echo "  WARN KNOWN-BUG: $1 (non-fatal)"; fi; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 W="$T/tree"; mkdir -p "$W/state" "$W/scripts"; cp "$B" "$W/scripts/ovn_outcome_buckets.py"
 run(){ ( cd "$W" && python3 "$S" 2>&1 ); }
 row(){ printf '{"ts":"%s","repo":"%s","severity":%s}\n' "$1" "$2" "$3"; }

@@ -3,6 +3,7 @@
 4 of 4 injected failure classes would hold the promote with the gate in ENFORCE mode on fixtures; the control (clean) must not be held; removing the CORS check from the
 probe must make the drill report 'would not hold'; nothing real (staging, prod, state dir, credentials) is touched or printed."""
 import contextlib, io, json, os, sys, tempfile
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); import tmp_track; tmp_track.install()   # 2026-10-17: every mkdtemp() below is removed at exit (the suite leaked these dirs)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))

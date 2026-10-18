@@ -5,6 +5,7 @@
 # Runs the REAL run_coverage.sh + ovn_cov_report.py against a tiny fixture tree with a one-test "suite". Needs python3 with coverage.py (the box; SKIP elsewhere unless python3 has it).
 # Mutants of the report (copy folding off) and of the shim (no cov vars after -i) must fail the matching assertions. bash 3.2 ok.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 unset BASH_ENV COVERAGE_PROCESS_START OVN_COV_DIR OVN_COV_REAL_ENV OVN_COV_QA OVN_Q   # when this test itself runs inside an instrumented suite run, its NESTED harness runs must not inherit the outer instrumentation
 HERE="$(cd "$(dirname "$0")" && pwd)"
 COV="$HERE/../cov"; [ -d "$COV" ] || { echo "  SKIP: scripts/cov not found"; exit 0; }
@@ -12,7 +13,7 @@ python3 -c "import coverage" >/dev/null 2>&1 || { echo "  SKIP: python3 has no c
 [ -f "$COV/shim/env" ] || { echo "  FAIL: scripts/cov/shim/env missing"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkfix(){  # <name>: fixture Q with scripts/{foo,bar,never}.py, top_never.py, qa/{gate.py,q.sh} and a one-test suite
   local q="$T/$1/q"; mkdir -p "$q/scripts/test" "$q/qa" "$q/scripts/cov"
   cp -R "$COV/." "$q/scripts/cov/"; rm -rf "${q:?}/scripts/cov/__pycache__" "${q:?}/scripts/cov/pysite/__pycache__"
@@ -27,9 +28,9 @@ mkfix(){  # <name>: fixture Q with scripts/{foo,bar,never}.py, top_never.py, qa/
   printf '#!/usr/bin/env bash\necho junk\n' > "$q/._junk.sh"; printf 'x = 1\n' > "$q/scripts/._junk.py"   # macOS AppleDouble leftovers (the box has several): never script rows
   cat > "$q/scripts/test/test_x.sh" <<'TX'
 #!/usr/bin/env bash
-D="$(mktemp -d)" || exit 1; cp ../foo.py "$D/foo.py"; python3 "$D/foo.py"; rm -rf "$D"   # like the real tests: the copy is gone long before the report runs
+D="$(mktemp -d)" || exit 1; [ -n "$D" ] && [ -d "$D" ] || exit 1; cp ../foo.py "$D/foo.py"; python3 "$D/foo.py"; rm -rf "$D"   # like the real tests: the copy is gone long before the report runs
 python3 ../bar.py
-G="$(mktemp -d)" || exit 1; cp ../conftest.py "$G/conftest.py"; python3 "$G/conftest.py"; rm -rf "$G"   # an UNRELATED conftest.py run from outside the tree
+G="$(mktemp -d)" || exit 1; [ -n "$G" ] && [ -d "$G" ] || exit 1; cp ../conftest.py "$G/conftest.py"; python3 "$G/conftest.py"; rm -rf "$G"   # an UNRELATED conftest.py run from outside the tree
 for i in 1 2 3; do python3 -c "pass"; done   # empty data files: they hash alike, and combine drops later files that hash like an earlier one (it dropped the no-op data until it got its own dir)
 env -i PATH="$PATH" python3 ../../qa/gate.py
 env -i PATH="$PATH" bash ../../qa/q.sh

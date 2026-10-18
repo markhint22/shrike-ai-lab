@@ -3,12 +3,13 @@
 # SHADOW monitor: it writes WOULD-ALERT lines only, never pages, and stays quiet during a deliberate pause. Drives the real script with a
 # fixed --now so the result does not depend on the clock.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/../../ovn_outcome_gap.py"
 [ -f "$PY" ] || { echo "  FAIL: $PY missing"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 OUT="$T/outcomes.jsonl"; FLAG="$T/PAUSED"; LOG="$T/outcome_gap.log"
 # fixed clock: 2026-10-15T06:00:00Z
 NOW=$(python3 -c 'import calendar,time; print(calendar.timegm(time.strptime("2026-10-15T06:00:00","%Y-%m-%dT%H:%M:%S")))')

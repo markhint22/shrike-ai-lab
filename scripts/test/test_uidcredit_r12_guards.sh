@@ -5,6 +5,7 @@
 #   X7  ovn_classify_fail.sh: a log that only holds `verdict: no-edit-unfenced` / "/dev/null is not in the subpath" deliberation text is no-edit, not test-red. OVN_CLASSIFY_NOEDIT_FIRST=off
 #   K   ovn_recover_parked.sh: a repeated [CLAUDE] escalation updates the existing line's count instead of appending another line.  OVN_CLAUDE_LINE_UPDATE=off
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"; [ -f "$ROOT/ovn_delete_executor.py" ] || ROOT="$HERE"
 OQ="$ROOT/.."; [ -f "$OQ/run_overnight.sh" ] || OQ="$ROOT"
@@ -12,7 +13,7 @@ EX="$ROOT/ovn_delete_executor.py"; LIB="$ROOT/lib_fixup.sh"; RO="$OQ/run_overnig
 . "$HERE/ntfy_guard.sh" 2>/dev/null || true
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
 # ================= X4: importer guard =================
@@ -76,7 +77,7 @@ if [ -f "$ROOT/lib_worktree.sh" ] && [ -f "$ROOT/lib_path_normalize.sh" ] && [ -
   printf '#!/usr/bin/env bash\ncase "$1" in hold) : > "$(dirname "$0")/state/HOLD_$2";; release) rm -f "$(dirname "$0")/state/HOLD_$2";; esac\nexit 0\n' > "$Q/queue.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$Q/scripts/ovn_log_tokens.sh"; chmod +x "$Q/queue.sh" "$Q/scripts/"*.sh
   mkk(){  # $1 name
-    local o="$T/origin_$1.git" w; git init -q --bare "$o"; w="$(mktemp -d)" || exit 1
+    local o="$T/origin_$1.git" w; git init -q --bare "$o"; w="$(safe_mktemp_dir)" || exit 1
     ( cd "$w" || exit 1; git init -q -b overnight/feature && mkdir -p src && printf 'def real():\n    return 1\n' > src/real.py && printf '# Progress\n\n- [ ] [CLAUDE] src/real.py has been recovered/decomposed 4 times (cap 0) without ever landing - the fleet keeps re-guessing at this same file with no real diagnosis; needs a human/Claude session to understand the actual blast radius (recovery:escalated)\n- [ ] [AUTO-SKIP after 5 no-op cycles — review] [T4] src/real.py — a stuck item needing escalation. VERIFY: pytest -q\n' > OVERNIGHT_PROGRESS.md \
         && git add -A && git commit -q -m init && git remote add origin "$o" && git push -q origin overnight/feature )
     git --git-dir="$o" symbolic-ref HEAD refs/heads/overnight/feature; rm -rf "$w"

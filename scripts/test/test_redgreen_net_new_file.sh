@@ -9,6 +9,7 @@
 # $before. Extracts the real guard condition out of run_overnight.sh so this can't drift from
 # what's deployed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
@@ -28,7 +29,7 @@ would_skip(){ # $1=before $2=src-files(space-sep)
   echo "ok-to-check"
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 ( cd "$tmp" || exit 1; git init -q && git config user.email t@t && git config user.name t
   mkdir -p app && echo "def existing(): return 1" > app/existing.py
   git add -A && git commit -q -m base )

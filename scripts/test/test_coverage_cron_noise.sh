@@ -7,6 +7,7 @@
 # in production) over a probe test that captures `python3 ... 2>&1` the way the two failing tests do. Only the `coverage` package is faked (it emits the same
 # CoverageWarning from process_startup(), which is what the real one does on the box), so the test needs no coverage install. Then 3 mutants must be caught.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ="$HERE/../.."; [ -f "$OQ/scripts/ovn_coverage_cron.sh" ] || OQ="$HERE/.."
 CRON="$OQ/scripts/ovn_coverage_cron.sh"
@@ -14,8 +15,8 @@ for f in scripts/ovn_coverage_cron.sh scripts/cov/run_coverage.sh scripts/cov/co
   [ -f "$OQ/$f" ] || { echo "  SKIP: $f not found"; exit 0; }; done
 command -v flock >/dev/null 2>&1 || { echo "  SKIP: no flock on this host (the cron script takes a flock)"; exit 0; }
 OQ="$(cd "$OQ" && pwd)"; CRON="$OQ/scripts/ovn_coverage_cron.sh"
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-T="$(cd "$T" && pwd -P)"   # /private/var vs /var on macOS
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+   # /private/var vs /var on macOS
 # lib_lock.sh calls `flock -w 0`; the homebrew flock on macOS (discoteq 0.4.0) rejects a zero timeout. Map it to `-n` (same meaning) so the test runs on a Mac too.
 mkdir -p "$T/shim"; REALFLOCK="$(command -v flock)"
 cat > "$T/shim/flock" <<EOF

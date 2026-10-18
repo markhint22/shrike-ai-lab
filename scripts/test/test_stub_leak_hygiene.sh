@@ -4,6 +4,7 @@
 # (blocks only with OVN_STUB_LEAK=enforce; off disables; test-file placeholders are informational). The deployed block is extracted from
 # branch_hygiene.sh and run for real (not mirrored), so the test cannot drift from the script.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BH="${OVN_BRANCH_HYGIENE:-$HERE/../../branch_hygiene.sh}"
 [ -f "$BH" ] || { echo "  SKIP: $BH not found"; exit 0; }
@@ -16,7 +17,7 @@ BLOCK="$(sed -n '/# stub-leak FLAG (r11, package stub; SHADOW)/,/^  # web build+
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the stub-leak block from $BH"; exit 1; }
 [ "$(printf '%s\n' "$BLOCK" | grep -c 'ovn_stub_guard.py" scan')" = 1 ] || { echo "  FAIL: expected exactly one scan call in the extracted block"; exit 1; }
 
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1
 LOGF="$W/hygiene.log"; : > "$LOGF"
 log(){ echo "[branch-hygiene] $*" >> "$LOGF"; }

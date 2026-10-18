@@ -4,6 +4,7 @@
 # 195F+292E -> 14F -> 1F across attempts, then died at best-of-N 3/3 one failing test short. Schema items now get a bigger budget; everything else keeps
 # the existing defaults EXACTLY (proved here: same caps, same best-of-N, same parking cycle).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 . "$HERE/lib_ro_core.sh"
@@ -47,7 +48,7 @@ eq "OVN_SCHEMA_BUDGET=off -> schema item gets the base" 4 "$(OVN_SCHEMA_BUDGET=o
 eq "OVN_SCHEMA_BUDGET=off beats an explicit override" 3 "$(OVN_SCHEMA_BUDGET=off OVN_BESTOF_N_SCHEMA=9 ovn_schema_budget bestn 3 "$S")"
 
 echo "== ovn_item_guard.sh: parking cycle, schema vs non-schema =="
-G="$Q/scripts/ovn_item_guard.sh"; tmp="$(mktemp -d)" || exit 1
+G="$Q/scripts/ovn_item_guard.sh"; tmp="$(safe_mktemp_dir)" || exit 1
 new_repo(){ local r="$tmp/$1"; mkdir -p "$r"; ( cd "$r" && git init -q && git config user.email t@t && git config user.name t && printf '%s\n' "$2" > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m i ); echo "$r"; }
 # cycles_until_park <name> <item> <status> <ksent> <max> [ENV...] -> number of guard calls until the item is AUTO-SKIPped (0 = never within max)
 cycles_until_park(){

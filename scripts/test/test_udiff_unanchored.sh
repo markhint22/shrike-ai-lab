@@ -8,6 +8,7 @@
 # (lib_ro_core.sh) with a stub aider that emits unanchored/anchored hunks.  Part 3 = lib_tree_guard.sh lockfile reset (iptv F9) incl. the real push-retry path.
 # Part 4 = MUTATION controls (each fix reverted in a scratch copy of the tree; the suite's key assertions must then fail).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_ro_core.sh"
 ro_init
@@ -21,7 +22,7 @@ ro_link scripts/ovn_udiff_anchor.py scripts/lib_tree_guard.sh update_progress.py
 
 W="$T/w"; mkdir -p "$W"
 mkbig(){ # mkbig <dir> <nlines>: a git repo with scripts/units/unit.gd (n lines) at HEAD
-  rm -rf "$1"; mkdir -p "$1/scripts/units"; git init -q "$1" 2>/dev/null
+  rm -rf "${1:?}"; mkdir -p "$1/scripts/units"; git init -q "$1" 2>/dev/null
   python3 - "$1/scripts/units/unit.gd" "$2" <<'PY'
 import sys
 n = int(sys.argv[2])
@@ -273,7 +274,7 @@ eq "OVN_UDIFF_PY_EOF_OK=off: the same hunk is flagged, reset and retried (2 atte
 has "and the detector line is logged" "$RO_OUT$(tlog r-pytop-off)" "UDIFF-UNANCHORED: app/big.py"
 
 echo "== dirty tracked lockfiles (lib_tree_guard.sh) =="
-mklock(){ rm -rf "$1"; mkdir -p "$1/iptv-web"; git init -q "$1" 2>/dev/null; printf '{"v":1}\n' > "$1/iptv-web/package-lock.json"; printf 'a\n' > "$1/code.py"; printf 'x\n' > "$1/poetry.lock"; git -C "$1" add -A; git -C "$1" commit -q -m base; }
+mklock(){ rm -rf "${1:?}"; mkdir -p "$1/iptv-web"; git init -q "$1" 2>/dev/null; printf '{"v":1}\n' > "$1/iptv-web/package-lock.json"; printf 'a\n' > "$1/code.py"; printf 'x\n' > "$1/poetry.lock"; git -C "$1" add -A; git -C "$1" commit -q -m base; }
 mklock "$W/lk"; : > "$W/lk.log"
 printf '{"v":2}\n' > "$W/lk/iptv-web/package-lock.json"
 ovn_tree_dirty_note "$W/lk" "$W/lk.log" "verify (.ovn-verify.sh)"
@@ -302,7 +303,7 @@ printf '{"v":99}\n' > package-lock.json
 if [ ! -f "${RO_STUB}/advanced" ]; then
   touch "${RO_STUB}/advanced"
   b="$(git rev-parse --abbrev-ref HEAD)"   # the cycle works on its own overnight/<ts>/<id> branch: advance THAT branch on origin so the cycle's push is non-fast-forward
-  d="$(mktemp -d)" || exit 1; git clone -q "$(git remote get-url origin)" "$d" 2>/dev/null; ( cd "$d" && git checkout -q -b "$b" origin/main && echo other > other.txt && git add -A && git -c user.name=o -c user.email=o@o commit -q -m other && git push -q origin "$b" 2>/dev/null ); rm -rf "$d"
+  d="$(mktemp -d)" || exit 1; [ -n "$d" ] && [ -d "$d" ] || exit 1; git clone -q "$(git remote get-url origin)" "$d" 2>/dev/null; ( cd "$d" && git checkout -q -b "$b" origin/main && echo other > other.txt && git add -A && git -c user.name=o -c user.email=o@o commit -q -m other && git push -q origin "$b" 2>/dev/null ); rm -rf "$d"
 fi
 echo "verify ok"; exit 0
 V
@@ -324,7 +325,7 @@ ok "the refuse status is emitted right after the implement loop" "$([ "$(grep -c
 ok "the push-retry and credit-push paths reset dirty lockfiles before the rebase" "$([ "$(grep -c 'ovn_reset_dirty_lockfiles "\$PWD" "\$task_log" "push-retry"' "$RUN")" = 1 ] && [ "$(grep -c 'ovn_reset_dirty_lockfiles "\$PWD" "\$task_log" "credit-push-retry"' "$RUN")" = 1 ] && echo 1 || echo 0)"
 
 echo "== MUTATION controls (scratch copy of the tree) =="
-MQ="$T/mut"; rm -rf "$MQ"; mkdir -p "$MQ"
+MQ="$T/mut"; rm -rf "${MQ:?}"; mkdir -p "$MQ"
 mutate(){ # mutate <file-rel> <python-expr old> <new> : replace exactly one occurrence in the scratch copy
   python3 - "$MQ/$1" "$2" "$3" <<'PY'
 import sys

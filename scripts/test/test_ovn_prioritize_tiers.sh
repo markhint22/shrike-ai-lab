@@ -2,11 +2,12 @@
 # Regression: ovn_prioritize_tiers.py reorders ONLY the open items inside "## Next Steps":
 # T3 first, T1/T2/untiered next, T4/T5 after, parked (AUTO-SKIP/HUMAN-ONLY/BLOCKED) last; stable; idempotent.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../../ovn_prioritize_tiers.py"; [ -f "$S" ] || S="$HERE/../ovn_prioritize_tiers.py"; [ -f "$S" ] || S="$HERE/ovn_prioritize_tiers.py"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 P="$T/p.md"
 run(){ python3 "$S" "$@" 2>&1; }
 same(){ [ "$(cat "$1")" = "$(printf '%b' "$2")" ] && echo 1 || echo 0; }   # compare file to expected (%b text, no trailing NL compare)

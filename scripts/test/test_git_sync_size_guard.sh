@@ -4,11 +4,12 @@
 # unstages (index only), exits 1 and leaves the marker alone.  Real script, throwaway repo + bare origin, fake HOME; OVN_GIT_SYNC_MAX_MB=1 + a 2 MB file stand in for 90/133 MB.
 # A mutant (guard condition disabled) must be caught by the same assertions.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 G=""; for c in "$HERE/../../ovn_git_sync.sh" "$HERE/../ovn_git_sync.sh"; do [ -f "$c" ] && { G="$c"; break; }; done
 [ -n "$G" ] || { echo "  NOT RUN: ovn_git_sync.sh not found"; exit 77; }   # 77 = cannot run here; run_all.sh reports it (never a silent green)
 G="$(cd "$(dirname "$G")" && pwd)/$(basename "$G")"
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT; T="$(cd "$T" && pwd -P)"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null

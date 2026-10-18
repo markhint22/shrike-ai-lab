@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Tests for scripts/lib_new_tests.sh (stage runner step H: explicitly run the cycle's new/changed test files). Fake pytest/godot shims + temp git repo;
 # one real-pytest pair when python3 has pytest. Every RED case has a benign control; infra trouble must PROCEED (return 0).
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 source "$ROOT/scripts/lib_gut_xml.sh"; source "$ROOT/scripts/lib_new_tests.sh"
 G(){ git -C "$W" -c user.name=t -c user.email=t@t "$@"; }
@@ -69,6 +70,36 @@ ok "BENIGN: a test file name with a space is passed as ONE argument (no word-spl
 newrepo; G rm -q iptv-backend/tests/test_old.py; rm -f "$FAKE_ARGS"
 FAKE_RC=1 ovn_run_new_tests "$W" iptv-backend "$PYT" "" "$BASE" "$LOG"; rc=$?
 ok "BENIGN: a DELETED test file is not run (rc 0, pytest not invoked)" "$([ "$rc" = 0 ] && [ ! -f "$FAKE_ARGS" ] && echo 1 || echo 0)"
+
+# ---- ghost python tests outside the package dir (2026-10-18 landing audit) ----
+newrepo; mkdir -p "$W/tests"; echo 'def test_g():
+    assert 1' > "$W/tests/test_ghost_root.py"; rm -f "$FAKE_ARGS"
+ovn_run_new_tests "$W" iptv-backend "$PYT" "" "$BASE" "$LOG"; rc=$?
+ok "NEGATIVE: a new python test OUTSIDE the package dir (repo-root tests/) => red, named in the log" "$([ "$rc" = 1 ] && grep -q 'NEW-TESTS RED: python test file(s) outside' "$LOG" && grep -q 'tests/test_ghost_root.py' "$LOG" && echo 1 || echo 0)"
+newrepo; mkdir -p "$W/tests"; echo 'def test_g():
+    assert 1' > "$W/tests/test_ghost_root.py"; : > "$LOG"
+OVN_NEW_TESTS_OUTSIDE_PKG=shadow ovn_run_new_tests "$W" iptv-backend "$PYT" "" "$BASE" "$LOG"; rc=$?
+ok "shadow mode: ghost test is logged, not refused (rc 0)" "$([ "$rc" = 0 ] && grep -q 'shadow' "$LOG" && ! grep -q 'NEW-TESTS RED' "$LOG" && echo 1 || echo 0)"
+OVN_NEW_TESTS_OUTSIDE_PKG=off ovn_run_new_tests "$W" iptv-backend "$PYT" "" "$BASE" "$LOG"; ok "kill switch OVN_NEW_TESTS_OUTSIDE_PKG=off => rc 0" "$([ $? = 0 ] && echo 1 || echo 0)"
+newrepo; mkdir -p "$W/tests"; echo 'def test_g():
+    assert 1' > "$W/tests/test_root_ok.py"
+ovn_run_new_tests "$W" . "$PYT" "" "$BASE" "$LOG"; ok "BENIGN: pkg '.' (root project) - root tests/ file is inside the package, not a ghost" "$([ $? = 0 ] && echo 1 || echo 0)"
+newrepo; echo 'def test_n():
+    assert 1' > "$W/iptv-backend/tests/test_in_pkg.py"
+ovn_run_new_tests "$W" iptv-backend "$PYT" "" "$BASE" "$LOG"; ok "BENIGN: new test under the package dir is not a ghost" "$([ $? = 0 ] && echo 1 || echo 0)"
+
+# ---- stage_red_before_check: a healthy run (every new test fails without the source change) must not print shell errors ----
+if type -P python3 >/dev/null 2>&1; then
+  source "$ROOT/scripts/lib_stage_guards.sh"
+  RBW="$T/rbw"; mkdir -p "$RBW/backend/app" "$RBW/backend/tests"; git -C "$RBW" init -q; echo "def f(): return 1" > "$RBW/backend/app/m.py"
+  git -C "$RBW" -c user.name=t -c user.email=t@t add -A; git -C "$RBW" -c user.name=t -c user.email=t@t commit -q -m base; RBB="$(git -C "$RBW" rev-parse HEAD)"
+  echo "def f(): return 2" > "$RBW/backend/app/m.py"; printf 'def test_f():\n    assert 1\n' > "$RBW/backend/tests/test_m.py"
+  git -C "$RBW" -c user.name=t -c user.email=t@t add -A; git -C "$RBW" -c user.name=t -c user.email=t@t commit -q -m chg
+  printf '#!/bin/bash\nexit 1\n' > "$T/rbpytest"; chmod +x "$T/rbpytest"      # the new test FAILS on the reverted source => red-ok
+  rbout="$(stage_red_before_check "$RBW" "$RBB" "$T/rb.vlog" "$T/rbpytest" backend 2>"$T/rb.err")"
+  ok "red-before red-ok verdict on a healthy change" "$(printf '%s' "$rbout" | grep -q '^RB red-ok' && echo 1 || echo 0)"
+  ok "red-before red-ok run prints NO shell error on stderr (was: .../weak: No such file or directory)" "$([ ! -s "$T/rb.err" ] && echo 1 || echo 0)"
+fi
 
 # ---- GUT ----
 GUTOK='extends GutTest

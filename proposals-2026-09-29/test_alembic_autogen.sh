@@ -6,14 +6,15 @@
 # Needs a python with alembic+sqlalchemy: $OVN_TEST_PY, else the test-automation-agent venv;
 # SKIPs (exit 0) if none exists.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../scripts/test" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; SCRIPTS="$(cd "$HERE/.." && pwd)"
 PYX="${OVN_TEST_PY:-$HOME/overnight-queue/repos/test-automation-agent/backend/.venv/bin/python}"
 "$PYX" -c 'import alembic, sqlalchemy' 2>/dev/null || { echo "SKIP: no python with alembic+sqlalchemy ($PYX)"; exit 0; }
 fail=0; ok() { echo "  ok   - $1"; }; bad() { echo "  FAIL - $1"; fail=1; }
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 mkrepo() {  # $1 = repo dir name (basename matters: allowlist)
-  local R; R="$(mktemp -d "$T/r.XXXXXX")/$1"; mkdir -p "$R/proj/app" "$R/proj/alembic/versions" "$R/proj/tests"; cd "$R" || exit 1
+  local R; R="$(safe_mktemp_dir_in "$T" r)" || exit 1; R="$R/$1"; mkdir -p "$R/proj/app" "$R/proj/alembic/versions" "$R/proj/tests"; cd "$R" || exit 1
   git init -q . && git config user.email t@t && git config user.name t
   ln -s "$(dirname "$(dirname "$PYX")")" proj/.venv           # hook uses proj/.venv/bin/python
   printf '[alembic]\nscript_location = alembic\nprepend_sys_path = .\n' > proj/alembic.ini

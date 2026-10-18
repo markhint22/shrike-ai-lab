@@ -3,19 +3,20 @@
 # (logs/guard.jsonl, one JSON line per decision) whose per-run denial count run_review.sh prints into runs.log. Everything runs against a temp HOME with a stub `claude`.
 # Mutation controls at the end: break each fix in a scratch copy and show the matching assertions fail.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OPS="$HERE/../../ops/fleet_review"
 [ -f "$OPS/run_review.sh" ] || { echo "  SKIP: ops/fleet_review not present"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 b(){ if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
 has(){ grep -qF -- "$2" <<<"$1" && echo 1 || echo 0; }
 hasnt(){ grep -qF -- "$2" <<<"$1" && echo 0 || echo 1; }
 epoch(){ python3 -c 'import calendar,sys,time; print(calendar.timegm(time.strptime(sys.argv[1], "%Y-%m-%dT%H:%M:%SZ")))' "$1"; }
 
 mkhome(){ # mkhome <dir> <ops-dir>: a fake HOME with ~/fleet_review installed from <ops-dir> and a stub claude
-  local h="$1" src="$2"; rm -rf "$h"; mkdir -p "$h/fleet_review/logs" "$h/.local/bin" "$h/repo"
+  local h="$1" src="$2"; rm -rf "${h:?}"; mkdir -p "$h/fleet_review/logs" "$h/.local/bin" "$h/repo"
   cp "$src/run_review.sh" "$src/guard.py" "$src/prompt.md" "$src/settings.json" "$h/fleet_review/"
   cat > "$h/.local/bin/claude" <<'STUB'
 #!/bin/bash

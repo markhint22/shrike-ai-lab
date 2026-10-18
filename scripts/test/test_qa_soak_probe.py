@@ -2,6 +2,7 @@
 """Tests for qa/soak_probe.py (Phase 4 soak probe + per-candidate summary) and the shadow soak read in qa/promote_gate.py. Stdlib only, hermetic: a loopback stub
 server with scripted failure modes stands in for staging; HOME/TMPDIR/QA_STATE_DIR are private temp dirs (the .sh wrapper sets TMPDIR via lib_safe_tmp.sh)."""
 import json, os, subprocess, sys, tempfile, time
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); import tmp_track; tmp_track.install()   # 2026-10-17: every mkdtemp() below is removed at exit (the suite leaked these dirs)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))

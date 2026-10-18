@@ -3,13 +3,14 @@
 # scripts/overnight-queue, env -i with a minimal PATH, NTFY_SERVER set). Fixture = a throwaway git repo with dated commits and a
 # synthetic outcomes.jsonl; OVN_DIR is a temp dir so real state is never touched; a stub curl proves nothing reaches the network.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"            # scripts/overnight-queue
 QA="$ROOT/qa"
 [ -f "$QA/qa_ledger.py" ] || { echo "  SKIP: qa/qa_ledger.py not found"; exit 0; }
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 OVN="$tmp/ovn"; mkdir -p "$OVN/state" "$OVN/repos" "$tmp/bin"
 printf '#!/bin/sh\necho "$@" >> %s/curl.log\nexit 0\n' "$tmp" > "$tmp/bin/curl"; chmod +x "$tmp/bin/curl"
 MINPATH="$tmp/bin:/usr/bin:/bin:$(dirname "$PY")"

@@ -11,6 +11,7 @@
 # Source the REAL function out of run_overnight.sh (not a reimplementation) so this can't drift
 # from what's actually deployed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 R="${OVN_RUNNER:-$HOME/overnight-queue/run_overnight.sh}"
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
@@ -28,7 +29,7 @@ eval "$FN_SRC"
 # swallowed by `eval`'s exit-code-only ok()/nok() (a false pass would have hidden this).
 SCRIPT_DIR="$(cd "$(dirname "$R")" && pwd)"
 
-STATE_DIR="$(mktemp -d)" || exit 1
+STATE_DIR="$(safe_mktemp_dir)" || exit 1
 class_of(){ # $1=status $2=id(unique per call so lines don't collide)
   : > "$STATE_DIR/outcomes.jsonl"
   record_outcome "$2" repo "$1" "" aider_fix 1 /dev/null

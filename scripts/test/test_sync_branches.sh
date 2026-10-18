@@ -9,13 +9,14 @@
 # NTFY_TOPIC default/override, and the local-clone-has-develop-checked-out scenario.
 # Lines tagged KNOWN-BUG are non-fatal warnings documenting real defects in the script (correct behaviour asserted).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../../sync_branches.sh"; [ -f "$S" ] || S="$HERE/../sync_branches.sh"; [ -f "$S" ] || S="$HERE/sync_branches.sh"
 [ -f "$S" ] || { echo "sync_branches.sh not found"; exit 1; }
 pass=0; fail=0; warn=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   KNOWN-BUG (now fixed): $1"; else warn=$((warn+1)); echo "  WARN KNOWN-BUG: $1"; fi; }
-T="$(mktemp -d)" || exit 1; PFX="sbt$$"
+T="$(safe_mktemp_dir)" || exit 1; PFX="sbt$$"
 trap 'rm -rf "$T" /tmp/sync-${PFX}*' EXIT
 export GIT_CONFIG_GLOBAL="$T/gitconfig"; printf '[user]\n\temail = t@t\n\tname = t\n[init]\n\tdefaultBranch = main\n' > "$GIT_CONFIG_GLOBAL"
 export GIT_CONFIG_NOSYSTEM=1

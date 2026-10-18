@@ -22,11 +22,12 @@ mkdir -p "$OUT/apk" "$OUT/e2e" || fail "cannot create out dir" 3
 KEY="${SHA:0:12}-$(printf '%s' "$API_BASE" | cksum | cut -d' ' -f1)"
 APK="$OUT/apk/chickadee-$KEY.apk"
 E2E="$OUT/e2e/$KEY"
-SCRATCH="$(mktemp -d /tmp/qa-dl-build.XXXXXX)"
-trap 'rm -rf "$SCRATCH"' EXIT
+SCRATCH="$(mktemp -d /tmp/qa-dl-build.XXXXXX)" || fail "cannot create scratch dir" 3
+[ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] || fail "mktemp -d returned no usable scratch dir" 3   # 2026-10-16: an empty SCRATCH would turn every "$SCRATCH/..." into an absolute path
+trap 'rm -rf "${SCRATCH:?}"' EXIT
 
 # --- e2e suite (always re-extracted: tiny) -------------------------------------------------------------------------------
-rm -rf "$E2E"; mkdir -p "$E2E"
+rm -rf "${E2E:?}"; mkdir -p "$E2E"
 git -C "$REPO_DIR" archive "$SHA" iptv-android/e2e | tar -x -C "$SCRATCH" || fail "git archive e2e failed" 3
 cp -R "$SCRATCH/iptv-android/e2e/." "$E2E/"
 # Staging-account support WITHOUT editing the repo: the suite hardcodes the PROD test accounts as literals in ~15 specs.

@@ -5,12 +5,13 @@
 # Covers: the python subcommand (positives, near-miss negatives), the bash wrapper + kill switch, the path-gate wiring, the run_overnight.sh call site,
 # and a MUTATION control (the same negatives against a copy whose partial-noun rule is disabled must flip to "delete").
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."
 EX="$S/ovn_delete_executor.py"; GATE="$S/ovn_path_gate.py"; FIX="$S/lib_fixup.sh"; RUN="$S/../run_overnight.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 intent(){ python3 "$1" intent "$2"; }
 
 # --- positives: whole-file delete intent -> exit 0

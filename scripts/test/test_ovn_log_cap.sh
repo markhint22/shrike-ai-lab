@@ -2,11 +2,12 @@
 # scripts/ovn_log_cap.sh (qacov F7): dry run by default, lossless head archive, in-place truncate (open `>>` writers keep working), retention only inside logs/archive
 # and logs/hygiene_gate. Every behaviour assertion is also run against a MUTANT of the script and must fail there. bash 3.2 ok.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$HERE/../ovn_log_cap.sh"; [ -f "$TOOL" ] || { echo "  SKIP: ovn_log_cap.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkq(){  # fresh fixture: logs/big.log (80000 lines ~ 2.4MB), logs/small.log, state/x, repos/r/x.log (must never be touched)
   rm -rf "${T:?}/q"; mkdir -p "$T/q/logs" "$T/q/state" "$T/q/repos/r"
   i=0; seq 1 80000 | sed 's/^/gate output line number /' > "$T/q/logs/big.log"

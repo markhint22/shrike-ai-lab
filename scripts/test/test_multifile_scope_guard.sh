@@ -4,11 +4,12 @@
 # exercises it standalone: a (multifile:no) item must never accumulate extra files from
 # the log, while an untagged/multifile:yes item keeps the existing scan-and-load behavior.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RO="$HERE/../../run_overnight.sh"; [ -f "$RO" ] || RO="$HERE/../run_overnight.sh"; [ -f "$RO" ] || RO="$HERE/run_overnight.sh"
 [ -f "$RO" ] || { echo "  ❌ run_overnight.sh not found"; exit 1; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
 
 # Pull the live function body straight out of run_overnight.sh so this test breaks if the

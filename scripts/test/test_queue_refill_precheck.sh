@@ -9,6 +9,7 @@
 # is a cheap, side-effect-free existence/import check; running it ONCE before ever pulling the
 # item catches this class at zero fleet cost instead of N wasted cycles.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 PY="${OVN_QUEUE_REFILL_PY:-$HOME/overnight-queue/queue_refill.py}"
 [ -f "$PY" ] || { echo "  SKIP: $PY not found on this host"; exit 0; }
 # already_satisfied()'s VERIFY commands (extracted from real backlog text) say plain "python",
@@ -21,7 +22,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)" || exit 1
+tmp="$(safe_mktemp_dir)" || exit 1
 mkdir -p "$tmp/repo"
 cat > "$tmp/repo/existing_module.py" <<'EOF'
 def already_here():

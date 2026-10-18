@@ -2,6 +2,7 @@
 """Tests for the Phase 4 contract-fuzz extension: the repo registry (qa/contract_fuzz_repos.json: billwatch, gitlark), form-body logins, the per-repo auth_loss_max, the pinned
 tool installer (qa/fuzz_tool_install.sh) and the cron proposal. Hermetic: no schemathesis, no repo venv and no network are needed."""
 import http.server, json, os, re, subprocess, sys, tempfile, threading
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); import tmp_track; tmp_track.install()   # 2026-10-17: every mkdtemp() below is removed at exit (the suite leaked these dirs)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))

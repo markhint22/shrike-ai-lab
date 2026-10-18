@@ -4,6 +4,7 @@
 # CHANGED message at once, and QR_LOG_REPEAT_S=0 restores the old log-everything behaviour. The dry bookkeeping (qr_dry marker) is unaffected.
 # Every case also runs against a MUTANT of the script (log_rl made a plain log) and must fail there.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="${OVN_QUEUE_REFILL:-$HERE/../../queue_refill.sh}"
 [ -f "$Q" ] || Q="$HOME/overnight-queue/queue_refill.sh"
@@ -11,7 +12,7 @@ Q="${OVN_QUEUE_REFILL:-$HERE/../../queue_refill.sh}"
 P=0; F=0
 # assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141)
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "${tmp:?}"' EXIT
 
 # a private $HOME/overnight-queue (queue_refill.sh does `cd "$HOME/overnight-queue"`) per script variant
 mkhome(){ # $1=dir $2=script

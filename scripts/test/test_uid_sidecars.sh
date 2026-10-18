@@ -8,6 +8,7 @@
 #   C. the REAL extracted run_overnight.sh blocks: DELETE-EXECUTOR, DELETE: trailer handler, UID-FIXUP gate block, and the delete-hint text.
 # Every behaviour is also proven to FAIL with the kill switch (OVN_DELETE_SIDECARS=off / OVN_UID_FIXUP=off = the old behaviour).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCR="$HERE/.."; [ -f "$SCR/ovn_delete_executor.py" ] || SCR="$HERE"
 EX="$SCR/ovn_delete_executor.py"; LIB="$SCR/lib_fixup.sh"
@@ -15,7 +16,7 @@ RO="$SCR/../run_overnight.sh"; [ -f "$RO" ] || RO="$HERE/../run_overnight.sh"
 . "$HERE/ntfy_guard.sh" 2>/dev/null || true
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 mkrepo(){  # a Godot-shaped repo: tracked scripts + their .uid sidecars (+ a .import)
   rm -rf "${T:?}/r" "${T:?}/origin.git"; git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/r" 2>/dev/null; cd "$T/r" || exit 1

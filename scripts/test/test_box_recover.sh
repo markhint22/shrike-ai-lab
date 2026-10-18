@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # 2026-10-16 (box home wipe): hermetic test of ops/box_recover.sh (fake HOME via RC_HOME, fake drive, stub crontab, throwaway ssh key). Nothing real is touched, no network.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OPS="$HERE/../../ops"; REC="$OPS/box_recover.sh"; BAK="$OPS/box_home_backup.sh"
 P=0; F=0
 ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 
-W="$(mktemp -d "${TMPDIR:-/tmp}/rctest.XXXXXX")" || { echo "mktemp failed: abort" >&2; exit 2; }
+W="$(safe_mktemp_dir rctest)" || { echo "mktemp failed: abort" >&2; exit 2; }
 case "$W" in /*/rctest.??????) ;; *) echo "unsafe scratch dir '$W': abort" >&2; exit 2;; esac
 [ -d "$W" ] && [ "$W" != "/" ] && [ "$W" != "${HOME:-/nonexistent}" ] || { echo "unsafe scratch dir: abort" >&2; exit 2; }
 cleanup(){ case "$W" in /*/rctest.??????) find "$W" -mindepth 1 -depth -delete 2>/dev/null; rmdir "$W" 2>/dev/null;; esac; }

@@ -7,6 +7,7 @@
 #   M4  the UNRUNNABLE reason carried 120 chars of the clause's output into alerts.log (a wider channel than the shadow log): fixed reason only.
 # Every NEW assertion fails on dafc7a2; labelled "benign twin" lines check that normal behaviour is unchanged.
 set -o pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."
 [ -f "$S/lib_auto_credit.sh" ] || { echo "  SKIP: lib_auto_credit.sh not found"; exit 0; }
@@ -14,8 +15,8 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (got [$2] want [$3])"; fi; }
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
-export HOME="$W/home"; mkdir -p "$HOME"
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"' EXIT
+safe_set_sandbox_home "$W" || exit 1; mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"; SHADOW_LOG="$OVN_VERIFY_SHADOW_LOG"; _REPO_LABEL=t
 emit_alert(){ :; }

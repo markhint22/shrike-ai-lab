@@ -4,11 +4,12 @@
 # classify() must now tolerate the prefix (strip one leading component when checking existence),
 # while still retiring genuinely-missing paths.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RV="$HERE/../ovn_retire_vague.py"; [ -f "$RV" ] || RV="$HERE/ovn_retire_vague.py"
 [ -f "$RV" ] || { echo "  ❌ ovn_retire_vague.py not found"; exit 1; }
 rc=0; fail(){ echo "  ❌ $1"; rc=1; }; ok(){ echo "  ✅ $1"; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/pkgdir"; echo "y = 1" > "$tmp/pkgdir/mod.py"
 RVDIR="$(cd "$(dirname "$RV")" && pwd)"
 cd "$tmp"

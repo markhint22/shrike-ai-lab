@@ -7,6 +7,7 @@
 #   D  MUTATION controls
 # bash 3.2 ok except C (flock).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 unset OVN_FLOOR_ALERT OVN_FLOOR_ALERT_H OVN_FLOOR_ALERT_MAX_BACKLOG PLN_LOG_REPEAT_S OVN_TRIGGER_MONOTONIC OVN_TRIGGER_PULLABLE_MIN OVN_DIR   # hermetic
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
@@ -15,7 +16,7 @@ TC="$Q/scripts/ovn_research_trigger_check.py"; PL="$Q/ovn_planner.sh"
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 # 2026-10-16: the embedded python heredocs call tempfile.mkdtemp(); point TMPDIR inside $tmp so the EXIT trap removes those dirs too (they were left in the private TMPDIR)
 mkdir -p "$tmp/pytmp" && export TMPDIR="$tmp/pytmp"
 

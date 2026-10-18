@@ -10,6 +10,7 @@
 # through cycle_summary.log at all. Extracts the real write out of run_overnight.sh so this
 # can't drift from what's deployed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
@@ -32,7 +33,7 @@ write_stage_task_stats(){ # $1=jsonl $2=repo $3=pushed-count $4=out-file
   printf '%s\t%s\t%s\t%s\t%s\n' "111" "$repo" "$_stage_oc" "$_stage_tag" "${_stage_file:-?}" >> "$out"
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 jsonl="$tmp/gitlark-run.jsonl"
 cat > "$jsonl" <<'JEOF'
 {"run":"r1","repo":"gitlark","tier":5,"item":"[T5] web/src/pages/Foo.spec.ts — do a thing. VERIFY: npx vitest run. (cat:test; multifile:no)","event":"decomposed","steps":1}

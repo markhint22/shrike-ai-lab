@@ -7,13 +7,15 @@
 # Sections: A bare_verify (the one safety test), B the ovn_credit_items.py CLI, C shadow_check (PASS/FAIL/prose/kill switch/mutation), D gut_cli rewrite, E the credit script end to end
 # (xlite replay: refused; mutation = fallback off credits it again; strict modes). E needs GNU sed (the credit script edits with `sed -i`): skipped on the Mac, run on the box.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
+safe_use_short_tmp || exit 1     # 2026-10-17: the shadow log truncates cmd= / clause= at 200 chars; a deep TMPDIR (scratchpad, CI workspace) must not push the asserted token out of it
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; [ -f "$S/lib_verify_clause.sh" ] || S="$HERE"
 [ -f "$S/lib_verify_clause.sh" ] || { echo "  SKIP: lib_verify_clause.sh not found"; exit 0; }
 P=0; F=0
 # assertions are evaluated with pipefail OFF (grep -q + pipefail is flaky: SIGPIPE rc 141)
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(realpath "$(mktemp -d)" 2>/dev/null || mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 L_GREP='- [ ] [T1] scripts/battle/damage.gd — Add static method `get_max_directive_value()` returning `MissionDirective.Directive.values().max()` VERIFY: grep -q "static func get_max_directive_value" scripts/battle/damage.gd && grep -q "MissionDirective.Directive.values().max()" scripts/battle/damage.gd. (cat:godot; multifile:no) [feat:xlite-20261010-x]'
 L_GUT='- [ ] [T2] tests/test_damage.gd — Add test case VERIFY: godot --headless -s addons/gut/gut_cmdln.gd -gdir=tests -gtest=test_damage.gd -gexit. (cat:test; multifile:no) [feat:xlite-20261010-x]'
@@ -106,7 +108,7 @@ cat "$tmp/c/prog.md" > /dev/null
 
 echo "== D: gut_cli.gd -> gut_cmdln.gd at run time"
 mkdir -p "$tmp/d/addons/gut/cli" "$tmp/d/bin"; cd "$tmp/d" || exit 1
-export HOME="$tmp/d/home"; mkdir -p "$HOME/godot"
+safe_set_sandbox_home "$tmp/d" || exit 1; mkdir -p "$HOME/godot"
 printf '%s\n' '#!/usr/bin/env bash' 'echo "STUB-GODOT $*"' 'exit 0' > "$HOME/godot/godot4"; chmod +x "$HOME/godot/godot4"
 printf '%s\n' '- [ ] [T2] tests/t.gd — x VERIFY: `godot --headless -s addons/gut/cli/gut_cli.gd -gdir=tests -gexit`. (cat:test)' > prog.md
 export PROG="$tmp/d/prog.md" SHADOW_LOG="$tmp/d/shadow.log"

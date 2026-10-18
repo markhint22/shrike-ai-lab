@@ -7,6 +7,7 @@
 # PART A  per-cycle verify (REAL run_overnight.sh run_repo_verification via lib_ro_core.sh, stub godot): a parse-broken tests/mission/x.gd is RED in the cycle that wrote it.
 # PART B  hygiene gate (REAL branch_hygiene.sh, stub godot, throwaway bare origins): the reason is logged at both former silent returns and reaches the streak alert.
 # Every NEGATIVE has a BENIGN control and a kill-switch case. Nothing real is touched or pushed.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 export OVN_QA_SHADOW=off
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -46,7 +47,7 @@ chmod +x "$HOME/godot/godot4"
 
 task_log="$T/verify.task.log"; : > "$task_log"
 V="$T/v"
-newrepo(){ rm -rf "$V"; mkdir -p "$V/addons/gut" "$V/tests/mission"; cd "$V" || exit 1; git init -q; echo x > project.godot; echo x > addons/gut/gut_cmdln.gd
+newrepo(){ rm -rf "${V:?}"; mkdir -p "$V/addons/gut" "$V/tests/mission"; cd "$V" || exit 1; git init -q; echo x > project.godot; echo x > addons/gut/gut_cmdln.gd
   printf 'extends GutTest\nfunc test_a():\n\tassert_true(true)\n' > tests/test_ok.gd; echo base > README
   git add -A; git commit -q -m base; BEFORE_SHA="$(git rev-parse HEAD)"; : > "$task_log"; rm -f "$T/godot.calls"; }
 commit_all(){ git add -A; git commit -q -m c; AFTER_SHA="$(git rev-parse HEAD)"; }
@@ -158,7 +159,7 @@ echo "=== PART B: branch_hygiene.sh gate ==="
 for t in flock timeout jq; do command -v $t >/dev/null || { echo "  SKIP part B: no $t"; ro_summary; exit $?; }; done
 cd "$T" || exit 1
 REALGIT="$(type -P git)"; export REALGIT
-export HOME="$T/home"; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
+safe_set_sandbox_home "$T" || exit 1; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
 BIN="$T/bin"; mkdir -p "$BIN"
 mkstub(){ printf '#!/usr/bin/env bash\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }
 mkstub curl 'echo "curl $*" >> "$T/curl.log"; exit 0'
@@ -240,7 +241,7 @@ bok "B3 BENIGN: clean import -> merged, no import-scan line" "$([ "$(merged app)
 
 
 echo "--- B4. PARTIAL DEPLOY: new branch_hygiene.sh + a lib_gut_xml.sh without the new helpers must not MERGE a parse-broken script"
-SBH_DIR="$T/stale_oq"; rm -rf "$SBH_DIR"; mkdir -p "$SBH_DIR/scripts"
+SBH_DIR="$T/stale_oq"; rm -rf "${SBH_DIR:?}"; mkdir -p "$SBH_DIR/scripts"
 cp "$(dirname "$BH")/branch_hygiene.sh" "$SBH_DIR/"
 find "$(dirname "$BH")/scripts" -maxdepth 1 -type f -exec cp {} "$SBH_DIR/scripts/" \;
 awk '/^gut_(subdirs_flag|load_failure_line)\(\) \{/ { skip = 1 } !skip { print } skip && /^\}/ { skip = 0 }' "$(dirname "$BH")/scripts/lib_gut_xml.sh" > "$SBH_DIR/scripts/lib_gut_xml.sh"

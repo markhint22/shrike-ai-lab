@@ -13,6 +13,7 @@
 # Drives the REAL record_outcome() (extracted from the live runner, same technique as
 # test_outcome_classification.sh) against a throwaway repo dir + state dir.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 R="${OVN_RUNNER:-$HOME/overnight-queue/run_overnight.sh}"
 LIB="$HERE/../lib_item_select.sh"; [ -f "$LIB" ] || LIB="$HERE/lib_item_select.sh"
@@ -30,7 +31,7 @@ FN_SRC="$(sed -n '/^record_outcome(/,/^}/p' "$R")"
 eval "$FN_SRC"
 SCRIPT_DIR="$(cd "$(dirname "$R")" && pwd)"   # record_outcome references it for ovn_classify_fail.sh
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 STATE_DIR="$tmp/state"; mkdir -p "$STATE_DIR"
 
 # record one outcome against a repo dir whose top doable item is $1; echo "<item_hash> <feat_tag>"

@@ -2,12 +2,13 @@
 # Extra coverage for the REAL hourly_notify.sh: stub python helpers (canned output) drive every optional body section, and a
 # failing stub curl drives the 3-attempt retry + failure path. Also the no-topic early exit.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S=""; for c in "$HERE/../../hourly_notify.sh" "$HERE/../hourly_notify.sh"; do [ -f "$c" ] && { S="$c"; break; }; done
 [ -n "$S" ] || { echo "  SKIP: hourly_notify.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ -n "$2" ] && [ -z "${2//1/}" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 Q="$T/q"; BIN="$T/bin"; STUBD="$T/stubd"; CALLS="$T/calls"
 mkdir -p "$Q/state" "$Q/scripts" "$BIN" "$STUBD" "$CALLS"; export STUBD CALLS
 cp "$S" "$Q/hourly_notify.sh"

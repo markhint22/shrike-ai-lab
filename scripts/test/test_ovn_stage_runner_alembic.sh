@@ -12,6 +12,7 @@
 #   F  a refusal (dropped index) inside the staged flow: no migration, the run still verifies on its own merits, tree intact.
 # SKIPs (exit 0) when no python with alembic+sqlalchemy exists.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 trap osr_cleanup EXIT
@@ -105,7 +106,7 @@ o_tree()  { git -C "$O" ls-tree -r --name-only overnight/feature; }
 o_migs()  { o_tree | grep -c '^backend/alembic/versions/.*\.py$'; }
 o_prog()  { osr_origin_file OVERNIGHT_PROGRESS.md; }
 chain_ok(){  # materialise origin's tree and run the repo-agnostic chain check the MIGRATION-SAFETY gate uses
-  local d; d="$(mktemp -d "$T/chk.XXXX")" || exit 1; git -C "$O" archive overnight/feature backend/alembic | tar -x -C "$d"
+  local d; d="$(safe_mktemp_dir_in "$T" chk)" || exit 1; git -C "$O" archive overnight/feature backend/alembic | tar -x -C "$d"
   python3 "$REALQ/scripts/check_migrations.py" "$d/backend" >/dev/null 2>&1; }
 
 echo "== A: model-only staged step -> migration generated in the same run, verified + pushed with it"

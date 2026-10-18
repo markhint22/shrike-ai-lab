@@ -3,6 +3,7 @@
 # OVERNIGHT_PROGRESS.md (a raw head -c/tail -c can split a multibyte char and crash the downstream JSON encode).
 # Hermetic: temp files only, no network.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/../ovn_progress_slice.py"; [ -f "$PY" ] || PY="$HOME/overnight-queue/scripts/ovn_progress_slice.py"
 [ -f "$PY" ] || { echo "  SKIP: script not found"; exit 0; }
@@ -11,7 +12,7 @@ ok(){ pass=$((pass+1)); echo "  ok   $1"; }
 bad(){ fail=$((fail+1)); echo "  FAIL $1"; }
 chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 hex(){ od -An -tx1 -v | tr -d ' \n'; }
 # em-dash = e2 80 94 (3 bytes); "ab—cd" = 61 62 e2 80 94 63 64 (7 bytes)
 EM='ab—cd'

@@ -9,10 +9,13 @@ Usage, right after `import tempfile`:   import tmp_track; tmp_track.install()
     still cleans. A test that needs a bounded footprint mid-run (the mutation batteries) may take m = tmp_track.mark() and call tmp_track.sweep(m) itself.
 Only directories created through tempfile.mkdtemp() AFTER install() are touched - never anything the test did not make."""
 import atexit
+import os
 import shutil
 import tempfile
 
 _MADE = []
+# sibling files a test's own fixture stubs write NEXT to a mkdtemp dir (<dir>.spec_wt by the qwen explorer/critic stubs): removed with the dir
+SIDECARS = (".spec_wt",)
 _ORIG = tempfile.mkdtemp
 _INSTALLED = False
 
@@ -32,7 +35,14 @@ def sweep(since=0):
     """Remove every tracked directory created after `since` (default: all); returns how many were removed."""
     n = 0
     while len(_MADE) > since:
-        shutil.rmtree(_MADE.pop(), ignore_errors=True)
+        d = _MADE.pop()
+        assert os.path.isabs(d) and len([c for c in d.split(os.sep) if c]) >= 2, d   # a mkdtemp() result, never "/" or a one-component path
+        shutil.rmtree(d, ignore_errors=True)
+        for sfx in SIDECARS:
+            try:
+                os.unlink(d + sfx)
+            except OSError:
+                pass
         n += 1
     return n
 

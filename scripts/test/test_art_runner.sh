@@ -3,13 +3,14 @@
 # modules injected into sys.modules, curl is a stub first on PATH, HOME is a temp dir. PIL is real (pixelize/alpha is
 # exercised for real).  The harness prints "OK label" / "FAIL label" lines which this wrapper counts.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../art_runner.py" "$HERE/../art_runner.py" "$HERE/art_runner.py"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "art_runner.py not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 python3 -c 'import PIL' 2>/dev/null || { echo "PIL missing - cannot test"; exit 2; }
-export HOME="$T/home"; mkdir -p "$HOME/overnight-queue" "$T/bin"
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME/overnight-queue" "$T/bin"
 export PYTHONDONTWRITEBYTECODE=1   # run the REAL file in place (coverage attribution); never write __pycache__ into the tree
 # curl stub: records args, succeeds (or fails when CURL_FAIL=1)
 cat > "$T/bin/curl" <<'C'

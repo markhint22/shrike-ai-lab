@@ -7,11 +7,12 @@
 #   - asking for more than available pulls only what's there
 #   - an empty/missing backlog is a safe no-op (REFILL=0)
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RF="$HERE/../../queue_refill.py"; [ -f "$RF" ] || RF="$HERE/../queue_refill.py"; [ -f "$RF" ] || RF="$HERE/queue_refill.py"
 [ -f "$RF" ] || { echo "  ❌ queue_refill.py not found"; exit 1; }
 rc=0; fail(){ echo "  ❌ $1"; rc=1; }; ok(){ echo "  ✅ $1"; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 prog="$tmp/prog.md"; bl="$tmp/bl.md"
 printf '# progress\n- [ ] [T1] pre-existing item\n' > "$prog"

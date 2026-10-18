@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # vercel_state_check.py: prod not-live -> emergency push once; failing previews -> one note/day; healthy -> silent.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 cd "$(dirname "$0")/../.." || exit 1
-T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
+T=$(safe_mktemp_dir) || exit 1; trap 'rm -rf "$T"' EXIT
 python3 - "$T" <<'PY'
 import importlib.util, json, os, sys, time
 T = sys.argv[1]

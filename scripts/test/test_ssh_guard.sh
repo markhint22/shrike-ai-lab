@@ -3,13 +3,14 @@
 # shim still sees the call, other hosts pass through, OVN_SSH_GUARD=off disables it. Hermetic: the "box" address is overridden to RFC 5737 192.0.2.1 (never routed), so even the MUTANT
 # (guard broken) can only attempt a 2 s connection to a black hole. SKIPs when /usr/bin/ssh is not the system ssh. bash 3.2 ok.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 G="$HERE/ntfy_guard.sh"; [ -f "$G" ] || { echo "  SKIP: ntfy_guard.sh not found"; exit 0; }
 SSHBIN="$(PATH=/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin type -P ssh 2>/dev/null)"   # type -P: `command -v` would answer "ssh" (the exported guard function) when run inside run_all.sh
 case "$SSHBIN" in /usr/bin/ssh|/bin/ssh|/usr/local/bin/ssh|/opt/homebrew/bin/ssh) ;; *) echo "  SKIP: no system ssh"; exit 0;; esac
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 BOX=192.0.2.1
 # t <guard file> <command...>: runs the command in a fresh bash that sourced the guard; prints rc to $T/rc, stdout+stderr to $T/out
 t(){ local g="$1"; shift; ( export OVN_SSH_GUARD_LOG="$T/guard.log" OVN_GUARD_BOX_HOSTS="$BOX" OVN_NTFY_GUARD_LOG="$T/ntfy.log"; unset OVN_SSH_GUARD; . "$g"; "$@" ) > "$T/out" 2>&1; echo $? > "$T/rc"; }

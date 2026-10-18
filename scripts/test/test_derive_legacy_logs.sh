@@ -3,12 +3,13 @@
 # hardening plan (strangler-fig derivation of task_stats.log/cycle_summary.log FROM
 # outcomes.jsonl, run alongside the existing writers, not replacing them).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${OVN_DERIVE_LOGS:-$HERE/../ovn_derive_legacy_logs.py}"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/ovn_derive_legacy_logs.py"
 [ -f "$SCRIPT" ] || { echo "  SKIP: ovn_derive_legacy_logs.py not found"; exit 0; }
 
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/state"
 
 write_outcome(){ # $1=ts $2=repo $3=id $4=tier $5=category $6=status

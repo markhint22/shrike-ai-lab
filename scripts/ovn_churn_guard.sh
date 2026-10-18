@@ -15,7 +15,7 @@ if command -v flock >/dev/null 2>&1 && [ -f "$HERE/lib_lock.sh" ]; then
   . "$HERE/lib_lock.sh"
   acquire_lock "$STATE/churn_guard.lock" 9 "${OVN_CHURN_LOCK_WAIT:-60}" churn-guard log || exit 0
 else
-  LD="$STATE/churn_guard.lockdir"
+  LD="${STATE:?}/churn_guard.lockdir"
   if ! mkdir "$LD" 2>/dev/null; then
     age=$(( $(date +%s) - $(stat -c %Y "$LD" 2>/dev/null || stat -f %m "$LD" 2>/dev/null || echo 0) ))
     [ "$age" -gt 1800 ] && rm -rf "$LD" && mkdir "$LD" 2>/dev/null || { echo "$(date '+%F %T') [churn-guard] another pass holds the lock - skipping"; exit 0; }

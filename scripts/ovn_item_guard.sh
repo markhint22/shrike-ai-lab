@@ -72,7 +72,7 @@ if [ "$_rp_at" -gt 0 ] 2>/dev/null && [ -d "$state/credit_refused" ]; then
   # ONLY this repo's counters ("<repo>.<hash>"; state/credit_refused is shared by every repo): another repo's counter is never read, parked or deleted here
   # (its item line is not in THIS progress file, so the stale-counter rule below would have deleted it and lost that repo's park)
   _rp_repo="$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g')"
-  find "$state/credit_refused" -maxdepth 1 -type f ! -name '*.*' -mtime +1 -exec rm -f {} + 2>/dev/null   # pre-per-repo bare-hash counters: ownerless, aged out
+  find "${state:?}/credit_refused" -maxdepth 1 -type f ! -name '*.*' -mtime +1 -exec rm -f {} + 2>/dev/null   # pre-per-repo bare-hash counters: ownerless, aged out
   for _rf in "$state/credit_refused/${_rp_repo}."*; do
     [ -f "$_rf" ] || continue
     _rn="$(sed -n 1p "$_rf" 2>/dev/null)"

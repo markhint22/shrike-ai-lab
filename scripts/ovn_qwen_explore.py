@@ -2524,8 +2524,9 @@ def main(argv):
     cfg = REPO_CFG.get(repo, DEFAULT_CFG)
     if dry and os.environ.get("OVN_QE_CACHE_DIR"):
         LEDGER_ROOT[0] = os.environ["OVN_QE_CACHE_DIR"]
-    cache_root = os.environ.get("OVN_QE_CACHE_DIR") or (tempfile.mkdtemp(prefix="qe-dry-") if dry else qdir())
     tmp_cache = dry and not os.environ.get("OVN_QE_CACHE_DIR")
+    tmp_cache_dir = tempfile.mkdtemp(prefix="qe-dry-") if tmp_cache else None      # the only dir this call may delete (never the caller-supplied OVN_QE_CACHE_DIR)
+    cache_root = os.environ.get("OVN_QE_CACHE_DIR") or (tmp_cache_dir if dry else qdir())
     locks = [Lock(os.path.join(cache_root if dry else qdir(), "lock_global")), Lock(os.path.join(cache_root if dry else qdir(), "lock_%s" % repo))]
     got = []
     try:
@@ -2549,8 +2550,8 @@ def main(argv):
     finally:
         for g in got:
             g.release()
-        if tmp_cache:
-            shutil.rmtree(cache_root, ignore_errors=True)
+        if tmp_cache_dir:
+            shutil.rmtree(tmp_cache_dir, ignore_errors=True)
 
 
 def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, forced_lens, max_items, t0, now):

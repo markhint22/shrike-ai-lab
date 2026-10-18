@@ -4,6 +4,7 @@
 # auto-merged deterministically, sanity-checked, gated on the merged tree and only then committed + pushed; any other conflicted file, a red gate, the
 # kill switch, or the main -> develop direction behave exactly as before (abort + alert).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ="$HERE/../.."; [ -f "$OQ/reconcile_branches.sh" ] || OQ="$HERE/.."
 FIX="$HERE/fixtures/progress_merge"
@@ -12,9 +13,9 @@ for t in flock timeout jq git python3; do command -v $t >/dev/null || { echo "  
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-export HOME="$T/home"; Q="$HOME/overnight-queue"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"
 unset OVN_PROGRESS_MERGE OVN_PM_DEFER OVN_MERGE_SANITY
 BIN="$T/bin"; mkdir -p "$BIN"
 mkstub(){ printf '#!/usr/bin/env bash\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }

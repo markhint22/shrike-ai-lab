@@ -4,11 +4,12 @@
 # open) in enforce mode, and must still credit as before in shadow mode (instant
 # rollback path) or when the VERIFY clause passes / doesn't exist.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../ovn_credit_already_satisfied.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/ovn_credit_already_satisfied.sh"
 [ -f "$SCRIPT" ] || { echo "  SKIP: ovn_credit_already_satisfied.sh not found"; exit 0; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
 touch noverify_file.py   # target exists: the path gate (2026-09-30) only refuses a no-VERIFY credit whose target is wrong
 

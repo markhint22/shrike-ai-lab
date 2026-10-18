@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # qa_mode.sh: on/off restores EXACTLY what it disabled; lane/unlane toggle one repo; never touches non-dev lanes; tasks.json stays valid.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 command -v jq >/dev/null 2>&1 || { echo "  SKIP: jq not installed"; exit 0; }
 Q="$(cd "$(dirname "$0")/../.." && pwd)"
-T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
+T=$(safe_mktemp_dir) || exit 1; trap 'rm -rf "$T"' EXIT
 P=0; F=0; ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 mkdir -p "$T/state"
 cat > "$T/tasks.json" <<'J'

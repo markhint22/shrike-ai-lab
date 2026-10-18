@@ -5,12 +5,13 @@
 # Runs the REAL run_aider_fix_task via lib_ro_aider1_driver.sh scenarios sg_* (hermetic fake tree + stub aider), plus the pure
 # --scout-guard / --park-line modes of ovn_park_unworkable.py and the downstream consumers of the new no-op(scout-unworkable) status.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DRV="$HERE/lib_ro_aider1_driver.sh"
 Q="$(cd "$HERE/../.." && pwd)"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 run(){ timeout 150 bash "$DRV" "$1" "$T/$1" > "$T/$1.out" 2>&1; }
 res(){ cat "$T/$1/result" 2>/dev/null; }
 rd(){ echo "$T/$1/repos/ro_aider1_repo"; }

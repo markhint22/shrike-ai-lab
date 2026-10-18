@@ -6,13 +6,14 @@
 # requirements.txt without aiohttp while app code imports it. Every check has a NEGATIVE (bad seeded) and a
 # BENIGN (clean) control. Hermetic: the clean-venv test installs a locally-built wheel (no network).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 Q="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CM="$Q/scripts/check_migrations.py"; LIB="$Q/scripts/lib_dep_import_check.py"; AG="$Q/scripts/ovn_alembic_autogen.sh"
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){  if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 nok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then F=$((F+1)); echo "  FAIL(expected-false): $1"; else P=$((P+1)); fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export OVN_DEP_CACHE="$T/cache"
 export OVN_DEP_GATE=enforce   # the lib defaults to shadow; cases below that test the default unset it explicitly
 G(){ git -c user.name=t -c user.email=t@t "$@"; }
@@ -60,7 +61,7 @@ if [ -n "$AL" ]; then
 else echo "  (alembic not on this host: real-alembic cases skipped)"; fi
 
 # ---------- 2. removed-but-still-imported requirements ----------
-mkrepo(){ rm -rf "$1"; mkdir -p "$1/app" "$1/tests"; G -C "$1" init -q; }
+mkrepo(){ rm -rf "${1:?}"; mkdir -p "$1/app" "$1/tests"; G -C "$1" init -q; }
 r="$T/r1"; mkrepo "$r"
 printf 'fastapi==0.110\naiohttp==3.9\nrequests\n' > "$r/requirements.txt"
 printf 'import aiohttp\nimport fastapi\n' > "$r/app/service.py"
@@ -124,7 +125,7 @@ with zipfile.ZipFile(w, "w") as z:
     z.writestr("fakeaio-1.0.dist-info/WHEEL", "Wheel-Version: 1.0\nGenerator: t\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
     z.writestr("fakeaio-1.0.dist-info/RECORD", "")
 PY
-mkapp(){ rm -rf "$1"; mkdir -p "$1/app" "$1/vendor"; cp "$T/vendor/fakeaio-1.0-py3-none-any.whl" "$1/vendor/"; touch "$1/app/__init__.py"; }
+mkapp(){ rm -rf "${1:?}"; mkdir -p "$1/app" "$1/vendor"; cp "$T/vendor/fakeaio-1.0-py3-none-any.whl" "$1/vendor/"; touch "$1/app/__init__.py"; }
 a="$T/app1"; mkapp "$a"; printf 'import fakeaio\napp = fakeaio.X\n' > "$a/app/main.py"
 printf '' > "$a/requirements.txt"
 out="$(python3 "$LIB" clean-import --repo "$a" 2>&1)"; rc=$?
@@ -182,7 +183,7 @@ G -C "$r" reset -q b.txt; rm -f "$r/b.txt"
 printf '"""Placeholder - the implement step fills in x"""\n' > "$r/svc/alembic/versions/0015_stub3.py"
 G -C "$r" add svc/alembic/versions/0015_stub3.py; G -C "$r" commit -qm "stub3"
 printf 'edit\n' > "$r/svc/alembic/versions/0010_a.py"
-( export HOME="$T/nohome" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME= GIT_COMMITTER_NAME= GIT_AUTHOR_EMAIL= GIT_COMMITTER_EMAIL= EMAIL=; bash "$AG" --drop-stubs "$r" >/dev/null 2>&1 )
+( mkdir -p "$T/nohome_root"; safe_set_sandbox_home "$T/nohome_root" || exit 1; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME= GIT_COMMITTER_NAME= GIT_AUTHOR_EMAIL= GIT_COMMITTER_EMAIL= EMAIL=; bash "$AG" --drop-stubs "$r" >/dev/null 2>&1 )
 ok  "BENIGN failed commit keeps unrelated uncommitted edits" "grep -q edit '$r/svc/alembic/versions/0010_a.py'"
 git -C "$r" checkout -q -- svc/alembic/versions/0010_a.py 2>/dev/null
 OVN_ALEMBIC_AUTOGEN_DISABLE=1 bash "$AG" --drop-stubs "$r" >/dev/null 2>&1; ok "kill switch exits 0" "[ $? -eq 0 ]"

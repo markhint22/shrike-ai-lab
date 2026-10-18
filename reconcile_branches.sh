@@ -204,8 +204,8 @@ merge_into(){
   local repo="$1" tgt="$2" src="$3" allow_llm="${4:-0}"
   local ahead _pcd; ahead=$(git -C "$repo" rev-list --count "origin/${tgt}..origin/${src}" 2>/dev/null || echo 0)
   [ "${ahead:-0}" -eq 0 ] && { echo nochange; return; }
-  local wt; wt="$(mktemp -d "/tmp/reconcile-$(basename "$repo").XXXX")"
-  git -C "$repo" worktree add --quiet "$wt" "origin/${tgt}" 2>/dev/null || { rm -rf "$wt"; echo wterror; return; }   # 2026-10-13: the mktemp dir leaked here (an inode per failed pass while /tmp was full)
+  local wt; wt="$(mktemp -d "/tmp/reconcile-$(basename "$repo").XXXX" 2>/dev/null)" || wt=""   # 2026-10-16: empty on failure -> the worktree add below fails into wterror; no rm of an empty path
+  git -C "$repo" worktree add --quiet "$wt" "origin/${tgt}" 2>/dev/null || { [ -n "$wt" ] && rm -rf "$wt"; echo wterror; return; }   # 2026-10-13: the mktemp dir leaked here (an inode per failed pass while /tmp was full)
   # 2026-10-13: merge_into always runs inside a $(...) subshell; if anything below kills that subshell (set -u, a signal, a failing helper) the `worktree remove` at the end never ran and
   # the worktree (~800 inodes) leaked: 11 orphaned /tmp/reconcile-test-automation-agent.* on 10-13 helped exhaust the box's /tmp inodes. The EXIT trap removes it on ANY exit; it is cleared
   # again on the normal path. The path/repo are baked into the trap text now (locals are gone by the time a subshell's EXIT trap fires).
@@ -254,7 +254,7 @@ merge_into(){
     else rc=pushfail; fi
   else git -C "$wt" merge --abort >/dev/null 2>&1; rc=conflict; fi
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
-  rm -rf "$wt"; trap - EXIT
+  rm -rf "${wt:?}"; trap - EXIT
   echo "$rc"
 }
 

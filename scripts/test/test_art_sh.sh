@@ -2,13 +2,14 @@
 # Regression: art.sh (art queue control CLI). HOME is a temp dir; docker/nohup/pgrep/nvidia-smi are stubs first on PATH,
 # so nothing touches the GPU, containers, or the real ~/overnight-queue art queue.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../art.sh" "$HERE/../art.sh" "$HERE/art.sh"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "art.sh not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 warn(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else echo "  WARN $1 (non-fatal, known defect)"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export HOME="$T/home"; mkdir -p "$HOME/overnight-queue/logs" "$T/bin"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME/overnight-queue/logs" "$T/bin"
 Q="$HOME/overnight-queue/art_queue.md"; CALLS="$T/calls.log"; : > "$CALLS"
 export CALLS PGREP_RC=1 DOCKER_RUNNING=false
 cat > "$T/bin/docker" <<'D'

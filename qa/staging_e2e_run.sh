@@ -21,7 +21,7 @@ PY="$(command -v python3.12 || command -v python3)"
 [ -n "$PY" ] || { echo "$(date '+%F %T') staging_e2e_run: no python3"; exit 0; }
 STATE="${QA_STATE_DIR:-$OVN_DIR/state}"; export QA_STATE_DIR="$STATE"
 OUT="$STATE/staging_e2e_box.json"
-LOCK="$STATE/staging_e2e.lock"
+LOCK="${STATE:?}/staging_e2e.lock"
 MAXAGE="${QA_E2E_MAX_AGE_S:-21600}"
 say(){ echo "$(date '+%F %T') staging_e2e_run: $*"; }
 mkdir -p "$STATE" 2>/dev/null

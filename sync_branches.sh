@@ -33,8 +33,8 @@ for repo in $repos; do
   behind="$(git -C "$repo" rev-list --count origin/develop..origin/main 2>/dev/null || echo 0)"
   if [ "${behind:-0}" -eq 0 ]; then log "$name: develop already contains main (in sync)"; continue; fi
   if [ "$DRY" = 1 ]; then log "$name: [dry-run] would back-merge main -> develop (+$behind)"; continue; fi
-  wt="$(mktemp -d "/tmp/sync-${name}.XXXX")"
-  if ! git -C "$repo" worktree add --quiet "$wt" origin/develop 2>/dev/null; then log "$name: worktree add failed"; rm -rf "$wt"; continue; fi
+  wt="$(mktemp -d "/tmp/sync-${name}.XXXX" 2>/dev/null)" || wt=""
+  if ! git -C "$repo" worktree add --quiet "$wt" origin/develop 2>/dev/null; then log "$name: worktree add failed"; [ -n "$wt" ] && rm -rf "$wt"; continue; fi
   # 2026-09-30: no `checkout -B develop` here - it fails silently when the clone has develop checked out (git refuses a branch in two
   # worktrees), leaving a detached HEAD, after which `push origin develop` pushed the CLONE'S local develop and logged a false "reconciled".
   if git -C "$wt" merge --no-ff --no-edit -m "chore(sync): back-merge main -> develop (+$behind: promote/hotfix reconcile)" origin/main >/dev/null 2>&1; then

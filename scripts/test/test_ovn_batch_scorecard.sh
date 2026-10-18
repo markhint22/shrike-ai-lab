@@ -4,6 +4,7 @@
 # the machine-parseable "#SUMMARY" trailer, and the wrapper's alert-only-when-D/F behaviour.
 # Hermetic: HOME is a temp dir with a fake state/outcomes.jsonl; curl is a stub with the script's PATH patched.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 SH="$HERE/../ovn_batch_scorecard.sh"; [ -f "$SH" ] || SH="$REAL_HOME/overnight-queue/scripts/ovn_batch_scorecard.sh"
@@ -17,7 +18,7 @@ bad(){ fail=$((fail+1)); echo "  FAIL $1"; }
 chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 STUB="$T/stub"; mkdir -p "$STUB"; CURLLOG="$T/curl.log"
 cat > "$STUB/curl" <<EOF
 #!/bin/bash

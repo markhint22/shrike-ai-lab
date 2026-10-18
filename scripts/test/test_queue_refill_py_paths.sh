@@ -4,13 +4,14 @@
 # normalisation, pre-check crediting (backtick + "(cat:" VERIFY forms), always-true rejection, unsupported VERIFY shapes, failing
 # and timing-out verifies, SCAN_CAP bound, done-archive writing and the REFILL/CREDITED/PRUNED summary line.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 QR=""
 for c in "$HERE/../../queue_refill.py" "$HERE/../queue_refill.py" "$HERE/queue_refill.py"; do [ -f "$c" ] && { QR="$c"; break; }; done
 [ -n "$QR" ] || { echo "  SKIP: queue_refill.py not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 new(){ rm -rf "${T:?}/r"; mkdir -p "$T/r"; PF="$T/r/OVERNIGHT_PROGRESS.md"; BL="$T/r/backlog.md"; DONE="$T/r/OVERNIGHT_DONE.md"; : > "$PF"; : > "$BL"; }
 run(){ OUT="$(python3 "$QR" "$@" 2>"$T/err")"; RC=$?; }
 cnt(){ local c; c="$(grep -c -- "$1" "$2" 2>/dev/null)"; echo "${c:-0}"; }

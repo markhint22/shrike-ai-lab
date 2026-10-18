@@ -3,6 +3,7 @@
 # grounding variants, gradle guard, alembic-dropped guard, already-satisfied filter, recovery:none tagging,
 # worktree-open / push failure ladders. Fake LiteLLM on 127.0.0.1 (ephemeral port); everything in a temp HOME.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 SH="$ROOT/ovn_recover_parked.sh"
@@ -11,7 +12,7 @@ for l in lib_worktree.sh lib_path_normalize.sh; do [ -f "$ROOT/scripts/$l" ] || 
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1
+tmp="$(safe_mktemp_dir)" || exit 1
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 SANDBOX_HOME="$tmp/home"; OQ="$SANDBOX_HOME/overnight-queue"
@@ -65,7 +66,7 @@ trap cleanup EXIT
 new_repo(){ # $1=name $2=progress content ; extra files via $3 "path=content" optional
   local n="$1" o="$tmp/origin_$1.git"
   git init -q --bare "$o"
-  local w; w="$(mktemp -d)" || exit 1
+  local w; w="$(safe_mktemp_dir)" || exit 1
   ( cd "$w" && git init -q -b overnight/feature && printf '%s' "$2" > OVERNIGHT_PROGRESS.md \
       && mkdir -p src && printf 'def real():\n    return `${x}` and 1\n' > src/real.py && echo k > keep.txt \
       && git add -A && git commit -q -m init && git remote add origin "$o" && git push -q origin overnight/feature )

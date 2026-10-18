@@ -14,9 +14,10 @@
 #   ar_run [VAR=val ...]            run the script (DRY_RUN is NOT set here); output in $T/out.txt, exit code in $AR_RC
 #   ar_cleanup                      remove T and check the real state dir was untouched
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 ar_setup(){
   local script="$1" validator="${2:-}" here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  T="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
+  T="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
   STATE="$T/state"; CLONES="$T/clones"; FAKEBIN="$T/bin"; BOX="$T/box"; CAP="$T/capture"; SHARED_T="$T/shared"
   mkdir -p "$STATE" "$CLONES" "$FAKEBIN" "$BOX/roadmap" "$BOX/backlog" "$CAP" "$T/home" "$T/tmp" "$SHARED_T/scripts/overnight-queue"
   AR_SCRIPT="$SHARED_T/scripts/overnight-queue/ovn_auto_research.sh"
@@ -86,4 +87,4 @@ ar_run(){
      OVN_SSH=stub@box OVN_AR_CLAUDE="$FAKEBIN/claude" FAKEBOX="$BOX" CAPTURE="$CAP" TMPDIR="$T/tmp" "$@" "$BASH" "$AR_SCRIPT" > "$T/out.txt" 2>&1
   AR_RC=$?
 }
-ar_cleanup(){ rm -rf "$T"; }
+ar_cleanup(){ rm -rf "${T:?}"; }

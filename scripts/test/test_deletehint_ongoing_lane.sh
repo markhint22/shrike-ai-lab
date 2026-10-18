@@ -14,6 +14,7 @@
 # argument OR top not-yet-done OVERNIGHT_PROGRESS.md line, same exclusion filter used
 # elsewhere in this file for top-item lookups) so this can't drift.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
@@ -32,7 +33,7 @@ needs_delete_hint(){ # $1=prompt $2=repo_dir
   printf '%s\n%s' "$1" "$top" | grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b'
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 # ---- 1. real-shaped case confirmed live: the ongoing-lane's generic wrapper prompt
 #      (no delete/file words at all) PLUS a real "delete the dead X" top item in

@@ -6,13 +6,14 @@
 #      OVN_RECOVER_VERIFY_LINT=off|repair|enforce.
 # Runs the REAL script of this tree against a sandbox HOME (fake LiteLLM, bare origin repos), like test_recover_parked.sh.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 QD="$(cd "$HERE/../.." && pwd)"
 SH="$QD/ovn_recover_parked.sh"
 [ -f "$SH" ] || { echo "  SKIP: $SH not found"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1
+tmp="$(safe_mktemp_dir)" || exit 1
 SANDBOX_HOME="$tmp/home"; OQ="$SANDBOX_HOME/overnight-queue"
 mkdir -p "$OQ/repos" "$OQ/state" "$OQ/logs" "$OQ/scripts"
 cp "$QD/queue.sh" "$OQ/queue.sh"; chmod +x "$OQ/queue.sh"
@@ -40,7 +41,7 @@ python3 "$tmp/fake_litellm.py" "$PORT" "$RESP_FILE" "$REQLOG" & FAKE_PID=$!
 sleep 0.5
 trap 'kill "$FAKE_PID" >/dev/null 2>&1; rm -rf "$tmp"' EXIT
 new_origin(){ # $1=name $2=progress content ; the repo carries the vendored-code ban + a GUT project
-  local o="$tmp/origin_$1.git"; git init -q --bare "$o"; local w; w="$(mktemp -d)" || exit 1
+  local o="$tmp/origin_$1.git"; git init -q --bare "$o"; local w; w="$(safe_mktemp_dir)" || exit 1
   ( cd "$w" && git init -q -b overnight/feature && git config user.email t@t.com && git config user.name t \
       && printf '%s' "$2" > OVERNIGHT_PROGRESS.md && printf '# vendored\naddons/\n' > .queue-hard-banned-files \
       && mkdir -p addons/gut tests && printf 'x' > addons/gut/gut_cmdln.gd && printf 'x' > addons/gut/gut.gd \

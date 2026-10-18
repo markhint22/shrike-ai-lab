@@ -9,7 +9,7 @@ pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"
 # ---- run_overnight.sh: run_repo_verification ----
 ( . "$HERE/lib_ro_core.sh"; ro_init; ro_tasks '[]'; ro_source; set +e
   task_log="$T/v.log"; : > "$task_log"; V="$T/v"
-  newrepo(){ rm -rf "$V"; mkdir -p "$V"; cd "$V" || exit 1; git init -q; echo base > README; git add -A; git commit -q -m base; BEFORE_SHA="$(git rev-parse HEAD)"; }
+  newrepo(){ rm -rf "${V:?}"; mkdir -p "$V"; cd "$V" || exit 1; git init -q; echo base > README; git add -A; git commit -q -m base; BEFORE_SHA="$(git rev-parse HEAD)"; }
   newrepo; mkdir -p backend/tests; echo 'def test_a(): pass' > backend/tests/test_a.py; git add -A; git commit -q -m t
   r="$(run_repo_verification)"; echo "R1=$r"
   grep -q "fail-closed" "$task_log" && echo "LOG1=yes"

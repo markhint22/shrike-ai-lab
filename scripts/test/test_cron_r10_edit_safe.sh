@@ -4,6 +4,7 @@
 # therefore one function called on the last line. Here: run a private copy, overwrite the copy in place as soon as it is past its first section, and require the full summary + 0 failures.
 # The MUTANT (the same file with the wrapper removed) must NOT finish cleanly. SKIPs without docs/ (loud; OVN_TEST_REQUIRE_DOCS=1 makes it a failure) or without the tools the test needs.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
 DOC="$HERE/../../../../docs/patches/cron-r10.txt"; [ -f "$DOC" ] || DOC="$HERE/../../docs/patches/cron-r10.txt"
@@ -14,11 +15,12 @@ fi
 for t in flock timeout git python3 nice; do command -v $t >/dev/null 2>&1 || { echo "  SKIP: no $t"; exit 0; }; done
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mktree(){ # <name> -> tree $T/<name> shaped like the checkout: scripts/test/test_cron_r10.sh, scripts/<tools>, docs/patches/cron-r10.txt
   local d="$T/$1"; mkdir -p "$d/scripts/test" "$d/docs/patches"
   for f in lib_verify_clause.sh lib_gut_xml.sh lib_worktree.sh ovn_spec_check.sh ovn_spec_gate.py ovn_spec_rules.py ovn_spec_classify.py ovn_backlog_eligibility.py ovn_mutation_supply.py ovn_log_cap.sh; do cp "$SRC/$f" "$d/scripts/" 2>/dev/null; done
   cp "$DOC" "$d/docs/patches/cron-r10.txt"
+  cp "$HERE/lib_safe_tmp.sh" "$d/scripts/test/"   # the copied test_cron_r10.sh sources it from its own dir
 }
 # run <name>: start the copy, wait until it printed its second section header, clobber it in place, wait for it to end
 run(){

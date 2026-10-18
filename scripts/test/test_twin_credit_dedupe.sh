@@ -7,6 +7,7 @@
 # 2026-10-07 churn-loop shape could re-pull it) and is covered here; no open twin existed in the live files on 2026-10-12.
 # Every behaviour has a kill switch / legacy mode (OVN_REFILL_CANON=legacy, OVN_TWIN_CREDIT=off, OVN_PLANNER_DEDUPE=off, OVN_SCOUT_REFUSAL_PARK=off) that reproduces the old behaviour.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; [ -f "$S/ovn_credit_items.py" ] || S="$HERE"
 RF="$S/../queue_refill.py"; [ -f "$RF" ] || RF="$HERE/../queue_refill.py"
@@ -17,7 +18,7 @@ CI="$S/ovn_credit_items.py"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 sedi(){ if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
-W="$(mktemp -d)" || exit 1; trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$W"' EXIT
+W="$(safe_mktemp_dir)" || exit 1; trap '[ -n "${MOCKPID:-}" ] && kill "$MOCKPID" 2>/dev/null; rm -rf "$W"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 canon(){ printf '%s\n' "$1" > "$W/c.md"; python3 "$CI" canon "$W/c.md" 1; }
 
@@ -96,7 +97,7 @@ ok "T4 tick-twins on: TICKED 1; line 3 annotated with the source line; parked co
 ok "T5 the credited line's own checkbox state does not matter (twins of a ticked line are found too)" "[ \"\$(python3 '$CI' twins '$W/tw.before' 6 | tr '\n' ' ')\" = '2 3 ' ]"
 
 # wiring in ovn_auto_credit (the real function, a throwaway repo)
-export HOME="$W/home"; mkdir -p "$HOME"
+safe_set_sandbox_home "$W" || exit 1; mkdir -p "$HOME"
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"; SHADOW_LOG="$OVN_VERIFY_SHADOW_LOG"; _REPO_LABEL=t
 export OVN_STATE_DIR="$W/state"; mkdir -p "$OVN_STATE_DIR"
 emit_alert(){ :; }

@@ -57,7 +57,7 @@ log(){ echo "$(date '+%F %T') $*" | tee -a "$LOG"; }
 # removed and the run continues. Why this exists: run.log alternated "daily cap reached" / "another run active - skip" / "another run active - skip"
 # for days; the old code took the lock BEFORE the cap check and only installed the releasing trap AFTER it, so every cap-reached run leaked the lock
 # (now fixed: the trap is installed right after the lock is taken). OVN_AR_LOCK_DIAG=off restores the old 2h-by-mtime rule with no holder bookkeeping.
-LOCKD="$STATE/run.lock.d"
+LOCKD="${STATE:?}/run.lock.d"
 LOCK_STALE_H="${OVN_AR_LOCK_STALE_H:-3}"
 LOCK_HOLDER_PATTERN="${OVN_AR_LOCK_HOLDER_PATTERN:-ovn_auto_research}"   # a live pid whose command does not contain this is a REUSED pid, i.e. not our holder
 mtime_epoch(){ stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
@@ -116,7 +116,7 @@ else
     # Takeover is serialised by a mkdir MUTEX ($GUARD): only one run at a time may judge-move-recreate, so a third run can never have its fresh lock deleted
     # by a slower run's cleanup. Under the guard the verdict is re-taken from the disk (a lock that is no longer stale = another run got there first -> skip),
     # then the stale lock is moved aside (never deleted in place) and re-created. A guard leaked by a killed run is cleaned after GUARD_STALE_MIN minutes.
-    trap 'rm -rf "${WORK:-}"; drop_guard' EXIT
+    trap '[ -n "${WORK:-}" ] && rm -rf "${WORK:?}"; drop_guard' EXIT
     if ! mkdir "$GUARD" 2>/dev/null; then
       gts="$(mtime_epoch "$GUARD")"; case "$gts" in ""|*[!0-9]*) gts="$(date +%s)";; esac
       if [ $(( $(date +%s) - gts )) -gt $(( GUARD_STALE_MIN * 60 )) ]; then
@@ -149,7 +149,7 @@ else
     log "another run active - skip (lock holder pid=${hpid:-?} $hstate age=$(( age_s / 60 ))m)"; exit 0
   fi
 fi
-trap 'rm -rf "${WORK:-}"; drop_guard; release_lock' EXIT
+trap '[ -n "${WORK:-}" ] && rm -rf "${WORK:?}"; drop_guard; release_lock' EXIT
 
 TODAY="$(date +%F)"; CNT_FILE="$STATE/count_$TODAY"; used="$(cat "$CNT_FILE" 2>/dev/null || echo 0)"
 # 2026-10-13 (package supply-ledger): STARVATION ESCALATION above the daily cap. xlite starved 15h while this log said "daily cap reached (2/2)" every hour for ~22h.
@@ -188,7 +188,8 @@ print(" ".join(seen))' "$TODAY" "$ESC_ALLOW" 2>/dev/null)"
   fi
 fi
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d)" || { log "mktemp -d failed - skip (never write scratch files relative to an empty WORK)"; exit 1; }
+[ -n "$WORK" ] && [ -d "$WORK" ] || { log "mktemp -d returned no usable directory - skip"; exit 1; }   # 2026-10-16: an empty WORK would have made every "$WORK/..." write below land in /
 FORCE="${OVN_AR_FORCE_REPOS:-}"   # testing only: space-separated repos; bypasses starving/ready/cooldown checks (caps still apply)
 if [ -z "$FORCE" ]; then
   ssh -o ConnectTimeout=20 -o BatchMode=yes "$SRV" "cat ~/$REMOTE/state/research_trigger_starving.json" > "$WORK/starving.json" 2>"$WORK/err" \

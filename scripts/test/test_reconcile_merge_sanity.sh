@@ -2,11 +2,12 @@
 # reconcile_branches.sh POST-MERGE SANITY GATE (2026-09-30): a textually-clean `git merge` that SYNTHESIZES a broken
 # python file (two branches edited non-overlapping lines of the same file) must NOT be pushed; a healthy merge must.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REC="$HERE/../../reconcile_branches.sh"; [ -f "$REC" ] || REC="$HERE/../reconcile_branches.sh"; [ -f "$REC" ] || REC="$HERE/reconcile_branches.sh"
 [ -f "$REC" ] || { echo "  ❌ reconcile_branches.sh not found"; exit 1; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export NTFY_TOPIC="shrike_reconcile_selftest_ignore"
 git init -q --bare "$tmp/origin.git"; git clone -q "$tmp/origin.git" "$tmp/seed" 2>/dev/null
 ( cd "$tmp/seed"; git config user.email t@t; git config user.name t
@@ -17,7 +18,7 @@ git init -q --bare "$tmp/origin.git"; git clone -q "$tmp/origin.git" "$tmp/seed"
   git checkout -q main; sed -i '1s/.*/x = 0/' mod.py; git commit -qam "main: edit line 1"; git push -q origin main
   # develop: edit line 5 only (non-overlapping hunk -> git merges cleanly)
   git checkout -q develop; sed -i '5s/4/5/' mod.py; git commit -qam "develop: edit line 5"; git push -q origin develop )
-export HOME="$tmp/home"; mkdir -p "$HOME/overnight-queue/repos" "$HOME/overnight-queue/logs"
+safe_set_sandbox_home "$tmp" || exit 1; mkdir -p "$HOME/overnight-queue/repos" "$HOME/overnight-queue/logs"
 cp "$REC" "$HOME/overnight-queue/reconcile_branches.sh"
 git clone -q "$tmp/origin.git" "$HOME/overnight-queue/repos/testrepo" 2>/dev/null
 R="$HOME/overnight-queue/repos/testrepo"

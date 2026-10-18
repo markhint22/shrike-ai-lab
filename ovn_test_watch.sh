@@ -58,18 +58,18 @@ tw_open(){ # $1=repo_dir -> sets TW_LAST to a new detached worktree of origin/ov
   TW_LAST="$w"
 }
 tw_close(){ # $1=repo_dir $2=worktree
-  wt_close "$1" "$2"; rm -rf "$2" 2>/dev/null
+  wt_close "$1" "$2"; [ -n "${2:-}" ] && rm -rf "${2:?}" 2>/dev/null
   TW_OPEN="$(printf '%s' "$TW_OPEN" | grep -vF -- "|$2" || true)"
   [ -n "$TW_OPEN" ] && TW_OPEN="${TW_OPEN}"$'\n'
 }
-tw_cleanup(){ local e; while IFS= read -r e; do [ -n "$e" ] && { wt_close "${e%%|*}" "${e#*|}"; rm -rf "${e#*|}" 2>/dev/null; }; done <<<"$TW_OPEN"; TW_OPEN=""; }
+tw_cleanup(){ local e _p; while IFS= read -r e; do [ -n "$e" ] && { _p="${e#*|}"; wt_close "${e%%|*}" "$_p"; [ -n "$_p" ] && rm -rf "${_p:?}" 2>/dev/null; }; done <<<"$TW_OPEN"; TW_OPEN=""; }
 trap tw_cleanup EXIT
 trap 'log "terminated — cleaning up worktrees"; exit 143' TERM INT HUP
 # We hold test_watch.lock, so any /tmp/wt-tw-* worktree still registered is an orphan of a SIGKILL'd earlier sweep.
 for _r in $REPOS; do
   [ -d "repos/$_r/.git" ] || continue
   while IFS= read -r _w; do
-    case "$_w" in /tmp/wt-tw-*|/private/tmp/wt-tw-*) log "$_r: reaping orphaned test-watch worktree $_w"; wt_close "repos/$_r" "$_w"; rm -rf "$_w" 2>/dev/null;; esac
+    case "$_w" in /tmp/wt-tw-*|/private/tmp/wt-tw-*) log "$_r: reaping orphaned test-watch worktree $_w"; wt_close "repos/$_r" "$_w"; rm -rf "${_w:?}" 2>/dev/null;; esac
   done < <(git -C "repos/$_r" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}')
   git -C "repos/$_r" worktree prune >/dev/null 2>&1 || true
 done

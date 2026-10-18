@@ -117,7 +117,7 @@ OVN_VERIFY_REPAIR_ROUNDS=1 osr_run "$OSR_REPO" "$ITEM_PY"
 R="$(LASTROW)"
 T2 "runner verified after the repair round" "grep -q 'REPAIR PASSED (round 1)' '$T/out.txt'"
 T2 "row: runner.final=verified, baseline PASS is NOT counted as a real rescue; one row only" "jq -e '.runner.final==\"verified\" and .would_have_rescued==true and .real_rescue==false' <<<\"\$R\" && [ \"\$(NROWS)\" = 1 ]"
-T2 "the repair prompt did not pick up anything from the hook" "! grep -qi 'baseline' '$T/scn/aider.args.2'"
+T2 "the repair prompt did not pick up anything from the hook" "! sed 's#$T##g' '$T/scn/aider.args.2' | grep -qi 'baseline'"   # the sandbox path itself may contain the word (a deep TMPDIR): strip it first
 osr_cleanup
 
 echo "== qa mode switch (qa_modes.json baseline=off) writes no row"

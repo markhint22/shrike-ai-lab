@@ -60,14 +60,15 @@ try:
         fh.write(STUB)
     os.chmod(STUB_PATH, 0o755)
     CFG = scm.RAILWAY["billwatch"]
-    os.environ.update({"PATH": BIN + ":/usr/bin:/bin", "QA_RAILWAY_CWD_ROOT": os.path.join(W, "cwdroot"),
+    CWDROOT = os.path.join(W, "cwdroot")
+    os.environ.update({"PATH": BIN + ":/usr/bin:/bin", "QA_RAILWAY_CWD_ROOT": CWDROOT,
                        "RW_PROJECT": CFG["project"], "RW_SERVICE": CFG["service"]})
     scm._RAILWAY = STUB_PATH  # bypass railway_serial.sh so the stub is the only process (no shared ~/.railway lock)
 
     def fresh(name):
         d = os.path.join(W, name)
         os.makedirs(d)
-        shutil.rmtree(os.environ["QA_RAILWAY_CWD_ROOT"], ignore_errors=True)  # a link cached by an earlier case must not leak in
+        shutil.rmtree(CWDROOT, ignore_errors=True)  # a link cached by an earlier case must not leak in
         os.environ["RW_DIR"] = d
         os.environ["RW_LOG"] = os.path.join(d, "calls.log")
         os.environ["RW_SLOW"] = ""
@@ -124,7 +125,7 @@ try:
     # 5. a non-timeout failure is NOT retried (a bad login does not get better in 2 minutes)
     d = fresh("link_fails")
     os.environ["RW_FAIL"] = "link"
-    shutil.rmtree(os.path.join(os.environ["QA_RAILWAY_CWD_ROOT"], "billwatch-production"), ignore_errors=True)
+    shutil.rmtree(os.path.join(W, "cwdroot", "billwatch-production"), ignore_errors=True)
     raw, note = scm.railway_fetch("billwatch", "production")
     ok("link rc 3: export fails with the link message", raw is None and "railway link failed (rc=3" in note, note)
     ok("link rc 3: NOT retried (one call)", len(calls(d, "link")) == 1, calls(d, "link"))

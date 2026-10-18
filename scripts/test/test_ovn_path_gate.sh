@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ovn_path_gate.py: the shared "does this item's own target path make sense for an already-done credit" check.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 G="$HERE/../ovn_path_gate.py"; [ -f "$G" ] || G="$HERE/ovn_path_gate.py"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT; cd "$T"; mkdir -p src; touch src/here.py src/stale.py
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT; cd "$T"; mkdir -p src; touch src/here.py src/stale.py
 cat > P.md <<'P'
 ## Next Steps
 - [ ] [T2] src/here.py — Add a thing.

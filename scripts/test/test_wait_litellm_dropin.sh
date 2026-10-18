@@ -3,6 +3,7 @@
 # Static properties + the real ExecStartPre command run against a stub curl (bounded wait, immediate when LiteLLM is up, never fatal) + systemd-analyze verify when available.
 # Mutation section: each rule is broken in a temp copy of the file and check_conf must then fail.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OQ="$(cd "$HERE/../.." && pwd)"
 CONF=""
@@ -11,7 +12,7 @@ for c in "${WAIT_CONF:-/nonexistent}" "$OQ/../../docs/patches/overnight-queue.se
 TO="$(command -v timeout || command -v gtimeout || true)"
 P=0; F=0; QUIET=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); [ "$QUIET" = 1 ] || echo "  FAIL: $1"; fi; }
-T="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "${T:?}"' EXIT
 
 # check_conf FILE LABEL : every property of the drop-in
 check_conf(){

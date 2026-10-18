@@ -67,12 +67,12 @@ SMOKE_REPOS="${QA_DAILY_SMOKE_REPOS:-billwatch gitlark iptv_apps}"
 [ "$ONLY" = 1 ] && SMOKE_REPOS=""
 [ "$MUT_ONLY" = 1 ] && SMOKE_REPOS=""
 [ -f "$HERE/staging_smoke.py" ] || SMOKE_REPOS=""
-E2E_LOCK="$STATE_D/staging_e2e.lock"
+E2E_LOCK="${STATE_D:?}/staging_e2e.lock"
 lock_take(){ # $1 = max wait seconds; 0 = got it, 1 = busy
   local waited=0 swept=0
   while :; do
     if mkdir "$E2E_LOCK" 2>/dev/null; then echo "$$" > "$E2E_LOCK/pid" 2>/dev/null; return 0; fi
-    if [ "$swept" = 0 ] && [ -n "$(find "$E2E_LOCK" -maxdepth 0 -mmin +"${QA_E2E_LOCK_STALE_MIN:-30}" 2>/dev/null)" ]; then swept=1; rm -rf "$E2E_LOCK"; continue; fi
+    if [ "$swept" = 0 ] && [ -n "$(find "$E2E_LOCK" -maxdepth 0 -mmin +"${QA_E2E_LOCK_STALE_MIN:-30}" 2>/dev/null)" ]; then swept=1; rm -rf "${E2E_LOCK:?}"; continue; fi
     [ "$waited" -ge "$1" ] && return 1
     sleep 2; waited=$((waited+2))
   done
@@ -93,7 +93,7 @@ except Exception: pass' 2>/dev/null)"
 for r in $SMOKE_REPOS; do
   if ! lock_take "${QA_E2E_LOCK_WAIT_S:-120}"; then log "staging_smoke $r: SKIPPED (staging e2e lock busy)"; continue; fi
   out="$("$PY" "$HERE/qa_timeout.py" "$T" "$PY" "$HERE/staging_smoke.py" check --repo "$r" 2>>"$LOG" | tail -1)"
-  rm -rf "$E2E_LOCK"
+  rm -rf "${E2E_LOCK:?}"
   log "staging_smoke $r: $(verdict "$out")"
   smoke_alert_once "$r" "$out"
 done

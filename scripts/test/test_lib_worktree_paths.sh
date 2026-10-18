@@ -2,6 +2,7 @@
 # Extra branch coverage for scripts/lib_worktree.sh (sourced for real): wt_open failure modes + dependency symlinks,
 # wt_push direct / rebase-retry / genuine-conflict (aborted, never left mid-rebase) / unreachable origin, wt_close idempotence.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB=""
 for c in "$HERE/../lib_worktree.sh" "$HERE/lib_worktree.sh" "$HERE/../../scripts/lib_worktree.sh"; do [ -f "$c" ] && { LIB="$c"; break; }; done
@@ -10,7 +11,7 @@ for c in "$HERE/../lib_worktree.sh" "$HERE/lib_worktree.sh" "$HERE/../../scripts
 source "$LIB"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 git init -q --bare "$T/origin.git"
 git clone -q "$T/origin.git" "$T/main" 2>/dev/null

@@ -302,7 +302,9 @@ kept = (j or {}).get("details", {}).get("scratch_dir")
 ok("cut --keep leaves a real local branch in a scratch clone", kept and os.path.isdir(kept) and sh(kept, "git", "rev-parse", "--abbrev-ref", "HEAD") != "", kept)
 ok("cut --keep: the scratch clone has branch release/%s at the candidate" % DATE, kept and sh(kept, "git", "rev-parse", "release/" + DATE) == tipc, kept)
 if kept:
-    shutil.rmtree(os.path.dirname(kept), ignore_errors=True)
+    _kept_parent = os.path.dirname(kept)
+    assert os.path.isabs(_kept_parent) and os.path.basename(_kept_parent).startswith("qa-release-"), _kept_parent   # only release_candidate.py's own mkdtemp(prefix="qa-release-") dir (an empty/odd scratch_dir must never climb to / or /tmp)
+    shutil.rmtree(_kept_parent, ignore_errors=True)
 # enforce + really-push: pushes the BRANCH only; main + tags untouched
 rc, j, _, _ = gate("release_candidate.py", "cut", "--repo", "cutme", "--date", DATE, "--really-push", "--no-record", env_extra=["OVN_QA_RELEASE_CANDIDATE=enforce"])
 after = origin_refs(oc)

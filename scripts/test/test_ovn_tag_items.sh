@@ -2,12 +2,13 @@
 # Regression: scripts/ovn_tag_items.py prefixes each unchecked, non-human, not-yet-tagged item with its ovn_classify tag
 # {lang·type·complexity·verif}; idempotent; prints GENERATED_TAGS=<n>. Runs against COPIES in a temp dir (no __pycache__ in the tree).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 D="$HERE/.."; [ -f "$D/ovn_tag_items.py" ] || D="$HERE"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then echo "  ok   $1"; else echo "  WARN KNOWN-BUG: $1 (non-fatal)"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/s"; cp "$D/ovn_tag_items.py" "$D/ovn_classify.py" "$T/s/"
 S="$T/s/ovn_tag_items.py"; C="$T/s/ovn_classify.py"
 tagof(){ python3 "$C" --tag "$1"; }

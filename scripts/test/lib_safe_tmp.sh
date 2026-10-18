@@ -3,7 +3,8 @@
 # Incident: tmp="$(mktemp -d)" under `set -uo pipefail` (no -e) failed (TMPDIR gone), tmp was empty, the test then did export HOME="$tmp/home" (= /home) and rm -rf "$HOME":
 # the whole real home of the box user was deleted. These helpers FAIL CLOSED: nothing is created or removed unless every check passes.
 #
-#   tmp="$(safe_mktemp_dir)" || exit 1          # prints a canonical dir; non-zero + message on stderr when mktemp failed / empty / not a dir /
+#   tmp="$(safe_mktemp_dir [label])" || exit 1  # prints a canonical dir (explicit template under TMPDIR / the OS temp dir: same on BSD and GNU mktemp); non-zero + message on stderr when mktemp failed / empty / not a dir /
+#   sub="$(safe_mktemp_dir_in "$tmp" [label])" || exit 1   # a unique subdir of an existing sandbox (same checks, parent must be strictly under a temp root)
 #                                               # not under TMPDIR / equal to HOME, /, /home, /tmp, /var, /Users ...
 #   safe_set_sandbox_home "$tmp" || exit 1      # export HOME="$tmp/home" after a hard check that tmp is a real temp dir under the temp root (mkdir -p's it)
 #   safe_rm_rf "$tmp/x" "$tmp/y"                # refuses (returns 1, removes nothing) for: empty, non-absolute, any .. component, / , /home, HOME, an ancestor of the REAL home,
@@ -66,9 +67,24 @@ EOF
   return 1
 }
 
-safe_mktemp_dir(){ # [mktemp args...] -> prints the new dir; non-zero (and nothing printed) on any failed check
-  local d p
-  d="$(mktemp -d "$@" 2>/dev/null)" || { echo "safe_mktemp_dir: mktemp -d failed (TMPDIR='${TMPDIR:-}') - refusing to continue" >&2; return 1; }
+__st_tmpbase(){ # the directory new sandboxes are created in: $TMPDIR when set, else the OS per-user temp dir (/var/folders/.. on macOS, /tmp elsewhere)
+  local b="${TMPDIR:-}"
+  if [ -z "$b" ]; then
+    b="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)"
+    [ -n "$b" ] && [ -d "$b" ] || b=/tmp
+  fi
+  printf '%s\n' "${b%/}"
+}
+
+# 2026-10-16: an EXPLICIT template under the base dir, not bare `mktemp -d`. BSD mktemp (macOS) ignores TMPDIR when given no template (it uses the per-user /var/folders dir),
+# which made the TMPDIR-containment check fail for every caller under run_all; `mktemp -d <dir>/<label>.XXXXXX` means the same thing on BSD and GNU coreutils
+# (the X's must be the trailing part of the template on both).
+__st_mkdir_in(){ # $1=base dir (absolute, existing) $2=label -> prints the new dir (physical path) strictly inside base; non-zero + nothing printed on any failed check
+  local base="${1%/}" label="${2:-ovn}" d p bp ok=0
+  label="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '_')"
+  [ -n "$label" ] || label=ovn
+  [ -n "$base" ] && [ -d "$base" ] || { echo "safe_mktemp_dir: base '${base:-}' (TMPDIR='${TMPDIR:-}') is not a directory - refusing to continue" >&2; return 1; }
+  d="$(mktemp -d "$base/$label.XXXXXX" 2>/dev/null)" || { echo "safe_mktemp_dir: mktemp -d failed under '$base' - refusing to continue" >&2; return 1; }
   [ -n "$d" ] || { echo "safe_mktemp_dir: mktemp returned an empty path" >&2; return 1; }
   [ -d "$d" ] || { echo "safe_mktemp_dir: '$d' is not a directory" >&2; return 1; }
   p="$(__st_phys "$d")"
@@ -76,17 +92,56 @@ safe_mktemp_dir(){ # [mktemp args...] -> prints the new dir; non-zero (and nothi
   if __st_dangerous "$d" || __st_dangerous "$p"; then
     echo "safe_mktemp_dir: '$d' is a protected path (HOME, /, /home, /tmp ...)" >&2; rmdir "$d" 2>/dev/null; return 1
   fi
-  if [ -n "${TMPDIR:-}" ]; then
-    # TMPDIR set: the new dir must be under it (raw or physical) - mktemp silently falling back elsewhere is not acceptable
-    local t tp ok=0; t="${TMPDIR%/}"; tp="$(__st_phys "$TMPDIR")"
-    case "$d" in "$t"/?*) ok=1;; esac
-    if [ "$ok" = 0 ] && [ -n "$tp" ]; then case "$p" in "$tp"/?*) ok=1;; esac; fi
-    [ "$ok" = 1 ] || { echo "safe_mktemp_dir: '$d' is not under TMPDIR '$TMPDIR'" >&2; return 1; }
-  else
-    __st_under_root "$p" || { echo "safe_mktemp_dir: '$d' is not under a temp root" >&2; return 1; }
-  fi
+  # the new dir must be STRICTLY inside base (raw or physical form) - mktemp silently falling back elsewhere is not acceptable
+  bp="$(__st_phys "$base")"
+  case "$d" in "$base"/?*) ok=1;; esac
+  if [ "$ok" = 0 ] && [ -n "$bp" ]; then case "$p" in "$bp"/?*) ok=1;; esac; fi
+  [ "$ok" = 1 ] || { echo "safe_mktemp_dir: '$d' is not under '$base'" >&2; rmdir "$d" 2>/dev/null; return 1; }
+  # 2026-10-17: the new dir must ALSO pass the check safe_set_sandbox_home / safe_rm_rf will apply later (strictly under an allowed sandbox root). A TMPDIR that is /tmp, HOME, a symlink to /tmp ...
+  # is not an allowed root: fail up front instead of leaking a dir that nothing may remove.
+  __st_under_root "$p" || { echo "safe_mktemp_dir: '$p' is not strictly under an allowed temp root (TMPDIR='${TMPDIR:-}' is /tmp, HOME, a symlink to one, or otherwise protected) - refusing" >&2; rmdir "$d" 2>/dev/null; return 1; }
   [ "$(__st_ncomp "$p")" -ge 3 ] || { echo "safe_mktemp_dir: '$p' has fewer than 3 path components" >&2; return 1; }
   printf '%s\n' "$p"
+}
+
+__st_is_root(){ # rc 0 when $1 IS one of the allowed sandbox roots (a non-dangerous TMPDIR / OVN_SAFE_RM_ROOTS entry)
+  local r
+  while IFS= read -r r; do
+    [ -n "$r" ] && [ "$1" = "$r" ] && return 0
+  done <<ROOTS_EOF
+$(__st_roots)
+ROOTS_EOF
+  return 1
+}
+
+safe_mktemp_dir(){ # [label] -> a new dir directly under $TMPDIR (or the OS temp dir when unset)
+  local base bp; base="$(__st_tmpbase)"
+  if [ -z "${TMPDIR:-}" ]; then
+    bp="$(__st_phys "$base")"
+    { [ -n "$bp" ] && __st_under_root "$bp/x"; } || { echo "safe_mktemp_dir: '$base' is not an allowed temp root" >&2; return 1; }
+  fi
+  __st_mkdir_in "$base" "${1:-ovn}"
+}
+
+safe_use_short_tmp(){ # [max-len=48] -> when TMPDIR is a long path, point it at a short private dir (/tmp/ovn-s<uid>, owned by us, mode 700, not a symlink) BEFORE creating sandboxes.
+  # For tests whose assertions read log rows that truncate long paths (the shadow log's cmd= field is 200 chars): a deep TMPDIR (a Claude scratchpad, a CI workspace) must not change their verdict.
+  local max="${1:-48}" d
+  [ -n "${TMPDIR:-}" ] && [ "${#TMPDIR}" -gt "$max" ] || return 0
+  d="/tmp/ovn-s$(id -u)"
+  if [ -L "$d" ]; then echo "safe_use_short_tmp: '$d' is a symlink - refusing" >&2; return 1; fi
+  [ -d "$d" ] || mkdir -m 700 "$d" 2>/dev/null || { echo "safe_use_short_tmp: cannot create '$d'" >&2; return 1; }
+  { [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; } || { echo "safe_use_short_tmp: '$d' is not a directory owned by us - refusing" >&2; return 1; }
+  chmod 700 "$d" 2>/dev/null
+  export TMPDIR="$d"
+}
+
+safe_mktemp_dir_in(){ # parent [label] -> a new dir inside an EXISTING sandbox dir (a safe_mktemp_dir result or any dir strictly under an allowed sandbox root)
+  local par="${1:-}" pp
+  [ -n "$par" ] || { echo "safe_mktemp_dir_in: empty parent - refusing" >&2; return 1; }
+  [ -d "$par" ] || { echo "safe_mktemp_dir_in: parent '$par' is not a directory" >&2; return 1; }
+  pp="$(__st_phys "$par")"
+  { [ -n "$pp" ] && ! __st_dangerous "$pp" && { __st_under_root "$pp" || __st_is_root "$pp"; }; } || { echo "safe_mktemp_dir_in: parent '$par' is not under (or equal to) an allowed temp root" >&2; return 1; }
+  __st_mkdir_in "$par" "${2:-ovn}"
 }
 
 safe_set_sandbox_home(){ # $1 = a dir returned by safe_mktemp_dir -> export HOME="$1/home" (created); hard check before the assignment

@@ -3,6 +3,7 @@
 # Covers: no-activity exit, full report, --ntfy report (errors ongoing/resolved, last-30m, no-op causes, repeat offenders,
 # producing/idle/weak spots, runway), --noop-headline variants, runway() edge cases (import path).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/../ovn_stats.py"; [ -f "$PY" ] || PY="$HOME/overnight-queue/scripts/ovn_stats.py"
 [ -f "$PY" ] || { echo "  SKIP: ovn_stats.py not found"; exit 0; }
@@ -17,7 +18,7 @@ hasnt(){ if printf '%s' "$2" | grep -qF -- "$3"; then bad "$1 (unexpected [$3])"
 known(){ if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1"; else warnc=$((warnc+1)); echo "  WARN $1"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; mkdir -p "$H/overnight-queue/state"; LOG="$H/overnight-queue/state/task_stats.log"
 NOW="$(date +%s)"
 row(){ printf '%s\t%s\t%s\t%s\t%s\n' "$((NOW-$1))" "$2" "$3" "$4" "$5"; }   # age_s repo oc tag file

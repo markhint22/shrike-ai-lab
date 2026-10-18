@@ -3,13 +3,14 @@
 # Proves: refuses same-filesystem / missing dest, correct content + excludes + >200MB skip, hard-link rotation, hourly prune to 48, failure => alert + nonzero + old snapshot kept,
 # safe_rm_snap refuses everything outside DEST, and two MUTANTS (backup that deletes outside DEST; safe-path guard removed) are CAUGHT by the same checks.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../../ops/box_home_backup.sh"
 P=0; F=0
 ok(){ if eval "$2" >/dev/null 2>&1; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 
 # ---- checked scratch dir (explicit guards; this is the exact failure class of the 2026-10-16 wipe)
-W="$(mktemp -d "${TMPDIR:-/tmp}/bbtest.XXXXXX")" || { echo "mktemp failed: abort" >&2; exit 2; }
+W="$(safe_mktemp_dir bbtest)" || { echo "mktemp failed: abort" >&2; exit 2; }
 case "$W" in /*/bbtest.??????) ;; *) echo "unsafe scratch dir '$W': abort" >&2; exit 2;; esac
 [ -d "$W" ] && [ "$W" != "/" ] && [ "$W" != "${HOME:-/nonexistent}" ] || { echo "unsafe scratch dir: abort" >&2; exit 2; }
 OTHERFS_CLEAN=""
@@ -27,7 +28,7 @@ mkhome(){   # mkhome <home>
   echo q > "$h/overnight-queue/queue.sh"; echo s1 > "$h/overnight-queue/state/a.json"; echo s2 > "$h/overnight-queue/state/b.json"
   echo big > "$h/overnight-queue/repos/r1/f"; echo l > "$h/overnight-queue/logs/x.log"; echo r > "$h/overnight-queue/reports/r.md"
   echo v > "$h/overnight-queue/.venv/lib/v"; echo c > "$h/overnight-queue/scripts/__pycache__/c.pyc"; echo n > "$h/overnight-queue/node_modules/x/n"
-  : > "$h/overnight-queue/huge.bin"; truncate -s 201M "$h/overnight-queue/huge.bin" 2>/dev/null || dd if=/dev/null of="$h/overnight-queue/huge.bin" bs=1 seek=210000000 2>/dev/null
+  : > "$h/overnight-queue/huge.bin"; truncate -s 201M "${h:?}/overnight-queue/huge.bin" 2>/dev/null || dd if=/dev/null of="$h/overnight-queue/huge.bin" bs=1 seek=210000000 2>/dev/null
 }
 bb(){ BB_HOME="$H" BB_DEST="$D" BB_ALLOW_SAME_FS=1 bash "$SCRIPT" "$@"; }
 inode(){ ls -i "$1" | awk '{print $1}'; }
@@ -206,7 +207,7 @@ fi
 echo "== a REAL different filesystem (Linux /dev/shm or a macOS disk image), no BB_ALLOW_SAME_FS"
 OFS=""
 if [ "$(uname -s)" = Linux ] && [ -d /dev/shm ] && [ -w /dev/shm ]; then
-  OFS="$(mktemp -d /dev/shm/bbtest-ofs.XXXXXX 2>/dev/null)" && OTHERFS_CLEAN="find '$OFS' -mindepth 1 -depth -delete; rmdir '$OFS'" || OFS=""
+  OFS="/dev/shm/bbtest-ofs.$$.$RANDOM"; mkdir "$OFS" 2>/dev/null && OTHERFS_CLEAN="find '$OFS' -mindepth 1 -depth -delete; rmdir '$OFS'" || OFS=""
 elif [ "$(uname -s)" = Darwin ] && command -v hdiutil >/dev/null 2>&1; then
   mkdir -p "$W/ofs_mp"
   if hdiutil create -size 16m -fs HFS+ -volname bbtestofs -type SPARSE "$W/ofs" >/dev/null 2>&1 && hdiutil attach -nobrowse -mountpoint "$W/ofs_mp" "$W/ofs.sparseimage" >/dev/null 2>&1; then

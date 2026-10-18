@@ -8,6 +8,7 @@
 #   (3)    undo: an unfilled stub is removed on the way out (reset when unpushed tip, follow-up commit otherwise); a filled stub is kept
 #   (5)    scan: placeholder-only SOURCE files are flagged, TEST ones informational, real files never
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 G="${OVN_STUB_GUARD:-$HERE/../ovn_stub_guard.py}"
 [ -f "$G" ] || { echo "  FAIL: $G not found"; exit 1; }
@@ -15,7 +16,7 @@ P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (got [$2] want [$3])"; fi; }
 
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 pick(){ printf '%s' "$2" | timeout 60 python3 "$G" pick "$1" | tr '\t' '|'; }
 
@@ -111,7 +112,7 @@ eq "binary-garbage AGENTS.md does not crash the picker" "$(pick "$R2" '[T1] y/x.
 
 # ---- (3) undo ----
 mkrepo(){   # $1=dir : repo with a bare origin, main pushed; prints nothing
-  rm -rf "$1" "$1.git"; git init -q --bare -b main "$1.git"; git init -q -b main "$1"
+  rm -rf "${1:?}" "${1:?}.git"; git init -q --bare -b main "$1.git"; git init -q -b main "$1"
   ( cd "$1" && echo a > a.txt && git add -A && git commit -q -m init && git remote add origin "$1.git" && git push -q origin main ) >/dev/null 2>&1
 }
 stub_commit(){   # $1=repo $2=path : writes the real stub and commits it; sets PRE/STUB

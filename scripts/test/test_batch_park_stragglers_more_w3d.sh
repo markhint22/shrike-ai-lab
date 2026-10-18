@@ -3,6 +3,7 @@
 # recorded so the next run retries), and the "0 items actually tagged" branch (local clone shows open stragglers that the
 # remote branch no longer has) with the quiet no-alert tail. Hermetic: fake HOME, bare-remote fixtures.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$HERE/.."; [ -f "$SRC_DIR/ovn_batch_park_stragglers.sh" ] || SRC_DIR="$HERE/../scripts"
 SCRIPT="$SRC_DIR/ovn_batch_park_stragglers.sh"
@@ -10,7 +11,7 @@ SCRIPT="$SRC_DIR/ovn_batch_park_stragglers.sh"
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 WD="$tmp/overnight-queue"; mkdir -p "$WD/repos" "$WD/logs" "$WD/state" "$WD/scripts"
 for f in ovn_batch_park_stragglers.sh ovn_batch_stragglers.py ovn_batch_park_tagger.py lib_worktree.sh; do cp "$SRC_DIR/$f" "$WD/scripts/$f"; done
 now="$(date +%s)"

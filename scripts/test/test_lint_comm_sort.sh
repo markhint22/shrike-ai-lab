@@ -10,6 +10,7 @@
 # locale sort does for these names). The REAL run_lint_check is extracted from run_overnight.sh; ruff is a content-aware stub (a finding = a line containing BAD).
 # Mutation section: the pre-fix line is restored in a temp copy of run_overnight.sh and the same checks must FAIL.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"; RUN="${OVN_RUN_SH:-$Q/run_overnight.sh}"
 [ -f "$RUN" ] || { echo "  SKIP: run_overnight.sh not found"; exit 0; }
@@ -17,7 +18,7 @@ grep -q '^run_lint_check() {' "$RUN" || { echo "  SKIP: run_overnight.sh has no 
 REAL_SORT="$(command -v sort)"
 P=0; F=0; QUIET=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); [ "$QUIET" = 1 ] || echo "  FAIL: $1"; fi; }
-W="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$W"' EXIT
+W="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "${W:?}"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 BIN="$W/bin"; mkdir -p "$BIN"
 cat > "$BIN/ruff" <<'EOS'
@@ -49,7 +50,7 @@ checks(){   # $1 = run_overnight.sh to extract from, $2 = label prefix
   [ -n "$FN" ] || { F=$((F+1)); echo "  FAIL: cannot extract run_lint_check"; return; }
   rm -f "$W"/out_* "$W"/det_*
   ( eval "$FN"
-    rm -rf "$R"; mkdir -p "$R/t"; cd "$R" || exit 1; git init -q; echo base > README
+    rm -rf "${R:?}"; mkdir -p "$R/t"; cd "$R" || exit 1; git init -q; echo base > README
     printf 'BAD a\nok\n' > t/test_streams.py; printf 'BAD b\nok\n' > t/test_streams_health.py; git add -A; git commit -q -m base; B="$(git rev-parse HEAD)"
     # 1. both files change but their findings only MOVE
     printf 'ok\nBAD a\nok\n' > t/test_streams.py; printf 'ok\nBAD b\nok\n' > t/test_streams_health.py; git add -A; git commit -q -m moved; A="$(git rev-parse HEAD)"

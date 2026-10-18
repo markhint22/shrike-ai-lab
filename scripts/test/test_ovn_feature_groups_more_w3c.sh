@@ -3,13 +3,14 @@
 # title-resolution misses, feat_lookup_for_file (imported by path), task_stats parsing edge rows,
 # digest/in-progress max-total truncation, --min-total, usage exit.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../ovn_feature_groups.py"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
 [ -f "$SCRIPT" ] || { echo "SKIP: no script"; echo "ovn_feature_groups_more: 0 passed, 0 failed"; exit 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/repos/aa" "$T/repos/bb" "$T/repos/nobl" "$T/backlog" "$T/state" "$T/roadmap" "$T/repos/afile.txt"
 export OVN_QUEUE_DIR="$T" OVN_REPOS_DIR="$T/repos" OVN_BACKLOG_DIR="$T/backlog" OVN_TASK_STATS="$T/state/task_stats.log" OVN_ROADMAP_DIR="$T/roadmap"
 slug="aa-20260101-ship-the-widget-feature-now-please-ok-wh"

@@ -434,6 +434,8 @@ echo; echo "===== r11: stub leak hygiene ====="; bash test_stub_leak_hygiene.sh 
 echo; echo "===== r11: walltime markers ====="; bash test_walltime_markers.sh || rc=1
 echo; echo "===== r11: walltime alert split (timeout share named apart from passing verify time) ====="; python3 test_walltime_alert_split.py || rc=1
 echo; echo "===== r16: classify fail noedit r14 ====="; bash test_classify_fail_noedit_r14.sh || rc=1
+echo; echo "===== classify fail: verify-timeout (rc=124 reverted-red) ====="; bash test_classify_verify_timeout.sh || rc=1
+echo; echo "===== verify: python without pytest is UNRUNNABLE, not FAIL ====="; bash test_verify_missing_pytest_unrunnable.sh || rc=1
 echo; echo "===== r16: gut clause r16 ====="; bash test_gut_clause_r16.sh || rc=1
 echo; echo "===== r16: progress merge ====="; python3 test_progress_merge.py || rc=1
 echo; echo "===== r16: progress merge git ====="; bash test_progress_merge_git.sh || rc=1
@@ -463,6 +465,8 @@ echo; echo "===== r17: qa antigaming n2 ====="; bash test_qa_antigaming_n2.sh ||
 echo; echo "===== r17: qa enforce subkeys n2 ====="; bash test_qa_enforce_subkeys_n2.sh || rc=1
 echo; echo "===== r17: qa replay merges n2 ====="; bash test_qa_replay_merges_n2.sh || rc=1
 echo; echo "===== r17: stage guards runner ====="; bash test_stage_guards_runner.sh || rc=1
+echo; echo "===== 2026-10-18 xlite audit: text-probe item VERIFY enforced + litellm context-overflow regex ====="; bash test_stage_item_verify_textonly.sh || rc=1; bash test_stage_ctx_exceeded.sh || rc=1
+echo; echo "===== stage layout + item-verify venv ====="; bash test_stage_layout_and_item_verify_venv.sh || rc=1
 echo; echo "===== r17: stub guard newdir n2 ====="; bash test_stub_guard_newdir_n2.sh || rc=1
 echo; echo "===== r17: stub leak alert n2 ====="; bash test_stub_leak_alert_n2.sh || rc=1
 echo; echo "===== r17: udiff unanchored ====="; bash test_udiff_unanchored.sh || rc=1

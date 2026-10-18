@@ -14,6 +14,7 @@
 # Mirrors the deployed extraction regex/logic exactly so this can't drift.
 set -uo pipefail
 # r11 round 2: default = the run_overnight.sh of THIS tree (scripts/test/../..), so the test no longer needs OVN_RUN_OVERNIGHT in a worktree; $HOME copy only as a last resort
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 _ovn_here_ro="$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)/run_overnight.sh"
 [ -f "$_ovn_here_ro" ] || _ovn_here_ro="$HOME/overnight-queue/run_overnight.sh"
 RO="${OVN_RUN_OVERNIGHT:-$_ovn_here_ro}"
@@ -48,7 +49,7 @@ stub_comment_for() {  # $1=path -> the stub file content the deployed code would
   printf '%s' "$_ovn_stub_comment"
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp" || exit 1
 mkdir -p scripts/mission backend/app/models
 : > backend/app/models/existing.py   # an existing file, must never be touched

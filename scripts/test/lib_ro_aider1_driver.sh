@@ -6,6 +6,7 @@
 # echoed is written to <workdir>/result; the task log is <workdir>/task.log. Nothing outside <workdir> is touched except the
 # literal /tmp/ovn_progress_tail_<repo>.md file the script itself writes (scenario sc_progress_tail only).
 set -u
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 SCN_NAME="${1:?scenario}"; D="${2:?workdir}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
@@ -13,7 +14,7 @@ RO="${OVN_RUN_OVERNIGHT:-$Q/run_overnight.sh}"
 [ -f "$RO" ] || { echo "no run_overnight.sh"; exit 3; }
 
 rm -rf "$D"; mkdir -p "$D"
-export HOME="$D/home"; mkdir -p "$HOME/aider-venv/bin"
+safe_set_sandbox_home "$D" || exit 1; mkdir -p "$HOME/aider-venv/bin"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_TERMINAL_PROMPT=0
 SD="$D/sd"; R="$D/repos/ro_aider1_repo"; O="$D/origin.git"; TL="$D/task.log"; SC="$D/scn"

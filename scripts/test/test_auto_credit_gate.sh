@@ -16,7 +16,7 @@ export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"
 if ! declare -F ovn_auto_credit >/dev/null; then F=$((F+1)); echo "  FAIL: ovn_auto_credit() does not exist (old code): part 1 cannot run"; else
 # mk1 <name>: repo with src/a.py src/b.py src/article_relevance.py backend/tests/test_x.py; BEFORE sha in $B1. Progress items are the incident shapes.
 mk1() {
-  R1="$W/p1/$1"; rm -rf "$R1"; mkdir -p "$R1/src" "$R1/backend/tests"; cd "$R1" || exit 1
+  R1="$W/p1/$1"; rm -rf "${R1:?}"; mkdir -p "$R1/src" "$R1/backend/tests"; cd "$R1" || exit 1
   git init -q -b main . && git config user.email t@t && git config user.name t
   printf 'def old_a():\n    return 1\n' > src/a.py
   printf 'client = SyncAnthropic()\n' > src/b.py

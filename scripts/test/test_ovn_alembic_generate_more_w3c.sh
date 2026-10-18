@@ -4,14 +4,15 @@
 #   ovn_generate_items.py  : every pattern, dedupe, limit/priority order, Needs-human insertion, unreadable files
 # Hermetic: temp projects/repos only; TMPDIR redirected; needs a python with alembic+sqlalchemy (alembic half SKIPs otherwise).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 D="$HERE/.."; [ -f "$D/ovn_generate_items.py" ] || D="$HERE"
 REAL_HOME="$HOME"
 export PYTHONDONTWRITEBYTECODE=1
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"; export OVN_SAFE_RM_ROOTS="$T"
 
 # ----------------------------------------------------------------- alembic half
 PYS="$D/ovn_alembic_autogen.py"
@@ -21,7 +22,7 @@ for c in "${OVN_TEST_PY:-}" "$REAL_HOME"/overnight-queue/repos/*/.venv/bin/pytho
   if "$c" -c 'import alembic, sqlalchemy; from alembic import command; command.check' 2>/dev/null; then PYX="$c"; break; fi
 done
 mkproj() {  # $1 = extra env.py snippet run inside run()
-  local P; P="$(mktemp -d "$T/p.XXXXXX")" || exit 1; mkdir -p "$P/app" "$P/alembic/versions"
+  local P; P="$(safe_mktemp_dir_in "$T" p)" || exit 1; mkdir -p "$P/app" "$P/alembic/versions"
   printf '[alembic]\nscript_location = alembic\nprepend_sys_path = .\n' > "$P/alembic.ini"
   : > "$P/app/__init__.py"
   cat > "$P/app/models.py" <<'PY'

@@ -113,7 +113,7 @@ source scripts/lib_new_tests.sh 2>/dev/null || true
 # 2026-10-13 (package stage): deterministic guards (mis-targeted Verify steps / items, class_name conflicts, named tests, item-VERIFY red-before, web verify). Lib missing => every guard is a no-op.
 source scripts/lib_stage_guards.sh 2>/dev/null || true
 declare -F stage_step_mistarget >/dev/null 2>&1 || { stage_step_mistarget(){ return 1; }; stage_item_mistarget(){ return 1; }; stage_class_conflict(){ return 1; }
-  stage_named_tests_check(){ return 0; }; stage_item_verify_run(){ printf 'NO_VERIFY_CLAUSE|lib missing'; }; stage_item_verify_decision(){ echo OK; }
+  stage_named_tests_check(){ return 0; }; stage_item_verify_run(){ printf 'NO_VERIFY_CLAUSE|lib missing'; }; stage_item_verify_decision(){ echo OK; }; stage_item_verify_textonly(){ return 1; }; stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|context_length|prompt is too long|exceed_context|contextwindowexceeded|exceeds the available context size' "${1:-/dev/null}" 2>/dev/null; }
   stage_red_before_check(){ return 0; }; stage_web_verify(){ return 0; }; stage_tree_restore(){ return 0; }; }
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
 
@@ -150,7 +150,9 @@ _arm_watchdog(){ # $1 = seconds; kills any previously-armed watchdog first
     _me=$BASHPID
     sleep "$1"
     _kt(){ local c; for c in $(pgrep -P "$1" 2>/dev/null); do [ "$c" = "$_me" ] && continue; _kt "$c"; done; kill -9 "$1" 2>/dev/null; }
-    _kt "$_self" ) >/dev/null 2>&1 &
+    _kt "$_self"
+    rm -f "${TMPDIR:-/tmp}"/ovn_stage_"$_self".* 2>/dev/null   # 2026-10-17: SIGKILL cannot run the EXIT trap; the killed runner's prompt/attempt scratch files are removed here
+  ) >/dev/null 2>&1 &
   _wd=$!
 }
 _arm_watchdog "${OVN_STAGE_STARTUP_TIMEOUT:-1500}"
@@ -166,7 +168,7 @@ fi
 # 2026-09-30 FIX: the cleanup trap used to be installed only after the worktree exists (line ~265), so the early exits ("no doable T3+
 # item", capstone pass/fail, worktree failure) left state/PAUSED + stage_pause_since behind and the watchdog running until
 # pause_guard.sh cleared them. Install it right after dedicated mode is switched on; the worktree removal is guarded on $wt.
-cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; return 0; }
+cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; rm -f "${TMPDIR:-/tmp}"/ovn_stage_"$$".* 2>/dev/null; return 0; }   # 2026-10-17: per-run scratch files (prompt/attempt/drop) die with the run even when it is killed mid-step
 trap cleanup EXIT
 
 # ---- one LiteLLM chat call: $1=prompt-file -> stdout = content. RETRIES with backoff so a collision
@@ -353,9 +355,9 @@ fi
 
 # ---- worktree (all steps build on each other) ----
 git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
-wt="$(mktemp -d "/tmp/stage-${repo}.XXXX")"
+wt="$(mktemp -d "/tmp/stage-${repo}.XXXX" 2>/dev/null)" || wt=""   # 2026-10-16: empty on failure -> the worktree add below fails ("worktree failed"); cleanup() is guarded on a non-empty wt
 git -C "$rd" worktree add -q "$wt" origin/overnight/feature 2>/dev/null || { say "worktree failed"; exit 1; }
-cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; return 0; }
+cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; rm -f "${TMPDIR:-/tmp}"/ovn_stage_"$$".* 2>/dev/null; return 0; }   # 2026-10-17: per-run scratch files (prompt/attempt/drop) die with the run even when it is killed mid-step
 trap cleanup EXIT
 # 2026-09-09 FIX: a fresh `git worktree add` never includes gitignored content, so node_modules
 # is always absent here - every PER-STEP frontend gate (ovn_autotest.sh, called after every single
@@ -393,7 +395,8 @@ fi
 # 2026-09-16: added .kt (Android is now gradle-verified in full_verify() below; the model should
 # see Kotlin files exist when a doable item targets one). .swift deliberately NOT added — those
 # items are AUTO-SKIPped at the source (see ovn_swift_retag.py) since nothing here can verify them.
-layout="$(cd "$wt" && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' -o -name '*.kt' \) -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -100)"
+if declare -F stage_layout_listing >/dev/null 2>&1; then layout="$(stage_layout_listing "$wt")"
+else layout="$(cd "$wt" && find . -maxdepth 4 \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.vue' -o -name '*.gd' -o -name '*.kt' \) -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.godot/*' 2>/dev/null | sed 's#^\./##' | sort | head -100)"; fi
 
 # (2026-10-03: moved above the decompose step so a bug whose plan was all 'no change required' can be counted too.)
 # stage_bug_attempt "<why>" - a staged run on a manual-test bug ($item) did NOT complete it. Never AUTO-SKIP a bug: count ONE attempt (state/item_fails/
@@ -428,7 +431,7 @@ stage_bug_attempt() {
 
 # ---- DECOMPOSE the item into ordered sub-steps (JSON) ----
 decompose(){ # $1=task text  -> writes JSON array of {desc,files[],verify} to stdout
-  local pf; pf="$(mktemp)"
+  local pf; pf="$(mktemp "${TMPDIR:-/tmp}/ovn_stage_$$.XXXXXX")"
   # GODOT carve-out: the 27B can write valid Godot-4 SOURCE with the gdparse/engine loop, but it CANNOT
   # author GUT test scripts (the test-framework .gd format defeats it every time — proven empirically).
   # So for godot items, decompose into SOURCE-ONLY steps and verify by compile-check, NOT by making it
@@ -517,7 +520,7 @@ _bg_filter(){ if [ "$_bg_on" = 1 ]; then python3 "$_bg_py" filter-steps ${_bg_dr
 # A manual bug now persists its FIRST plan (state/bug_plans/<md5 of the item text>.json) and reuses it on the next attempt; removed on escalation / full pass.
 STEPS_JSON=""; _bg_reused=0
 if [ "$_bg_on" = 1 ]; then
-  _bg_dropf="$(mktemp)"; : > "$_bg_dropf"
+  _bg_dropf="$(mktemp "${TMPDIR:-/tmp}/ovn_stage_$$.XXXXXX")"; : > "$_bg_dropf"
   _bg_plan_f="state/bug_plans/$(printf '%s' "$item" | md5sum | cut -d' ' -f1).json"
   STEPS_JSON="$(python3 "$_bg_py" plan-load --file "$_bg_plan_f" 2>/dev/null | python3 "$_bg_py" filter-steps 2>/dev/null)"
   if [ -n "$STEPS_JSON" ] && [ "$(printf '%s' "$STEPS_JSON" | jq 'length' 2>/dev/null || echo 0)" -ge 1 ] 2>/dev/null; then
@@ -949,7 +952,7 @@ ${_tgtctx}
   local _fed_n=0   # N4 Part 4: files fed to this step's retries (max 3 per step)
   local _fb="" _fb_next=""   # N4: per-attempt retry feedback appended to the step prompt (reset each attempt; the failing branch sets _fb_next for the NEXT attempt)
   for att in $(seq 1 "$MAX_ATT"); do
-    local base t0 atmp; base="$(git -C "$wt" rev-parse HEAD)"; t0=$(date +%s); atmp="$(mktemp)"
+    local base t0 atmp; base="$(git -C "$wt" rev-parse HEAD)"; t0=$(date +%s); atmp="$(mktemp "${TMPDIR:-/tmp}/ovn_stage_$$.XXXXXX")"
     _fb="${_fb_static}${_fb_next}"; _fb_next=""
     { echo "===== step $idx attempt $att @ $(date '+%F %T') (map=$mt arch=${#archargs[@]} read=${#rdargs[@]}) ====="; echo "DESC: $desc"; echo "FILES: $files"; echo "VERIFY: $verify"; } >> "$slog"
     local msg="Execute THIS one sub-step now and produce the diff. Do NOT do other steps.
@@ -981,7 +984,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
     local tok_s=$(( dur > 0 ? toks_recv / dur : 0 ))
     local dstat; dstat="$( { git -C "$wt" diff --shortstat "$base" HEAD 2>/dev/null; git -C "$wt" diff --shortstat 2>/dev/null; } | tr '\n' ';' | sed 's/^[; ]*//;s/[; ]*$//')"
     local excerpt="" ctx=0
-    grep -qiE 'context size has been exceeded|context length|context_length|prompt is too long|exceed_context' "$atmp" && ctx=1
+    stage_ctx_exceeded "$atmp" && ctx=1
     if [ "$ctx" = 1 ]; then
       # aider never completed the edit — do NOT let a trivial partial change false-pass the scoped gate
       fa="context-exceeded"; rc=1
@@ -1153,7 +1156,7 @@ STAGE_IV_PRE=""
 _iv_mode="${OVN_STAGE_ITEM_VERIFY:-shadow}"
 if [ "$STAGE_MISTARGET_ITEM" = 0 ] && [ "$_iv_mode" != off ]; then
   _iv_snap="$(git -C "$wt" status --porcelain -uall 2>/dev/null)"
-  STAGE_IV_PRE="$(OVN_STAGE_REPO="$repo" stage_item_verify_run "$wt" "$item")"
+  STAGE_IV_PRE="$(OVN_STAGE_REPO="$repo" OVN_STAGE_REPO_DIR="$rd" stage_item_verify_run "$wt" "$item")"
   stage_tree_restore "$wt" "$_iv_snap"   # a VERIFY run must leave nothing behind that the per-step no-edit check (git status) would read as an edit (the provisioned node_modules / .godot symlinks stay)
   say "item VERIFY on the pristine tree: ${STAGE_IV_PRE%%|*}"
   # 2026-10-13 (N4 Part 5, SHADOW ONLY): see stage_item_is_verify_only. Logs only - never changes enforcement, credit or the steps that run.
@@ -1619,11 +1622,15 @@ STAGE_NOCREDIT=0; STAGE_NOCREDIT_WHY=""
 if [ "$VERIFIED" = 1 ] && [ "${_iv_mode:-off}" != off ] && [ "${STAGE_MISTARGET_ITEM:-0}" = 0 ]; then
   case "${STAGE_IV_PRE%%|*}" in
     PASS|FAIL)
-      _ivpost="$(OVN_STAGE_REPO="$repo" stage_item_verify_run "$wt" "$item")"
+      _ivpost="$(OVN_STAGE_REPO="$repo" OVN_STAGE_REPO_DIR="$rd" stage_item_verify_run "$wt" "$item")"
       _ivdec="$(stage_item_verify_decision "$STAGE_IV_PRE" "$_ivpost")"
       say "item VERIFY (${_iv_mode}): pre=${STAGE_IV_PRE%%|*} post=${_ivpost%%|*} -> ${_ivdec}"
       jlog "$(jq -nc --arg r "$RUNID" --arg pre "${STAGE_IV_PRE%%|*}" --arg post "${_ivpost%%|*}" --arg why "${_ivpost#*|}" --arg dec "$_ivdec" --arg m "$_iv_mode" '{run:$r,event:"item_verify",mode:$m,pre:$pre,post:$post,post_why:$why,decision:$dec}')"
-      if [ "${_ivdec%%:*}" = refuse ] && [ "$_iv_mode" = enforce ]; then STAGE_NOCREDIT=1; STAGE_NOCREDIT_WHY="${_ivdec#refuse:}"; fi ;;
+      if [ "${_ivdec%%:*}" = refuse ] && [ "$_iv_mode" = enforce ]; then STAGE_NOCREDIT=1; STAGE_NOCREDIT_WHY="${_ivdec#refuse:}"; fi
+      # 2026-10-18: a text-probe VERIFY (grep/test) that is RED after the change is enforced even in shadow mode (kill switch OVN_STAGE_ITEM_VERIFY_TEXT=off). See stage_item_verify_textonly.
+      if [ "${_ivdec%%:*}" = refuse ] && [ "${_ivpost%%|*}" = FAIL ] && [ "${OVN_STAGE_ITEM_VERIFY_TEXT:-enforce}" = enforce ] && stage_item_verify_textonly "$item"; then
+        STAGE_NOCREDIT=1; STAGE_NOCREDIT_WHY="${_ivdec#refuse:} (text-probe VERIFY, enforced)"; jlog "$(jq -nc --arg r "$RUNID" '{run:$r,event:"item_verify_text_enforced"}')"
+      fi ;;
     *) jlog "$(jq -nc --arg r "$RUNID" --arg pre "${STAGE_IV_PRE%%|*}" --arg m "$_iv_mode" '{run:$r,event:"item_verify",mode:$m,pre:$pre,post:"not-run",decision:"no-evidence"}')" ;;
   esac
 fi

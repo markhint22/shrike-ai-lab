@@ -19,7 +19,9 @@ BRIDGE="$SHARED/scripts/overnight-queue/claude_queue_bridge.py"
 ARCHIVER="$SHARED/scripts/overnight-queue/archive_claude_queue_done.py"
 SRV="${OVN_SSH:-mhintermeister@100.79.64.64}"
 REMOTE="${OVN_REMOTE_DIR:-overnight-queue}"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)" || { echo "claude_queue_bridge: mktemp -d failed - abort" >&2; exit 1; }
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "claude_queue_bridge: mktemp -d returned no usable directory - abort" >&2; exit 1; }   # 2026-10-16: an empty TMP made every "$TMP/..." path absolute
+trap 'rm -rf "${TMP:?}"' EXIT
 log(){ echo "$(date '+%F %T') $*"; }
 
 [ -f "$QUEUE" ] || { log "no CLAUDE_QUEUE.md at $QUEUE — abort"; exit 1; }

@@ -120,7 +120,7 @@ hyg_gate_cap() {   # $1 = kind label (pytest|gradle); stdin = the gate's raw out
   case "$hn$tn" in ''|*[!0-9]*) hn=30; tn=150;; esac
   if mkdir -p "$dir" 2>/dev/null; then
     f="$(mktemp "$dir/$(date +%Y%m%d-%H%M%S).$(basename "${repo:-repo}").$kind.XXXXXX" 2>/dev/null)" || f=""
-    find "$dir" -maxdepth 1 -type f -mtime +"${OVN_HYGIENE_GATE_KEEP_DAYS:-3}" -exec rm -f {} + 2>/dev/null
+    find "${dir:?}" -maxdepth 1 -type f -mtime +"${OVN_HYGIENE_GATE_KEEP_DAYS:-3}" -exec rm -f {} + 2>/dev/null
   fi
   if [ -z "$f" ]; then cat; return 0; fi
   cat > "$f"
@@ -159,7 +159,7 @@ hyg_gut_keep() {
   _GATE_GUT_KEEP=""
   mkdir -p "$dir" 2>/dev/null || return 0
   f="$(mktemp "$dir/$(date +%Y%m%d-%H%M%S).$(basename "${repo:-repo}").gut.XXXXXX" 2>/dev/null)" || return 0
-  find "$dir" -maxdepth 1 -type f -mtime +"${OVN_HYGIENE_GATE_KEEP_DAYS:-3}" -exec rm -f {} + 2>/dev/null
+  find "${dir:?}" -maxdepth 1 -type f -mtime +"${OVN_HYGIENE_GATE_KEEP_DAYS:-3}" -exec rm -f {} + 2>/dev/null
   tn="${OVN_HYGIENE_GATE_GUT_TAIL:-3000}"; case "$tn" in ''|*[!0-9]*) tn=3000;; esac
   n="$(wc -l < "$src" | tr -d ' ')"
   if [ "${n:-0}" -le $((tn + 200)) ]; then cat "$src" > "$f" 2>/dev/null; else { head -n 200 "$src"; echo "... $((n - 200 - tn)) of $n GUT output lines omitted ..."; tail -n "$tn" "$src"; } > "$f" 2>/dev/null; fi
@@ -202,6 +202,7 @@ hyg_infra_str() {   # <string, e.g. git's stderr> -> 0 = carries the signature (
 }
 hyg_infra_probe() {   # 0 = /tmp cannot create a directory right now (the exhaustion class this guards)
   local d; d="$(mktemp -d "${TMPDIR:-/tmp}/hyg-infra-probe.XXXXXX" 2>/dev/null)" || return 0
+  [ -n "$d" ] && [ -d "$d" ] || return 0   # 2026-10-16: an empty result (rc 0) is also "cannot create a directory"
   rmdir "$d" 2>/dev/null; return 1
 }
 hyg_infra_skip_reset() {   # <repo name> <feature branch>: a pass that was NOT an infra skip ends the consecutive-skip count
@@ -794,9 +795,9 @@ for repo in "${REPOS[@]}"; do
   fi
 
   # isolated worktree at $FEAT so the live checkout is untouched
-  wt="$(mktemp -d "/tmp/hygiene-${name}.XXXX")"
+  wt="$(mktemp -d "/tmp/hygiene-${name}.XXXX" 2>/dev/null)" || wt=""   # 2026-10-16: empty (mktemp failed) makes the worktree add below fail into the infra path; every rm below is guarded
   if ! _wt_err="$(git -C "$repo" worktree add --detach --quiet "$wt" origin/$FEAT 2>&1)"; then
-    rm -rf "$wt"   # 2026-09-30: the mktemp dir leaked on every failed worktree add
+    [ -n "$wt" ] && rm -rf "$wt"   # 2026-09-30: the mktemp dir leaked on every failed worktree add
     # 2026-10-13: a worktree that cannot be created because /tmp is full is host infra, not this repo's fault (see hyg_infra_decide): no review flag, no blame, retry next pass.
     _wt_hit=0; hyg_infra_str "$_wt_err" && _wt_hit=1
     if hyg_infra_decide "$name" "$FEAT" "$_wt_hit"; then
@@ -833,12 +834,12 @@ for repo in "${REPOS[@]}"; do
   # billwatch's exact failing commit passing clean).
   if [ "$g" -eq 1 ] && [ "${_GATE_TIMEOUT_HIT:-0}" = 1 ]; then
     log "  gate hit a known infra flake (timeout or Gradle daemon crash, not a red test) — retrying once with a fresh worktree"
-    wt2="$(mktemp -d "/tmp/hygiene-${name}-retry.XXXX")"
+    wt2="$(mktemp -d "/tmp/hygiene-${name}-retry.XXXX" 2>/dev/null)" || wt2=""
     if git -C "$repo" worktree add --detach --quiet "$wt2" origin/$FEAT 2>/dev/null; then
       run_gate "$repo" "$wt2"; g=$?
       git -C "$repo" worktree remove --force "$wt2" >/dev/null 2>&1
     else
-      rm -rf "$wt2"   # 2026-10-13: the mktemp dir leaked whenever this retry worktree add failed (60 empty /tmp/hygiene-*-retry.* dirs on the box)
+      [ -n "$wt2" ] && rm -rf "$wt2"   # 2026-10-13: the mktemp dir leaked whenever this retry worktree add failed (60 empty /tmp/hygiene-*-retry.* dirs on the box)
     fi
   fi
 
@@ -869,9 +870,9 @@ for repo in "${REPOS[@]}"; do
     log "  [dry-run] gate green — would merge $FEAT (+$ahead) -> $mt, push, sync feature"
     report "| $name | [dry-run] would merge +$ahead (gate green) |"; continue
   fi
-  tmp_main="$(mktemp -d "/tmp/hygiene-main-${name}.XXXX")"
+  tmp_main="$(mktemp -d "/tmp/hygiene-main-${name}.XXXX" 2>/dev/null)" || tmp_main=""
   if ! git -C "$repo" worktree add --quiet "$tmp_main" "origin/$mt" 2>/dev/null; then
-    rm -rf "$tmp_main"   # 2026-10-13: the mktemp dir leaked on a failed main-worktree add (same as the feature worktree above)
+    [ -n "$tmp_main" ] && rm -rf "$tmp_main"   # 2026-10-13: the mktemp dir leaked on a failed main-worktree add (same as the feature worktree above)
     log "  could not create main worktree — flagging"; echo "main worktree failed $(date)" > "$flag"
     report "| $name | ⚠️ +$ahead, main worktree failed |"; continue
   fi
@@ -906,7 +907,7 @@ for repo in "${REPOS[@]}"; do
         # (the green gate above judged the whole branch, not this subset).
         git -C "$tmp_main" reset --hard --quiet "origin/$mt" 2>/dev/null
         if OVN_PM_DEFER=1 git -C "$tmp_main" merge --no-ff --no-edit -m "chore(overnight): reconcile $FEAT (QA-clean prefix, ${_qe_held} commit(s) held by gate $_qe_gate) into $mt (branch-hygiene)" "$_qe_clean" >/dev/null 2>&1; then
-          wt3="$(mktemp -d "/tmp/hygiene-${name}-qaprefix.XXXX")"; g3=1
+          wt3="$(mktemp -d "/tmp/hygiene-${name}-qaprefix.XXXX" 2>/dev/null)" || wt3=""; g3=1
           if git -C "$repo" worktree add --detach --quiet "$wt3" "$_qe_clean" 2>/dev/null; then
             run_gate "$repo" "$wt3"; g3=$?
             git -C "$repo" worktree remove --force "$wt3" >/dev/null 2>&1
@@ -914,13 +915,13 @@ for repo in "${REPOS[@]}"; do
             # single flake in this prefix re-gate wrote a review flag and held the whole merge.
             if [ "$g3" -eq 1 ] && [ "${_GATE_TIMEOUT_HIT:-0}" = 1 ]; then
               log "  QA ENFORCE: prefix gate hit a known infra flake - retrying once with a fresh worktree"
-              wt4="$(mktemp -d "/tmp/hygiene-${name}-qaprefix-retry.XXXX")"
+              wt4="$(mktemp -d "/tmp/hygiene-${name}-qaprefix-retry.XXXX" 2>/dev/null)" || wt4=""
               if git -C "$repo" worktree add --detach --quiet "$wt4" "$_qe_clean" 2>/dev/null; then
                 run_gate "$repo" "$wt4"; g3=$?
                 git -C "$repo" worktree remove --force "$wt4" >/dev/null 2>&1
-              else rm -rf "$wt4"; fi
+              else [ -n "$wt4" ] && rm -rf "$wt4"; fi
             fi
-          else rm -rf "$wt3"; fi
+          else [ -n "$wt3" ] && rm -rf "$wt3"; fi
           if [ "$g3" -eq 0 ]; then
             ahead="$(git -C "$tmp_main" rev-list --count "origin/$mt..HEAD" 2>/dev/null || echo "$ahead")"
             log "  QA ENFORCE: landing the clean prefix only (${_qe_clean:0:12}); ${_qe_held} commit(s) from ${_qe_off:0:12} on stay on $FEAT"

@@ -3,6 +3,7 @@
 # overnight/feature (package conflict, 2026-10-12): the real conflict shape (distilled fixtures from iptv_apps fb07d121d1 / c2204cc7d9 / c7be7d3c)
 # must be auto-resolved UNDER THE GATE (resolve -> gate on the merged tree -> commit), any other conflicted file / red gate / kill switch must
 # abort exactly as before, and 2 consecutive conflicting passes must write exactly ONE alerts.log warn per streak.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 export OVN_QA_SHADOW=off
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -13,9 +14,9 @@ for t in flock timeout jq git python3; do command -v $t >/dev/null || { echo "  
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-export HOME="$T/home"; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
+safe_set_sandbox_home "$T" || exit 1; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
 unset OVN_PROGRESS_MERGE OVN_PM_DEFER OVN_HYG_MERGE_STREAK_WARN OVN_HYG_STREAK_ALERT
 BIN="$T/bin"; mkdir -p "$BIN"
 mkstub(){ printf '#!/usr/bin/env bash\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }

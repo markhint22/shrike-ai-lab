@@ -3,12 +3,13 @@
 # dedupe_progress_headers.py, dedupe_gd_duplicate_functions.py, dedupe_python_duplicate_defs.py,
 # ovn_auto_research_validate.py, ovn_filesize_retag.py.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 R="$(cd "$HERE/../.." && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'chmod -R u+rw "$T" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'chmod -R u+rw "$T" 2>/dev/null; rm -rf "$T"' EXIT
 
 # ---- usage exits ----
 for s in dedupe_progress_headers dedupe_gd_duplicate_functions dedupe_python_duplicate_defs; do

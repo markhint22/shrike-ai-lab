@@ -2,6 +2,7 @@
 # Regression tests for ovn_log_tokens.sh: appends one {ts,source,repo,tokens_sent,tokens_recv} JSON line to
 # state/token_ledger.jsonl; never fails the caller (every error path exits 0). Hermetic: OVERNIGHT_DIR/HOME temp dirs.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SH="$HERE/../ovn_log_tokens.sh"; [ -f "$SH" ] || SH="$HOME/overnight-queue/scripts/ovn_log_tokens.sh"
 [ -f "$SH" ] || { echo "  SKIP: script not found"; exit 0; }
@@ -11,7 +12,7 @@ bad(){ fail=$((fail+1)); echo "  FAIL $1"; }
 chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
 unset OVERNIGHT_DIR
 D="$T/d"; L="$D/state/token_ledger.jsonl"
 run(){ OVERNIGHT_DIR="$D" bash "$SH" "$@"; }

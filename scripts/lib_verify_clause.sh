@@ -526,6 +526,14 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   fi
   _LAST_VERIFY_RC="$rc"
   tail_out="$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"
+  # 2026-10-18 (shrike-monitor landing audit): a pytest clause run with an interpreter that has no pytest (`python -m pytest ...` resolving to the runner's aider-venv python in a fresh stage
+  # worktree, which carries no .venv) exits 1 with "No module named pytest". That is rc 1 = FAIL, but the command never produced a verdict about the item: it is INDETERMINATE (UNRUNNABLE, rc 127),
+  # exactly like `pytest: command not found`. Read as FAIL it made the stage item-VERIFY gate (OVN_STAGE_ITEM_VERIFY) call every correct python item "RED after the change" (5 of 5 shrike-monitor
+  # python rows), which would refuse real credits the moment the gate is enforced. _LAST_VERIFY_RC keeps the raw status. OVN_VERIFY_MISSING_PYTEST=off restores the old FAIL.
+  if [ "${OVN_VERIFY_MISSING_PYTEST:-on}" != off ] && _verify_is_pytest "$vcmd" && [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ] \
+     && grep -aEq "No module named ['\"]?pytest([^A-Za-z_-]|$)" <<< "$out"; then
+    rc=127; tail_out="pytest-not-installed $tail_out"
+  fi
   # B2: nothing collected is not a pass (and not "no signal" either): rc=5, or rc=0 with pytest's "no tests ran"
   if _verify_is_pytest "$vcmd"; then
     if [ "$rc" -eq 5 ]; then _LAST_VERIFY_WHY="no tests collected"

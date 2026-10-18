@@ -3,13 +3,14 @@
 # the model's say-so alone (5-21% wrong in the 2026-09-24 audit). The item's own leading path must make sense:
 # create/modify target must EXIST, delete target must be GONE. Needs GNU sed (-i) - run on the box.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../ovn_credit_already_satisfied.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/ovn_credit_already_satisfied.sh"
 [ -n "${OVN_CREDIT_SCRIPT:-}" ] && SCRIPT="$OVN_CREDIT_SCRIPT"
 [ -f "$SCRIPT" ] || { echo "  SKIP: script not found"; exit 0; }
 sed --version >/dev/null 2>&1 || { echo "  SKIP: needs GNU sed"; exit 0; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT; cd "$tmp"
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT; cd "$tmp"
 mkdir -p src; touch src/exists.py src/stale_to_delete.py
 mk(){ cat > OVERNIGHT_PROGRESS.md <<'P'
 ## Next Steps

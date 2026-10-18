@@ -7,6 +7,7 @@
 # pre-existing aggregate-count behavior (regression coverage that didn't exist before) and
 # the new detail section. Runs against a fixture $HOME so it never touches production data.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WS="$HERE/../../work_summary.py"; [ -f "$WS" ] || WS="$HERE/../work_summary.py"; [ -f "$WS" ] || WS="$HERE/work_summary.py"
 [ -f "$WS" ] || { echo "  SKIP: work_summary.py not found"; exit 0; }
@@ -16,7 +17,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)" || exit 1
+tmp="$(safe_mktemp_dir)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 # Isolate HOME too, not just CWD: ovn_landed_detail.py's own default state-file lookup
 # falls back to "~/overnight-queue/state/task_stats.log" (see its header) when no
@@ -24,7 +25,7 @@ trap 'rm -rf "$tmp"' EXIT
 # production task_stats.log instead of this fixture's empty/absent one (confirmed live:
 # without this export, "no landed-detail header" and "shows the real target file for
 # gitlark" both failed against real prod data on the actual server, not this fixture).
-export HOME="$tmp/fakehome"
+safe_set_sandbox_home "$tmp" || exit 1
 cd "$tmp"
 mkdir -p state
 OUT="state/outcomes.jsonl"

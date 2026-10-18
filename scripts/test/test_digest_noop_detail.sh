@@ -5,6 +5,7 @@
 # distinct problems. Mirrors digest_notify.sh + its real script dependencies into a fixture
 # dir so it never touches production data or the real network.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 OQ="${OVN_QUEUE_DIR:-$HOME/overnight-queue}"
 D="$OQ/digest_notify.sh"
 [ -f "$D" ] || { echo "  SKIP: $D not found on this host"; exit 0; }
@@ -13,7 +14,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/state" "$tmp/scripts" "$tmp/bin"
 cp "$D" "$tmp/digest_notify.sh"
 for f in ovn_landed_detail.py ovn_noop_detail.py ovn_tier_stats.py ovn_stats.py ovn_planning_stats.py ovn_feature_groups.py ovn_outcome_buckets.py; do

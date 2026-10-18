@@ -12,6 +12,7 @@
 # anywhere" dead end — both got the SAME escalating qr_dry_<repo> marker/reminder treatment,
 # which correlated these repos with the ones ovn_fleet_health.sh flagged as starved.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 export QR_LOG_REPEAT_S=0   # these cases run the same dry lane back to back and assert on the per-pass log line (queue_refill.sh rate-limits repeats by default: see test_queue_refill_log_ratelimit.sh)
 Q="${OVN_QUEUE_REFILL:-$HOME/overnight-queue/queue_refill.sh}"
 [ -f "$Q" ] || { echo "  SKIP: $Q not found on this host"; exit 0; }
@@ -22,7 +23,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 wd="$tmp/overnight-queue"
 mkdir -p "$wd/repos/foo" "$wd/backlog" "$wd/roadmap" "$wd/state" "$tmp/aider-venv/bin"
 cp "$Q" "$wd/queue_refill.sh"

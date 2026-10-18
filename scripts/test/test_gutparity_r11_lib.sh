@@ -7,14 +7,15 @@
 # Every behaviour has a NEGATIVE control (the seeded bad input is still caught) and a BENIGN one (clean input is untouched). Assertions run with pipefail ON on purpose
 # (the SIGPIPE regressions below only exist under pipefail).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL $1 (expected [$2] got [$3])"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
-export HOME="$T/home"; mkdir -p "$HOME"
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME"
 . "$Q/scripts/lib_gut_xml.sh"
 . "$Q/scripts/lib_run_integrity.sh"
 . "$Q/scripts/lib_item_select.sh"

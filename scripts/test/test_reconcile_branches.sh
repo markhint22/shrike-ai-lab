@@ -4,11 +4,12 @@
 # chat-to-main case that caused the divergence), runs reconcile, and asserts it back-merges
 # main into develop AND feature, is idempotent, and detects a real conflict.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REC="$HERE/../../reconcile_branches.sh"; [ -f "$REC" ] || REC="$HERE/../reconcile_branches.sh"; [ -f "$REC" ] || REC="$HERE/reconcile_branches.sh"
 [ -f "$REC" ] || { echo "  ❌ reconcile_branches.sh not found"; exit 1; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export NTFY_TOPIC="shrike_reconcile_selftest_ignore"   # any alert goes to an unwatched junk topic
 
 git init -q --bare "$tmp/origin.git"
@@ -22,7 +23,7 @@ git clone -q "$tmp/origin.git" "$tmp/seed" 2>/dev/null
   git checkout -q main; echo hot > hot.txt; git add -A; git commit -q -m "fix: direct hotfix to main"; git push -q origin main )
 
 # fake HOME/overnight-queue with a clone at repos/testrepo (reconcile cds to $HOME/overnight-queue)
-export HOME="$tmp/home"; mkdir -p "$HOME/overnight-queue/repos"
+safe_set_sandbox_home "$tmp" || exit 1; mkdir -p "$HOME/overnight-queue/repos"
 cp "$REC" "$HOME/overnight-queue/reconcile_branches.sh"
 git clone -q "$tmp/origin.git" "$HOME/overnight-queue/repos/testrepo" 2>/dev/null
 

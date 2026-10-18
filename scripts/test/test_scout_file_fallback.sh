@@ -16,6 +16,7 @@
 # reimplementation) so it can't silently drift from what's deployed, then exercises
 # it against a small on-disk fixture tree.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || RO="$(cd "$(dirname "$0")/../.." && pwd)/run_overnight.sh"
 [ -f "$RO" ] || { echo "  SKIP: run_overnight.sh not found"; exit 0; }
@@ -33,7 +34,7 @@ ok "fallback only fires when FILE_ARGS is empty (never overrides a real scout fi
 # --- B: the identifier-grep logic, extracted verbatim in spirit, must resolve a
 # backtick-quoted function name in item text to its REAL defining file even when
 # the scout guessed a different, nonexistent one ---
-TMPD="$(mktemp -d)" || exit 1
+TMPD="$(safe_mktemp_dir)" || exit 1
 trap 'rm -rf "$TMPD"' EXIT
 cd "$TMPD" || exit 1
 mkdir -p app/models tests

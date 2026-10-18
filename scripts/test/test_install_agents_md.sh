@@ -3,13 +3,14 @@
 # origin/overnight/feature -> copy -> commit+push only if changed -> release). Fully hermetic: HOME is a temp dir holding a
 # fake ~/overnight-queue (stub queue.sh that only logs), and every repo's "origin" is a local bare repo in the temp dir.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT=""; for c in "$HERE/../../install_agents_md.sh" "$HERE/../install_agents_md.sh" "$HERE/install_agents_md.sh"; do [ -f "$c" ] && { SUT="$c"; break; }; done
 [ -n "$SUT" ] || { echo "install_agents_md.sh not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 warn(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else echo "  WARN $1 (non-fatal, known defect)"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export HOME="$T/home"; Q="$HOME/overnight-queue"; mkdir -p "$Q/repos" "$Q/staging_agents"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; mkdir -p "$Q/repos" "$Q/staging_agents"
 export GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 QLOG="$T/queue.log"; : > "$QLOG"
 printf '#!/usr/bin/env bash\necho "queue.sh $*" >> "%s"\n' "$QLOG" > "$Q/queue.sh"; chmod +x "$Q/queue.sh"
@@ -74,6 +75,6 @@ ok "re-run: installed repos now 'unchanged' (idempotent, no duplicate commits)" 
 ok "re-run: previously failed shrike-monitor now installs once the push works" "$(grep -qx 'shrike-monitor: installed AGENTS.md (1 lines)' "$T/out2" && echo 1 || echo 0)"
 
 # missing ~/overnight-queue -> exit 1
-H2="$(mktemp -d)" || exit 1; ( cd "$T"; HOME="$H2" bash "$SUT" > "$T/out3" 2>/dev/null ); rc3=$?; rm -rf "$H2"
+H2="$(safe_mktemp_dir)" || exit 1; ( cd "$T"; HOME="$H2" bash "$SUT" > "$T/out3" 2>/dev/null ); rc3=$?; rm -rf "$H2"
 ok "no ~/overnight-queue -> exit 1, prints nothing" "$([ $rc3 = 1 ] && [ ! -s "$T/out3" ] && echo 1 || echo 0)"
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

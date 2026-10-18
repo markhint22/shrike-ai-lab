@@ -276,6 +276,7 @@ ovn_fixup_item_line() {
   declare -F ovn_resolve_top_item >/dev/null 2>&1 || return 0
   [ -n "$before" ] || return 0
   d="$(mktemp -d 2>/dev/null)" || return 0
+  [ -n "$d" ] && [ -d "$d" ] || return 0   # 2026-10-16: an empty result (rc 0) must not become "$d/OVERNIGHT_PROGRESS.md" = /OVERNIGHT_PROGRESS.md
   if git show "${before}:OVERNIGHT_PROGRESS.md" > "$d/OVERNIGHT_PROGRESS.md" 2>/dev/null; then out="$(ovn_resolve_top_item "$d" "$tl" 2>/dev/null)"; fi
   rm -rf "$d"
   # Wrong-item guard (harness-credit-integrity review): ovn_resolve_top_item falls back to the TOP of the file when the scout named files that no open item mentions.

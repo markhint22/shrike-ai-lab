@@ -5,6 +5,7 @@
 # Sections: A ovn_cycle_credit_only (the REAL function extracted from run_overnight.sh, real git repo), B record_outcome (REAL function) class/severity, C the readers (buckets, work_summary,
 # ovn_notify hourly line + stall activity, qa_ledger, cycle_notify oc), D wiring greps, E MUTATION controls (each fix reverted -> the matching assertion must fail).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 unset OVN_CREDIT_ONLY OVN_LANDED_UNCREDITED OVN_NOTIFY_LANDED_CLASSES OVN_OUTCOME_ATTRIB OVN_SKIP_ROW_DEDUPE   # hermetic: kill switches set by a caller must not change what this asserts
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"; R="$Q/run_overnight.sh"
@@ -12,7 +13,7 @@ Q="$(cd "$HERE/../.." && pwd)"; R="$Q/run_overnight.sh"
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
 echo "== A: ovn_cycle_credit_only (unit)"
@@ -92,9 +93,10 @@ ok "C9 work_summary: no credit-only rows => no 'credit-only' text (control)" "ca
 
 # ovn_notify: hourly line + stall activity
 cat > "$tmp/notify_check.py" <<'PYEOF'
-import importlib.util, json, os, sys, tempfile, time
+import atexit, importlib.util, json, os, shutil, sys, tempfile, time
 root = sys.argv[1]
 T = tempfile.mkdtemp()
+atexit.register(shutil.rmtree, T, True)   # 2026-10-17: left a tmpXXXX dir per run
 os.environ.update(OVN_NOTIFY_STATE=os.path.join(T, "state"), NTFY_TOPIC="t_test", OVN_NOTIFY_UPSTREAM="http://127.0.0.1:9")
 os.makedirs(os.environ["OVN_NOTIFY_STATE"])
 spec = importlib.util.spec_from_file_location("ovn_notify", os.path.join(root, "scripts", "ovn_notify.py")); N = importlib.util.module_from_spec(spec); spec.loader.exec_module(N)

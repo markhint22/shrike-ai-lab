@@ -7,6 +7,7 @@
 #   $T/scn                  = per-call scenario snippets for stub aider / stub ovn_autotest.sh (aider.N, aider.default ...)
 #   $T/llm                  = canned LLM replies for stub curl (plan.N, plan.default; `fail`/`hang` flags)
 # No network, no GPU, no real tree: origin is a local bare repo, LLM + aider + docker + godot are stubs.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 OSR_REPO=osrrepo
 HERE_OSR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$HERE_OSR/../../ovn_stage_runner.sh"; [ -f "$RUNNER" ] || RUNNER="$HERE_OSR/../ovn_stage_runner.sh"
@@ -24,7 +25,7 @@ _osr_stub(){ printf '%s\n' "$2" > "$1"; chmod +x "$1"; }
 
 OSR_ALL_T=()
 osr_new(){   # build a fresh fake tree. sets T H Q O RD
-  T="$(mktemp -d)" || exit 1; OSR_ALL_T+=("$T"); H="$T/home"; Q="$H/overnight-queue"; O="$T/origin.git"; RD="$Q/repos/$OSR_REPO"
+  T="$(safe_mktemp_dir)" || exit 1; OSR_ALL_T+=("$T"); H="$T/home"; Q="$H/overnight-queue"; O="$T/origin.git"; RD="$Q/repos/$OSR_REPO"
   mkdir -p "$Q/scripts" "$Q/state" "$Q/logs" "$Q/assets" "$H/aider-venv/bin" "$H/godot" "$T/scn" "$T/llm" "$Q/repos"
   cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$REALQ/scripts/lib_gut_xml.sh" "$REALQ/scripts/lib_new_tests.sh" "$Q/scripts/"
   cp "$REALQ/ovn_classify_fail.sh" "$Q/"
@@ -102,7 +103,7 @@ HOOK
 osr_cleanup(){
   local wtp
   if [ -n "${RD:-}" ] && [ -d "$RD/.git" ]; then
-    for wtp in $(git -C "$RD" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep "^/tmp/stage-${OSR_REPO}\."); do rm -rf "$wtp"; done
+    for wtp in $(git -C "$RD" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep "^/tmp/stage-${OSR_REPO}\."); do rm -rf "${wtp:?}"; done
   fi
   local _ot; for _ot in ${OSR_ALL_T[@]+"${OSR_ALL_T[@]}"}; do [ -n "$_ot" ] && rm -rf "$_ot"; done
   [ -n "${T:-}" ] && rm -rf "$T"

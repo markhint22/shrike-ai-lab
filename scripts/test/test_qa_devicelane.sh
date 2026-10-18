@@ -4,6 +4,7 @@
 # scripts/overnight-queue, under `env -i` with a minimal PATH, against fakes (adb, emulator, appium, node, gradlew, a local
 # HTTP "staging backend") that live in a temp dir.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 if [ -n "${DL_XTRACE:-}" ]; then exec 5>/tmp/qa-dl-xtrace.log; BASH_XTRACEFD=5; set -x; fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/ntfy_guard.sh"
@@ -16,7 +17,7 @@ ok() { if [ "$2" = 1 ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fa
 b() { if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }
 
 PRE_BUILD_DIRS="$(ls -d /tmp/qa-dl-build.* 2>/dev/null)"   # a real lane run may be building concurrently; only NEW leftovers count
-T="$(mktemp -d /tmp/qa-dl-test.XXXXXX)" || exit 1
+T="$(safe_mktemp_dir qa-dl-test)" || exit 1
 SERVER_PIDS=""
 # 2026-10-02: per-run random emulator console port (even) and AVD name, like the appium port: a fixed 5598 + the default qa_api34 AVD made two
 # concurrent suite runs (run_all.sh + test-watch) - or a suite run next to a real lane run - collide on emulator-$EMU_PORT / each other's AVD sweep.
@@ -574,7 +575,7 @@ ok "run still PASSes with the daemon in play" "$([ "$(echo "$out" | field verdic
 ok "adb server is stopped at the end when only our own (possibly offline) emulator remained" "$([ ! -f "$T/adbd.pid" ] && echo 1 || echo 0)"
 
 . "$LANE/lane_env.sh" 2>/dev/null   # for verify_teardown in the sections below (env derived from the fake HOME)
-vt() { ( export HOME="$T/home" QA_DL_HOME="$T/home" DL_EMU_PORT=$EMU_PORT DL_AVD=$TAVD DL_APPIUM_PORT="$PORT_APPIUM" ADB="$FAKE/adb" PATH=/usr/bin:/bin; unset ANDROID_HOME ANDROID_SDK_ROOT
+vt() { ( safe_set_sandbox_home "$T" || exit 1; export QA_DL_HOME="$T/home" DL_EMU_PORT=$EMU_PORT DL_AVD=$TAVD DL_APPIUM_PORT="$PORT_APPIUM" ADB="$FAKE/adb" PATH=/usr/bin:/bin; unset ANDROID_HOME ANDROID_SDK_ROOT
   . "$LANE/lane_env.sh"; verify_teardown "$T/vt.json" "${1:-}" 2>/dev/null ); }
 
 echo "== 23. verified teardown (post-run process check)"
@@ -720,7 +721,7 @@ ok "every section above ran against the stub emulator (the SDK emulator is the f
 if [ "${DL_REAL_EMULATOR_TEST:-0}" = 1 ]; then
   echo "  (DL_REAL_EMULATOR_TEST=1: ONE bounded real KVM boot + verified teardown)"
   REAL_OUT="$( ( export DL_EMU_PORT="${DL_REAL_PORT:-5590}" DL_BOOT_TIMEOUT="${DL_REAL_BOOT_TIMEOUT:-300}"; unset ANDROID_HOME ANDROID_SDK_ROOT DL_FAKE_KVM QA_DL_HOME; . "$LANE/lane_env.sh"
-      P="$(mktemp -d /tmp/qa-dl-real.XXXXXX)" || exit 1
+      P="$(safe_mktemp_dir qa-dl-real)" || exit 1
       start_emulator "$P/emu.pid" "$P/emu.log"; rc=$?; echo "boot_rc=$rc boot_s=${DL_BOOT_SECONDS:-0}"
       # evidence BEFORE teardown: a failed boot must be diagnosable from this output alone (the first real attempt, 2026-10-02, timed out and its log was gone)
       [ "$rc" = 0 ] || { echo "--- emulator.log tail ---"; tail -25 "$P/emu.log" 2>&1; echo "--- adb devices ---"; "$ADB" devices 2>&1; echo "--- qemu cpu ---"; ps -eo pid,pcpu,etime,args 2>/dev/null | grep "[-]avd $DL_AVD" | cut -c1-160; }

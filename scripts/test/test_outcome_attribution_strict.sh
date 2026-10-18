@@ -8,6 +8,7 @@
 #           cycles got category 'vue' (the repo map in the log listed .vue files).
 # Drives the REAL record_outcome() and ovn_resolve_worked_item() extracted from the real files (same technique as test_record_outcome_item_hash_agrees.sh).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 R="${OVN_RUNNER:-$HERE/../../run_overnight.sh}"; [ -f "$R" ] || R="$HOME/overnight-queue/run_overnight.sh"
 LIB="$HERE/../lib_item_select.sh"; [ -f "$LIB" ] || LIB="$HERE/lib_item_select.sh"
@@ -20,7 +21,7 @@ source "$LIB"
 FN_SRC="$(sed -n '/^record_outcome(/,/^}/p' "$R")"; [ -n "$FN_SRC" ] || { echo "  FAIL: could not extract record_outcome()"; exit 1; }
 eval "$FN_SRC"
 SCRIPT_DIR="$(cd "$(dirname "$R")" && pwd)"
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 STATE_DIR="$tmp/state"; mkdir -p "$STATE_DIR"
 
 # a progress file: line 1 '# progress'; the TOP open item (roster) is NOT what the cycles below work

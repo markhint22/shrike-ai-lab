@@ -6,6 +6,7 @@
 # (stub aider that strips the markers, stub pytest as the gate) and asserts the conflict is actually resolved, gated, pushed and cleaned up.
 # bash 5 / GNU (flock, timeout) suite: run on the box or with Homebrew bash; SKIPs without them.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ_SRC="$HERE/../.."; [ -f "$OQ_SRC/reconcile_branches.sh" ] || OQ_SRC="$HERE/.."
 [ -f "$OQ_SRC/reconcile_branches.sh" ] && [ -f "$OQ_SRC/branch_hygiene.sh" ] || { echo "  SKIP: reconcile_branches.sh / branch_hygiene.sh not found"; exit 0; }
@@ -16,13 +17,13 @@ for t in flock timeout git python3; do type -P $t >/dev/null || { echo "  SKIP: 
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; export T
+T="$(safe_mktemp_dir)" || exit 1; export T
 cleanup(){ rm -rf "$T" /tmp/reconcile-*llmgate* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export NTFY_TOPIC="reconcile_llmgate_selftest_ignore"
 unset OVN_PROGRESS_MERGE OVN_PM_DEFER OVN_MERGE_SANITY OVN_LLM_RESOLVE_PREFLIGHT HYGIENE_GATE_ONLY DRY_RUN
-export HOME="$T/home"; Q="$HOME/overnight-queue"; BIN="$T/bin"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; BIN="$T/bin"
 mkdir -p "$Q/scripts" "$Q/repos" "$Q/state" "$Q/logs" "$HOME/aider-venv/bin" "$BIN"
 cp "$OQ_SRC/reconcile_branches.sh" "$OQ_SRC/branch_hygiene.sh" "$Q/"
 for f in lib_lock.sh lib_pytest_parallel.sh lib_gut_xml.sh lib_tree_guard.sh ovn_stub_guard.py; do [ -f "$OQ_SRC/scripts/$f" ] && cp "$OQ_SRC/scripts/$f" "$Q/scripts/"; done

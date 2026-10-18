@@ -8,6 +8,7 @@
 # (OVN_HYG_INFRA_SKIP=off) restores the old scoring; a /tmp that cannot create a dir (npm/docker gates whose output is discarded) is detected by the probe; worktree-add failures
 # carrying the signature skip too while other worktree failures still flag. bash 5 / GNU (flock, timeout) suite: run on the box or with Homebrew bash.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ_SRC="$HERE/../.."; [ -f "$OQ_SRC/branch_hygiene.sh" ] || OQ_SRC="$HERE/.."
 # cannot run on this host -> exit 77 (NOT RUN): run_all.sh counts it and reports it, never a silent green (2026-10-14)
@@ -19,12 +20,12 @@ for t in flock timeout git; do type -P $t >/dev/null || { echo "  NOT RUN: no $t
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; export T
+T="$(safe_mktemp_dir)" || exit 1; export T
 cleanup(){ rm -rf "$T" /tmp/hygiene-app.* /tmp/hygiene-main-app.* /tmp/hygiene-app-retry.* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 unset OVN_HYG_INFRA_SKIP OVN_HYG_INFRA_SKIP_MAX OVN_HYG_STREAK_ALERT HYGIENE_GATE_ONLY DRY_RUN HYGIENE_FEATURE_BRANCH
-export HOME="$T/home"; Q="$HOME/overnight-queue"; BIN="$T/bin"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; BIN="$T/bin"
 mkdir -p "$Q/scripts" "$Q/repos" "$Q/state" "$Q/logs" "$BIN" "$HOME/qa-venv/bin"
 cp "$OQ_SRC/branch_hygiene.sh" "$Q/"
 for f in lib_lock.sh lib_pytest_parallel.sh lib_gut_xml.sh lib_tree_guard.sh; do [ -f "$OQ_SRC/scripts/$f" ] && cp "$OQ_SRC/scripts/$f" "$Q/scripts/"; done

@@ -12,14 +12,16 @@
 #      credit; =on adopts the `path -k name` result (why=name-substring); =off disables. The retry needs the file to exist, a single node id, and no `cd` in the clause (K-section).
 # Every PASS-only-with-the-new-logic assertion below FAILS with the PYTHONPATH export removed / the kill switch off ("benign twin" lines are labelled).
 set -o pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
+safe_use_short_tmp || exit 1     # 2026-10-17: the shadow log truncates cmd= / clause= at 200 chars; a deep TMPDIR (scratchpad, CI workspace) must not push the asserted token out of it
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."
 [ -f "$S/lib_verify_clause.sh" ] || { echo "  SKIP: lib_verify_clause.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (got [$2] want [$3])"; fi; }
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
-export HOME="$W/home"; mkdir -p "$HOME"
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"' EXIT
+safe_set_sandbox_home "$W" || exit 1; mkdir -p "$HOME"
 export PYTHONDONTWRITEBYTECODE=1
 unset PYTHONPATH PYTEST_ADDOPTS
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"

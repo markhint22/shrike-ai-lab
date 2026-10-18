@@ -5,6 +5,7 @@
 #   only while they have been starving >= 3h, never past cap+2   off = no extra ssh read.
 # Hermetic (lib_ar_fixture.sh): temp HOME/state, stub ssh/scp/claude, the "box" is a temp dir. Assertions read run output, the stub's call log and the stub ssh log.
 # No `x | grep -q`, no kill -0. Mutation checks at the bottom run on a scratch copy of the script.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../../ovn_auto_research.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/../ovn_auto_research.sh"
 VALIDATOR="$HERE/../../ovn_auto_research_validate.py"; [ -f "$VALIDATOR" ] || VALIDATOR="$HERE/../ovn_auto_research_validate.py"
@@ -16,7 +17,7 @@ ESC_PIN=(OVN_AR_MAX_PER_DAY=2 OVN_AR_MAX_PER_RUN=2 'OVN_AR_REPOS=iptv_apps xlite
 esc_run(){ ar_run "${ESC_PIN[@]}" "$@"; }   # the pins come before the scenario's own VAR=val args, and env applies the later assignment, so a scenario can still override a pin
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-MT="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
+MT="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "${MT:?}"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
 META='{cat: backend; size: S; multifile: no; research: repo}'
 TODAY="$(date +%F)"; YESTERDAY="$(python3 -c 'import time;print(time.strftime("%Y-%m-%d", time.localtime(time.time()-86400)))')"
 
@@ -29,7 +30,7 @@ assert a in s, "mutation anchor missing: %r" % a
 open(dest, "w").write(s.replace(a, b, 1))
 PY
 }
-fresh(){ rm -rf "$STATE" "$CAP"; mkdir -p "$STATE" "$CAP"; : > "$BOX/ssh.log"; rm -f "$BOX/markers.txt"; }
+fresh(){ rm -rf "${STATE:?}" "${CAP:?}"; mkdir -p "$STATE" "$CAP"; : > "$BOX/ssh.log"; rm -f "$BOX/markers.txt"; }
 used_is(){ echo "$1" > "$STATE/count_$TODAY"; }
 marker(){ printf '{"repo": "%s", "day": "%s", "ts": 1, "mode": "shadow"}\n' "$1" "${2:-$TODAY}" >> "$BOX/markers.txt"; }
 calls(){ [ -s "$CAP/calls.log" ] && tr '\n' ' ' < "$CAP/calls.log" || echo -n ""; }

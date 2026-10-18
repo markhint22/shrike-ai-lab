@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # ovn_identity_guard.sh: a fixture LOCAL git identity (t <t@t>) is removed with one alert; a real identity is left alone; always exit 0.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../../ovn_identity_guard.sh"; [ -f "$SUT" ] || SUT="$HERE/../ovn_identity_guard.sh"
 [ -f "$SUT" ] || { echo "  SKIP: ovn_identity_guard.sh not found"; exit 0; }
 command -v git >/dev/null || { echo "  SKIP: no git"; exit 0; }
 P=0; F=0; ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export OVN_DIR="$T/q" ; mkdir -p "$OVN_DIR/repos" "$OVN_DIR/state"
 for r in bad real nameonly noid; do git init -q "$OVN_DIR/repos/$r"; done
 git -C "$OVN_DIR/repos/bad" config user.name t;  git -C "$OVN_DIR/repos/bad" config user.email t@t

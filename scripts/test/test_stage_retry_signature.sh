@@ -5,10 +5,11 @@
 #   Part U (unit, python only - runs anywhere): stage_fail_signature / stage_priorfail_block extracted from the REAL runner (between the n4-stage-waste markers) and fed fixture verify.log / jsonl pairs.
 #   Part E (end to end, GNU sed + bash 5 = the box): the REAL runner in the hermetic fixture, two zero-landing runs in a row.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 unset OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP OVN_STAGE_SAME_SIG_STOP OVN_STAGE_PRIORFAIL_STEP NTFY_SERVER NTFY_TOPIC
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"; osr_cleanup' EXIT
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"; osr_cleanup' EXIT
 sed -n '/^# >>> n4-stage-waste helpers: retry signature/,/^# <<< n4-stage-waste helpers: retry signature/p' "$RUNNER" > "$W/helpers.sh"
 [ -s "$W/helpers.sh" ] || { echo "  FAIL: the retry-signature helper block was not found in $RUNNER"; exit 1; }
 # shellcheck disable=SC1091

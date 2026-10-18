@@ -7,6 +7,7 @@
 # Sections: A ovn_cycle_net_zero unit, B the REAL run_aider_fix_task end to end (net-zero), C the supply re-check hook end to end, D outcome class/bucket mapping of the new status.
 # A and D run anywhere; B and C drive the hermetic Linux fixture (box-only, like test_run_overnight_aider2_*).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RO="${OVN_RUN_OVERNIGHT:-$HERE/../../run_overnight.sh}"; [ -f "$RO" ] || RO="$HOME/overnight-queue/run_overnight.sh"
 [ -f "$RO" ] || { echo "  SKIP: run_overnight.sh not found"; exit 0; }

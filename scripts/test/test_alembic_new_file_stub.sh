@@ -13,6 +13,7 @@
 # ever has to EDIT an existing file. Mirrors the deployed extraction regex exactly
 # so this can't drift.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
@@ -30,7 +31,7 @@ extract_new_migration_path() {  # $1=prompt $2=top_progress_item
   printf '%s\n%s' "$1" "$2" | grep -oE '[A-Za-z0-9_./-]*alembic/versions/[A-Za-z0-9_]+\.py' | head -1
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp" || exit 1
 mkdir -p iptv-backend/alembic/versions
 : > iptv-backend/alembic/versions/0006_referrals.py   # an existing migration, must never be touched

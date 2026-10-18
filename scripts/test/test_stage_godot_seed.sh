@@ -13,6 +13,7 @@
 # --live (box only; needs ~/godot/godot4 + a repos/xlite clone): same block against a git archive of repos/xlite HEAD copied to a scratch dir; shows the
 # SCRIPT ERROR count of `--check-only --script res://scripts/mission/tech_tree.gd` before vs after the seed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SR="${OVN_STAGE_RUNNER:-}"
 for c in "$SR" "$HERE/../../ovn_stage_runner.sh" "$HOME/overnight-queue/ovn_stage_runner.sh"; do [ -n "$c" ] && [ -f "$c" ] && { SR="$c"; break; }; done
@@ -26,7 +27,7 @@ BLOCK="$(awk 'index($0,"# 2026-10-09 (xlite godot lane): same class of bug as no
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the godot seed block from $SR"; exit 1; }
 case "$BLOCK" in *'wt_seed_godot'*'--import'*) : ;; *) echo "  FAIL: extracted block does not look like the seed block"; exit 1 ;; esac
 
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GODOT_LOG="$T/godot.log"
 
 # queue-dir stand-in: the block sources scripts/lib_worktree.sh and writes logs/ relative to the cwd (the runner cd's to ~/overnight-queue)
@@ -139,7 +140,7 @@ battery(){ # $1 = block text (real or mutant); returns the number of failed asse
 live(){
   GB="$HOME/godot/godot4"; XL="${OVN_LIVE_XLITE:-$HOME/overnight-queue/repos/xlite}"
   [ -x "$GB" ] && [ -d "$XL/.git" ] || { echo "  SKIP --live: need $GB and $XL"; return 0; }
-  S="$(mktemp -d "$HOME/scratch-stageseed-XXXXXX")" || exit 1
+  S="$(safe_mktemp_dir stageseed)" || exit 1
   echo "  live: scratch=$S"
   mkdir -p "$S/src" "$S/rd"
   git -C "$XL" archive HEAD | tar -x -C "$S/rd"

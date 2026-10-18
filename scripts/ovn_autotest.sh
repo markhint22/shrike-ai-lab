@@ -88,6 +88,7 @@ if [ -n "$gd_changed" ]; then
     # live tree, so the class cache, preloads and sibling scripts resolve exactly as in the live run). The live file is never written: a TERM/kill -9
     # of this script, or a timeout of the whole test-cmd, cannot leave the pre-edit blob in it or resurrect an edit that was already reverted.
     ov="$(mktemp -d "${TMPDIR:-/tmp}/ovn_gdbase.XXXXXX")" || return 0
+    [ -n "$ov" ] && [ -d "$ov" ] || return 0   # 2026-10-16: an empty overlay dir would be "/" for gd_overlay and rm -rf
     trap 'rm -rf "$ov"' EXIT
     trap 'rm -rf "$ov"; exit 143' TERM INT
     gd_overlay "$f" "$ref" "$ov" || { rm -rf "$ov"; trap - EXIT TERM INT; return 0; }
@@ -100,7 +101,7 @@ if [ -n "$gd_changed" ]; then
     # written to a temp file and moved into place (a concurrent reader never sees a half-written entry, which would read as a clean baseline); entries older
     # than a day (and orphaned temp files) are dropped on every write
     if [ "$brc" != 124 ] && [ -n "$key" ] && [ -d "$QDIR/state" ] && mkdir -p "$cdir" 2>/dev/null; then
-      find "$cdir" -maxdepth 1 -type f -mtime +0 -delete 2>/dev/null
+      find "${cdir:?}" -maxdepth 1 -type f -mtime +0 -delete 2>/dev/null
       tmpf="$cdir/.$key.tmp.$$"
       { printf '%s\n' "$bout" > "$tmpf" && mv -f "$tmpf" "$cf"; } 2>/dev/null || rm -f "$tmpf" 2>/dev/null
     fi

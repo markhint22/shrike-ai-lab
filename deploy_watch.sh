@@ -32,7 +32,13 @@ ENQ_REMOTE="scripts/ovn_enqueue_emergency.py"
 DRYRUN="${DRYRUN:-0}"
 # DRYRUN must NEVER touch the live dedup state — clearing the per-deploy-id markers makes
 # the next REAL run re-alert every currently-failing surface (the self-inflicted spam we hit).
-if [ "$DRYRUN" = 1 ]; then STATE="$(mktemp -d)"; else STATE="$HOME/.deploy_watch"; fi
+if [ "$DRYRUN" = 1 ]; then
+  STATE="$(mktemp -d)" || { echo "deploy_watch: mktemp -d failed - abort" >&2; exit 1; }
+  [ -n "$STATE" ] && [ -d "$STATE" ] || { echo "deploy_watch: mktemp -d returned no usable directory - abort" >&2; exit 1; }   # 2026-10-16
+  # 2026-10-17: the throwaway state dir was never removed (every DRYRUN left a tmp.XXXXXXXXXX dir behind: the test suite leaked 14-36 entries per run). Only a dir mktemp made under the temp root is removed.
+  _tdr="${TMPDIR:-/tmp}"; _tdr="${_tdr%/}"
+  case "$STATE" in "$_tdr"/*|"$_tdr"//*) trap '[ -n "${STATE:-}" ] && [ -d "$STATE" ] && rm -rf "${STATE:?}"' EXIT;; esac
+else STATE="$HOME/.deploy_watch"; fi
 mkdir -p "$STATE"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
 # Suppression list (shared with deploy_health.sh): keys here are LOGGED but never alerted

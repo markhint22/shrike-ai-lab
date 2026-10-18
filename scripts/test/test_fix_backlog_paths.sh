@@ -2,13 +2,14 @@
 # Regression: scripts/fix_backlog_paths.py strips a leading "<repo>/" (repo = backlog file stem) that immediately follows
 # the tier/label tag of an open "- [ ]" item, rewriting only files that changed. Idempotent. Default dir is cwd.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../fix_backlog_paths.py"; [ -f "$S" ] || S="$HERE/fix_backlog_paths.py"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 both(){ [ "$1" = 1 ] && [ "$2" = 1 ] && echo 1 || echo 0; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 B="$T/backlog"; mkdir -p "$B"
 cat > "$B/xlite.md" <<'M'
 # xlite backlog

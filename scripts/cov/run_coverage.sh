@@ -3,7 +3,7 @@
 # usage: run_coverage.sh [test_script ...]   (default: scripts/test/run_all.sh)  env: OVN_COV_MIN=<pct> to fail below it
 set -uo pipefail
 Q="${OVN_Q:-$HOME/overnight-queue}"
-D="${OVN_COV_DIR:-/tmp/ovn-cov}"; rm -rf "$D"; mkdir -p "$D/py"
+D="${OVN_COV_DIR:-/tmp/ovn-cov}"; rm -rf "${D:?}"; mkdir -p "$D/py"
 # 2026-10-10 (qacov QA-3): tests that COPY a tool into a temp dir before running it (test_ovn_mutation_supply.py shutil.copy, test_ovn_spec_gate_scan.sh `cp ovn_spec_gate.py`)
 # were invisible to `source = $Q` (the copy lives elsewhere), so well-tested modules showed 32-45%. The run rc now uses `include`: everything under $Q plus ANY file whose
 # basename is one of the pipeline's own python scripts (`**/name.py`; basenames are unique, attic/.bak excluded); ovn_cov_report.py folds a copy's executed lines back onto

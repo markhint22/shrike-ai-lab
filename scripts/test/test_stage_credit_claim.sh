@@ -3,6 +3,7 @@
 # cycle (2 items, 46 pushed rows in one hour, 2-4 s each, zero new commits). ovn_stage_credit_claim is the one gate; this test drives the
 # real library and checks run_overnight.sh routes the stage credit through it.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/../lib_stage_credit.sh"
 RUN="$HERE/../../run_overnight.sh"
@@ -10,7 +11,7 @@ RUN="$HERE/../../run_overnight.sh"
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 . "$LIB"
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 L="$T/state/stage_credited.ledger"
 A="$T/state/stage_runs/gitlark-20261013-190400.jsonl"
 B="$T/state/stage_runs/gitlark-20261014-010000.jsonl"

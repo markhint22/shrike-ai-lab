@@ -3,19 +3,20 @@
 # them green without a single assertion (the hygiene infra-skip suite is vacuous on the default macOS bash 3.2 without flock). They now exit 77 (NOT RUN) and run_all.sh counts them.
 # Every assertion here FAILS on the old code (rc 0 instead of 77). Copies of the real suites are run from a throwaway tree, so the real files are never touched.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export HOME="$T/home"; mkdir -p "$HOME"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME"
 
 # 1) source file missing next to a copied suite -> NOT RUN (77), not a silent green
-mkdir -p "$T/nosrc/test"; cp "$HERE/test_auto_credit_lockfile.sh" "$T/nosrc/test/"
+mkdir -p "$T/nosrc/test"; cp "$HERE/test_auto_credit_lockfile.sh" "$HERE/lib_safe_tmp.sh" "$T/nosrc/test/"
 ( bash "$T/nosrc/test/test_auto_credit_lockfile.sh" >"$T/o1" 2>&1 ); rc1=$?
 ok "1a auto-credit lockfile suite without lib_auto_credit.sh exits 77 (rc=$rc1)" "$([ "$rc1" = 77 ] && echo 1 || echo 0)"
 ok "1b and says NOT RUN" "$(grep -q 'NOT RUN' "$T/o1" && echo 1 || echo 0)"
 
-mkdir -p "$T/nogit/test"; cp "$HERE/test_git_sync_size_guard.sh" "$T/nogit/test/"
+mkdir -p "$T/nogit/test"; cp "$HERE/test_git_sync_size_guard.sh" "$HERE/lib_safe_tmp.sh" "$T/nogit/test/"
 ( bash "$T/nogit/test/test_git_sync_size_guard.sh" >"$T/o2" 2>&1 ); rc2=$?
 ok "1c git sync size guard suite without ovn_git_sync.sh exits 77 (rc=$rc2)" "$([ "$rc2" = 77 ] && echo 1 || echo 0)"
 

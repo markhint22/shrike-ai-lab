@@ -9,6 +9,7 @@
 # and the REAL ovn_stage_runner.sh picker via lib_osr_fixture.sh. The run_overnight.sh wiring is in test_bug_first_loop.sh.
 # The guard uses GNU `sed -i` (like the existing guard tests): run on the box / any Linux host.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/../lib_item_select.sh"; [ -f "$LIB" ] || LIB="$HERE/lib_item_select.sh"
 G="$HERE/../ovn_item_guard.sh"; [ -f "$G" ] || G="$HERE/ovn_item_guard.sh"
@@ -24,7 +25,7 @@ P=0; F=0
 # (captured: 4 random FAILs of 12 parallel runs, each passing on retry). pipefail is switched off inside the condition only.
 ok(){ if ( set +o pipefail; eval "$2" ) >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (expected [$2] got [$3])"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 BUG1='- [ ] [T3] android/app/Foo.kt — Manual-test bug (reported by Mark, flow home-countries-filter, 2026-10-02): Qatar missing from the countries filter. First write a failing test that reproduces this, then fix it; if the cause is not in this file, say so. VERIFY: `cd android && ./gradlew testDebugUnitTest`. (cat:bugfix; multifile:no; src:manual) [feat:iptv_apps-20261002-manual-aaaa1111]'
 BUG2='- [ ] [T3] android/app/Bar.kt — Manual-test bug (reported by Mark, flow discover-add, 2026-10-02): the plus button does not add the channel. First write a failing test that reproduces this, then fix it. VERIFY: `true`. (cat:bugfix; multifile:no; src:manual) [feat:iptv_apps-20261002-manual-bbbb2222]'

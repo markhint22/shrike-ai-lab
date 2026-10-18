@@ -10,13 +10,14 @@
 #   -gselect=<x>               matches script FILE names only
 #   -gunit_test_name=<n>       one test when the function exists in the file, else "Nothing was run."                           rc 0
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIBDIR="${OVN_LIB_DIR:-$HERE/..}"
 [ -f "$LIBDIR/lib_verify_clause.sh" ] || { echo "  SKIP: lib_verify_clause.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
-tmp="$(cd "$tmp" && pwd -P)"
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+
 mkdir -p "$tmp/home/godot" "$tmp/work/tests" "$tmp/work/scripts" "$tmp/work/addons/gut"
 cat > "$tmp/home/godot/godot4" <<'EOT'
 #!/usr/bin/env bash
@@ -43,7 +44,7 @@ printf 'static func is_destructible_type(x):\n\treturn true\n' > "$tmp/work/scri
 run_sc(){  # $1 = lib dir, $2 = item line  -> RESULT|WHY|RC
   printf '%s\n' "$2" > "$tmp/prog.md"
   ( cd "$tmp/work" || exit 9
-    export HOME="$tmp/home"
+    safe_set_sandbox_home "$tmp" || exit 1
     PROG="$tmp/prog.md"; SHADOW_LOG="$tmp/shadow.log"; _REPO_LABEL=t; _VC_MEMO_ON=0; : > "$SHADOW_LOG"
     # shellcheck disable=SC1091
     . "$1/lib_verify_clause.sh"
@@ -108,7 +109,7 @@ r="$(OVN_VERIFY_POLARITY=off run_sc "$LIBDIR" "$(it '`grep -n "is_destructible_t
 ok "kill switch OVN_VERIFY_POLARITY=off restores the old reading (PASS)" "[ \"\$(res '$r')\" = PASS ]"
 # the memo must not cross polarities: same command, two items, opposite narration, ONE call
 printf '%s\n%s\n' "$(it '`grep -n "is_destructible_type" scripts/aoe.gd` returns no matches.')" "$(it '`grep -n "is_destructible_type" scripts/aoe.gd` returns matches.')" > "$tmp/prog2.md"
-memo="$( cd "$tmp/work" && export HOME="$tmp/home" && PROG="$tmp/prog2.md"; SHADOW_LOG="$tmp/shadow2.log"; _REPO_LABEL=t; _VC_MEMO_ON=1; : > "$SHADOW_LOG"; . "$LIBDIR/lib_verify_clause.sh"; shadow_check 1; a="$_LAST_VERIFY_RESULT"; shadow_check 2; echo "$a $_LAST_VERIFY_RESULT" )"
+memo="$( cd "$tmp/work" && safe_set_sandbox_home "$tmp" || exit 1 && PROG="$tmp/prog2.md"; SHADOW_LOG="$tmp/shadow2.log"; _REPO_LABEL=t; _VC_MEMO_ON=1; : > "$SHADOW_LOG"; . "$LIBDIR/lib_verify_clause.sh"; shadow_check 1; a="$_LAST_VERIFY_RESULT"; shadow_check 2; echo "$a $_LAST_VERIFY_RESULT" )"
 ok "memo is keyed on polarity too: neg item FAIL, pos item PASS in one call" "[ '$memo' = 'FAIL PASS' ]"
 
 echo "== X2: GUT clause normalisation"

@@ -5,6 +5,7 @@ Background: since 29ff3744 (2026-10-09, real token revocation) `POST /api/auth/l
 early: 2701 of 3187 responses were 401 and the run reported 2 signatures instead of 33 - the 10 real 500s looked fixed. Two defences: logout is excluded, and a run whose
 responses are mostly 401 is UNVERIFIED instead of a meaningless FLAG."""
 import json, os, re, sys, tempfile
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); import tmp_track; tmp_track.install()   # 2026-10-17: every mkdtemp() below is removed at exit (the suite leaked these dirs)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))

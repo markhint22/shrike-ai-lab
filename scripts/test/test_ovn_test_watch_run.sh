@@ -10,6 +10,7 @@
 # sweep is excluded by test_watch.lock, the live clone is never modified, worktrees are removed on TERM / push failure /
 # next start (SIGKILL orphans), and a red suite files exactly ONE emergency. Lock cases need real flock (the box has it).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TW=""
 for c in "$HERE/../../ovn_test_watch.sh" "$HERE/../ovn_test_watch.sh" "$HERE/ovn_test_watch.sh"; do [ -f "$c" ] && { TW="$c"; break; }; done
@@ -17,7 +18,7 @@ for c in "$HERE/../../ovn_test_watch.sh" "$HERE/../ovn_test_watch.sh" "$HERE/ovn
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; R="$H/overnight-queue"; ORG="$T/origins"; ALERTS="$T/alerts.txt"; PWDLOG="$T/pwd_seen.txt"
 mkdir -p "$R/state" "$R/repos" "$ORG" "$H/aider-venv/bin" "$H/godot"; : > "$ALERTS"; : > "$PWDLOG"; export ALERTS PWDLOG
 REALFLOCK=0; command -v flock >/dev/null 2>&1 && REALFLOCK=1

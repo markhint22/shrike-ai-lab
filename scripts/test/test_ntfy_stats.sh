@@ -4,6 +4,7 @@
 # stuck-dry detection). Both read real state files (outcomes.jsonl, ovn_planner.log,
 # queue_refill.log) against a fixture $HOME so they never touch production data.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 SCRIPTS="${OVN_SCRIPTS_DIR:-$HOME/overnight-queue/scripts}"
 TS="$SCRIPTS/ovn_tier_stats.py"
 PS="$SCRIPTS/ovn_planning_stats.py"
@@ -13,7 +14,7 @@ ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/n
 
 # ---- ovn_tier_stats.py ----
 if [ -f "$TS" ]; then
-  tmp="$(mktemp -d)" || exit 1; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
+  tmp="$(safe_mktemp_dir)" || exit 1; safe_set_sandbox_home "$tmp" || exit 1; mkdir -p "$HOME/overnight-queue/state"
   OUT="$HOME/overnight-queue/state/outcomes.jsonl"
   now="$(date -u +%FT%TZ 2>/dev/null || python3 -c 'import datetime;print(datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))')"
   cat > "$OUT" <<EOF
@@ -58,7 +59,7 @@ fi
 
 # ---- ovn_planning_stats.py ----
 if [ -f "$PS" ]; then
-  tmp="$(mktemp -d)" || exit 1; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/logs"
+  tmp="$(safe_mktemp_dir)" || exit 1; safe_set_sandbox_home "$tmp" || exit 1; mkdir -p "$HOME/overnight-queue/logs"
   now_local="$(date '+%Y-%m-%d %H:%M:%S')"
   cat > "$HOME/overnight-queue/logs/ovn_planner.log" <<EOF
 $now_local gitlark: appended 8 27B-decomposed items to backlog; marked feature [decomposed]

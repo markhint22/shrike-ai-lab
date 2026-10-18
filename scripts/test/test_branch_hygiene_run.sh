@@ -2,6 +2,7 @@
 # Runs the REAL branch_hygiene.sh against throwaway bare origins + clones. Gate tools (pytest/npm/gradlew/godot/docker),
 # curl and a git wrapper (to inject worktree failures) are stub executables first on PATH; HOME is a fake tree that holds a
 # fake check_migrations.py. STATE_DIR/REPORT_FILE point into the fixture. Nothing real is touched or pushed.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 export OVN_QA_SHADOW=off   # never launch the real QA shadow gates from a test (they would write fake-repo rows into production state)
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -12,10 +13,10 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = 1 ]; then pass=$((pass+1)); else echo "  WARN KNOWN-BUG: $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; export T; trap 'rm -rf "$T"' EXIT
 REALGIT="$(type -P git)"; export REALGIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
-export HOME="$T/home"; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
+safe_set_sandbox_home "$T" || exit 1; export STATE_DIR="$T/state"; export REPORT_FILE="$T/report.md"; OUT="$T/out.log"
 BIN="$T/bin"; mkdir -p "$BIN"
 mkstub(){ printf '#!/usr/bin/env bash\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }
 mkstub curl 'echo "curl $*" >> "$T/curl.log"; exit 0'
@@ -43,6 +44,7 @@ setup(){ # fresh fixture tree
 import os, sys
 if os.path.exists(os.path.expanduser("~/mig_fail")): sys.exit(1)
 PY
+  mkdir -p "$HOME/android-sdk"   # hermetic fake SDK dir: branch_hygiene.sh skips the gradle gate when $HOME/android-sdk is absent (hyg_gradle_sdk_skip); the gradle cases below must not depend on the host
   unset FAIL_WT HYGIENE_MERGE_TARGET HYGIENE_FEATURE_BRANCH AUTO_MERGE_DEFAULT DRY_RUN KEEP_DAYS TEST_TIMEOUT OVN_XDIST_REPOS HYGIENE_LOCK_WAIT NTFY_TOPIC LOCK_ALERT_COOLDOWN_SECS
 }
 # mk <name> <kind> [nfeat]: kinds (files on main so every branch has them): py | none | web | webnotest | vscode | gradle | godot | shellbad | docker | dockerchg

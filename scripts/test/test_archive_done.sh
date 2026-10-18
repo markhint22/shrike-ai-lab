@@ -3,12 +3,13 @@
 # archive_done.sh (hold -> sync -> archive -> commit+push -> release, per repo). Hermetic: python half runs on temp files;
 # wrapper half runs against a fake ~/overnight-queue under a temp HOME with local bare-repo origins and a stub queue.sh.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 find_sut(){ local c; for c in "$HERE/../../$1" "$HERE/../$1" "$HERE/$1"; do [ -f "$c" ] && { echo "$c"; return; }; done; }
 PY="$(find_sut archive_done.py)"; SH="$(find_sut archive_done.sh)"
 [ -n "$PY" ] && [ -n "$SH" ] || { echo "archive_done.{py,sh} not found"; exit 2; }
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 TODAY="$(python3 -c 'import datetime;print(datetime.date.today().isoformat())')"
 
 # ================= archive_done.py =================
@@ -49,7 +50,7 @@ python3 "$PY" >/dev/null 2>&1; ok "py: no args -> nonzero (usage error)" "$([ $?
 python3 "$PY" "$T/does-not-exist.md" "$T/x.md" >/dev/null 2>&1; ok "py: missing progress file -> nonzero" "$([ $? != 0 ] && echo 1 || echo 0)"
 
 # ================= archive_done.sh =================
-export HOME="$T/home"; Q="$HOME/overnight-queue"; mkdir -p "$Q/repos"; cp "$PY" "$Q/archive_done.py"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; mkdir -p "$Q/repos"; cp "$PY" "$Q/archive_done.py"
 export GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 QLOG="$T/queue.log"; : > "$QLOG"
 printf '#!/usr/bin/env bash\necho "queue.sh $*" >> "%s"\n' "$QLOG" > "$Q/queue.sh"; chmod +x "$Q/queue.sh"

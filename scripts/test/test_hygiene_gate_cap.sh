@@ -7,6 +7,7 @@
 #          stub pytest prints 5000 lines: the cron log stays small, the per-run file has all 5000, a red gate is still flagged, a green one still merges.
 # Every check also runs against a MUTANT (cap removed / exit code lost) and must FAIL there.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BH="$HERE/../../branch_hygiene.sh"; [ -f "$BH" ] || BH="$HERE/../branch_hygiene.sh"
 [ -f "$BH" ] || { echo "  SKIP: branch_hygiene.sh not found"; exit 0; }
@@ -14,7 +15,7 @@ grep -q '^hyg_gate_cap()' "$BH" || { echo "  FAIL: hyg_gate_cap() is not defined
 grep -q '^hyg_gate_run()' "$BH" || { echo "  FAIL: hyg_gate_run() is not defined in $BH"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
 # ---- the function, extracted from the real script (from its header line to the closing brace at column 0)
@@ -115,7 +116,7 @@ if ! flock -w 0 "$T/probe.lock" true >/dev/null 2>&1 || ! command -v timeout >/d
   echo "  $P passed, $F failed"; [ "$F" = 0 ]; exit $?
 fi
 REALGIT="$(type -P git)"
-export HOME="$T/home"; export STATE_DIR="$T/state"; export OVN_QA_SHADOW=off OVN_XDIST_REPOS=none
+safe_set_sandbox_home "$T" || exit 1; export STATE_DIR="$T/state"; export OVN_QA_SHADOW=off OVN_XDIST_REPOS=none
 BIN="$T/bin"; mkdir -p "$BIN"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/curl"; chmod +x "$BIN/curl"
 mkrepo(){  # <name> <red 0|1>: bare origin + clone with a stub .venv/bin/pytest printing 5000 lines

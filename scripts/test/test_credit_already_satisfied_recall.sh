@@ -14,11 +14,12 @@
 # `true` so the enforce-mode VERIFY gate (a separate, already-tested mechanism — see
 # test_credit_already_satisfied_enforce.sh) doesn't confound this recall-specific test.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../ovn_credit_already_satisfied.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/ovn_credit_already_satisfied.sh"
 [ -f "$SCRIPT" ] || { echo "  SKIP: ovn_credit_already_satisfied.sh not found"; exit 0; }
 rc=0; ok(){ echo "  OK: $1"; }; fail(){ echo "  FAIL: $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
 
 cat > OVERNIGHT_PROGRESS.md << 'PROG'

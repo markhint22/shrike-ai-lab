@@ -7,10 +7,11 @@
 # The scenario runs the REAL mkloop() text from test_udiff_unanchored.sh + the REAL lib_ro_core.sh in a throwaway "live" repo, with repo creation failing
 # (mkdir and `git clone` stubbed to fail) and asserts the throwaway live repo's HEAD never moves.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 G(){ command git -c user.name=t -c user.email=t@t "$@"; }
 REALGIT="$(type -P git)"
 
@@ -24,15 +25,17 @@ printf '%s\n' '( cd "$R/x" || exit 1; mkdir -p a; git add -A; git commit -q -m o
 ok "lint passes '|| exit 1;', a pure && chain, and git -C" "$(python3 "$HERE/lib_subshell_cd_lint.py" "$T/good.sh" >/dev/null 2>&1 && echo 1 || echo 0)"
 
 echo "== L2 guard + test fix, scenario: repo creation fails, victim runs in a throwaway live repo =="
-mkdir -p "$T/failbin"
+mkdir -p "$T/failbin" "$T/failbin_git"
 printf '#!/bin/bash\nexit 1\n' > "$T/failbin/mkdir"
-printf '#!/bin/bash\nfor a in "$@"; do [ "$a" = clone ] && exit 1; done\nexec %s "$@"\n' "$REALGIT" > "$T/failbin/git"
-chmod +x "$T/failbin/mkdir" "$T/failbin/git"
+printf '#!/bin/bash\nfor a in "$@"; do [ "$a" = clone ] && exit 1; done\nexec %s "$@"\n' "$REALGIT" > "$T/failbin_git/git"
+chmod +x "$T/failbin/mkdir" "$T/failbin_git/git"
+# 2026-10-16: the git shim must be on PATH BEFORE lib_live_repo_guard.sh is sourced (the guard resolves the real git once, at source time), but the failing mkdir shim only AFTER ro_init:
+# ro_init now builds its sandbox with the fail-closed safe_set_sandbox_home, which (correctly) refuses to continue when mkdir fails
 
 # mkvariant <name> <fix 1|0> <guard 1|0> : a throwaway live repo holding the real lib + the real test file (variant = mutations of exactly those two layers)
 mkvariant(){
   local d="$T/$1/scripts/test"; mkdir -p "$d"
-  cp "$HERE/lib_ro_core.sh" "$HERE/lib_live_repo_guard.sh" "$HERE/test_udiff_unanchored.sh" "$d/"
+  cp "$HERE/lib_ro_core.sh" "$HERE/lib_live_repo_guard.sh" "$HERE/test_udiff_unanchored.sh" "$HERE/lib_safe_tmp.sh" "$d/"
   python3 - "$d" "$2" "$3" <<'PY'
 import sys, re
 d, fix, guard = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -51,8 +54,10 @@ PY
 cat > "$T/victim.sh" <<'V'
 set -uo pipefail
 cd "$1/scripts/test" || exit 2
+[ -n "${OVN_FAILBIN_GIT:-}" ] && PATH="$OVN_FAILBIN_GIT:$PATH"
 . ./lib_ro_core.sh
 ro_init
+[ -n "${OVN_FAILBIN_MKDIR:-}" ] && PATH="$OVN_FAILBIN_MKDIR:$PATH"
 R="$T/repos"
 eval "$(sed -n '/^mkloop(){/,/^}/p' ./test_udiff_unanchored.sh)"
 mkloop r1 10
@@ -61,7 +66,7 @@ V
 runvariant(){ # runvariant <name>: prints "<head-moved 0|1> <guard-line-seen 0|1> <victim-finished 0|1>"
   local n="$1" before after out
   before="$(command git -C "$T/$n" rev-parse HEAD)"
-  out="$(cd "$T/$n/scripts/test" && PATH="$T/failbin:$PATH" OVN_LIVE_GUARD_LOG="$T/$n.guard.log" timeout 60 bash "$T/victim.sh" "$T/$n" </dev/null 2>&1)"
+  out="$(cd "$T/$n/scripts/test" && OVN_FAILBIN_GIT="$T/failbin_git" OVN_FAILBIN_MKDIR="$T/failbin" OVN_LIVE_GUARD_LOG="$T/$n.guard.log" timeout 60 bash "$T/victim.sh" "$T/$n" </dev/null 2>&1)"
   after="$(command git -C "$T/$n" rev-parse HEAD)"
   echo "$([ "$before" != "$after" ] && echo 1 || echo 0) $(printf '%s' "$out" | grep -q 'LIVE-REPO-GUARD\|FATAL mkloop' && echo 1 || echo 0) $(printf '%s' "$out" | grep -q victim-reached-end && echo 1 || echo 0)"
 }
@@ -98,7 +103,7 @@ ok "the refusal is logged to OVN_LIVE_GUARD_LOG" "$(grep -q 'refused .git commit
 mkdir -p "$T/p/live/t"; cp "$HERE/lib_live_repo_guard.sh" "$T/p/live/t/"; G -C "$T/p/live" init -q .; G -C "$T/p/live" commit -q --allow-empty -m base
 printf '%s\n' '. "$1/lib_live_repo_guard.sh"' 'cd "$2" || exit 2' 'git commit -q --allow-empty -m child-junk' 'echo child-after-commit' > "$T/p/child.sh"
 printf '%s\n' '. "$1/lib_live_repo_guard.sh"' 'bash "$3" "$1" "$2"; echo "parent-alive rc=$?"' > "$T/p/parent.sh"
-pout="$(bash "$T/p/parent.sh" "$T/p/live/t" "$T/p/live" "$T/p/child.sh" 2>&1)"
+pout="$(OVN_LIVE_GUARD_LOG="$T/p/g.log" bash "$T/p/parent.sh" "$T/p/live/t" "$T/p/live" "$T/p/child.sh" 2>&1)"
 ok "the child script under test exists" "$([ -f "$T/p/child.sh" ] && echo 1 || echo 0)"
 ok "a guard hit in a child shell does not kill the parent (parent reaches its end)" "$(printf '%s' "$pout" | grep -q 'parent-alive' && echo 1 || echo 0)"
 ok "the child's refused commit is still refused (no child-after-commit, live repo has no junk commit)" "$(! printf '%s' "$pout" | grep -q child-after-commit && [ "$(command git -C "$T/p/live" log -1 --format=%s)" = base ] && echo 1 || echo 0)"
@@ -106,7 +111,7 @@ ok "the child's refused commit is still refused (no child-after-commit, live rep
 echo "== L3 shim real-git resolution (regression 2026-10-14: command -v returned the guard function name 'git'; the shim exec'd itself forever) =="
 SB="$T/sb"; mkdir -p "$SB"
 # not a subshell: ok() counters must reach the summary
-OVN_LIVE_GUARD_TOP="$T/u/live"; . "$HERE/lib_live_repo_guard.sh"
+OVN_LIVE_GUARD_LOG="$T/l3.guard.log" OVN_LIVE_GUARD_TOP="$T/u/live"; . "$HERE/lib_live_repo_guard.sh"   # 2026-10-17: the default log lives in TMPDIR and leaked one file per run
   L_CMD="$(bash -c 'command -v git' 2>/dev/null)"   # the old shim lookup, in a child bash
   L_SHIM="$(bash -c 'type -P git' 2>/dev/null)"     # the fixed shim lookup, in a child bash
   ok "a child shell's 'command -v git' resolves to an absolute path (not the function name 'git')" "$([ "${L_CMD:0:1}" = / ] && echo 1 || echo 0)"

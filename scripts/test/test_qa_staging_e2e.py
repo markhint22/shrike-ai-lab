@@ -1576,6 +1576,7 @@ else:
 
 # ---- 17d. runner location: not found is loud, and the destination is one documented path
 bx_nf = make_box("box17nf", runner_in_box=False)
+assert os.path.isabs(bx_nf) and os.path.isdir(bx_nf)
 shutil.rmtree(os.path.join(bx_nf, "scripts"), ignore_errors=True)
 box_script = os.path.join(bx_nf, "qa", "staging_e2e_run.sh")
 p = run_sh(bx_nf, {}, script=box_script)

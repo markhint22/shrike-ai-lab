@@ -12,6 +12,7 @@ set -uo pipefail
 # Hermetic env: a developer / cron / outer-sandbox environment that exports any OVN_SANDBOX_* knob must not leak into the wrapper runs below (it caused false reds: an inherited
 # OVN_SANDBOX_TMPBASE moved qtmp away from $DH/qtmp). Each case sets exactly what it needs. OVN_TEST_TMP_BASE / OVN_SANDBOXED / OVN_REQUIRE_LINUX_BWRAP are NOT cleared:
 # the outer wrapper sets them and Part B's nested mode needs them.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 unset OVN_SANDBOX_TMPBASE OVN_SANDBOX_EXTRA_BIND OVN_SANDBOX_OVERLAY OVN_SANDBOX_RUN_ALLOW OVN_ALLOW_UNSANDBOXED OVN_SANDBOX_BWRAP OVN_SANDBOX_TARGET
 export OVN_SANDBOX_TEST_HOOKS=1   # the wrapper honours OVN_SANDBOX_BWRAP / OVN_SANDBOX_TARGET only with this (see 7a-7c below for the proof that it ignores them without)
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -25,17 +26,17 @@ skip_nested(){ NS=$((NS+1)); NSKIPS="$NSKIPS
     - $1"; echo "  SKIP(nested) $1"; }   # cases that must launch a bwrap of their own: impossible INSIDE the sandbox (bwrap cannot nest)
 b(){ if "$@" >/dev/null 2>&1; then echo 1; else echo 0; fi; }   # b cmd args...: 1 when the command succeeds
 [ -f "$W" ] || { echo "  FAIL: $W missing"; exit 1; }
-SB="$(mktemp -d "${TMPDIR:-/tmp}/rasb.XXXXXX")" || { echo "  FAIL: mktemp"; exit 1; }
+SB="$(safe_mktemp_dir rasb)" || { echo "  FAIL: mktemp"; exit 1; }
 case "$SB" in /*/rasb.??????) ;; *) echo "  FAIL: odd mktemp result $SB"; exit 1;; esac
 [ -d "$SB" ] && [ "$SB" != "/" ] && [ "$SB" != "${HOME:-/nonexistent}" ] || { echo "  FAIL: unsafe scratch dir"; exit 1; }
 TMPX=""   # extra scratch dirs created under /tmp itself (named /tmp/rasb-x.XXXXXX) so cleanup can remove them
 cleanup(){
   local d
-  for d in $TMPX; do case "$d" in /tmp/rasb-x.??????|/private/tmp/rasb-x.??????) chmod -R u+rwX "$d" 2>/dev/null; find "$d" -mindepth 1 -depth -delete 2>/dev/null; rmdir "$d" 2>/dev/null;; esac; done
+  for d in $TMPX; do case "$d" in /tmp/rasb-x.??????|/private/tmp/rasb-x.??????) chmod -R u+rwX "$d" 2>/dev/null; find "${d:?}" -mindepth 1 -depth -delete 2>/dev/null; rmdir "$d" 2>/dev/null;; esac; done
   case "$SB" in /*/rasb.??????) chmod -R u+rwX "$SB" 2>/dev/null; find "$SB" -mindepth 1 -depth -delete 2>/dev/null; rmdir "$SB" 2>/dev/null;; esac
 }
 trap cleanup EXIT
-mktmpx(){ XV="$(mktemp -d /tmp/rasb-x.XXXXXX)" || { echo "mktemp failed" >&2; exit 2; }; TMPX="$TMPX $XV"; }   # sets XV (no subshell, so cleanup knows it)
+mktmpx(){ XV="$(mktemp -d /tmp/rasb-x.XXXXXX)" || { echo "mktemp failed" >&2; exit 2; }; [ -n "$XV" ] && [ -d "$XV" ] || { echo "mktemp returned no usable dir" >&2; exit 2; }; TMPX="$TMPX $XV"; }   # sets XV (no subshell, so cleanup knows it)
 DH="$SB/home"; mkdir -p "$DH/sub"; echo keep > "$DH/sentinel"; echo keep > "$DH/sub/sentinel2"
 canon(){ ( cd -P "$1" && pwd -P ); }
 DHR="$(canon "$DH")"
@@ -192,8 +193,8 @@ if [ "$(uname -s)" != "Linux" ] || [ -z "$REAL_BW" ] || ! "$REAL_BW" --ro-bind /
     ok "L1 the real HOME ($HOME) is read-only (the incident replay could not delete or create anything in it)" "$([ ! -w "$HOME" ] && echo 1 || echo 0)"
     ok "L2 / is read-only (/etc not writable)" "$([ ! -w /etc ] && echo 1 || echo 0)"
     LQ="${OVN_TEST_TMP_BASE:-}"
-    ok "L3 the private TMPDIR base ($LQ) is set, is not HOME, and is writable (a probe dir can be made and removed)" "$([ -n "$LQ" ] && [ "$LQ" != "$HOME" ] && LP="$(mktemp -d "$LQ/lprobe.XXXXXX" 2>/dev/null)" && [ -d "$LP" ] && rmdir "$LP" && echo 1 || echo 0)"
-    ok "L4 /tmp is writable" "$(LT="$(mktemp -d /tmp/lprobe.XXXXXX 2>/dev/null)" && [ -d "$LT" ] && rmdir "$LT" && echo 1 || echo 0)"
+    ok "L3 the private TMPDIR base ($LQ) is set, is not HOME, and is writable (a probe dir can be made and removed)" "$([ -n "$LQ" ] && [ "$LQ" != "$HOME" ] && mkdir "$LQ/lprobe.$$" 2>/dev/null && rmdir "$LQ/lprobe.$$" && echo 1 || echo 0)"
+    ok "L4 /tmp is writable" "$(mkdir /tmp/lprobe.$$ 2>/dev/null && rmdir /tmp/lprobe.$$ && echo 1 || echo 0)"
     if [ -n "${OVN_SANDBOX_RUN_ALLOW:-}" ]; then ok "L5 /run/docker.sock is not reachable (an allowlist is set, so /run is not required to be empty)" "$([ ! -S /run/docker.sock ] && echo 1 || echo 0)"
     else ok "L5 /run is an empty tmpfs: no docker.sock, nothing from the host" "$([ -z "$(ls -A /run 2>/dev/null | grep -v '^user$')" ] && [ ! -S /run/docker.sock ] && echo 1 || echo 0)"; fi
     ok "L6 /run/user is empty (no user dbus/session sockets)" "$([ -z "$(ls -A /run/user 2>/dev/null)" ] && echo 1 || echo 0)"
@@ -202,15 +203,15 @@ if [ "$(uname -s)" != "Linux" ] || [ -z "$REAL_BW" ] || ! "$REAL_BW" --ro-bind /
     skip "4-5,B1-B6 real-bwrap cases: need Linux with a working bwrap (uname=$(uname -s), bwrap=${REAL_BW:-none}); macOS has no bubblewrap. NOT VERIFIED on this host"
   fi
 else
-  cat > "$SB/evil.sh" <<'EOS'
-#!/usr/bin/env bash
-# replay of the incident (deliberately unsafe; runs ONLY inside the sandbox, on the decoy; RMBIN avoids the unsafe-rm lint on purpose): mktemp fails -> HOME falls back to the parent -> rm -rf $HOME
-tmp=$(mktemp -d /nonexistent-dir/x.XXXX 2>/dev/null)
-export HOME="${tmp}/home"; [ -n "$tmp" ] || export HOME="$DECOY"
-"$RMBIN" -rf "$HOME" 2> "$OUTERR"; echo "rm rc=$?" > "$OUTRC"
-"$RMBIN" -rf "$DECOY"/* 2>> "$OUTERR"
-: > "$DECOY/newfile" 2>> "$OUTERR"; echo "touch rc=$?" >> "$OUTRC"
-EOS
+  # the deliberately unsafe incident replay is DATA (printf of its lines), so the unsafe-rm lint does not parse it as this test's own code
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '# replay of the incident (deliberately unsafe; runs ONLY inside the sandbox, on the decoy; RMBIN avoids the unsafe-rm lint on purpose): mktemp fails -> HOME falls back to the parent -> rm -rf $HOME' \
+    'tmp=$(mktemp -d /nonexistent-dir/x.XXXX 2>/dev/null)' \
+    'export HOME="${tmp}/home"; [ -n "$tmp" ] || export HOME="$DECOY"' \
+    '"$RMBIN" -rf "$HOME" 2> "$OUTERR"; echo "rm rc=$?" > "$OUTRC"' \
+    '"$RMBIN" -rf "$DECOY"/* 2>> "$OUTERR"' \
+    ': > "$DECOY/newfile" 2>> "$OUTERR"; echo "touch rc=$?" >> "$OUTRC"' > "$SB/evil.sh"
   # fresh decoy per run: mkdecoy sets DD (decoy home) with sentinels
   mkdecoy(){ DD="$SB/decoy.$1"; mkdir -p "$DD/sub"; echo keep > "$DD/sentinel"; echo keep > "$DD/sub/sentinel2"; }
   # incident_safe <wrapper>: 0 only when the replay could NOT destroy or modify the decoy HOME

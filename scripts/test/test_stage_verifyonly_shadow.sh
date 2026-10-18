@@ -4,10 +4,11 @@
 # the verdict is LOGGED (event + state/stage_verifyonly_shadow.log). Nothing else changes: the steps still run, credit and enforcement are untouched.
 #   Part U: stage_item_is_verify_only extracted from the real runner (python/bash only, runs anywhere).   Part E: the real runner in the fixture (GNU sed + bash 5: the box).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 unset OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP OVN_STAGE_VERIFYONLY_PREFLIGHT OVN_STAGE_ITEM_VERIFY OVN_STAGE_IV_SHADOW_LOG OVN_STAGE_VERIFYONLY_LOG NTFY_SERVER NTFY_TOPIC
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"; osr_cleanup' EXIT
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"; osr_cleanup' EXIT
 sed -n '/^# >>> n4-stage-waste helpers: verify-only preflight/,/^# <<< n4-stage-waste helpers: verify-only preflight/p' "$RUNNER" > "$W/h.sh"
 [ -s "$W/h.sh" ] || { echo "  FAIL: verify-only helper block not found in $RUNNER"; exit 1; }
 # shellcheck disable=SC1091

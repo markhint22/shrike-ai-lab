@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # ntfy_guard.sh: the suite must never reach the real ntfy.sh (2026-09-30 quota-exhaustion incident), yet stub curls must still work.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export OVN_NTFY_GUARD_LOG="$T/guard.log"
 . "$HERE/ntfy_guard.sh"
 curl -s -m 2 -d hi https://ntfy.sh/some_topic; rc=$?

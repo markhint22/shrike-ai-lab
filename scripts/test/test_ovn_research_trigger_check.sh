@@ -5,6 +5,7 @@
 # marker (alerting is suppressed on purpose since 2026-09-28 - we assert NO ntfy/curl path exists).
 # Hermetic: HOME is a temp dir, logs are synthesized with timestamps relative to "now".
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 PY="$HERE/../ovn_research_trigger_check.py"; [ -f "$PY" ] || PY="$REAL_HOME/overnight-queue/scripts/ovn_research_trigger_check.py"
@@ -19,7 +20,7 @@ chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
 
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 ago(){ date -d "@$(( $(date +%s) - $1 ))" '+%F %T'; }   # seconds ago -> log timestamp
 H=3600
 STARVE='no [ready] roadmap feature (needs Claude research?)'

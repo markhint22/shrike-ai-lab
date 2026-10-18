@@ -5,6 +5,7 @@
 # every hardcoded /run/media/... output path is redirected into a temp dir (os.makedirs patched) - nothing outside mktemp is touched.
 # subprocess.run is faked in art_pipeline_run, so no generator is ever launched.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"; ART="$Q/art"
 [ -f "$ART/art_qa_gate.py" ] || { echo "  SKIP: art dir not found"; exit 0; }
@@ -16,12 +17,12 @@ for c in "${OVN_ART_PY:-}" "$REAL_HOME/aider-venv/bin/python" "$REAL_HOME"/overn
   if "$c" -c 'import numpy, PIL.Image' 2>/dev/null; then PYX="$c"; break; fi
 done
 [ -n "$PYX" ] || { echo "  SKIP: no python with numpy+PIL"; exit 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 # a venv python does not see coverage.py; expose JUST the coverage package so the runner's sitecustomize can trace it
 mkdir -p "$T/covlink"; CP="$(python3 -c 'import coverage,os;print(os.path.dirname(coverage.__file__))' 2>/dev/null)"
 [ -n "$CP" ] && ln -s "$CP" "$T/covlink/coverage"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$T/covlink"
-export HOME="$T/home"; mkdir -p "$HOME"
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME"
 pass=0; fail=0
 SKIPPED=0
 # $2 (optional) = an input file under art/ that the driver's module loads at import time. When it is absent from the checkout the driver is SKIPPED with

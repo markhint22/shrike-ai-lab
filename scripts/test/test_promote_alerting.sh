@@ -14,6 +14,7 @@
 # Every new behaviour has a NEGATIVE control (the seeded bad input is caught) and a BENIGN control (the clean input passes).
 # curl is a PATH shim that only logs: nothing here can reach ntfy.sh, the relay or any network.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ="$HERE/../.."; [ -f "$OQ/promote_to_prod.sh" ] || OQ="$HERE/.."
 QA="$OQ/qa"
@@ -22,9 +23,9 @@ for f in promote_to_prod.sh daily_promote.sh staging_smoke.sh deploy_watch.sh qa
 PYB="$(command -v python3.12 || command -v python3)"; [ -n "$PYB" ] || { echo "  SKIP: no python3"; exit 0; }
 pass=0; fail=0
 ck(){ if eval "$2" >/dev/null 2>&1; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'cd /; rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'cd /; rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-export HOME="$T/home"; Q="$HOME/overnight-queue"; OUT="$T/out.log"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; OUT="$T/out.log"
 mkdir -p "$T/shim"; cd "$T"
 command -v timeout >/dev/null || { printf '#!/bin/sh\nshift\nexec "$@"\n' > "$T/shim/timeout"; chmod +x "$T/shim/timeout"; }
 printf '#!/bin/sh\necho "CURL_CALL $*" >> "$FAKE_CURL_LOG"\nexit 0\n' > "$T/shim/curl"; chmod +x "$T/shim/curl"

@@ -4,13 +4,14 @@
 #   ovn_hourly_notable.py, ovn_retire_vague.py
 # Hermetic: every fixture lives in a mktemp dir; HOME/TASK_STATS point at temp data.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 D="$HERE/.."; [ -f "$D/ovn_classify.py" ] || D="$HERE"
 export PYTHONDONTWRITEBYTECODE=1
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export HOME="$T/home"; mkdir -p "$HOME"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME"
 eq(){ [ "$2" = "$3" ] && ok "$1" 1 || { ok "$1 (got: $2 | want: $3)" 0; }; }
 
 # ---------------------------------------------------------------- park tagger

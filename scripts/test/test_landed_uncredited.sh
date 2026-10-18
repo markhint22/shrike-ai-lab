@@ -4,12 +4,13 @@
 # Covers record_outcome() (the REAL function extracted from run_overnight.sh), the lib_auto_credit.sh classifier, ovn_outcome_buckets.py, work_summary.py and
 # ovn_landed_detail.py, plus mutation controls. Log fixtures are cut from the real task_log line shapes (lib_auto_credit.sh `_ovn_ac_log`).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 R="$Q/run_overnight.sh"; LIB="$Q/scripts/lib_auto_credit.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 # shellcheck disable=SC1090
 source "$LIB" 2>/dev/null
 FN_SRC="$(sed -n '/^record_outcome(/,/^}/p' "$R")"

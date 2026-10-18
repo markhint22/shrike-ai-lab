@@ -4,14 +4,15 @@
 # killed-but-unreaped child); a lock whose holder is dead, or older than 3h, is removed and the run continues; and the releasing trap is installed right
 # after the lock is taken (the old code leaked the lock on every daily-cap exit, which matches the alternation).
 # Hermetic (lib_ar_fixture.sh): temp HOME/state, stub ssh/scp/claude. Liveness in this test is ps stat too. Mutation checks at the bottom.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../../ovn_auto_research.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/../ovn_auto_research.sh"
 . "$HERE/lib_ar_fixture.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-MT="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
+MT="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
 BG=""
-cleanup_all(){ for p in $BG; do kill "$p" 2>/dev/null; { wait "$p"; } 2>/dev/null; done; rm -rf "$MT"; [ -n "${T:-}" ] && rm -rf "$T"; }
+cleanup_all(){ for p in $BG; do kill "$p" 2>/dev/null; { wait "$p"; } 2>/dev/null; done; rm -rf "${MT:?}"; [ -n "${T:-}" ] && rm -rf "$T"; }
 trap cleanup_all EXIT
 
 mutate(){   # <src> <dest> <anchor> <replacement>
@@ -45,7 +46,7 @@ p = subprocess.Popen(["sleep", "100"]); open(sys.argv[1], "w").write(str(p.pid))
   done
   return 1
 }
-fresh(){ rm -rf "$STATE" "$CAP"; mkdir -p "$STATE" "$CAP"; : > "$BOX/ssh.log"; rm -f "$BOX/lock_peek.txt"; ar_starving; }   # no repo starving: a run that gets past the lock just says so
+fresh(){ rm -rf "${STATE:?}" "${CAP:?}"; mkdir -p "$STATE" "$CAP"; : > "$BOX/ssh.log"; rm -f "$BOX/lock_peek.txt"; ar_starving; }   # no repo starving: a run that gets past the lock just says so
 log_has(){ grep -a -c -F -- "$1" "$T/out.txt"; }
 
 # prints "1|name" / "0|name" lines; all 1 for the real script, every mutant must produce at least one 0
@@ -223,7 +224,7 @@ ok "mutant 'stale takeover is rm -rf + mkdir (not atomic)' is caught ($(nfail "$
 mv_lock "replaced-lock check disabled" 'if [ "$moved_line" != "$confirmed_line" ] || [ -z "$stale" ]; then' 'if false; then'
 # the original leak: the releasing trap installed only AFTER the daily-cap check
 mutate "$SCRIPT" "$MT/s0.sh" "trap 'rm -rf \"\${WORK:-}\"; drop_guard; release_lock' EXIT" ':'
-mutate "$MT/s0.sh" "$MT/s.sh" 'WORK="$(mktemp -d)"' "WORK=\"\$(mktemp -d)\"; trap 'rm -rf \"\$WORK\"; drop_guard; release_lock' EXIT"
+mutate "$MT/s0.sh" "$MT/s.sh" 'WORK="$(safe_mktemp_dir)" || exit 1' "WORK=\"\$(mktemp -d)\"; trap 'rm -rf \"\$WORK\"; drop_guard; release_lock' EXIT"
 r="$(lock_checks "$MT/s.sh")"; T=""
 ok "mutant 'trap installed after the cap check (the original leak)' is caught ($(nfail "$r") check(s) fail)" "[ $(nfail "$r") -ge 1 ]"
 

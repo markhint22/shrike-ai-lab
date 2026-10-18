@@ -59,7 +59,7 @@ e2e_lock_take() {   # $1 = max wait seconds. 0 = got it (or disabled), 1 = busy.
       E2E_BEAT=$!
       return 0
     fi
-    if [ "$swept" = 0 ] && [ -n "$(find "$E2E_LOCK" -maxdepth 0 -mmin +"${QA_E2E_LOCK_STALE_MIN:-30}" 2>/dev/null)" ]; then swept=1; rm -rf "$E2E_LOCK"; continue; fi
+    if [ "$swept" = 0 ] && [ -n "$(find "$E2E_LOCK" -maxdepth 0 -mmin +"${QA_E2E_LOCK_STALE_MIN:-30}" 2>/dev/null)" ]; then swept=1; rm -rf "${E2E_LOCK:?}"; continue; fi
     [ "$waited" -ge "$1" ] && return 1
     sleep 2; waited=$((waited+2))
   done
@@ -67,7 +67,7 @@ e2e_lock_take() {   # $1 = max wait seconds. 0 = got it (or disabled), 1 = busy.
 e2e_lock_release() {   # idempotent; never removes a lock somebody else took over (pid file differs)
   [ -n "$E2E_BEAT" ] && { kill_tree "$E2E_BEAT" TERM; E2E_BEAT=""; }
   if [ -n "$E2E_LOCK_HELD" ]; then
-    [ "$(cat "$E2E_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$E2E_LOCK"
+    [ "$(cat "$E2E_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "${E2E_LOCK:?}"
     E2E_LOCK_HELD=""
   fi
   return 0
@@ -83,7 +83,7 @@ else  # no flock (macOS): portable mkdir lock with stale-pid recovery
   if ! mkdir "$LOCKDIR" 2>/dev/null; then
     opid="$(cat "$LOCKDIR/pid" 2>/dev/null)"
     if [ -n "$opid" ] && kill -0 "$opid" 2>/dev/null; then report_infra "another device-lane run holds the lock (skipped)"; exit 0; fi
-    rm -rf "$LOCKDIR"; mkdir "$LOCKDIR" 2>/dev/null || { report_infra "another device-lane run holds the lock (skipped)"; exit 0; }
+    rm -rf "${LOCKDIR:?}"; mkdir "$LOCKDIR" 2>/dev/null || { report_infra "another device-lane run holds the lock (skipped)"; exit 0; }
   fi
   echo $$ >"$LOCKDIR/pid"
 fi
@@ -105,7 +105,7 @@ cleanup() {
   e2e_lock_release                                  # F8: after the post-run janitor (it rewrites the shared staging accounts too)
   # keep the last 14 runs; videos/logcats only exist for failures so this stays small
   [ -n "$LOCKDIR" ] && rm -rf "$LOCKDIR"
-  ls -1dt "$STATE"/runs/*/ 2>/dev/null | tail -n +15 | while IFS= read -r d; do rm -rf "$d"; done
+  ls -1dt "$STATE"/runs/*/ 2>/dev/null | tail -n +15 | while IFS= read -r d; do [ -n "$d" ] && rm -rf "${d:?}"; done
   find "${STATE:?}/apk" -name '*.apk' -mtime +14 -delete 2>/dev/null
   # a signal/overall-timeout abort never reached a verdict: say so (UNVERIFIED), never leave the night without a line
   if [ -n "${DL_ABORTED:-}" ] && [ -z "$REPORTED" ]; then report_infra "run aborted (overall ${DL_OVERALL_TIMEOUT}s cap hit or signal) - partial result discarded"; fi

@@ -2,11 +2,12 @@
 # lib_tree_guard.sh + its two call sites (branch_hygiene.sh, reconcile_branches.sh): a branch that tracks an ABSOLUTE symlink
 # (committed .venv/node_modules link) must be detected, and a merge that would bring it in must be refused. 2026-09-30 incident.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 L="$HERE/../lib_tree_guard.sh"; [ -f "$L" ] || L="$HERE/lib_tree_guard.sh"
 R="$HERE/../../reconcile_branches.sh"; [ -f "$R" ] || R="$HERE/../reconcile_branches.sh"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 . "$L"
 git init -q --bare "$T/origin.git"; git clone -q "$T/origin.git" "$T/seed" 2>/dev/null
 ( cd "$T/seed"; git config user.email t@t; git config user.name t
@@ -22,7 +23,7 @@ ok "no findings when head == base" "$([ -z "$(ovn_abs_symlinks "$T/c" origin/dev
 ok "a clean branch has no findings" "$([ -z "$(ovn_abs_symlinks "$T/c" origin/develop origin/main)" ] && echo 1 || echo 0)"
 # reconcile: main is ahead of develop with the bad branch merged -> back-merge main->develop must be refused
 ( cd "$T/seed"; git checkout -q main; git merge -q --no-ff -m "promote feat" feat; git push -q origin main )
-export NTFY_TOPIC="shrike_reconcile_selftest_ignore" HOME="$T/home"; mkdir -p "$HOME/overnight-queue/repos" "$HOME/overnight-queue/logs" "$HOME/overnight-queue/scripts"
+safe_set_sandbox_home "$T" || exit 1; export NTFY_TOPIC="shrike_reconcile_selftest_ignore"; mkdir -p "$HOME/overnight-queue/repos" "$HOME/overnight-queue/logs" "$HOME/overnight-queue/scripts"
 cp "$R" "$HOME/overnight-queue/reconcile_branches.sh"; cp "$L" "$HOME/overnight-queue/scripts/"
 git clone -q "$T/origin.git" "$HOME/overnight-queue/repos/testrepo" 2>/dev/null
 before="$(git -C "$HOME/overnight-queue/repos/testrepo" rev-parse origin/develop)"

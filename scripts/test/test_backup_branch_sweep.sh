@@ -5,11 +5,12 @@
 # gets one alert with a real diff summary, fresh-unresolved is left alone (grace period), a
 # repeat run doesn't re-alert (dedup), and forcing the seen-marker stale re-escalates.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SWEEP="$HERE/../ovn_backup_branch_sweep.sh"; [ -f "$SWEEP" ] || SWEEP="$HERE/ovn_backup_branch_sweep.sh"
 [ -f "$SWEEP" ] || { echo "  ❌ ovn_backup_branch_sweep.sh not found"; exit 1; }
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 git init -q --bare "$tmp/origin.git"
 git clone -q "$tmp/origin.git" "$tmp/seed" 2>/dev/null

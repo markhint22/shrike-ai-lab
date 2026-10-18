@@ -8,6 +8,7 @@ set -uo pipefail
 # real script under test inherits. An ambient GIT_* setting that breaks `git log` inside ovn_stats.runway() makes that call fail
 # silently (burn=0), so every repo reads "stalled?" and S1b reported "6 low" instead of "3 low" in the full run. Scrub them here and
 # pin git's config, so every check runs the same way whether started by hand, by cron or from run_all.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 for _v in $(env | sed -n -E 's/^((OVN|NTFY|GIT)_[A-Za-z0-9_]*)=.*/\1/p'); do unset "$_v"; done
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -19,7 +20,7 @@ BUCK="$(pick "$HERE/../ovn_outcome_buckets.py" "$HERE/../../scripts/ovn_outcome_
 P=0; F=0; KB=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   KNOWN-BUG (fixed?) $1"; else KB=$((KB+1)); echo "  WARN KNOWN-BUG: $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 BIN="$T/bin"; ALERTS="$T/alerts.txt"; mkdir -p "$BIN"; export ALERTS
 # The script resets PATH to put /usr/bin first, so a PATH stub would lose to the real curl (real network!). An exported bash
 # FUNCTION named curl is imported by the child bash and beats any PATH lookup, so the script can never reach the network.

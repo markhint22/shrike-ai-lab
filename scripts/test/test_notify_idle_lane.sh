@@ -2,11 +2,12 @@
 # wrapper: runs scripts/test/test_notify_idle_lane.py against the real scripts/ovn_notify.py IN PLACE, then proves the test has teeth:
 # each mutant below breaks ONE piece of the idle-lane logic in a temp copy of ovn_notify.py and the test must then FAIL (a mutation that
 # does not apply exactly once, or a mutant the test still passes, is a failure of this wrapper).
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; export OVN_ROOT="$(cd "$HERE/../.." && pwd)"; [ -f "$OVN_ROOT/scripts/ovn_notify.py" ] || export OVN_ROOT="$(cd "$HERE/.." && pwd)"
 SRC="$OVN_ROOT/scripts/ovn_notify.py"
 rc=0
 python3 "$HERE/test_notify_idle_lane.py" || rc=1
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mutate(){  # $1=label $2=old $3=new
   OLD="$2" NEW="$3" python3 - "$SRC" "$T/mutant.py" <<'PY'
 import os, sys

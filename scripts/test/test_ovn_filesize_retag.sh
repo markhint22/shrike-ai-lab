@@ -3,6 +3,7 @@
 # origin/overnight/feature, retag large-file T1/T2 -> T3, commit+push with one retry, release). Hermetic fake $HOME tree,
 # local bare origins, stub queue.sh.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/../../ovn_filesize_retag.py"; [ -f "$PY" ] || PY="$HERE/../ovn_filesize_retag.py"; [ -f "$PY" ] || PY="$HERE/ovn_filesize_retag.py"
 SH="$HERE/../../ovn_filesize_retag.sh"; [ -f "$SH" ] || SH="$HERE/../ovn_filesize_retag.sh"; [ -f "$SH" ] || SH="$HERE/ovn_filesize_retag.sh"
@@ -10,7 +11,7 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 both(){ [ "$1" = 1 ] && [ "$2" = 1 ] && echo 1 || echo 0; }
 has(){ printf '%s' "$1" | grep -qF -- "$2" && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 H="$T/home"; W="$H/overnight-queue"; O="$T/origins"; mkdir -p "$W/repos" "$W/logs" "$O"
 cp "$SH" "$W/ovn_filesize_retag.sh"; cp "$PY" "$W/ovn_filesize_retag.py"
 cat > "$W/queue.sh" <<Q

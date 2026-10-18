@@ -4,11 +4,12 @@
 # exec pass runs it as __main__ with os.path.abspath remapped so SCRIPT_DIR is the fake tree. git/docker are a real
 # throwaway repo + a stub docker on PATH. Nothing outside the temp dir is read or written.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FS=""
 for c in "$HERE/../../fleet_stats.py" "$HERE/../fleet_stats.py" "$HERE/fleet_stats.py"; do [ -f "$c" ] && { FS="$(cd "$(dirname "$c")" && pwd)/$(basename "$c")"; break; }; done
 [ -n "$FS" ] || { echo "  SKIP: fleet_stats.py not found"; exit 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin"
 cat > "$T/bin/docker" <<'EOF'
 #!/usr/bin/env bash

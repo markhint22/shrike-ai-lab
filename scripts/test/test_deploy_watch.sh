@@ -7,11 +7,12 @@
 #   - a DIFFERENT service DOES get its own item
 #   - a missing file is handled (created with the item)
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ENQ="$HERE/../ovn_enqueue_emergency.py"
 [ -f "$ENQ" ] || ENQ="$HERE/ovn_enqueue_emergency.py"   # fallback if colocated
 rc=0
-tmp="$(mktemp -d)" || exit 1
+tmp="$(safe_mktemp_dir)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 fail(){ echo "  ❌ $1"; rc=1; }
 ok(){ echo "  ✅ $1"; }

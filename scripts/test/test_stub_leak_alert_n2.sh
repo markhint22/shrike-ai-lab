@@ -6,6 +6,7 @@
 # The counter is keyed by repo AND feature branch (reviewer fix: hygiene runs twice per repo - overnight/feature and claude/feature - and a repo-only key let one lane's clean
 # pass reset the other lane's count); the interleaved-lane cases are at the end.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BH="${OVN_BRANCH_HYGIENE:-$HERE/../../branch_hygiene.sh}"
 [ -f "$BH" ] || { echo "  SKIP: $BH not found"; exit 0; }
@@ -14,7 +15,7 @@ P=0; F=0
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1 (got [$2] want [$3])"; fi; }
 BLOCK="$(sed -n '/# stub-leak FLAG (r11, package stub; SHADOW)/,/^  # web build+test/p' "$BH" | sed '$d')"
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the stub-leak block from $BH"; exit 1; }
-W="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "$W"' EXIT
+W="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1; trap 'rm -rf "${W:?}"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t.com GIT_CONFIG_NOSYSTEM=1
 LOGF="$W/hygiene.log"; : > "$LOGF"
 log(){ echo "[branch-hygiene] $*" >> "$LOGF"; }

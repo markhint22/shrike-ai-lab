@@ -10,6 +10,7 @@
 # Speed: scenario+mutant pairs run as parallel jobs (every fixture has its own unique repo name, so /tmp/wt-ghost-<repo>.* checks cannot see another job's worktree);
 # results are printed in declaration order. GHOST_TEST_JOBS (default 6) caps the parallelism.
 # No `x | grep -q` under pipefail (pipefail is OFF; counts use grep -c / case), no kill -0, no greps on comments, paths are `pwd -P` normalised.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd -P)"; ROOT="$(cd "$HERE/../.." && pwd -P)"
 GH="$ROOT/scripts/ovn_ghost_tests.py"; LIBWT="$ROOT/scripts/lib_worktree.sh"
 PY3="$(command -v python3.12 || command -v python3)"
@@ -27,7 +28,7 @@ if [ -z "$PYT" ]; then
   if [ -n "${OVN_REQUIRE_TOOLS:-}" ]; then echo "  FAIL pytest is required (OVN_REQUIRE_TOOLS set) but no python with pytest was found"; echo "0 passed, 1 failed"; exit 1; fi
   echo "  SKIP test_ovn_ghost_tests: pytest is genuinely absent here (set OVN_REQUIRE_TOOLS=1 to make that a failure)"; echo "0 passed, 0 failed"; exit 0
 fi
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"
+T="$(safe_mktemp_dir)" || exit 1
 # remove ONLY the temporary worktrees of the given fixture dirs' clones (never a /tmp/wt-ghost-* glob: a real ovn_ghost_tests.py run uses the same prefix at the same time)
 rm_ghost_worktrees(){
   local fx c w
@@ -35,7 +36,7 @@ rm_ghost_worktrees(){
     for c in "$fx"/ovn/repos/demo*; do
       [ -d "$c/.git" ] || continue
       git -C "$c" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r w; do
-        case "$w" in */wt-ghost-demo*) rm -rf "$w";; esac
+        case "$w" in */wt-ghost-demo*) rm -rf "${w:?}";; esac
       done
     done
   done
@@ -49,7 +50,7 @@ G(){ git -c advice.detachedHead=false "$@"; }
 
 # ---- fixture: a fresh OVN_DIR + bare origin + live clone per scenario --------------------------------------------------------------------------------
 mkfix(){ # scenarios run inside $(...) subshells, so every fixture gets its own mktemp dir (no counter that a subshell would lose)
-  F_ROOT="$(mktemp -d "$T/fx.XXXXXX")" || exit 1; F_REPO="demo${F_ROOT##*.}"; F_OVN="$F_ROOT/ovn"; F_BARE="$F_ROOT/origin.git"; F_CLONE="$F_OVN/repos/$F_REPO"; F_SEED="$F_ROOT/seed"; F_OTHER="$F_ROOT/other"
+  F_ROOT="$(safe_mktemp_dir_in "$T" fx)" || exit 1; F_REPO="demo${F_ROOT##*.}"; F_OVN="$F_ROOT/ovn"; F_BARE="$F_ROOT/origin.git"; F_CLONE="$F_OVN/repos/$F_REPO"; F_SEED="$F_ROOT/seed"; F_OTHER="$F_ROOT/other"
   mkdir -p "$F_OVN/repos" "$F_OVN/state" "$F_OVN/scripts"; cp "$LIBWT" "$F_OVN/scripts/"
   G init -q --bare "$F_BARE"; G -C "$F_BARE" symbolic-ref HEAD "refs/heads/$BR"
   G clone -q "$F_BARE" "$F_SEED" 2>/dev/null; G -C "$F_SEED" checkout -q -b "$BR"
@@ -194,7 +195,7 @@ sc_nopass(){ # no ghost passed but one would be deleted (the other two are undec
   [ "$RC" = 1 ] && [ "$(remote_sha)" = "$b" ] && case "$OUT" in *"ABORT"*) true;; *) false;; esac && [ "$(remote_has iptv-backend/app/jobs/test_fail.py)" = 1 ] && [ "$(nwt)" = 1 ] && echo 1 || { echo "$OUT" >&2; echo 0; }
 }
 sc_cleanup_scope(){ # the test's own cleanup removes the fixture's worktrees and NOTHING else under /tmp/wt-ghost-* (a concurrent real run's worktree must survive)
-  mkfix; local foreign own; foreign="$(mktemp -d /tmp/wt-ghost-realrun.XXXXXX)" || exit 1; own="/tmp/wt-ghost-$F_REPO.leftover$$"
+  mkfix; local foreign own; foreign="$(mktemp -d /tmp/wt-ghost-realrun.XXXXXX)" || exit 1; [ -n "$foreign" ] && [ -d "$foreign" ] || exit 1; own="/tmp/wt-ghost-$F_REPO.leftover$$"
   G -C "$F_CLONE" worktree add -q --detach "$own" HEAD 2>/dev/null
   local before_own=0 after_own=1 foreign_ok=0
   [ -d "$own" ] && before_own=1
@@ -238,7 +239,7 @@ sc_reloc(){
 
 # ---- mutants ----------------------------------------------------------------------------------------------------------------------------------------
 mutant(){ # old new  -> prints the path of a mutated copy (with lib_worktree.sh beside it); fails when the anchor is missing
-  local d; d="$(mktemp -d "$T/mut.XXXXXX")" || exit 1; cp "$LIBWT" "$d/"
+  local d; d="$(safe_mktemp_dir_in "$T" mut)" || exit 1; cp "$LIBWT" "$d/"
   "$PY3" - "$GH" "$d/ovn_ghost_tests.py" "$1" "$2" <<'PYEOF' || return 1
 import sys
 src, dst, old, new = sys.argv[1:5]

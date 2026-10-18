@@ -5,11 +5,12 @@
 # retention, SHADOW unless OVN_FIXUP_REVERIFY=enforce), ovn_testonly_guard (d, SHADOW unless OVN_TESTONLY_GUARD=enforce), the ovn_item_guard.sh fail-cap billing and
 # the run_overnight.sh wiring. Fix-ups are simulated by stub commits in temp repos (no model, no network). Mutation controls at the end.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."; RUN="$S/../run_overnight.sh"; GUARD="$S/ovn_item_guard.sh"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 export OVN_VERIFY_SHADOW_LOG="$tmp/shadow.log"
 ALERTS="$tmp/alerts.log"; : > "$ALERTS"
 emit_alert(){ printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$ALERTS"; }
@@ -19,7 +20,7 @@ unset OVN_FIXUP_REVERIFY OVN_FIXUP_UNDO_GUARD OVN_TESTONLY_GUARD OVN_RI_NEW
 
 BEFORE=""; MAIN=""; R=""; TL=""
 mkrepo(){  # $1=name  [$2=item line]
-  R="$tmp/$1"; rm -rf "$R"; mkdir -p "$R/app" "$R/tests"; cd "$R" || exit 1
+  R="$tmp/$1"; rm -rf "${R:?}"; mkdir -p "$R/app" "$R/tests"; cd "$R" || exit 1
   git init -q; git config user.email t@t; git config user.name t
   printf 'def old_name():\n    return 1\n' > app/foo.py
   printf 'from app.foo import old_name\n\ndef test_old():\n    assert old_name() == 1\n' > tests/test_foo.py
@@ -135,7 +136,7 @@ ok "(d) bookkeeping (OVERNIGHT_PROGRESS.md) is not a production touch" "[ $RC = 
 # ---- wrong-item guard (harness-credit-integrity review): when the scout named files that no open item mentions, ovn_resolve_top_item falls back to the TOP item,
 # which the cycle did probably NOT work - the gates (which reset in enforce mode) must then have no opinion instead of acting on it ----
 wi_repo(){ # <name> : two open items, top = app/foo.py, second = app/bar.py
-  R="$tmp/$1"; rm -rf "$R"; mkdir -p "$R/app" "$R/tests"; cd "$R" || exit 1
+  R="$tmp/$1"; rm -rf "${R:?}"; mkdir -p "$R/app" "$R/tests"; cd "$R" || exit 1
   git init -q; git config user.email t@t; git config user.name t
   printf 'def old_name():\n    return 1\n' > app/foo.py; printf 'def b():\n    return 1\n' > app/bar.py
   printf '## Next Steps\n- [ ] [T2] app/foo.py — Rename `old_name` to `new_name`. VERIFY: `grep -q new_name app/foo.py`\n- [ ] [T2] app/bar.py — Tidy b. VERIFY: `true`\n' > OVERNIGHT_PROGRESS.md

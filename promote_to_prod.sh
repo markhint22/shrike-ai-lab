@@ -181,7 +181,7 @@ for l in j.get("log_lines", []): print("LOG" + l)' 2>/dev/null)"
     continue
   fi
 
-  wt="$(mktemp -d "/tmp/promote-${name}.XXXX")"
+  wt="$(mktemp -d "/tmp/promote-${name}.XXXX" 2>/dev/null)" || wt=""   # 2026-10-16: empty on failure -> the worktree add below fails ("worktree failed") and the repo is skipped
   if ! git -C "$repo" worktree add -q "$wt" "origin/$DEF" 2>/dev/null; then echo "  worktree failed"; continue; fi
   # 2026-09-16 CRITICAL FIX: checkout -B silently fails (detached HEAD) whenever $DEF is
   # already checked out elsewhere sharing this repo's refs; the ambiguous `push origin "$DEF"`

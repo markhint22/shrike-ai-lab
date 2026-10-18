@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ovn_park_unworkable.py: hard-banned and context-overflowing targets are parked; normal/delete items untouched.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 cd "$(dirname "$0")/../.." || exit 1
-T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
+T=$(safe_mktemp_dir) || exit 1; trap 'rm -rf "$T"' EXIT
 fail=0; ok(){ echo "ok - $1"; }; bad(){ echo "FAIL - $1"; fail=1; }
 mkdir -p "$T/repo/scripts"; printf 'scripts/banned.gd\n' > "$T/repo/.queue-hard-banned-files"
 echo x > "$T/repo/scripts/banned.gd"; echo x > "$T/repo/scripts/small.gd"

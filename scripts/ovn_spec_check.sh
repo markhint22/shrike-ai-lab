@@ -34,7 +34,8 @@ if [ -n "${OVN_SPEC_WT:-}" ] && [ -d "$OVN_SPEC_WT" ]; then
   wt="$OVN_SPEC_WT"; _EXT_WT=1
 else
   git -C "$clone" fetch -q origin 2>/dev/null || true
-  wt="$(mktemp -d "${TMPDIR:-/tmp}/spec-check-XXXXXX")"
+  wt="$(mktemp -d "${TMPDIR:-/tmp}/spec-check-XXXXXX")" || { echo "ovn_spec_check: mktemp -d failed" >&2; exit 0; }
+  [ -n "$wt" ] && [ -d "$wt" ] || { echo "ovn_spec_check: mktemp -d returned no usable directory" >&2; exit 0; }   # 2026-10-16: fail-open like the worktree-add failure below, but never with an empty wt
 fi
 cleanup(){ [ "$_EXT_WT" = 1 ] || { git -C "$clone" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"; }; rm -f "${SHADOW_LOG:-/nonexistent}" "${_SC_CANON:-/nonexistent}" "${_SC_ROWS:-/nonexistent}"; }
 trap cleanup EXIT

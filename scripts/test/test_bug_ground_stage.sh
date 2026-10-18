@@ -10,6 +10,7 @@
 # O  OVN_BUG_FIRST=off restores the old behaviour for every one of the above
 # Every behavior has a NEGATIVE control (the seeded bad input is caught) and a BENIGN control (clean input passes). Run on the box / any GNU host.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 if ! sed --version >/dev/null 2>&1; then echo "  SKIP: needs GNU sed (the escalation helper uses sed -i); run on the box"; exit 0; fi
@@ -17,7 +18,7 @@ for b in jq md5sum timeout pgrep python3; do command -v "$b" >/dev/null 2>&1 || 
 unset OVN_BUG_FIRST OVN_BUG_FOCUS OVN_BUG_ATTEMPT_CAP OVN_GUARD_ATTEMPTS NTFY_SERVER NTFY_TOPIC OVN_BUG_BRIEF_DIR OVN_BUG_BRIEF OVN_BUG_LAZY_BRIEF OVN_ITEM_FAIL_CAP OVN_ITEM_NOOP_CAP OVN_ITEM_TOKEN_CAP
 # the box runs a LIVE fleet: only OUR marker process may count as 'another LLM consumer' in this test
 export OVN_BUG_LAZY_BRIEF_BUSY_RE='ovn_prework\.sh'
-tmp="$(mktemp -d)" || exit 1; BGPID=""; trap 'rm -rf "$tmp"; osr_cleanup; [ -n "$BGPID" ] && kill "$BGPID" 2>/dev/null' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; BGPID=""; trap 'rm -rf "$tmp"; osr_cleanup; [ -n "$BGPID" ] && kill "$BGPID" 2>/dev/null' EXIT
 KT=android/app/src/main/java/com/x
 FEAT=osr-20261001-manual-aaaa1111
 BUGKT="[T3] $KT/ui/StreamsViewModel.kt — Manual-test bug (reported by Mark, flow countries-filter, 2026-10-01): the countries filter only shows All and Qatar. First write a failing test that reproduces this, then fix it. VERIFY: \`cd android && ./gradlew testDebugUnitTest\` (cat:bugfix; multifile:no; src:manual) [feat:$FEAT]"

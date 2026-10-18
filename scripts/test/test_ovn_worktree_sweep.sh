@@ -4,6 +4,7 @@
 # prints a one-line summary. Hermetic: a fake queue tree in a temp dir with throwaway git repos; the only things it
 # can touch are worktrees THIS test creates under /tmp (and /var/tmp for the "not under /tmp" case).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SH="$HERE/../ovn_worktree_sweep.sh"; [ -f "$SH" ] || SH="$HOME/overnight-queue/scripts/ovn_worktree_sweep.sh"
 [ -f "$SH" ] || { echo "  SKIP: script not found"; exit 0; }
@@ -19,7 +20,7 @@ chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
 
-T="$(mktemp -d)" || exit 1
+T="$(safe_mktemp_dir)" || exit 1
 EXTRA=()     # extra dirs to always clean
 cleanup(){ for d in "${EXTRA[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done; rm -rf "$T"; }
 trap cleanup EXIT
@@ -31,7 +32,7 @@ mkrepo(){ # name
 }
 # mkwt <repo> <parent-dir> <minutes-old> -> echoes path
 mkwt(){
-  local wt; wt="$(mktemp -d "$2/ovnws.XXXXXX")" || exit 1; EXTRA+=("$wt")
+  local wt; wt="$(safe_mktemp_dir_in "$2" ovnws)" || exit 1; EXTRA+=("$wt")
   git -C "$Q/repos/$1" worktree add -q --detach "$wt" >/dev/null 2>&1
   touch -d "$3 minutes ago" "$wt"; echo "$wt"
 }
@@ -100,7 +101,7 @@ Wd="$(mkwt alpha /tmp 0)"; echo junk > "$Wd/untracked.txt"; echo changed >> "$Wd
 # mid-merge conflict
 git -C "$Q/repos/alpha" branch side >/dev/null 2>&1
 echo main-change > "$Q/repos/alpha/f.txt"; git -C "$Q/repos/alpha" commit -qam m
-Wm="$(mktemp -d /tmp/ovnws.XXXXXX)" || exit 1; EXTRA+=("$Wm")
+Wm="$(mktemp -d /tmp/ovnws.XXXXXX)" || exit 1; [ -n "$Wm" ] && [ -d "$Wm" ] || exit 1; EXTRA+=("$Wm")
 git -C "$Q/repos/alpha" worktree add -q -b conflict "$Wm" side >/dev/null 2>&1
 ( cd "$Wm" && echo side-change > f.txt && git commit -qam s && git merge main >/dev/null 2>&1 )
 chk "precondition: merge in progress with conflict" bash -c "cd '$Wm' && git status | grep -qi 'unmerged\|merging'"
@@ -113,7 +114,7 @@ eqv "only the main worktree remains registered" "1" "$(wtlist alpha | wc -l | tr
 
 # registration whose directory is already gone -> pruned silently
 mkq; mkrepo alpha
-Wg="$(mkwt alpha /tmp 500)"; rm -rf "$Wg"
+Wg="$(mkwt alpha /tmp 500)"; [ -n "$Wg" ] && rm -rf "$Wg"
 chk "precondition: stale registration present" bash -c "git -C '$Q/repos/alpha' worktree list | grep -q '$Wg'"
 out="$(sweep)"
 eqv "dir already gone -> nothing swept, no output" "" "$out"
@@ -123,7 +124,7 @@ chk "no alert for an already-gone dir" bash -c "! test -s '$ALERTS'"
 echo "== live ovn_test_watch worktrees (wt-tw-*) are protected while test_watch.lock is held =="
 if command -v flock >/dev/null 2>&1; then
   mkq; mkrepo alpha
-  mktw(){ local wt; wt="$(mktemp -d /tmp/wt-tw-alpha.XXXXXX)" || exit 1; EXTRA+=("$wt"); git -C "$Q/repos/alpha" worktree add -q --detach "$wt" >/dev/null 2>&1; touch -d "$1 minutes ago" "$wt"; echo "$wt"; }
+  mktw(){ local wt; wt="$(mktemp -d /tmp/wt-tw-alpha.XXXXXX)" || exit 1; [ -n "$wt" ] && [ -d "$wt" ] || exit 1; EXTRA+=("$wt"); git -C "$Q/repos/alpha" worktree add -q --detach "$wt" >/dev/null 2>&1; touch -d "$1 minutes ago" "$wt"; echo "$wt"; }
   Wtw="$(mktw 180)"; Wother="$(mkwt alpha /tmp 180)"
   ( flock -x 9; exec sleep 60 ) 9>"$Q/state/test_watch.lock" & HOLD=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do ( flock -n 9 ) 9>>"$Q/state/test_watch.lock" 2>/dev/null || break; sleep 0.3; done
@@ -139,7 +140,7 @@ if command -v flock >/dev/null 2>&1; then
   Wnew="$(mktw 5)"
   out="$(sweep)"
   chk "benign: a young wt-tw-* worktree (lock free) is still kept by the age rule" test -d "$Wnew"
-  rm -rf "$Wnew"   # (mktw runs in a $(...) subshell, so EXTRA+= cannot register it)
+  [ -n "$Wnew" ] && rm -rf "$Wnew"   # (mktw runs in a $(...) subshell, so EXTRA+= cannot register it)
   mkq; mkrepo alpha; Wnolock="$(mktw 180)"
   out="$(sweep)"
   chk "no test_watch.lock file at all: sweeps as before (nothing breaks)" test ! -d "$Wnolock"

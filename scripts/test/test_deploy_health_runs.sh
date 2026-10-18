@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # deploy_health.sh must actually RUN (not just pass bash -n): a quoted phrase inside a comment in the multi-line SURFACES
 # string once closed the string early -> 'SURFACES: unbound variable', the check silently did nothing for hours.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 cd "$(dirname "$0")/../.." || exit 1
-T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
+T=$(safe_mktemp_dir) || exit 1; trap 'rm -rf "$T"' EXIT
 fail=0; ok(){ echo "ok - $1"; }; bad(){ echo "FAIL - $1"; fail=1; }
 # Hermetic curl stub. deploy_health.sh PREPENDS /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin to PATH, so a stub dir on PATH is
 # shadowed by the real curl (which then hits the live URLs: 000 in a network-less sandbox -> "8 currently failing", and

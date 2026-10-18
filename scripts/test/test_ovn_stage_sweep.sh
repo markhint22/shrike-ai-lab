@@ -4,12 +4,13 @@
 # Pass 2 (MAX-bounded runner invocation per repo with a doable NON-godot T3+ item; the runner is a stub that records
 # its args) and the exit-trap unpause.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 trap osr_cleanup EXIT
 
 sw_new(){   # fresh fake tree with stub runner/pgrep/sleep ahead of PATH
-  T="$(mktemp -d)" || exit 1; H="$T/home"; Q="$H/overnight-queue"; mkdir -p "$Q/state" "$Q/logs" "$Q/repos" "$T/bin"
+  T="$(safe_mktemp_dir)" || exit 1; H="$T/home"; Q="$H/overnight-queue"; mkdir -p "$Q/state" "$Q/logs" "$Q/repos" "$T/bin"
   printf '#!/usr/bin/env bash\necho "$*" >> "$HOME/overnight-queue/state/runner.calls"\nr="$1"\nif grep -qx "$r" "$HOME/overnight-queue/state/runner.fail" 2>/dev/null; then exit 1; fi\nexit 0\n' > "$Q/ovn_stage_runner.sh"
   printf '#!/usr/bin/env bash\nn=$(( $(cat "%s/pg.n" 2>/dev/null || echo 0) + 1 )); echo $n > "%s/pg.n"\n[ "$n" -le "${OSR_PGREP_BUSY:-0}" ] && exit 0; exit 1\n' "$T" "$T" > "$T/bin/pgrep"
   printf '#!/usr/bin/env bash\necho "sleep $*" >> "%s/sleeps"\nexit 0\n' "$T" > "$T/bin/sleep"

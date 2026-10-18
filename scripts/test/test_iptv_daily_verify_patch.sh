@@ -8,6 +8,7 @@
 # dedicated sim (iOS 18.6) does not exist -> "Unable to find a device matching the provided destination specifier" (ios-20261010-061547.log). The pre-patch script
 # FAILS against that world (the mutation proof is part of this test); the patched script resolves the sim by id and passes.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OQ="$(cd "$HERE/../.." && pwd)"
 PATCH=""
@@ -20,8 +21,8 @@ P=0; F=0
 # assertions run with pipefail OFF (x | grep -q is flaky under pipefail: SIGPIPE rc 141)
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-T="$(__d="$(mktemp -d)" && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
-trap 'rm -rf "$T"' EXIT
+T="$(__d="$(safe_mktemp_dir)" || exit 1 && [ -n "$__d" ] && cd "$__d" && pwd -P)" || exit 1
+trap 'rm -rf "${T:?}"' EXIT
 W="$T/world"; mkdir -p "$W"
 
 # ---- apply the patch to a fixture repo
@@ -150,7 +151,7 @@ export -f xcrun xcodebuild npm curl ssh
 # build one scenario tree. $1 = dir, $2 = script to run (patched | base)
 mk_root(){
   local r="$1" which="$2"
-  rm -rf "$r"; mkdir -p "$r/scripts" "$r/iptv-web" "$r/iptv-backend/.venv/bin" "$r/iptv-android" "$r/iptv-ios" "$r/home/Library/Caches/org.swift.swiftpm/repositories/purchases-ios-x" "$r/android/emulator"
+  rm -rf "${r:?}"; mkdir -p "$r/scripts" "$r/iptv-web" "$r/iptv-backend/.venv/bin" "$r/iptv-android" "$r/iptv-ios" "$r/home/Library/Caches/org.swift.swiftpm/repositories/purchases-ios-x" "$r/android/emulator"
   if [ "$which" = patched ]; then cp "$PR/scripts/daily-verify.sh" "$PR/scripts/daily-verify-lib.sh" "$r/scripts/"; else cp "$BASE" "$r/scripts/daily-verify.sh"; fi
   # SAFETY: the pre-patch script hard-codes ROOT=/Users/.../iptv_apps (the REAL repo: real janitor, real pytest, real gradle). Rewrite that ONE line to require DV_ROOT
   # (unset => the script aborts) so a scenario can never touch the real checkout; the patched script already has the DV_ROOT hook. Refuse to run if no hook is present.

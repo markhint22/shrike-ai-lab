@@ -5,12 +5,13 @@
 # set), JSON payload shape (tags split/trim/drop-empties, special chars, unicode, newlines), curl flags, curl failure
 # never failing the caller, python3 failure -> silent no-op, re-sourcing, unset-var safety.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/../../shrike_notify_lib.sh"; [ -f "$LIB" ] || LIB="$HERE/../shrike_notify_lib.sh"; [ -f "$LIB" ] || LIB="$HERE/shrike_notify_lib.sh"
 [ -f "$LIB" ] || { echo "shrike_notify_lib.sh not found"; exit 1; }
 pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 BIN="$T/bin"; mkdir -p "$BIN"
 export CURL_LOG="$T/curl.log"; export CURL_PAYLOAD="$T/curl.payload"
 cat > "$BIN/curl" <<'STUB'

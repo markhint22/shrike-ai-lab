@@ -3,6 +3,7 @@
 # (a commit adds "# --- decomposed ... ---" header(s) to backlog/<repo>.md but zero "- [ ] [T1..5]" payload lines).
 # Hermetic: fake $HOME/overnight-queue git repo, curl stubbed, script PATH line patched so the stub wins.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 SH="$HERE/../ovn_backlog_format_check.sh"; [ -f "$SH" ] || SH="$REAL_HOME/overnight-queue/scripts/ovn_backlog_format_check.sh"
@@ -17,7 +18,7 @@ bad(){ fail=$((fail+1)); echo "  FAIL $1"; }
 chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"; fi; }
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 STUB="$T/stub"; mkdir -p "$STUB"; CURLLOG="$T/curl.log"
 cat > "$STUB/curl" <<EOF
 #!/bin/bash

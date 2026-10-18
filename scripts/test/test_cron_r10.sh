@@ -9,6 +9,7 @@ set -uo pipefail
 # The whole body is ONE function, called on the last line: bash reads a script incrementally, so a file that is replaced in place while it runs (a deploy rsync over the live
 # dir, an editor save during a 20 s run) used to make the RUNNING copy die with a syntax error at a stale byte offset (seen in the 10-10/10-11 review: "line 55: syntax error near
 # unexpected token" in 2 of 48 looped runs that overlapped an edit). Bash parses a function definition completely before executing anything, so the run is immune.
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 main() {
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"                       # scripts/
@@ -19,7 +20,7 @@ DOC="$HERE/../../../../docs/patches/cron-r10.txt"; [ -f "$DOC" ] || DOC="$HERE/.
 for t in flock timeout git python3 nice; do command -v $t >/dev/null 2>&1 || { echo "  SKIP: no $t"; exit 0; }; done
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 GITQ=(git -c user.name=t -c user.email=t@t)
 cron_line(){ grep -v '^#' "$1" | grep -F -e "$2" | head -1; }    # active line of doc $1 containing $2
 L_SPEC="$(cron_line "$DOC" 'scripts/ovn_spec_gate.py scan')"; L_MUT="$(cron_line "$DOC" 'scripts/ovn_mutation_supply.py scan')"; L_CAP="$(cron_line "$DOC" 'scripts/ovn_log_cap.sh')"
@@ -52,7 +53,7 @@ mkq(){  # <name> -> $T/<name>/home/overnight-queue (HOME=$T/<name>/home)
 }
 runline(){ # <name> <cron line>: run the line's command part (after the 5 schedule fields) under sh with HOME redirected, as cron would
   local cmd; cmd="$(printf '%s' "$2" | cut -d' ' -f6-)"
-  ( HOME="$T/$1/home"; export HOME; unset OVN_DIR OVN_Q OVN_SPEC_GATE OVN_SPEC_BASE OVN_MUT_REF OVN_GODOT_BIN OVN_MUT_SEED OVN_LOG_CAP OVN_LOG_CAP_MB OVN_MUTATION_SCAN OVN_MUT_MAX; cd / && sh -c "$cmd" ); echo $? > "$T/$1/rc"
+  ( safe_set_sandbox_home "$T/$1" || exit 1; unset OVN_DIR OVN_Q OVN_SPEC_GATE OVN_SPEC_BASE OVN_MUT_REF OVN_GODOT_BIN OVN_MUT_SEED OVN_LOG_CAP OVN_LOG_CAP_MB OVN_MUTATION_SCAN OVN_MUT_MAX; cd / && sh -c "$cmd" ); echo $? > "$T/$1/rc"
 }
 rows(){ [ -f "$1/state/spec_gate.jsonl" ] && wc -l < "$1/state/spec_gate.jsonl" | tr -d ' ' || echo 0; }
 
@@ -81,7 +82,7 @@ ok "MUTANT (wrong repo name in the line): no rows - proves the rows assertions b
 
 echo "== mutation scan line"
 M="$(mkq mut)"; ( cd "$M/repos/xlite" && git status --porcelain > "$T/live.before"; git rev-parse HEAD > "$T/live.head" )
-mkdir -p "$T/tmpdir"; export TMPDIR="$T/tmpdir"
+mkdir -p "$T/tmpdir"; export TMPDIR="$T/tmpdir"; export OVN_SAFE_RM_ROOTS="$T"   # TMPDIR is narrowed below T: keep T itself an allowed sandbox root for safe_set_sandbox_home
 runline mut "$L_MUT"
 ok "the cron line exits 0, appends the scan summary to logs/mutation_scan.log" "[ \"\$(cat '$T/mut/rc')\" = 0 ] && grep -q 'mutation scan xlite: ran' '$M/logs/mutation_scan.log'"
 ok "state/mutation_survivors_xlite.json exists and lists the weakly-tested site (shim godot never fails => every mutant survives)" "python3 -c \"import json,sys; d=json.load(open('$M/state/mutation_survivors_xlite.json')); sys.exit(0 if d['survivors'] and d['survivors'][0]['file']=='scripts/units/a.gd' else 1)\""
@@ -89,7 +90,7 @@ ok "the live clone is untouched (same porcelain, same HEAD) and no scratch archi
 ok "OVN_SUPPLY_MUTATION stays off: collect() yields nothing from the survivors file" "( cd '$M/scripts' && OVN_DIR='$M' python3 -c \"import ovn_mutation_supply as m; print(len(list(m.collect('$M/repos/xlite'))))\" | grep -qx 0 )"
 M2="$(mkq mutp)"; : > "$M2/state/PAUSED"; runline mutp "$L_MUT"
 ok "state/PAUSED: the mutation scan does not run (no survivors file, rc != 0 from the guard)" "[ ! -e '$M2/state/mutation_survivors_xlite.json' ] && [ \"\$(cat '$T/mutp/rc')\" != 0 ]"
-M3="$(mkq muto)"; ( HOME="$T/muto/home"; export HOME OVN_MUTATION_SCAN=off; cd / && sh -c "$(printf '%s' "$L_MUT" | cut -d' ' -f6-)" ) > "$T/muto/out" 2>&1
+M3="$(mkq muto)"; ( safe_set_sandbox_home "$T/muto" || exit 1; export OVN_MUTATION_SCAN=off; cd / && sh -c "$(printf '%s' "$L_MUT" | cut -d' ' -f6-)" ) > "$T/muto/out" 2>&1
 ok "kill switch OVN_MUTATION_SCAN=off: no survivors file" "[ ! -e '$M3/state/mutation_survivors_xlite.json' ] && grep -q 'OVN_MUTATION_SCAN=off' '$M3/logs/mutation_scan.log'"
 sed 's/scan repos\/xlite/scan scratch-archive repos\/xlite/' <<< "$L_MUT" > "$T/line_mut2"; M4="$(mkq mut2)"; runline mut2 "$(cat "$T/line_mut2")"
 ok "MUTANT (the analysis' draft: an extra scratch-archive argument before repos/xlite): no survivors file for xlite - proves the contract assertion bites" "[ ! -e '$M4/state/mutation_survivors_xlite.json' ]"

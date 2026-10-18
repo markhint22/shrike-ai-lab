@@ -4,6 +4,7 @@
 # real overnight-queue and the real remote are never touched) twice - once with the live dir's current one-line .gitignore, once with the proposal - and compares what each
 # commit contains. A too-broad .gitignore (MUTANT) must change that set. SKIPs when the proposal file or git is missing. bash 3.2 ok.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SYNC="$HERE/../../ovn_git_sync.sh"; [ -f "$SYNC" ] || SYNC="$HERE/../ovn_git_sync.sh"
 PROP="$HERE/../../../../docs/patches/overnight-live.gitignore"; [ -f "$PROP" ] || PROP="$HERE/../../docs/patches/overnight-live.gitignore"
@@ -14,7 +15,7 @@ PROP="$HERE/../../../../docs/patches/overnight-live.gitignore"; [ -f "$PROP" ] |
 command -v git >/dev/null || { echo "  SKIP: no git"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
 OLD_GI='!qa/device_lane/known_issues.json'
 grep -v '^#' "$PROP" | grep -v '^$' > "$T/proposal.gitignore"
@@ -40,7 +41,7 @@ mkfix(){
   ( cd "$q/repos/r" && git init -q && echo e > e.txt && git add -A && git commit -q -m e ) >/dev/null 2>&1
   printf '%s' "$q"
 }
-sync(){ ( HOME="$T/$1/home"; export HOME; bash "$SYNC" ) > "$T/$1/sync.out" 2>&1; echo $? > "$T/$1/rc"; }
+sync(){ ( safe_set_sandbox_home "$T/$1" || exit 1; bash "$SYNC" ) > "$T/$1/sync.out" 2>&1; echo $? > "$T/$1/rc"; }
 committed(){ git -C "$T/$1/home/overnight-queue" show --name-status --format= HEAD | LC_ALL=C sort; }
 
 QA="$(mkfix old <(printf '%s\n' "$OLD_GI"))"; QB="$(mkfix new "$T/proposal.gitignore")"

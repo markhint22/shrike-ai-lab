@@ -2,14 +2,15 @@
 # Extra branch coverage for work_summary.py (real file executed in place, fixture cwd/HOME): malformed/old outcome rows, reverts,
 # the staged-higher-tier summary block (verified / false-pass / legacy / dedupe / bad json), and detail-script failure modes.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WS="$HERE/../../work_summary.py"; [ -f "$WS" ] || WS="$HERE/../work_summary.py"
 [ -f "$WS" ] || { echo "work_summary.py not found"; exit 2; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ printf '%s' "$1" | grep -qE -- "$2" && echo 1 || echo 0; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
-export HOME="$tmp/home" PYTHONDONTWRITEBYTECODE=1; mkdir -p "$HOME"
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+safe_set_sandbox_home "$tmp" || exit 1 PYTHONDONTWRITEBYTECODE=1; mkdir -p "$HOME"
 cd "$tmp"; mkdir -p state/stage_runs
 now="$(python3 -c 'import datetime;print(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
 old="2001-01-01T00:00:00Z"

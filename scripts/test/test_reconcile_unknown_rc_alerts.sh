@@ -5,6 +5,7 @@
 # The dying subshell is simulated with an exported git FUNCTION (it runs inside merge_into's own subshell; `exit 99` kills that subshell exactly like set -u did).
 # bash 5 suite (run on the box / Homebrew bash); fixtures only, curl is a stub function.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OQ_SRC="$HERE/../.."; [ -f "$OQ_SRC/reconcile_branches.sh" ] || OQ_SRC="$HERE/.."
 [ -f "$OQ_SRC/reconcile_branches.sh" ] || { echo "  SKIP: reconcile_branches.sh not found"; exit 0; }
@@ -15,13 +16,13 @@ for t in timeout git; do type -P $t >/dev/null || { echo "  SKIP: no $t"; exit 0
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; export T
+T="$(safe_mktemp_dir)" || exit 1; export T
 cleanup(){ rm -rf "$T" /tmp/reconcile-*urc* 2>/dev/null; }
 trap cleanup EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export NTFY_TOPIC="reconcile_urc_selftest_ignore"
 unset OVN_PROGRESS_MERGE OVN_PM_DEFER OVN_MERGE_SANITY DRY_RUN
-export HOME="$T/home"; Q="$HOME/overnight-queue"
+safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"
 mkdir -p "$Q/scripts" "$Q/repos" "$Q/state" "$Q/logs"
 cp "$OQ_SRC/reconcile_branches.sh" "$Q/"; [ -f "$OQ_SRC/scripts/lib_tree_guard.sh" ] && cp "$OQ_SRC/scripts/lib_tree_guard.sh" "$Q/scripts/"
 touch "$Q/state/PAUSED"   # the GPU-using LLM path stays out of this test; the die is injected at the plain merge

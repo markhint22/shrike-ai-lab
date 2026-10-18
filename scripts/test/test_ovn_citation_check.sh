@@ -4,6 +4,7 @@
 # three false-positive filters: VERIFY: clauses dropped, delete/removal items skipped, sibling-line targets.
 # Hermetic: fake $HOME/overnight-queue git repo, curl stubbed, script PATH line patched so the stub wins.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 PY="$HERE/../ovn_citation_check.py"; [ -f "$PY" ] || PY="$REAL_HOME/overnight-queue/scripts/ovn_citation_check.py"
@@ -21,7 +22,7 @@ chk(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else bad "$l"
 eqv(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2] got [$3])"; fi; }
 known(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l"; else warnc=$((warnc+1)); echo "  WARN KNOWN-BUG: $l"; fi; }
 
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 echo "== python helper =="
 R="$T/repo"; mkdir -p "$R/src" "$R/node_modules/pkg" "$R/.venv/lib" "$R/.git/x"

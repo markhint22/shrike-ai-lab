@@ -3,13 +3,14 @@
 # (review-flag gating, ahead>=25 threshold, non-git repo skip), default CHECKS, expected-substring mismatch, comment/blank
 # filtering, recovery, missing ntfy topic (alerts become no-ops).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 QH=""
 for c in "$HERE/../../queue_health.sh" "$HERE/../queue_health.sh" "$HERE/queue_health.sh"; do [ -f "$c" ] && { QH="$c"; break; }; done
 [ -n "$QH" ] || { echo "  SKIP: queue_health.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 Q="$T/q"; BIN="$T/bin"; ALERTS="$T/alerts.txt"; CURLLOG="$T/curl.log"
 mkdir -p "$Q/state" "$Q/repos" "$BIN"
 cp "$QH" "$Q/queue_health.sh"

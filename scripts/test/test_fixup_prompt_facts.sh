@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # ---------------- part 1: lib functions ----------------
 if ! declare -F ovn_fixup_prompt >/dev/null; then F=$((F+1)); echo "  FAIL: ovn_fixup_prompt() does not exist (old code): part 1 cannot run"; else
-R="$W/fp"; rm -rf "$R"; mkdir -p "$R/src" "$R/tests"; cd "$R" || exit 1
+R="$W/fp"; rm -rf "${R:?}"; mkdir -p "$R/src" "$R/tests"; cd "$R" || exit 1
 git init -q -b main . && git config user.email t@t && git config user.name t
 printf 'def total(xs):\n    return sum(xs)\n' > src/calc.py
 printf 'from src.calc import total\n\ndef test_total():\n    assert total([1, 2]) == 3\n' > tests/test_calc.py

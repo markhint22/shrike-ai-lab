@@ -7,11 +7,12 @@
 #   Y3  ovn_log_has_api_error on the real iptv lint-traceback shape, and the real main loop's status
 # (Y4, the unverified staged-run outcome row, is in test_harness_y_stage.sh.)
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 . "$HERE/lib_ro_core.sh"
 . "$Q/scripts/lib_item_select.sh"
-TMP="$(mktemp -d)" || exit 1; trap 'rm -rf "$TMP"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
+TMP="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$TMP"; [ -n "${T:-}" ] && rm -rf "$T"' EXIT
 gitq(){ git -c user.email=t@t -c user.name=t "$@"; }
 # the lib_ro_core ok() takes 1/0; wrap a command
 t(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l" 1; else ok "$l" 0; fi; }
@@ -249,7 +250,7 @@ ok "Y-e: no-baseline park note says the ids are not a repeat of the previous ite
 
 echo "== Y1 best-of-N through the real main loop (stub aider) =="
 ro_init
-trap 'rm -rf "$TMP" "$T"' EXIT
+trap 'rm -rf "$TMP" "${T:?}"' EXIT
 ro_hook_stubs
 ro_link scripts/ovn_fold_migration_items.py scripts/ovn_repeat_ids.py
 ST="$T/tree/state"; R="$T/repos"; mkdir -p "$ST"

@@ -16,17 +16,18 @@
 #      unrelated orphan -> the orphan must be killed (this is the bug fix).
 #   B) the actual lock holder genuinely IS run_overnight.sh -> it must NOT be killed (no regression).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 LG="${OVN_LOCK_GUARD:-$HOME/overnight-queue/lock_guard.sh}"
 [ -f "$LG" ] || { echo "  SKIP: $LG not found on this host"; exit 0; }
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)" || exit 1
+tmp="$(safe_mktemp_dir)" || exit 1
 # lock_guard.sh hardcodes `cd "$HOME/overnight-queue"; LOCK="state/run.lock"` (not overridable via
 # env/args) - sandbox via $HOME (same technique as test_reconcile_branches.sh) so this test can
 # NEVER touch the real production lock file, since the script would otherwise `kill -9` real PIDs.
-export HOME="$tmp/home"
+safe_set_sandbox_home "$tmp" || exit 1
 mkdir -p "$HOME/overnight-queue/state"
 cp "$LG" "$HOME/overnight-queue/lock_guard.sh"
 LOCKFILE="$HOME/overnight-queue/state/run.lock"

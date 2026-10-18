@@ -12,6 +12,7 @@
 # Extracts the real _BUILD_BREAK_POS_RE/_BUILD_BREAK_NEG_RE pair out of run_overnight.sh (not
 # a reimplementation) so this can't silently drift from what's deployed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
@@ -33,7 +34,7 @@ ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/n
 # mirrors run_overnight.sh's own condition exactly: POS matches AND NOT NEG.
 is_build_break(){ printf '%s' "$1" | grep -E "$POS" | grep -vE "$NEG" | grep -q .; }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 # --- A: the exact live false-positive this fix closes — Dictionary base-object type ---
 log_dict="SCRIPT ERROR: Invalid access to property or key of type 'StringName' on a base object of type 'Dictionary'."

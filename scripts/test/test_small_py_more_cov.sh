@@ -2,13 +2,14 @@
 # Branch coverage for three small one-shot python scripts run IN PLACE against fixtures: ovn_park_sweep.py (usage / missing file /
 # header present), archive_done.py, passrate_check.py (cwd-relative state/outcomes.jsonl, scripts/ via PYTHONPATH).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 b(){ [ "$1" = "$2" ] && echo 1 || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export HOME="$T/home"; mkdir -p "$HOME"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+safe_set_sandbox_home "$T" || exit 1; mkdir -p "$HOME"
 
 # ---------- ovn_park_sweep.py ----------
 PS="$ROOT/ovn_park_sweep.py"

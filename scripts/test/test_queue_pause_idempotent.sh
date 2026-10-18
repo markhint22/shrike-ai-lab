@@ -5,12 +5,13 @@
 # record of who paused/resumed when, which made the 2026-10-14 pause timeline unrecoverable.
 # Runs the REAL queue.sh against a throwaway HOME (never touches the live ~/overnight-queue).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 QSRC="$HERE/../../queue.sh"
 [ -f "$QSRC" ] || { echo "  FAIL: $QSRC missing"; exit 1; }
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/home/overnight-queue/state"
 cp "$QSRC" "$T/home/overnight-queue/queue.sh"
 Q="$T/home/overnight-queue"

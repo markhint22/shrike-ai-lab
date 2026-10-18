@@ -11,6 +11,7 @@
 # Needs a python with alembic+sqlalchemy: $OVN_TEST_PY, else a repo venv under ~/overnight-queue/repos (read-only use, nothing is
 # ever installed); SKIPs (exit 0) if none can import both. Lines tagged KNOWN-BUG are non-fatal warnings.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PYS="$HERE/../ovn_alembic_autogen.py"; [ -f "$PYS" ] || PYS="$HERE/ovn_alembic_autogen.py"
 [ -f "$PYS" ] || { echo "ovn_alembic_autogen.py not found"; exit 1; }
@@ -23,8 +24,8 @@ done
 pass=0; fail=0; warn=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 kb(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   KNOWN-BUG (now fixed): $1"; else warn=$((warn+1)); echo "  WARN KNOWN-BUG: $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"; export OVN_SAFE_RM_ROOTS="$T"
 export OVN_REC="$T/rec.txt"; unset DATABASE_URL ANTHROPIC_API_KEY
 
 # mkproj <envmode> <tmplmode> <basemode> [head-id]  -> echoes project dir
@@ -32,7 +33,7 @@ export OVN_REC="$T/rec.txt"; unset DATABASE_URL ANTHROPIC_API_KEY
 #   tmplmode: normal | emptyup (upgrade body always `pass`) | nohead (down_revision always None)
 #   basemode: good | bad (baseline upgrade raises)
 mkproj() {
-  local envm="$1" tm="$2" bm="$3" hid="${4:-0001_baseline}" P; P="$(mktemp -d "$T/p.XXXXXX")" || exit 1; mkdir -p "$P/app" "$P/alembic/versions"
+  local envm="$1" tm="$2" bm="$3" hid="${4:-0001_baseline}" P; P="$(safe_mktemp_dir_in "$T" p)" || exit 1; mkdir -p "$P/app" "$P/alembic/versions"
   printf '[alembic]\nscript_location = alembic\nprepend_sys_path = .\n' > "$P/alembic.ini"
   : > "$P/app/__init__.py"
   cat > "$P/app/models.py" <<'PY'
@@ -114,7 +115,7 @@ md5f() { md5sum < "$1" 2>/dev/null || md5 -q "$1"; }
 P="$(mkproj sync normal good)"
 out="$(cd "$P" && "$PYX" "$PYS" 2>&1)"; rc=$?
 ok "missing --message -> argparse error, exit 2" "$([ $rc = 2 ] && printf '%s' "$out" | grep -q 'required: --message' && echo 1 || echo 0)"
-E="$(mktemp -d "$T/empty.XXXX")" || exit 1; out="$(runpy "$E" --message x)"; rc=$?
+E="$(safe_mktemp_dir_in "$T" empty)" || exit 1; out="$(runpy "$E" --message x)"; rc=$?
 ok "no alembic.ini in cwd -> 'REFUSE no alembic.ini', exit 11" "$([ $rc = 11 ] && printf '%s' "$out" | grep -q '^REFUSE no alembic.ini in cwd' && echo 1 || echo 0)"
 
 # ---- NODRIFT ----

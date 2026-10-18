@@ -15,7 +15,11 @@ if missing:
     idx = max(i for i, l in enumerate(lines) if l.strip() == "exit $rc")
     tail = lines[idx + 1:]
     lines = lines[:idx + 1]
-    summary = next(i for i, l in enumerate(lines) if "ALL QUEUE TESTS PASS" in l)
+    # 2026-10-17: run_all.sh now ends with `echo; finish || rc=1` (the green banner lives INSIDE finish(), so anchoring on it inserted the new test
+    # into the function body, after its `return`, where it never ran). Anchor on the `finish ||` call; fall back to the legacy banner line.
+    summary = next((i for i, l in enumerate(lines) if "finish ||" in l), None)
+    if summary is None:
+        summary = next(i for i, l in enumerate(lines) if "ALL QUEUE TESTS PASS" in l)
     add = ['echo; echo "===== %s ====="; bash %s || rc=1' % (f[5:-3].replace("_", " "), f) for f in missing]
     lines[summary:summary] = add + [l for l in tail if "bash test_" in l]
     open(p, "w").write("\n".join(lines) + "\n")

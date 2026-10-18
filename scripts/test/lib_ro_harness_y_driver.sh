@@ -5,11 +5,12 @@
 #                                                      Y_LINK_GROUND=0 (do not link ovn_scout_ground.py = the pre-change tree)
 # outputs: <workdir>/result (the status string), <workdir>/task.log, <workdir>/scn/calls/N.(scout|impl) (aider argv per call)
 set -u
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 D="${1:?workdir}"
 HERE="$(cd "$(dirname "$0")" && pwd)"; Q="$(cd "$HERE/../.." && pwd)"
 RO="${OVN_RUN_OVERNIGHT:-$Q/run_overnight.sh}"
 rm -rf "$D"; mkdir -p "$D"
-export HOME="$D/home"; mkdir -p "$HOME/aider-venv/bin"
+safe_set_sandbox_home "$D" || exit 1; mkdir -p "$HOME/aider-venv/bin"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_TERMINAL_PROMPT=0
 SD="$D/sd"; R="$D/repos/yrepo"; O="$D/origin.git"; TL="$D/task.log"; SC="$D/scn"
 mkdir -p "$SD/scripts" "$SD/state" "$SD/logs" "$SD/reports" "$SC" "$D/repos"

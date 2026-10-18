@@ -81,8 +81,9 @@ command -v java >/dev/null 2>&1 || missing+=("java (17+)")
 # 5. optional boot measurement
 BOOT_S=null; IDLE_CPU=null; IDLE_RSS_MB=null
 if [ "$MEASURE" = 1 ] && [ ${#missing[@]} -eq 0 ]; then
-  TMPD="$(mktemp -d /tmp/qa-dl-measure.XXXXXX)"
-  trap 'stop_emulator "$TMPD/emu.pid"; stop_adb_if_idle; rm -rf "$TMPD"' EXIT
+  TMPD="$(mktemp -d /tmp/qa-dl-measure.XXXXXX)" || { echo "setup_emulator: mktemp -d failed - abort" >&2; exit 1; }
+  [ -n "$TMPD" ] && [ -d "$TMPD" ] || { echo "setup_emulator: mktemp -d returned no usable directory - abort" >&2; exit 1; }   # 2026-10-16
+  trap 'stop_emulator "$TMPD/emu.pid"; stop_adb_if_idle; rm -rf "${TMPD:?}"' EXIT
   if start_emulator "$TMPD/emu.pid" "$TMPD/emu.log"; then
     BOOT_S="$DL_BOOT_SECONDS"
     sleep 45   # let boot-time churn settle; this is the "idle" window

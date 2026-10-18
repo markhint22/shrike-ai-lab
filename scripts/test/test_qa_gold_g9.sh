@@ -4,11 +4,12 @@
 # touching no dependency file (must be CLEAN). Also checks the shipped gold_set.json / QA_GOLD_SET.md G9 wiring.
 # Hermetic: env -i, temp repos via OVN_REPOS_DIR, no network. Runs both as an absolute and a relative path.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 Q="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 P=0; F=0
 ok(){  if eval "$2" >/dev/null 2>&1; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 nok(){ if eval "$2" >/dev/null 2>&1; then F=$((F+1)); echo "  FAIL(expected-false): $1"; else P=$((P+1)); fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 G(){ git -c user.name=t -c user.email=t@t "$@"; }
 mkdir -p "$T/repos/fixrepo/app" "$T/home"
 R="$T/repos/fixrepo"

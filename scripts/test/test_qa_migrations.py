@@ -20,6 +20,9 @@ import sys
 import tempfile
 import time
 
+import tmp_track
+tmp_track.install()   # 2026-10-17: the bare mkdtemp() calls below left dirs in the private TMPDIR; removed at exit
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OVN = os.path.abspath(os.path.join(HERE, "..", ".."))              # scripts/overnight-queue
 QA = os.path.join(OVN, "qa")

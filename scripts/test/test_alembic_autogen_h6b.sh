@@ -13,6 +13,7 @@
 # Needs a python with alembic+sqlalchemy: $OVN_TEST_PY, else a repo venv under ~/overnight-queue/repos (read-only use).
 # SKIPs (exit 0) if none.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; SCRIPTS="$(cd "$HERE/.." && pwd)"
 PYS="$SCRIPTS/ovn_alembic_autogen.py"; HOOK="$SCRIPTS/ovn_alembic_autogen.sh"; CRED="$SCRIPTS/ovn_alembic_credit.py"
 PYX=""
@@ -21,8 +22,8 @@ for c in "${OVN_TEST_PY:-}" "$HOME"/overnight-queue/repos/*/.venv/bin/python "$H
   if "$c" -c 'import alembic, sqlalchemy; from alembic import command; command.check' 2>/dev/null; then PYX="$c"; break; fi
 done
 fail=0; ok(){ echo "  ok   - $1"; }; bad(){ echo "  FAIL - $1"; fail=1; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
-export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"; unset DATABASE_URL ANTHROPIC_API_KEY
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+export TMPDIR="$T/tmpd"; mkdir -p "$TMPDIR"; export OVN_SAFE_RM_ROOTS="$T"; unset DATABASE_URL ANTHROPIC_API_KEY
 
 echo "C  credit helper (stdlib only - runs without alembic)"
 mkdir -p "$T/c/proj/alembic/versions"; cd "$T/c" || exit 1
@@ -149,7 +150,7 @@ PY
 }
 runpy() { local d="$1"; shift; ( cd "$d" && "$PYX" "$PYS" "$@" 2>&1 ); }
 nver() { ls "$1"/alembic/versions/*.py 2>/dev/null | wc -l | tr -d ' '; }
-newp() { P="$(mktemp -d "$T/p.XXXXXX")" || exit 1; mkproj "$P"; write_model "$P" "$1"; }
+newp() { P="$(safe_mktemp_dir_in "$T" p)" || exit 1; mkproj "$P"; write_model "$P" "$1"; }
 
 echo "M1 driver: NEGATIVE - each removal/alteration is refused ('needs a human'), no file left behind, rc 11"
 for v in idx_removed uq_removed fk_removed notnull typechg; do
@@ -173,7 +174,7 @@ newp add_notnull_nodefault; out="$(runpy "$P" --message x)"; [ $? = 11 ] && echo
 
 # ---- hook level ------------------------------------------------------------------------------------------
 mkrepo() {  # echoes repo root; project in proj/, committed as 'base'; .venv symlinked to the test python's venv
-  local R; R="$(mktemp -d "$T/r.XXXXXX")/iptv_apps"; mkdir -p "$R"; cd "$R" || exit 1
+  local R; R="$(safe_mktemp_dir_in "$T" r)" || exit 1; R="$R/iptv_apps"; mkdir -p "$R"; cd "$R" || exit 1
   git init -q . && git config user.email t@t && git config user.name t
   mkproj "$R/proj"; ln -s "$(dirname "$(dirname "$PYX")")" proj/.venv; printf '.venv\n__pycache__/\n' > .gitignore
   cat > OVERNIGHT_PROGRESS.md <<'MD'

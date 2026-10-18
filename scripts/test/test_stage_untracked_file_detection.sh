@@ -10,6 +10,7 @@
 # (which DOES see untracked files). Extracts the real condition out of ovn_stage_runner.sh so this
 # can't drift from what's deployed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 SR="${OVN_STAGE_RUNNER:-$HOME/overnight-queue/ovn_stage_runner.sh}"
 [ -f "$SR" ] || { echo "  SKIP: $SR not found on this host"; exit 0; }
 
@@ -29,7 +30,7 @@ is_no_edit(){ # $1 = worktree dir; mirrors the real (fixed) detector exactly
   [ -z "$(git -C "$wt" status --porcelain 2>/dev/null)" ]
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 git init -q "$tmp/wt"; ( cd "$tmp/wt"; git config user.email t@t; git config user.name t
   echo base > existing.py; git add -A; git commit -q -m base )
 

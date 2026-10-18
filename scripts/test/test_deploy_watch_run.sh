@@ -4,6 +4,7 @@
 # per-deploy-id dedupe, attempt escalation, recovery (+/health good/bad), vercel + non-fleet paths, enqueue failure,
 # blind-monitoring (UNKNOWN streak) alert, DRYRUN, missing CLIs, shrike-monitor supplement, shrike-notify publish.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DW="$HERE/../../deploy_watch.sh"; [ -f "$DW" ] || DW="$HERE/../deploy_watch.sh"
 [ -f "$DW" ] || { echo "  SKIP: deploy_watch.sh not found"; exit 0; }
@@ -14,7 +15,7 @@ has(){ grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
 cnt(){ grep -cF -- "$2" "$1" 2>/dev/null || true; }
 # line count without wc: BSD wc pads its output with spaces, which broke the numeric compares on macOS
 nlines(){ grep -c "" "$1" 2>/dev/null || echo 0; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 FX="$T/fx"; mkdir -p "$FX"; export FX
 
 # ---- stubs (exported functions) ----

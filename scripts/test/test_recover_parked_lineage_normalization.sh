@@ -13,6 +13,7 @@
 # Extracts the real normalization block out of ovn_recover_parked.sh (not a reimplementation)
 # so this can't silently drift from what's deployed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RP="${OVN_RECOVER_PARKED:-$HOME/overnight-queue/ovn_recover_parked.sh}"
 [ -f "$RP" ] || { echo "  SKIP: $RP not found on this host"; exit 0; }
 LIB="${OVN_LIB_PATH_NORMALIZE:-$HOME/overnight-queue/scripts/lib_path_normalize.sh}"
@@ -31,7 +32,7 @@ P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 resolve(){ # $1=rd $2=task -> echoes the normalized lineage_file
   local rd="$1" task="$2" lineage_file lineage_key

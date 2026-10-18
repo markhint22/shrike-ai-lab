@@ -69,7 +69,7 @@ done
 if [ -d "$LOGS/hygiene_gate" ]; then
   old="$(find "$LOGS/hygiene_gate" -maxdepth 1 -type f -mtime +"$GDAYS" 2>/dev/null | wc -l | tr -d ' ')"
   if [ "$old" -gt 0 ]; then
-    if [ "$APPLY" = 1 ]; then find "$LOGS/hygiene_gate" -maxdepth 1 -type f -mtime +"$GDAYS" -exec rm -f {} + 2>/dev/null; say "removed $old hygiene gate file(s) older than ${GDAYS}d"
+    if [ "$APPLY" = 1 ]; then find "${LOGS:?}/hygiene_gate" -maxdepth 1 -type f -mtime +"$GDAYS" -exec rm -f {} + 2>/dev/null; say "removed $old hygiene gate file(s) older than ${GDAYS}d"
     else say "WOULD remove $old hygiene gate file(s) older than ${GDAYS}d"; fi
   fi
 fi

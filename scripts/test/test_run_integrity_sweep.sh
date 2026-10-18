@@ -4,14 +4,15 @@
 # for work origin never had). Both must now SKIP a repo whose cycle/stage runner is active. Each case has the incident (reset discards the commit when nothing is
 # running = NEGATIVE control of the hazard) and the guarded behaviour; plus the benign cases (idle repo and stale marker are still swept / enqueued).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL $1 (expected [$2] got [$3])"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"; [ -n "${SLP:-}" ] && kill "$SLP" 2>/dev/null' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"; [ -n "${SLP:-}" ] && kill "$SLP" 2>/dev/null' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
-export HOME="$T/home"; OQ="$HOME/overnight-queue"; mkdir -p "$OQ/scripts" "$OQ/state" "$OQ/repos" "$HOME/bin"
+safe_set_sandbox_home "$T" || exit 1; OQ="$HOME/overnight-queue"; mkdir -p "$OQ/scripts" "$OQ/state" "$OQ/repos" "$HOME/bin"
 export PATH="$HOME/bin:$PATH"
 cp "$Q/ovn_park_sweep.sh" "$Q/ovn_park_sweep.py" "$Q/ovn_park_unworkable.py" "$OQ/" 2>/dev/null
 cp "$Q/scripts/lib_run_integrity.sh" "$Q/scripts/ovn_enqueue_emergency.py" "$OQ/scripts/"

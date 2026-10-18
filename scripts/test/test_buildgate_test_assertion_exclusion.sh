@@ -12,6 +12,7 @@
 # existed. Mirrors the deployed POS/NEG regex + new "tests completed" guard
 # exactly so this can't drift.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
 
@@ -34,7 +35,7 @@ is_build_gate_triggered(){ # $1=task_log
   grep -E "$_BUILD_BREAK_POS_RE" "$1" | grep -vE "$_BUILD_BREAK_NEG_RE" | grep -q .
 }
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 
 # ---- 1. real-shaped case confirmed live: plain test-ASSERTION failure, only the
 #      generic Gradle banner as a POS signal, no compile-specific diagnostic ----

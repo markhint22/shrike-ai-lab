@@ -3,6 +3,7 @@
 # Reads state/outcomes.jsonl against a fixture $HOME so it never touches production
 # data (same convention as test_ovn_landed_detail.sh).
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 SCRIPTS="${OVN_SCRIPTS_DIR:-$HOME/overnight-queue/scripts}"
 SCRIPT="$SCRIPTS/ovn_batch_scorecard.py"
 P=0; F=0
@@ -15,7 +16,7 @@ if [ ! -f "$SCRIPT" ]; then
   exit 0
 fi
 
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT; export HOME="$tmp"; mkdir -p "$HOME/overnight-queue/state"
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT; safe_set_sandbox_home "$tmp" || exit 1; mkdir -p "$HOME/overnight-queue/state"
 OUTF="$HOME/overnight-queue/state/outcomes.jsonl"
 now="$(date +%s)"
 ts_of(){ python3 -c "import time,sys; print(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(int(sys.argv[1]))))" "$1"; }

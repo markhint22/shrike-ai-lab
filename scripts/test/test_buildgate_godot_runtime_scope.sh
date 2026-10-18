@@ -7,6 +7,7 @@
 # grepped the CUMULATIVE task log (earlier verify runs + the fix-up's own chat).
 # The regexes and the function are extracted from the real run_overnight.sh (not reimplemented), so this cannot drift from what is deployed.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RO="${OVN_RUN_OVERNIGHT:-$HERE/../../run_overnight.sh}"; [ -f "$RO" ] || RO="$HOME/overnight-queue/run_overnight.sh"
 [ -f "$RO" ] || { echo "  SKIP: run_overnight.sh not found"; exit 0; }
@@ -22,7 +23,7 @@ eval "$FN"
 
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 hits(){ ovn_buildbreak_hits "$@" | grep -a . | wc -l | tr -d ' '; }   # number of structural-break lines
 
 echo "== A: runtime error shapes are NOT structural breaks"

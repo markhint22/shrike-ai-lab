@@ -9,12 +9,13 @@
 # whole test runs anywhere (no real Godot). The assertions are one battery that is ALSO run against mutated copies of the gate: every mutant must
 # make the battery fail (proves the assertions bite). Assertions are evaluated with pipefail off and never use `x | grep -q`.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AT_REAL=""
 for c in "$HERE/../ovn_autotest.sh" "$HERE/../../scripts/ovn_autotest.sh" "$HERE/ovn_autotest.sh"; do [ -f "$c" ] && { AT_REAL="$c"; break; }; done
 [ -n "$AT_REAL" ] || { echo "  SKIP: ovn_autotest.sh not found"; exit 0; }
 P=0; F=0
-T="$(mktemp -d)" || exit 1; T="$(cd "$T" && pwd -P)"; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 H="$T/home"; mkdir -p "$H/aider-venv/bin" "$H/godot" "$T/qdir/state"
 export GODOT_LOG="$T/godot.log"

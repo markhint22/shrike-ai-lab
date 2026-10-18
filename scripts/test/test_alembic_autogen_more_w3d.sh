@@ -4,13 +4,14 @@
 # holding the REAL hook + driver and a stub check_migrations.py that fails. Fixture builder reused from
 # test_alembic_autogen.sh (mkrepo only). SKIPs when no python with alembic+sqlalchemy exists.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"; SCRIPTS="$(cd "$HERE/.." && pwd)"
 PYX="${OVN_TEST_PY:-$HOME/overnight-queue/repos/test-automation-agent/backend/.venv/bin/python}"
 "$PYX" -c 'import alembic, sqlalchemy' 2>/dev/null || { echo "SKIP: no python with alembic+sqlalchemy ($PYX)"; exit 0; }
 P=0; F=0
 # 2026-10-08: assertions are evaluated with pipefail OFF - under pipefail `A | grep -q X` is flaky (grep -q exits at its first hit, A may take SIGPIPE: rc 141) and `! A | grep -q X` can mask a real failure
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-T="$(mktemp -d)" || exit 1; trap 'rm -rf "$T"' EXIT
+T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 EXT="$HERE/test_alembic_autogen.sh"
 eval "$(sed -n '/^mkrepo() {/,/^}/p; /^commit_models() /p; /^nfiles() /p' "$EXT")"
 mkdir -p "$T/priv"

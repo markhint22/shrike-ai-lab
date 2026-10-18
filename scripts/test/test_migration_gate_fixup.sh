@@ -7,6 +7,7 @@
 # extraction + "still broken after one repair attempt -> revert") so this can't drift
 # from what's deployed; exercises it against check_migrations.py's REAL output shapes.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 RO="${OVN_RUN_OVERNIGHT:-$HOME/overnight-queue/run_overnight.sh}"
 CM="${OVN_CHECK_MIGRATIONS:-$HOME/overnight-queue/scripts/check_migrations.py}"
 [ -f "$RO" ] || { echo "  SKIP: $RO not found on this host"; exit 0; }
@@ -41,7 +42,7 @@ run_gate(){ # $1=repo_dir $2=would-a-fixup-fix-it(0|1, simulates aider "fixing" 
 mkvdir(){ mkdir -p "$1/alembic/versions"; }
 
 # ---- 1. duplicate revision id -> groundable summary extracted, repair succeeds -> lands ----
-d=$(mktemp -d) || exit 1; mkvdir "$d"
+d=$(safe_mktemp_dir) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
@@ -62,10 +63,10 @@ result="$(run_gate "$d" 1)"
 ok "duplicate-revision + successful repair -> lands, not reverted" "[ '$result' = 'landed(fixup-repaired)' ]"
 result="$(run_gate "$d" 0)"
 ok "duplicate-revision + failed repair -> still reverts (safety net intact)" "[ '$result' = 'reverted(migration-fork)' ]"
-rm -rf "$d"
+rm -rf "${d:?}"
 
 # ---- 2. multiple heads -> also groundable ----
-d=$(mktemp -d) || exit 1; mkvdir "$d"
+d=$(safe_mktemp_dir) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
@@ -82,17 +83,17 @@ out="$(python3 "$CM" "$d" 2>&1)"
 summary="$(extract_summary "$out")"
 ok "multiple-heads output yields a non-empty grounded summary" '[ -n "$summary" ]'
 ok "the summary names MULTIPLE HEADS" "printf '%s' \"\$summary\" | grep -q 'MULTIPLE HEADS'"
-rm -rf "$d"
+rm -rf "${d:?}"
 
 # ---- 3. clean chain -> gate never fires at all (no summary, no fix-up, no revert) ----
-d=$(mktemp -d) || exit 1; mkvdir "$d"
+d=$(safe_mktemp_dir) || exit 1; mkvdir "$d"
 cat > "$d/alembic/versions/001_initial.py" <<'EOF'
 revision = "001_initial"
 down_revision = None
 EOF
 result="$(run_gate "$d" 0)"
 ok "clean chain -> no gate action at all" "[ '$result' = 'landed(clean)' ]"
-rm -rf "$d"
+rm -rf "${d:?}"
 
 echo "migration-gate fix-up: $P passed, $F failed"
 [ "$F" -eq 0 ]

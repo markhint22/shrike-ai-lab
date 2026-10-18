@@ -4,12 +4,13 @@
 # loops back for them, and the staged path (unlike run_overnight.sh's iterative file-feeding) had no feeding. The paths the architect named are validated and added (max 3) to the RETRY.
 # Drives the REAL ovn_stage_runner.sh in the hermetic fixture (lib_osr_fixture.sh); the stub aider prints the architect's request on attempt 1 and records its argv. Needs GNU sed + bash 5.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 # --- Part U (unit, runs anywhere incl. the Mac): stage_feed_files extracted from the real runner, run under `set -o pipefail` against a repo whose `git ls-files` listing exceeds the 64 KB pipe buffer.
 # Regression for the pipefail trap: `printf "$lst" | grep -qxF "$tok"` returned 141 (SIGPIPE) once the listing was bigger than the pipe buffer and the match was early in it, so an architect-named EXACT path
 # was silently dropped in the big repos (iptv_apps ~70 KB, xlite ~75 KB). Small fixture repos can never show it.
-UW="$(mktemp -d)" || exit 1; trap 'rm -rf "$UW"; osr_cleanup' EXIT
+UW="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$UW"; osr_cleanup' EXIT
 { sed -n '/^# >>> n4-stage-waste helpers: scope-learn/,/^# <<< n4-stage-waste helpers: scope-learn/p' "$RUNNER"; sed -n '/^# >>> n4-stage-waste helpers: file-feed/,/^# <<< n4-stage-waste helpers: file-feed/p' "$RUNNER"; } > "$UW/h.sh"
 [ -s "$UW/h.sh" ] && grep -q '^stage_feed_files()' "$UW/h.sh" || { echo "  FAIL: file-feed helper block not found in $RUNNER"; exit 1; }
 # shellcheck disable=SC1091

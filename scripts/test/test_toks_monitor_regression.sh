@@ -9,6 +9,7 @@
 # `jq`/`python3`/`nvidia-smi`(faked, trivial) are used since this script's core logic IS
 # real-time-based division — faking sleep away would make every reading's denominator ~0.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [ -n "${OVN_TOKS_MONITOR:-}" ]; then
   M="$OVN_TOKS_MONITOR"
@@ -18,7 +19,7 @@ fi
 [ -f "$M" ] || { echo "  SKIP: ovn_toks_monitor.sh not found"; exit 0; }
 
 rc=0; ok(){ echo "  ✅ $1"; }; fail(){ echo "  ❌ $1"; rc=1; }
-tmp="$(mktemp -d)" || exit 1; trap 'rm -rf "$tmp"' EXIT
+tmp="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/home/overnight-queue/state"
 cp "$M" "$tmp/home/overnight-queue/ovn_toks_monitor.sh"
 
@@ -50,7 +51,7 @@ EOF
 chmod +x "$tmp/bin/pgrep"
 
 export PATH="$tmp/bin:$PATH"
-export HOME="$tmp/home"
+safe_set_sandbox_home "$tmp" || exit 1
 export FAKE_NTFY_LOG="$tmp/ntfy.log"
 cd "$HOME/overnight-queue"
 

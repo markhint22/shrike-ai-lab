@@ -48,6 +48,7 @@ wt_open(){
   done
   [ -d "$repo/.git" ] || return 1
   local wt; wt="$(mktemp -d "/tmp/wt-${tag:+$tag-}$(basename "$repo").XXXX")" || return 1
+  [ -n "$wt" ] && [ -d "$wt" ] || return 1   # 2026-10-16
   if ! git -C "$repo" worktree add --quiet "$wt" "origin/${branch}" 2>/dev/null; then
     rmdir "$wt" 2>/dev/null
     return 1

@@ -3,18 +3,19 @@
 # tests that used to leak. Everything runs in a sandbox under its own mktemp dir (OVN_TEST_TMP_BASE / OVN_ALERTS_FILE point inside it); nothing touches $HOME/qtmp, /tmp/run.* or any real state.
 # bash 3.2 + bash 5 safe. The flock-specific stale-lock case (F) is skipped when there is no flock binary (the Mac); every other case runs on both.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/lib_tmp_isolation.sh"
 PY="$(command -v python3.12 || command -v python3)"
 P=0; F=0
 ok(){ if [ "$2" = 1 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 t(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l" 1; else ok "$l" 0; fi; }
-SB="$(mktemp -d)" || exit 1; BASE="$SB/base"; ALERTS="$SB/state/alerts.log"; mkdir -p "$SB/state"
+SB="$(safe_mktemp_dir)" || exit 1; BASE="$SB/base"; ALERTS="$SB/state/alerts.log"; mkdir -p "$SB/state"
 BGP=""
 cleanup(){ [ -z "$BGP" ] || kill $BGP 2>/dev/null; rm -rf "$SB"; }
 trap cleanup EXIT
 export OVN_TEST_TMP_BASE="$BASE" OVN_ALERTS_FILE="$ALERTS"
-unset OVN_TEST_LEAK_WARN OVN_TEST_ISOLATE
+unset OVN_TEST_LEAK_WARN OVN_TEST_LEAK_FAIL OVN_TEST_ISOLATE
 [ -f "$LIB" ] || { echo "  FAIL: $LIB missing"; exit 1; }
 # a "run": sources the lib, isolates, then runs the body ($1); stdout+stderr -> $SB/<name>.out
 cat > "$SB/run.sh" <<'EOS'
@@ -75,6 +76,20 @@ OVN_TEST_LEAK_WARN=100 PRE=: BODY='for i in 1 2 3; do : > "$TMPDIR/leak$i"; done
 t "D2 3 leaked entries under a threshold of 100 -> no alert" test ! -s "$ALERTS"
 t "D3 the leak is still removed" test ! -e "$(root_of D2)"
 
+echo "== D-fail: a leak over OVN_TEST_LEAK_FAIL fails an otherwise green run; under it (and the default) it does not"
+: > "$ALERTS"
+OVN_TEST_LEAK_FAIL=10 PRE=: BODY='for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do : > "$TMPDIR/leak$i"; done; exit 0' runit DF1
+t "DF1 15 leaked entries over a failure limit of 10: exit 1 although the body exited 0" test "$(rc_of DF1)" = 1
+t "DF2 the failure names the limit and the verdict banner is printed" bash -c "grep -q 'tmp-leak: FAIL' '$SB/DF1.out' && grep -q 'SOME QUEUE TESTS FAILED (tmp leak' '$SB/DF1.out'"
+OVN_TEST_LEAK_FAIL=100 PRE=: BODY='for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do : > "$TMPDIR/leak$i"; done; exit 0' runit DF3
+t "DF3 15 leaked entries under a failure limit of 100: exit 0 (a small leak is reported, never decides the verdict)" test "$(rc_of DF3)" = 0
+OVN_TEST_LEAK_FAIL=10 PRE=: BODY='for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do : > "$TMPDIR/leak$i"; done; exit 3' runit DF4
+t "DF4 a failing run keeps its own exit code (3), the leak does not mask it" test "$(rc_of DF4)" = 3
+OVN_TEST_LEAK_FAIL=0 PRE=: BODY='for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do : > "$TMPDIR/leak$i"; done; exit 0' runit DF5
+t "DF5 OVN_TEST_LEAK_FAIL=0 disables the failure limit" test "$(rc_of DF5)" = 0
+PRE=: BODY='for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do : > "$TMPDIR/leak$i"; done; exit 0' runit DF6
+t "DF6 the default limit (20000) does not fail a 15-entry leak" test "$(rc_of DF6)" = 0
+
 echo "== E: stale-root sweep removes dead runs' roots and keeps live ones"
 mkdir -p "$BASE/run.99999999/x" "$BASE/not-a-run"; : > "$BASE/run.99999999/x/f"
 # 2026-10-16: the sweep keeps anything modified in the last 10 minutes, so a root that is meant to be swept is backdated first
@@ -131,6 +146,17 @@ if [ -n "$(type -P flock)" ]; then
   t "F2 it says the stale lock was replaced" bash -c "grep -q 'replaced a stale run lock' '$SB/F.out'"
   kill $OP 2>/dev/null; rm -f "$BASE/.run_all.lock" "$BASE/.run_all.lock.pid"
 else echo "  (F skipped: no flock binary on this host)"; fi
+
+echo "== F2: a lock held by a holder in a DIFFERENT pid namespace cannot be proven dead - it is refused (exit 75), never replaced (2026-10-17: concurrent sandboxed suites shared run.2)"
+if [ -n "$(type -P flock)" ]; then
+  mkdir -p "$BASE"; printf '99999999|dead|pid:[1]\n' > "$BASE/.run_all.lock.pid"
+  ( exec 9>>"$BASE/.run_all.lock"; flock -n 9; sleep 30 ) >/dev/null 2>&1 & OP=$!
+  sleep 0.5
+  PRE=: BODY='echo SECOND-NS-RAN' runit F2
+  t "F2a a foreign-namespace holder with the lock still held: exit 75" test "$(rc_of F2)" = 75
+  t "F2b the body never ran and the lock was not replaced" bash -c "! grep -q SECOND-NS-RAN '$SB/F2.out' && ! grep -q 'replaced a stale run lock' '$SB/F2.out'"
+  kill $OP 2>/dev/null; rm -f "$BASE/.run_all.lock" "$BASE/.run_all.lock.pid"
+else echo "  (F2 skipped: no flock binary on this host)"; fi
 
 echo "== G: a recorded pid that is alive but has a different start time (pid reuse) is not a live holder"
 sleep 30 & SP=$!; printf '%s|Thu Jan  1 00:00:00 1970\n' "$SP" > "$BASE/.run_all.lock.pid"
@@ -190,6 +216,11 @@ for spec in "test_batch_scorecard OVN_SCRIPTS_DIR=$HERE/.." "test_batch_straggle
   res="$(run_leak "$f" "$@")"; left="${res#* }"
   t "L $f: nothing left in TMPDIR (rc/leftover: $res)" test "$left" = 0
   t "L $f: has an EXIT trap that removes its temp dir/file" grep -Eq "trap .*rm -[rf]+ .*EXIT" "$HERE/$f.sh"
+done
+echo "== L2 (2026-10-17): the tests/scripts that leaked in the 2026-10-16 suite (654 entries) now leave NOTHING in a private TMPDIR"
+for f in test_deploy_health_runs test_deploy_watch_run test_intake_digest test_residue_guard_salvage test_live_repo_guard test_credit_only_class test_verify_safe; do
+  res="$(run_leak "$f" X=1)"; left="${res#* }"
+  t "L2 $f: nothing left in TMPDIR (rc/leftover: $res)" test "$left" = 0
 done
 echo; echo "tmp_isolation: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -3,14 +3,15 @@
 # (B) an UNRUNNABLE VERIFY is not a crediting verdict for the scout ALREADY-DONE credit: shadow (default) logs 'would be REFUSED' and credits as before, enforce refuses.
 # Every NEW assertion fails on the pre-fix code (no _verify_gut_alias, no UNRUNNABLE branch). The benign twins are labelled.
 set -o pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/.."
 [ -f "$S/lib_auto_credit.sh" ] || { echo "  SKIP: lib_auto_credit.sh not found"; exit 0; }
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1"; fi; }
 eq(){ if [ "$2" = "$3" ]; then P=$((P+1)); else F=$((F+1)); echo "  FAIL: $1 (got [$2] want [$3])"; fi; }
-W="$(mktemp -d)" || exit 1; trap 'rm -rf "$W"' EXIT
-export HOME="$W/home"; mkdir -p "$HOME"
+W="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$W"' EXIT
+safe_set_sandbox_home "$W" || exit 1; mkdir -p "$HOME"
 export OVN_VERIFY_SHADOW_LOG="$W/shadow.log"
 ALERTS="$W/alerts.log"; : > "$ALERTS"
 emit_alert(){ echo "$1 | $2 | $3" >> "$ALERTS"; }
