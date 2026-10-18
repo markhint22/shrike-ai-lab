@@ -314,6 +314,17 @@ ovn_fixup_undid_item() {
   git --literal-pathspecs diff --quiet "$before" HEAD -- "$tgt" 2>/dev/null
 }
 
+# ovn_fixup_undid_item_ws <before> <main> <tgt>: 0 when the main commit made a REAL (non-whitespace, non-blank-line) change to <tgt> but BEFORE..HEAD differs only by whitespace /
+# blank lines - i.e. the fix-up restored the old code and merely re-added a blank line, so the exact-equality net-zero test (ovn_fixup_undid_item) misses it. Live (xlite
+# 2026-10-18 07:29-07:30 CDT): 55824bee removed `on_faction_codex_update`, the build-gate fix-up 80c33bb3 restored it plus one blank line; the cycle landed pushed(tests:pass)
+# (class landed-uncredited) for zero behaviour change. A main commit that was itself whitespace-only (a format item) is NOT flagged. 1 otherwise / on any git error.
+ovn_fixup_undid_item_ws() {
+  local before="$1" main="$2" tgt="${3:-}"
+  [ -n "$tgt" ] || return 1
+  git --literal-pathspecs diff --quiet --ignore-all-space --ignore-blank-lines "$before" "$main" -- "$tgt" 2>/dev/null; [ $? -eq 1 ] || return 1   # main made a real change (rc 1; 0 = ws-only, 128 = git error)
+  git --literal-pathspecs diff --quiet --ignore-all-space --ignore-blank-lines "$before" HEAD -- "$tgt" 2>/dev/null                                  # net is ws/blank-only
+}
+
 # ovn_fixup_added_test_names <before_sha> <main_sha>: "file<TAB>name" for every test function/title the main commit ADDED (python def test_*, gdscript func test_*,
 # JS it()/test() titles) in test files
 ovn_fixup_added_test_names() {
@@ -450,6 +461,19 @@ ovn_fixup_integrity_gate() {
     _ovn_fxi_alert warn "$id" "${phase} fix-up undid the item (no net diff on ${tgt}); reset to ${before:0:12}"
     OVN_FXI_STATUS="no-op(fixup-undid-item)"
     return 1
+  fi
+  # (a2) 2026-10-18: net change on the target is whitespace/blank-line only after the fix-up (the fix-up undid the item and left a stray blank line). SHADOW by default
+  # (OVN_FIXUP_UNDO_WS=shadow|enforce|off): logs/alerts and says what enforce would reset; enforce resets exactly like (a).
+  local wmode="${OVN_FIXUP_UNDO_WS:-shadow}"
+  if [ "$wmode" != off ] && ovn_fixup_undid_item_ws "$before" "$main" "$tgt"; then
+    OVN_FXI_TEXT="the ${phase} fix-up left only whitespace/blank-line changes on ${tgt}: the committed item was undone"
+    _ovn_fxi_log "$tl" "[fixup-undo-ws] (${phase}, mode=${wmode}) ${OVN_FXI_TEXT}"
+    _ovn_fxi_alert info "$id" "[fixup-undo-ws] ${OVN_FXI_TEXT} (mode=${wmode})"
+    if [ "$wmode" = enforce ]; then
+      _ovn_fxi_log "$tl" "fixup-integrity: ${OVN_FXI_TEXT}"
+      _ovn_fxi_reset "$before"; OVN_FXI_STATUS="no-op(fixup-undid-item)"; return 1
+    fi
+    _ovn_fxi_log "$tl" "[fixup-undo-ws] shadow: WOULD RESET to ${before:0:12} and report no-op(fixup-undid-item) under OVN_FIXUP_UNDO_WS=enforce (kept: mode=${wmode})"
   fi
   mode="${OVN_FIXUP_REVERIFY:-shadow}"
   [ "$mode" = off ] && return 0

@@ -17,6 +17,7 @@ T = tempfile.mkdtemp()
 Q = os.path.join(T, "q")
 ST = os.path.join(Q, "state")
 os.makedirs(ST)
+os.environ["OVN_SUPPLY_LINE"] = "0"   # 2026-10-18: this suite tests the idle line in isolation (the supply lines replace covered idle lines; see test_ovn_supply_report.py)
 os.environ.update(OVN_NOTIFY_STATE=ST, NTFY_TOPIC="t_test", OVN_NOTIFY_DAILY_CAP="50", OVN_NOTIFY_UPSTREAM="http://127.0.0.1:9", OVN_LLM_HEALTH_URL="http://127.0.0.1:9/x")
 for k in ("OVN_IDLE_LINE", "OVN_IDLE_ALERT", "OVN_IDLE_ALERT_H", "OVN_NOTIFY_DISABLE"):
     os.environ.pop(k, None)

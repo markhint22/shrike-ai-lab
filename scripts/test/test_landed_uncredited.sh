@@ -29,6 +29,7 @@ mk 'aider noise' "$MARK" '--- auto-credit: item-hash 0123abcd ---' > "$tmp/credi
 mk 'attempt 1' "$MARK" '--- auto-credit: REFUSED line 2 - placeholder ---' 'attempt 2 reverted' "$MARK" 'clean second landing, nothing to credit' > "$tmp/old_attempt_refusal.log"
 mk 'stage runner output' 'commits_pushed: 2' '--- auto-credit: REFUSED line 9 - path mismatch ---' > "$tmp/nomarker_refused.log"
 mk 'no credit lines at all' "$MARK" > "$tmp/plain.log"
+mk 'stage runner output' '--- stage-credit: REFUSED - the item'"'"'s own VERIFY is RED after the change (text-probe VERIFY, enforced) ---' 'Tokens: 1 sent' > "$tmp/stage_refused.log"
 
 row(){  # $1=status $2=log -> prints "class|severity" of the one outcomes row
   : > "$STATE_DIR/outcomes.jsonl"
@@ -50,6 +51,12 @@ ok "missing / empty task log path => landed|good (never crashes)" "[ \"\$(row 'p
 ok "kill switch OVN_LANDED_UNCREDITED=off => landed|good for the refused fixture" "[ \"\$(OVN_LANDED_UNCREDITED=off row 'pushed(tests:pass)' '$tmp/refused.log')\" = 'landed|good' ]"
 ok "classifier alone: ovn_landed_uncredited rc 0 for the refused fixture, rc 1 for the credited one" "ovn_landed_uncredited '$tmp/refused.log' 'pushed(tests:pass)' && ! ovn_landed_uncredited '$tmp/credited_hash.log' 'pushed(tests:pass)'"
 
+# 2026-10-18 (iptv overnight audit): the stage runner's '--- stage-credit: REFUSED' line (verified code pushed, item NOT ticked) is a refusal marker too
+ok "stage runner '--- stage-credit: REFUSED' + pushed(tests:pass) stage(higher-tier) => landed-uncredited|neutral" "[ \"\$(row 'pushed(tests:pass) stage(higher-tier)' '$tmp/stage_refused.log')\" = 'landed-uncredited|neutral' ]"
+ok "kill switch OVN_STAGE_CREDIT_MARKER=off => the stage refusal line is ignored (landed|good, old behaviour)" "[ \"\$(OVN_STAGE_CREDIT_MARKER=off row 'pushed(tests:pass) stage(higher-tier)' '$tmp/stage_refused.log')\" = 'landed|good' ]"
+ok "a stage refusal line never rewrites a reverted/no-op status" "[ \"\$(row 'no-op(stage-unverified) stage(higher-tier)' '$tmp/stage_refused.log')\" != 'landed-uncredited|neutral' ]"
+ok "the stage runner prints the marker exactly once, on the STAGE_NOCREDIT line" "[ \"\$(grep -cF -- 'stage-credit: REFUSED - ' '$Q/ovn_stage_runner.sh')\" = 1 ] && [ \"\$(grep -F -- 'STAGE_NOCREDIT:-0' '$Q/ovn_stage_runner.sh' | grep -cF -- 'stage-credit: REFUSED')\" = 1 ]"
+
 # ---- wiring in run_overnight.sh (anchored code lines) ----
 ok "record_outcome calls ovn_landed_uncredited with the cycle log and the raw status" "[ \"\$(grep -c '^  if \\[ \"\$cls\" = landed \\] && declare -F ovn_landed_uncredited .*ovn_landed_uncredited \"\$tl\" \"\$3\"; then cls=\"landed-uncredited\"; sev=neutral; fi' '$R')\" = 1 ]"
 ok "the runner writes the '--- landing:' segment marker exactly once, before bookkeeping/credit/push" "[ \"\$(grep -c '^      echo \"--- landing: bookkeeping + auto-credit + push phase ---\" >> \"\$task_log\"' '$R')\" = 1 ]"
@@ -65,11 +72,13 @@ mut('  if [ -n "$n" ]; then seg="$(tail -n +$((n + 1)) "$tl" 2>/dev/null)"; else
     '  seg="$(cat "$tl" 2>/dev/null)"', "m_noseg.sh")
 mut('  [ "${credited:-0}" -eq 0 ]', '  true', "m_nocredit.sh")
 mut('  [ "${refused:-0}" -gt 0 ] || return 1\n', '', "m_norefuse.sh")
+mut("[ \"${OVN_STAGE_CREDIT_MARKER:-on}\" = off ] || _refre='^--- (auto|stage)-credit: REFUSED|item has no VERIFY: clause'", "true", "m_nostage.sh")
 PY
 mrow(){ ( source "$1" 2>/dev/null; $2 ); }
 ok "MUTATION: whole-log scan (no segment) misclassifies the old-attempt-refusal fixture as uncredited" "( source '$tmp/m_noseg.sh'; ovn_landed_uncredited '$tmp/old_attempt_refusal.log' 'pushed(tests:pass)' )"
 ok "MUTATION: without the credited check the refused+credited fixture is misclassified as uncredited" "( source '$tmp/m_nocredit.sh'; ovn_landed_uncredited '$tmp/refused_and_credited.log' 'pushed(tests:pass)' )"
 ok "MUTATION: without the refusal requirement the plain fixture is misclassified as uncredited" "( source '$tmp/m_norefuse.sh'; ovn_landed_uncredited '$tmp/plain.log' 'pushed(tests:pass)' )"
+ok "MUTATION: without the stage-credit marker the stage-refused fixture is misclassified as landed (not uncredited)" "( source '$tmp/m_nostage.sh'; ! ovn_landed_uncredited '$tmp/stage_refused.log' 'pushed(tests:pass) stage(higher-tier)' )"
 ok "MUTATION sanity: the unmutated lib gets all three fixtures right" "! ovn_landed_uncredited '$tmp/old_attempt_refusal.log' 'pushed(tests:pass)' && ! ovn_landed_uncredited '$tmp/refused_and_credited.log' 'pushed(tests:pass)' && ! ovn_landed_uncredited '$tmp/plain.log' 'pushed(tests:pass)'"
 
 # ---- ovn_outcome_buckets.py ----

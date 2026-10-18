@@ -243,6 +243,22 @@ osr_run "$OSR_REPO" "$SEM_NOFILE"; vl
 t "target file missing in the worktree -> semantic check skipped (neither OK nor FAIL)" bash -c "! grep -q 'semantic OK\|SEMANTIC FAIL' <<<\"\$VL\""
 osr_cleanup
 
+# 2026-10-18: removal item whose [feat:...-invoke-] tag used to trip the wire check (gitlark)
+SEM_REMOVE='[T3] backend/app/svc.py — Remove the import and all references to `helper_x`. VERIFY: `grep -rn helper_x backend/app/svc.py` returns no results. (cat:python; multifile:no) [feat:gitlark-20261017-svc-py-s-should-invoke-]'
+base
+osr_plan default '[{"desc":"drop helper_x","files":["backend/app/svc.py"],"verify":"t"}]'
+osr_aider 1 'printf "def run_job():\n    return 1\n\ndef other():\n    return 2\n" > backend/app/svc.py'
+osr_run "$OSR_REPO" "$SEM_REMOVE"; vl
+t "removal item with 'invoke' only in its feat tag -> the step ran and verify finished" V "independent full-verify"
+t "...and the semantic wire check is NOT applied" bash -c "! grep -q 'SEMANTIC FAIL' <<<\"\$VL\""
+osr_cleanup
+base
+osr_plan default '[{"desc":"drop helper_x","files":["backend/app/svc.py"],"verify":"t"}]'
+osr_aider 1 'printf "def run_job():\n    return 1\n\ndef other():\n    return 2\n" > backend/app/svc.py'
+OVN_STAGE_SEMANTIC_PROSE_ONLY=0 osr_run "$OSR_REPO" "$SEM_REMOVE"; vl
+t "MUTANT: with the fix off (=0) the same item trips SEMANTIC FAIL (test would fail without the fix)" V "SEMANTIC FAIL: backend/app/svc.py only defines (or never uses) helper_x"
+osr_cleanup
+
 # -------- QUALITY guards --------
 echo "== quality guards"
 base

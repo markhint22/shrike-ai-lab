@@ -152,13 +152,21 @@ REPO_CFG = {
                  "- static (only when deleting that exact text IS the fix): ! grep -n '<12+ chars copied from the defective line>' <file>   (a presence grep is NOT accepted: a comment would satisfy it)"),
     ),
     "billwatch": dict(kinds={"backend", "web"}, roots=("billwatch-backend/app/", "billwatch-web/src/", "tests/"), exclude=(r"^billwatch-(android|ios)/",), snap_exclude=("billwatch-android", "billwatch-ios", "node_modules", ".venv"),
-                      out_of_scope=(r"(^|[\s`'\"(=/])billwatch-(android|ios)/",), node_modules=("billwatch-web",), dialect=None),
+                      out_of_scope=(r"(^|[\s`'\"(=/])billwatch-(android|ios)/",), node_modules=("billwatch-web",), dialect=("- backend test: cd billwatch-backend && python3 -m pytest tests/test_<name>.py -q   (backend tests live ONLY in billwatch-backend/tests/test_*.py; a NEW file is fine - then the proposed_change must say 'Add billwatch-backend/tests/test_<name>.py'). Write the bare command: no 'test:' label, no .venv/bin prefix, no coverage flags.\n"
+                 "- web test: cd billwatch-web && npx vitest run src/<dir>/<name>.test.ts   (new test file fine, same rule: say 'Add <path>')\n"
+                 "- static (only when deleting that exact text IS the fix): ! grep -n '<12+ chars copied from the defective line>' <file>   (a presence grep is NOT accepted: a comment would satisfy it)")),
     "gitlark": dict(kinds={"backend", "web"}, roots=("backend/app/", "web/src/"), exclude=(r"^(android|ios|vscode-extension|frontend|src)/",), snap_exclude=("android", "ios", "vscode-extension", "node_modules", ".venv"),
-                    out_of_scope=(r"(^|[\s`'\"(=/])(android|ios|vscode-extension)/",), node_modules=("web",), dialect=None),
+                    out_of_scope=(r"(^|[\s`'\"(=/])(android|ios|vscode-extension)/",), node_modules=("web",), dialect=("- backend test: cd backend && python3 -m pytest tests/test_<name>.py -q   (backend tests live ONLY in backend/tests/test_*.py; a NEW file is fine - then the proposed_change must say 'Add backend/tests/test_<name>.py'). Write the bare command: no 'test:' label, no .venv/bin prefix, no coverage flags.\n"
+                 "- web test: cd web && npx vitest run src/<dir>/<name>.test.ts   (new test file fine, same rule: say 'Add <path>')\n"
+                 "- static (only when deleting that exact text IS the fix): ! grep -n '<12+ chars copied from the defective line>' <file>   (a presence grep is NOT accepted: a comment would satisfy it)")),
     "test-automation-agent": dict(kinds={"backend", "web"}, roots=("backend/app/", "frontend/src/"), exclude=(r"^(android|sdk|return|task|examples)/",), snap_exclude=("android", "node_modules", ".venv"),
-                                  out_of_scope=(r"(^|[\s`'\"(=/])android/",), node_modules=("frontend",), dialect=None),
-    "shrike-monitor": dict(kinds={"backend"}, roots=("backend/app/", "aegis.py"), exclude=(), snap_exclude=(".venv",), out_of_scope=(), node_modules=(), dialect=None),
-    "shrike-notify": dict(kinds={"backend"}, roots=("backend/app/",), exclude=(), snap_exclude=(".venv",), out_of_scope=(), node_modules=(), dialect=None),
+                                  out_of_scope=(r"(^|[\s`'\"(=/])android/",), node_modules=("frontend",), dialect=("- backend test: cd backend && python3 -m pytest tests/test_<name>.py -q   (backend tests live ONLY in backend/tests/test_*.py; a NEW file is fine - then the proposed_change must say 'Add backend/tests/test_<name>.py'). Write the bare command: no 'test:' label, no .venv/bin prefix, no coverage flags.\n"
+                 "- web test: cd frontend && npx vitest run src/<dir>/<name>.test.ts   (new test file fine, same rule: say 'Add <path>')\n"
+                 "- static (only when deleting that exact text IS the fix): ! grep -n '<12+ chars copied from the defective line>' <file>   (a presence grep is NOT accepted: a comment would satisfy it)")),
+    "shrike-monitor": dict(kinds={"backend"}, roots=("backend/app/", "aegis.py"), exclude=(), snap_exclude=(".venv",), out_of_scope=(), node_modules=(), dialect=("- backend test: cd backend && python3 -m pytest tests/test_<name>.py -q   (backend tests live ONLY in backend/tests/test_*.py; a NEW file is fine - then the proposed_change must say 'Add backend/tests/test_<name>.py'). Write the bare command: no 'test:' label, no .venv/bin prefix, no coverage flags.\n"
+                 "- static (only when deleting that exact text IS the fix): ! grep -n '<12+ chars copied from the defective line>' <file>   (a presence grep is NOT accepted: a comment would satisfy it)")),
+    "shrike-notify": dict(kinds={"backend"}, roots=("backend/app/",), exclude=(), snap_exclude=(".venv",), out_of_scope=(), node_modules=(), dialect=("- backend test: cd backend && python3 -m pytest tests/test_<name>.py -q   (backend tests live ONLY in backend/tests/test_*.py; a NEW file is fine - then the proposed_change must say 'Add backend/tests/test_<name>.py'). Write the bare command: no 'test:' label, no .venv/bin prefix, no coverage flags.\n"
+                 "- static (only when deleting that exact text IS the fix): ! grep -n '<12+ chars copied from the defective line>' <file>   (a presence grep is NOT accepted: a comment would satisfy it)")),
 }
 DEFAULT_CFG = dict(kinds={"backend", "web"}, roots=None, exclude=(), snap_exclude=("node_modules", ".venv"), out_of_scope=(), node_modules=(), dialect=None)
 GENERIC_DIALECT = ("- test: the repo's own runner on ONE test file, as AGENTS.md documents it (a NEW test file is fine - then the proposed_change must say 'Add <path>')\n"
@@ -1216,6 +1224,7 @@ def normalise_item(raw, lens=None):
         wrong = fit(raw.get("what_is_wrong"), 420)
         change = fit(raw.get("proposed_change"), 420)
         verify = clean_text(raw.get("verify")).strip().strip("`").strip()
+        verify = VERIFY_LABEL_RE.sub("", verify, count=1).strip()   # the model echoes the dialect bullet's label ("test: cd backend && ...", "VERIFY: ...") in front of the command (live 2026-10-18: ~all verify-dialect rejects)
     except Exception:
         return None, "schema"
     if not (title and file_ and sym and quote.strip() and wrong and change and verify):
@@ -1273,6 +1282,7 @@ def quote_trivial(quote):
     """True when every non-blank line of the quote is a comment / import / closer: it shows no behaviour."""
     ls = [l.strip() for l in quote.split("\n") if l.strip()]
     return not ls or all(TRIVIAL_LINE.match(l) for l in ls)
+VERIFY_LABEL_RE = re.compile(r"^(?:VERIFY|verify|(?:backend |web |GUT |static )?test)\s*:\s+")
 VERIFY_BAD = re.compile(r"`|\$\(|\brm\s|\bcurl\b|\bwget\b|\bssh\b|\bsudo\b|\bchmod\b|\bgit\s+(push|commit|checkout|reset)|\bmv\s|\bcp\s|\bdd\s|\bkill\b|\bnc\b")
 _SQ_RE = re.compile(r"'[^']*'")
 _DQ_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
@@ -1280,7 +1290,7 @@ _REL = r"(?!/)(?!.*\.\.)[\w./-]+"
 _PYTEST_PATH = re.compile(r"^(?!/)(?!.*\.\.)[\w./-]+(?:\.py)?(?:::[\w\[\]\-.:]+)?$")
 _VITEST_PATH = re.compile(r"^(?!/)(?!.*\.\.)[\w./-]+\.(?:ts|tsx|js|vue)$")
 _GODOT_FLAG = re.compile(r"^(?:--headless|--quit|-gexit|-gexit_on_success|-gdisable_colors|-glog=\d|-gtest=res://(?!.*\.\.)[\w./-]+|-gselect=[\w.]+|-gunit_test_name=\w+|-gdir=res://(?!.*\.\.)[\w./-]+|-gprefix=\w+|-gsuffix=[\w.]+)$")
-_PYTEST_FLAG = re.compile(r"^(?:-q|-qq|-x|-v|-vv|-s|-rN|-ra|--tb=(?:short|no|line|native|auto)|--maxfail=\d+|--no-header|--disable-warnings|-p no:cacheprovider)$")
+_PYTEST_FLAG = re.compile(r"^(?:-q|-qq|-x|-v|-vv|-s|-rN|-ra|--no-cov|--tb=(?:short|no|line|native|auto)|--maxfail=\d+|--no-header|--disable-warnings|-p no:cacheprovider)$")
 _GREP_FLAG = re.compile(r"^-(?![A-Za-z0-9]*[fPrR])[A-Za-z0-9]+$")   # no -f (patterns from a file) / -P / -r -R (recursion follows symlinks out of the scratch copy)
 KNOWN_GODOT = {"godot", "godot4", "Godot", "~/Applications/Godot.app/Contents/MacOS/Godot", "~/godot/godot4", "/usr/local/bin/godot", "/usr/bin/godot", "/usr/local/bin/godot4", "/usr/bin/godot4"}
 VERIFY_UNSAFE_CHARS = re.compile(r"[;&|`<>(){}\\]|\$")
@@ -1306,6 +1316,74 @@ def _verify_tokens(v):
     except ValueError:
         return None
     return cd, neg, words
+
+
+VERIFY_NORMALIZE = os.environ.get("OVN_QE_VERIFY_NORMALIZE", "on").strip().lower() not in ("off", "0", "no", "false")
+_VENV_PYTEST_HEAD = re.compile(r"^(?:\./)?(?:[\w-]+/)?\.?venv/bin/pytest$")
+_VENV_PYTHON_HEAD = re.compile(r"^(?:\./)?(?:[\w-]+/)?\.?venv/bin/python3?$")
+
+
+def normalize_verify(v, fset=()):
+    """Mechanically rewrite a model-written pytest VERIFY into the one dialect verify_dialect_reason() accepts (and the red-check runner resolves), BEFORE the strict check.
+    Real rejects (2026-10-18, shrike-monitor / shrike-notify / test-automation-agent: AGENTS.md says `cd backend && .venv/bin/pytest -q --no-cov`, so the 27B copied it):
+      * `.venv/bin/pytest` / `venv/bin/pytest` / `<venv>/bin/python -m pytest`  -> `pytest` (a plain `python3 -m pytest` is kept) (lib_verify_clause.sh substitutes the repo's own venv for a bare pytest)
+      * `pytest backend/tests/test_x.py` from the repo root while the suite (pytest.ini) lives in backend/  -> `cd backend && pytest tests/test_x.py`
+      * `cd backend && pytest backend/tests/test_x.py` (double prefix)  -> `cd backend && pytest tests/test_x.py`
+      * `pytest tests/test_x.py` from the root when only backend/ has pytest.ini and the root has none -> `cd backend && pytest tests/test_x.py`
+    Only a command that already parses as ONE simple command (no chaining beyond a leading `cd <rel> &&`, no pipes / redirects / expansions) is touched, and the result still goes through
+    verify_dialect_reason(): this never widens what may run, it only fixes the spelling. Anything else comes back unchanged (and is then rejected as before)."""
+    if not VERIFY_NORMALIZE or not isinstance(v, str) or "\n" in v or len(v) > 300:
+        return v
+    quiet = bool(re.search(r"\s2>/dev/null\s*$", v))
+    toks = _verify_tokens(v)
+    if toks is None:
+        return v
+    cd, neg, w = toks
+    if not w:
+        return v
+    head, args = w[0], list(w[1:])
+    lead = ["pytest"]                                  # a plain `python3 -m pytest` keeps its spelling (the repo dialect for iptv_apps / billwatch); only a venv-path head is replaced
+    if _VENV_PYTEST_HEAD.match(head):
+        head = "pytest"
+    elif _VENV_PYTHON_HEAD.match(head) and args[:2] == ["-m", "pytest"]:
+        head, args = "pytest", args[2:]
+    elif head in ("python", "python3") and args[:2] == ["-m", "pytest"]:
+        head, args, lead = "pytest", args[2:], [head, "-m", "pytest"]
+    if head != "pytest":
+        return v
+    fset = set(fset or ())
+    idx, i = [], 0                                     # indexes of the path arguments (flags and the -k expression are skipped)
+    while i < len(args):
+        a = args[i]
+        if a == "-k" and i + 1 < len(args):
+            i += 2
+            continue
+        if not a.startswith("-") and _PYTEST_PATH.match(a):
+            idx.append(i)
+        i += 1
+    if idx:
+        firsts = {args[j].split("/", 1)[0] for j in idx if "/" in args[j]}
+        if cd and all(args[j].startswith(cd.rstrip("/") + "/") for j in idx):
+            for j in idx:
+                args[j] = args[j][len(cd.rstrip("/")) + 1:]
+        elif not cd and len(firsts) == 1 and all("/" in args[j] for j in idx):
+            d = next(iter(firsts))
+            if re.match(r"^[\w.-]+$", d) and d not in ("tests", "test") and "pytest.ini" not in fset and any(("%s/%s" % (d, n)) in fset for n in ("pytest.ini", "conftest.py", "tests/conftest.py", "setup.cfg")):
+                cd = d
+                for j in idx:
+                    args[j] = args[j][len(d) + 1:]
+        if not cd and "pytest.ini" not in fset and all(args[j].startswith("tests/") for j in idx):
+            dirs = sorted({f.split("/", 1)[0] for f in fset if f.count("/") == 1 and f.endswith("/pytest.ini")})
+            if len(dirs) == 1:
+                cd = dirs[0]
+    out = " ".join(shlex.quote(x) for x in lead + args)
+    if neg:
+        out = "! " + out
+    if cd:
+        out = "cd %s && %s" % (cd, out)
+    if quiet:
+        out += " 2>/dev/null"
+    return out
 
 
 def verify_dialect_reason(v):
@@ -1949,6 +2027,10 @@ def verify_items(repo, raw_items, ctx_env, row):
         if v_why:
             row.reject("banned-path" if v_why.split(":")[0] in ("banned", "vendored", "protected") else "out-of-scope")
             continue
+        nv = normalize_verify(it["verify"], fset)
+        if nv != it["verify"]:
+            it["verify"] = nv                            # same command, repo-dialect spelling (venv pytest, backend/ prefix): still checked by the strict allow-list right below
+            row.d["normalized"] = int(row.d.get("normalized", 0)) + 1
         d_why = verify_dialect_reason(it["verify"])
         if d_why:
             row.reject(d_why)                            # the VERIFY runs on this box: a closed allow-list, checked before anything else reads the item's text
@@ -2786,11 +2868,22 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
     return _end_pass(repo, L, lens, picked, row, t0, dry, now, written, extra)
 
 
-def _ledger_pass(repo, L, lens, files_shown, written, dry, now):
+DIALECT_RETRY = os.environ.get("OVN_QE_DIALECT_RETRY", "on").strip().lower() not in ("off", "0", "no", "false")
+
+
+def dialect_only_empty(row, written):
+    """True when the pass found candidates but EVERY one died on the VERIFY spelling check (verify-dialect only): that is a formatting miss, not 'this lens / these files hold nothing'."""
+    d = row.d if row is not None else {}
+    return bool(DIALECT_RETRY and not written and int(d.get("proposed") or 0) > 0 and int(d.get("accepted") or 0) == 0 and set(d.get("rejected") or {}) == {"verify-dialect"})
+
+
+def _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=False):
     if not dry or LEDGER_ROOT[0]:
         done = now_ts()                                # the cooldown runs from the END of the pass (a pass takes minutes: the model + the red-before runs)
-        L["lenses"][lens] = done
-        for p in files_shown:
+        # 2026-10-18: a pass whose proposals ALL died on verify-dialect used to stamp the lens (4h TTL) and every shown file (72h TTL) as 'covered', so after ~9 such passes every lens was
+        # 'skip-lens-ttl' and the candidate-file pool 'fewer than 2 files': the repo starved on a spelling problem. Such a pass now leaves the files unstamped and re-opens the lens after 1/4 TTL.
+        L["lenses"][lens] = (done - LENS_TTL_S * 3 // 4) if dialect_only else done
+        for p in ([] if dialect_only else files_shown):
             L["files"][p] = done
         L["files"] = {p: ts for p, ts in L["files"].items() if done - ts < 4 * FILE_TTL_S}
         L["day_count"] = int(L["day_count"]) + 1
@@ -2801,7 +2894,7 @@ def _ledger_pass(repo, L, lens, files_shown, written, dry, now):
 
 
 def _end_pass(repo, L, lens, files_shown, row, t0, dry, now, written, extra):
-    _ledger_pass(repo, L, lens, files_shown, written, dry, now)
+    _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=dialect_only_empty(row, written))
     return finish(row, t0, dry, extra)
 
 

@@ -41,6 +41,8 @@ case "$status" in
   # 2026-10-17 (iptv review): a revert whose verify ended rc=124 (the 600s cap in run_overnight.sh killed the suite) is NOT evidence of red. After the home-dir-wipe rebuild
   # iptv's venv lacked pytest-xdist, the serial suite took ~14min, and all 29 cycles were reverted/held as "test-red" (items then parked). Its own tag keeps it out of
   # the code-quality bucket and makes the env gap visible. Only the rc=124 marker (written by _ovn_red_mark) triggers it; any other red stays test-red.
+  # 2026-10-18 (D4): the bounded verify-timeout HOLD (OVN_VERIFY_TIMEOUT_HOLD=enforce) names its own status; same tag as the rc=124 revert it replaces.
+  *"verify-timeout-held"*)            echo "verify-timeout"; exit 0;;
   *"reverted-red"*)                   if grep -aqE 'verify-suite-red: .* rc=124( |$)' "$tl" 2>/dev/null; then echo "verify-timeout"; else echo "test-red"; fi; exit 0;;
   # 2026-09-15: found while investigating gitlark's "test-red" spike — every single one of 12
   # occurrences was actually status=reverted(migration-fork) (the alembic migration-safety gate
@@ -48,7 +50,7 @@ case "$status" in
   # output happens to contain generic "failed"-shaped text that matches the test-red regex below.
   # This masked the real, single root cause (one stale queue item with a hardcoded colliding
   # revision) behind a generic "code doesn't pass tests" label. Trust the status text, as above.
-  *"reverted(migration-fork)"*)       echo "migration-fork"; exit 0;;
+  *"reverted(migration-fork)"*|*"reverted(migration-edit)"*)       echo "migration-fork"; exit 0;;
   # 2026-09-15: same bug class, found by inspecting branch_hygiene.sh's full status vocabulary —
   # this one hadn't fired yet in outcomes.jsonl, but would have hit the exact same generic
   # test-red/build-red fallthrough the first time it did. Give it its own tag proactively.

@@ -38,6 +38,7 @@ warnings.simplefilter("ignore")   # parsing arbitrary text as python must not sp
 
 SKIP_DIRS = {".git", "__pycache__", "fixtures", "fixtures_qagate", "fixtures_qa_migrations", "assets", "node_modules", ".venv"}
 EXEMPT_SUFFIX = ("scripts/test/lib_safe_tmp.sh",)
+ROOT_DATA_DIRS = {"repos", "state", "logs"}   # runtime data at the queue root (not source); top level only
 TEXT_SKIP_EXT = (".md", ".json", ".patch", ".txt", ".log", ".yaml", ".yml", ".plist", ".service", ".gd", ".kt", ".swift", ".diff", ".csv", ".toml", ".cfg", ".ini", ".html", ".js", ".ts")
 KEYWORDS = {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "}", "fi", "done", "esac", "time"}
 ABORT = {"exit", "return", "continue", "break", "die", "fail", "abort", "fatal", "bail"}
@@ -1573,8 +1574,10 @@ def lint_root(root):
     if os.path.isfile(root):
         return lint_file(root)
     res = []
+    # The queue ROOT also holds runtime data that is not queue source: repos/ (the live fleet clones of the app repos) and state/ (snapshots/work copies of them). A suite run from a copy of the
+    # whole queue dir (the GPU box) would otherwise lint third-party app code. Skipped at the top level only: a nested repos/ or state/ inside the source tree is still linted.
     for d, ds, fs in os.walk(root):
-        ds[:] = sorted(x for x in ds if x not in SKIP_DIRS)
+        ds[:] = sorted(x for x in ds if x not in SKIP_DIRS and not (d == root and x in ROOT_DATA_DIRS))
         for f in sorted(fs):
             p = os.path.join(d, f)
             if f.endswith(TEXT_SKIP_EXT) or os.path.islink(p):

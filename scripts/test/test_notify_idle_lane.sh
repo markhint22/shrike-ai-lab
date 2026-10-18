@@ -23,7 +23,7 @@ PY
   else echo "  FAIL mutation NOT caught cleanly: $1"; rc=1; fi
 }
 mutate "idle threshold 30 min -> 30000 min" "IDLE_LANE_S = 30 * 60 " "IDLE_LANE_S = 30 * 60 * 1000 "
-mutate "skip rows counted as real attempts" 'if d.get("class") == "skipped" or str(d.get("status", "")).startswith("skip"):' 'if False:'
+mutate "skip rows counted as real attempts" 'if d.get("class") in ("skipped", "landed-late") or str(d.get("status", "")).startswith("skip"):' 'if False:'
 mutate "12 h dedupe removed" "< STARVED_DEDUP_S" "< -1"
 mutate "a lane with pullable work counted as idle" "if n == 0 and t - last.get(repo, first)" "if t - last.get(repo, first)"
 # 2026-10-15: anchors follow the current starved_check (the every-lane rule is all_idle; the priority-lane rule is prio_idle). The old anchors

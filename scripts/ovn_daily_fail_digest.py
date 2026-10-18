@@ -50,6 +50,7 @@ NOT_COVERED = [
     "reboot / boot-count change and NRestarts of the LLM stack (needs systemd)",
 ]
 LANDING_CLASSES = ("landed", "landed-uncredited")
+LATE_CLASS = "landed-late"   # D4 attribution row: a held commit that reached origin later. Marks its item as landed, but is no cycle and carries no time
 # repos the fleet runs (ovn_recover_parked.sh REPOS); a shadow-log repo label outside this set AND outside the repos seen in outcomes is a test run that wrote into the live state dir
 FLEET_REPOS = ("billwatch", "gitlark", "iptv_apps", "test-automation-agent", "xlite", "shrike-notify", "shrike-monitor")
 _CMD_RE = re.compile(r"\bcmd=(.*?)(?:\s+tail=|\s*$)")
@@ -224,6 +225,9 @@ def build(state_dir, hours=24.0, now=None, top=10):
         if not k:
             continue
         d = items.setdefault(k, {"repo": r.get("repo"), "cycles": 0, "seconds": 0, "tokens": 0, "landed": 0})
+        if r.get("class") == LATE_CLASS:
+            d["landed"] += 1   # its held row's GPU time was NOT wasted: the commit reached origin. Not a cycle: cycles/seconds/tokens untouched
+            continue
         d["cycles"] += 1
         d["seconds"] += dur
         d["tokens"] += int(num(r.get("tokens_sent")) + num(r.get("tokens_recv")))

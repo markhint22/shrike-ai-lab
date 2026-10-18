@@ -28,6 +28,7 @@ v2 (2026-10-09): the "already supplied?" filter is per backlog LINE (not kind an
 re-supplied after a cooldown (capped), only a conclusive verdict is remembered (a flaky spec check never poisons the seen file), the key carries a hash of
 the gap's symbols, and `--on-exhausted` lets the runner kick a pass the moment a lane runs dry.
 
+       OVN_SUPPLY_PROFILE=on|off (on): gitlark/billwatch/test-automation-agent/shrike-monitor/shrike-notify only get the behavioural kinds (OVN_SUPPLY_KINDS overrides).
 usage: ovn_work_supply.py <repo> [--dry-run] [--max N] [--no-spec-check] [--force] [--on-exhausted]
 env:   OVN_DIR (default ~/overnight-queue); OVN_SUPPLY_MIN_BACKLOG (default 24: only supply when the repo's pullable items are below this)
        OVN_SUPPLY_RESUPPLY_COOLDOWN_S (7200)  OVN_SUPPLY_RUFF_RULES (F601,F811)  OVN_SUPPLY_GD_DOCS (off)  OVN_SUPPLY_MUTATION (unset: external collector off)
@@ -277,6 +278,7 @@ def c_swallowed(root):
 
 
 _LIMITER_DEF = re.compile(r"^limiter\s*=\s*\w*Limiter\(", re.M)
+_LIMIT_DECORATOR_DEF = re.compile(r"^(\w+)\s*=\s*limiter\.(?:shared_limit|limit)\(", re.M)   # `name = limiter.shared_limit(...)` -> `@name` rate-limits a route
 
 
 def repo_limiter_import(root):
@@ -302,6 +304,13 @@ def c_rate_limit(root):
     limiter_import = repo_limiter_import(root)
     if not limiter_import:
         return
+    # 2026-10-18 (test-automation-agent): public_api.py is rate-limited through a repo-defined decorator (`public_api_limit = limiter.shared_limit(...)` in
+    # app/core/rate_limiting.py, used as `@public_api_limit`), which the literal `limiter.limit` test missed: the supply re-issued "rate-limit public_api.py" and the 27B's
+    # change broke test_public_api_rate_limit_is_per_key / _shared_across_endpoints 4x (reverted-red, ~270K tokens). A router using any such named limit decorator is limited.
+    shared_names = set()
+    for p in walk(root, (".py",)):
+        if not is_test_path(rel(root, p)):
+            shared_names.update(_LIMIT_DECORATOR_DEF.findall(read(p)))
     for p in files:
         r = rel(root, p)
         t = read(p)
@@ -310,7 +319,12 @@ def c_rate_limit(root):
         except SyntaxError:
             continue
         routes = [n for n in _funcs(tree) if any(_unparse(d).startswith("router.") for d in n.decorator_list)]
-        if not routes or len(routes) > 4 or "limiter.limit" in t:
+        if not routes or len(routes) > 4 or "limiter.limit" in t or "limiter.shared_limit" in t:
+            continue
+        if shared_names and any(_unparse(d).split("(")[0] in shared_names for n in routes for d in n.decorator_list):
+            continue
+        # 2026-10-18: a router with a webhook receiver (Stripe/RevenueCat/GitHub deliver bursts and retry on 429) is never rate-limited mechanically: dropped deliveries are worse than the gap
+        if os.environ.get("OVN_SUPPLY_WEBHOOK_GUARD", "on") != "off" and any("webhook" in (n.name + " " + " ".join(_unparse(d) for d in n.decorator_list)).lower() for n in routes):
             continue
         names = ", ".join("`%s`" % n.name for n in routes)
         yield {"kind": "no-rate-limit", "file": r, "tier": "T2", "cat": "python",
@@ -544,15 +558,31 @@ def _is_pure_function(n, tree_names):
     return True
 
 
+def backend_dir(root):
+    """The Python backend dir of a repo checkout that has a tests/ dir: iptv-backend (iptv_apps), billwatch-backend, backend (gitlark, test-automation-agent, shrike-*). None when there is none."""
+    for d in ("iptv-backend", "billwatch-backend", "backend"):
+        if os.path.isdir(os.path.join(root, d, "tests")):
+            return d
+    return None
+
+
+def _repo_test_basenames(root):
+    return {os.path.basename(p) for p in walk(root, (".py",)) if is_test_path(rel(root, p))}
+
+
 def c_pure_tests(root):
     """Public pure functions in app/{services,core,utils} that no test mentions: ask for a real test file (>= 1 concrete-output assert per function, no mocks)."""
-    tests_dir = "iptv-backend/tests" if os.path.isdir(os.path.join(root, "iptv-backend", "tests")) else None
-    if not tests_dir:
+    bd = backend_dir(root)
+    if not bd:
         return
+    tests_dir = bd + "/tests"
     blob = "\n".join(read(p) for p in walk(os.path.join(root, tests_dir), (".py",)))
+    taken = _repo_test_basenames(root)  # two test files with one basename in different dirs collide under pytest's default import mode: never propose one
     for p in walk(root, (".py",)):
         r = rel(root, p)
         if is_test_path(r) or "/app/" not in "/" + r or not any(d in "/" + r for d in _PURE_DIRS) or r.endswith("__init__.py"):
+            continue
+        if not r.startswith(bd + "/"):
             continue
         try:
             tree = ast.parse(read(p))
@@ -567,19 +597,19 @@ def c_pure_tests(root):
             continue
         mod = os.path.splitext(os.path.basename(r))[0]
         test_rel = "%s/test_%s_pure.py" % (tests_dir, mod)
-        if os.path.exists(os.path.join(root, test_rel)):
+        if os.path.exists(os.path.join(root, test_rel)) or os.path.basename(test_rel) in taken:
             continue
-        modpath = os.path.splitext(r.split("iptv-backend/", 1)[-1])[0].replace("/", ".")
+        modpath = os.path.splitext(r[len(bd) + 1:])[0].replace("/", ".")
         yield {"kind": "pure-function-tests", "file": test_rel, "tier": "T2", "cat": "test",
                "text": "NEW test file for `%s` (public, side-effect-free functions that no test mentions: %s). Read each function body first, then write at least 2 tests per function with CONCRETE expected outputs "
                        "for representative and edge inputs (empty, zero, boundary, invalid) using plain `assert result == expected`; no mocks, no fixtures, import with `from %s import %s`. "
                        "If a function turns out to need I/O to test, skip it and say why in a comment. Test code only - do not change `%s`." % (r, ", ".join("`%s`" % n for n in names), modpath, ", ".join(names), r),
-               "verify": verify_pure_tests(test_rel, names, "iptv-backend") + " && cd iptv-backend && python3 -m pytest %s -q" % test_rel.split("iptv-backend/", 1)[-1],
+               "verify": verify_pure_tests(test_rel, names, bd) + " && cd %s && python3 -m pytest %s -q" % (bd, test_rel[len(bd) + 1:]),
                "symbols": names}
 
 
 def _venv_python(root):
-    for cand in ("iptv-backend/.venv/bin/python", ".venv/bin/python", "backend/.venv/bin/python"):
+    for cand in ("iptv-backend/.venv/bin/python", ".venv/bin/python", "backend/.venv/bin/python", "billwatch-backend/.venv/bin/python"):
         p = os.path.join(root, cand)
         if os.path.exists(p):
             return p
@@ -645,7 +675,7 @@ def c_unused_imports(root):
 # ruff bug-class families. B008 (FastAPI Depends defaults) and E712 (SQLAlchemy `== True`) are idiomatic here and never become items; S314/S104/S105 are advisories.
 _RUFF_KINDS = ("F601", "F811", "F841", "B904", "RUF013")
 _RUFF_NEVER = ("B008", "E712", "S314", "S104", "S105")
-_APP_DIRS = ("iptv-backend/app", "backend/app", "app")
+_APP_DIRS = ("iptv-backend/app", "billwatch-backend/app", "backend/app", "app")
 _RUFF_MAX_FINDINGS = 4
 _RUFF_TEXT = {
     "F601": "Fix the duplicate dictionary key(s) %(names)sat line(s) %(rows)s (ruff F601: a repeated key silently discards the earlier value). Read the neighbouring entries and keep the "
@@ -804,12 +834,28 @@ def _load_external_collectors():
         return []
 
 
-def collect_all(root):
+# 2026-10-18 (backlog-out incident: 5 repos starved for 16-22 h while this ran only for iptv_apps + xlite): the supply cron may now run for these repos. They are Python/FastAPI
+# backends where the low-value collectors (docstrings, return annotations, `-> None`) would drown the few behavioural gaps, so a profile restricts them to kinds that fix a
+# defect or add a real assertion. OVN_SUPPLY_PROFILE=off restores "every collector" for them; OVN_SUPPLY_KINDS overrides the allowlist (comma list of spec kinds).
+EXTENDED_REPOS = ("gitlark", "billwatch", "test-automation-agent", "shrike-monitor", "shrike-notify")
+EXTENDED_KINDS = ("swallowed-exception", "no-rate-limit", "pure-function-tests", "unused-import", "ruff-F601", "ruff-F811")
+
+
+def kind_allowlist(repo):
+    """None = no restriction (iptv_apps, xlite, unknown repos, or OVN_SUPPLY_PROFILE=off); else the set of spec kinds this repo may be supplied with."""
+    if repo not in EXTENDED_REPOS or os.environ.get("OVN_SUPPLY_PROFILE", "on") == "off":
+        return None
+    env = os.environ.get("OVN_SUPPLY_KINDS", "").strip()
+    return {k.strip() for k in env.split(",") if k.strip()} if env else set(EXTENDED_KINDS)
+
+
+def collect_all(root, repo=None):
     """Round-robin the collectors so one kind cannot crowd out the rest."""
+    allow = kind_allowlist(repo) if repo else None
     per = []
     for fn in COLLECTORS + _load_external_collectors():
         try:
-            per.append(list(fn(root)))
+            per.append([x for x in fn(root) if allow is None or x.get("kind") in allow])
         except Exception as e:  # a broken collector must not kill the pass
             sys.stderr.write("collector %s failed: %s\n" % (getattr(fn, "__name__", fn), e))
             per.append([])
@@ -840,6 +886,28 @@ _HELD = re.compile(r"HUMAN-ONLY|AUTO-SKIP|BLOCKED|\(retired-|\[CLAUDE\]")  # BLO
 def open_count(text):
     """Open items the fleet can actually take (same exclusions as the queue's doable count): held/escalated/retired lines do not count."""
     return sum(1 for l in text.split("\n") if re.match(r"^- \[ \] \[T[1-5]\]", l) and not _HELD.search(l))
+
+
+def _shape_lint_keep(keep, root, repo):
+    """D1: VERIFY shape lint on the specs about to enter the backlog (keep = [(spec, line, verdict)]). OVN_VERIFY_LINT=off|shadow|enforce, default shadow (log + alerts
+    count only). enforce rewrites a mechanically fixable clause or drops the spec. Never raises."""
+    try:
+        import ovn_verify_shape_lint as vsl
+        md = vsl.mode()
+        if md == "off":
+            return keep
+        out, flagged = [], []
+        for s, l, v in keep:
+            d, l2, res = vsl.lint_item_line(l, root, md)
+            if d != "ok":
+                flagged.append((l, d, res))
+            if d != "dropped":
+                out.append((s, l2, v))
+        vsl.log_flagged(flagged, repo, "work_supply", md, len(keep))
+        return out
+    except Exception as e:
+        print("%s: verify shape lint skipped (%s: %s)" % (repo, type(e).__name__, e))
+        return keep
 
 
 def _norm_line(l):
@@ -1221,7 +1289,7 @@ def main(argv):
     resup_path = _state("work_supply_resupplied_%s" % repo)
     seen, resupplied = load_seen(seen_path, now), load_resupplied(resup_path)
     lines_all = (backlog_t + "\n" + progress_t + "\n" + done_t).split("\n")
-    found = collect_all(root)
+    found = collect_all(root, repo)
     stat = {"seen": 0, "open": 0, "done-cooldown": 0, "held-by-file": 0, "parked": 0}
     specs, files_taken, resup_keys = [], set(), set()
     for s in found:
@@ -1273,6 +1341,7 @@ def main(argv):
             notes.append(note)
             print("%s: spec dropped as %s - %s" % (repo, v, note))
     keep = keep[:mx]
+    keep = _shape_lint_keep(keep, root, repo)
     if dry:
         print("%s: DRY-RUN %d specs, %d red-before, dropped %s" % (repo, len(specs), len(keep), dropped or "none"))
         for _, l, _ in keep:

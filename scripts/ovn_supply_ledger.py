@@ -211,7 +211,9 @@ def read_rows(state_dir, since, max_bytes=None):
 
 
 def _is_skip(r):
-    return r.get("class") == "skipped" or str(r.get("status", "")).startswith("skip")
+    """Rows that are NOT work: the idle loop's skip heartbeat, and D4's landed-late attribution rows (stamped with the reconcile time, no duration, no cycle - they would
+    otherwise refresh a starved lane's 'last real work' and inflate its row/item counters)."""
+    return r.get("class") in ("skipped", "landed-late") or str(r.get("status", "")).startswith("skip")
 
 
 def _is_exhausted_skip(r):

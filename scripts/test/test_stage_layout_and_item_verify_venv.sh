@@ -12,7 +12,7 @@ pass=0; fail=0
 ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 SCRIPTS="$(cd "$HERE/.." && pwd)"
 T="$(safe_mktemp_dir)" || exit 1
-trap 'safe_rm_tree "$T" 2>/dev/null || true' EXIT
+trap 'safe_rm_rf "$T"' EXIT   # 2026-10-18: was safe_rm_tree (no such helper; error swallowed) -> leaked 161 entries (ovn.XXXXXX) per suite run
 . "$SCRIPTS/lib_stage_guards.sh"
 
 echo "== L: layout listing keeps test directories visible"
@@ -39,7 +39,9 @@ ITEM='[T3] backend/app/x.py — do x. VERIFY: `python -c "import pytest"`. (cat:
 export OVN_STAGE_IV_SHADOW_LOG="$T/iv.log"
 r_new="$(cd "$Q" && PATH="$T/bin:$PATH" OVN_STAGE_REPO=r stage_item_verify_run "$T/wtv" "$ITEM")"
 r_old="$(cd "$Q" && PATH="$T/bin:$PATH" OVN_STAGE_REPO=r OVN_STAGE_REPO_DIR=/nonexistent stage_item_verify_run "$T/wtv" "$ITEM")"
-ok "V0 (old behaviour: no repo venv) the bare python is the box's and the verdict is FAIL: $r_old" "$([ "${r_old%%|*}" = FAIL ] && echo 1 || echo 0)"
+ok "V0 (no repo venv) the bare python is the box's: no verdict about the item, so UNRUNNABLE (not FAIL, 0dd9caf): $r_old" "$([ "${r_old%%|*}" = UNRUNNABLE ] && echo 1 || echo 0)"
+r_old_off="$(cd "$Q" && PATH="$T/bin:$PATH" OVN_STAGE_REPO=r OVN_STAGE_REPO_DIR=/nonexistent OVN_VERIFY_MISSING_PYTEST=off stage_item_verify_run "$T/wtv" "$ITEM")"
+ok "V0m (mutant: OVN_VERIFY_MISSING_PYTEST=off = pre-0dd9caf behaviour) the same probe is FAIL, so V0 can fail: $r_old_off" "$([ "${r_old_off%%|*}" = FAIL ] && echo 1 || echo 0)"
 ok "V1 with the repo clone venv leading PATH the same clause is PASS: $r_new" "$([ "${r_new%%|*}" = PASS ] && echo 1 || echo 0)"
 ok "V2 the probe left no file in the worktree" "$([ -z "$(ls -A "$T/wtv/backend")" ] && echo 1 || echo 0)"
 echo; echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

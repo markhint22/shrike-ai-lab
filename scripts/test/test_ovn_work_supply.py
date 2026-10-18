@@ -726,5 +726,31 @@ try:
 finally:
     shutil.rmtree(_lf2, ignore_errors=True)
 
+# --- 2026-10-18 (test-automation-agent audit): a router limited through a repo-defined decorator (`public_api_limit = limiter.shared_limit(..)`, `@public_api_limit`)
+# is NOT a "no-rate-limit" candidate (the supply re-issued it 4x; the model's edit broke the existing per-key rate-limit tests)
+def _shared_limit_fixture(with_decorator_def):
+    d = tempfile.mkdtemp(prefix="supply_sharedlimit_")
+    def w(rp, body):
+        fp = os.path.join(d, rp)
+        os.makedirs(os.path.dirname(fp), exist_ok=True)
+        open(fp, "w").write(body)
+    w("backend/app/core/rate_limiting.py", "from slowapi import Limiter\nlimiter = Limiter(key_func=None)\n"
+      + ("public_api_limit = limiter.shared_limit('60/minute', scope='public_api')\n" if with_decorator_def else ""))
+    w("backend/app/routers/auth.py", "from app.core.rate_limiting import limiter\nfrom fastapi import APIRouter\nrouter = APIRouter()\n@router.get('/a')\n@limiter.limit('5/minute')\ndef a(request):\n    return 1\n")
+    w("backend/app/routers/public_api.py", "from app.core.rate_limiting import public_api_limit\nfrom fastapi import APIRouter\nrouter = APIRouter()\n@router.get('/runs')\n@public_api_limit\ndef runs(request):\n    return 1\n@router.post('/runs')\n@public_api_limit\ndef mk(request):\n    return 2\n")
+    return d
+_sl = _shared_limit_fixture(True)
+try:
+    ok("shared-limit decorator: a router using `@public_api_limit` (limiter.shared_limit) yields NO no-rate-limit item",
+       [x["file"] for x in W.c_rate_limit(_sl)] == [], [x["file"] for x in W.c_rate_limit(_sl)])
+finally:
+    shutil.rmtree(_sl, ignore_errors=True)
+_sl2 = _shared_limit_fixture(False)
+try:
+    ok("shared-limit decorator MUTANT: with no `name = limiter.shared_limit(` definition the same router IS still flagged (detection is what suppresses it)",
+       [x["file"] for x in W.c_rate_limit(_sl2)] == ["backend/app/routers/public_api.py"], [x["file"] for x in W.c_rate_limit(_sl2)])
+finally:
+    shutil.rmtree(_sl2, ignore_errors=True)
+
 print("\n%d passed, %d failed" % (P, F))
 sys.exit(1 if F else 0)

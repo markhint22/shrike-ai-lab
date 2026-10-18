@@ -127,6 +127,7 @@ stage_item_verify_run(){
       # shellcheck disable=SC1091
       . "$_SG_DIR/lib_verify_clause.sh" 2>/dev/null
       declare -F shadow_check >/dev/null 2>&1 || { printf 'NO_VERIFY_CLAUSE|shadow_check missing'; exit 0; }
+      OVN_VERIFY_VENV_FALLBACK="${OVN_VERIFY_VENV_FALLBACK:-${HOME}/overnight-queue/repos/${OVN_STAGE_REPO:-}}"; export OVN_VERIFY_VENV_FALLBACK   # worktree has no .venv: see _resolve_tool_paths
       shadow_check 1 >/dev/null 2>&1
       printf '%s|%s' "${_LAST_VERIFY_RESULT:-NO_VERIFY_CLAUSE}" "${_LAST_VERIFY_WHY:-}"
     } )"
@@ -147,7 +148,7 @@ stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|c
 stage_item_verify_textonly(){
   local cmd
   cmd="$(printf '%s' "$1" | grep -oE 'VERIFY: `[^`]+`' | head -1 | sed -E 's/^VERIFY: `//; s/`$//')"
-  cmd="$(printf '%s' "$cmd" | sed -E 's/ *&& *echo +[A-Za-z0-9_"]+ *$//')"   # `test ! -f x && echo PASS`: the echo only prints the verdict
+  cmd="$(printf '%s' "$cmd" | sed -E 's/ *&& *echo +[A-Za-z0-9_"'"'"']+ *\|\| *echo +[A-Za-z0-9_"'"'"']+ *$//; s/ *&& *echo +[A-Za-z0-9_"]+ *$//')"   # `test ! -f x && echo PASS`: the echo only prints the verdict; 2026-10-18: also `X && echo FAIL || echo PASS` (lib_verify_clause.sh OVN_VERIFY_ECHO_VERDICT re-reads it by X's exit status)
   [ -n "$cmd" ] || return 1
   case "$cmd" in grep\ *|egrep\ *|test\ *|'['\ *|'! grep '*|'!grep '*) ;; *) return 1;; esac
   if printf '%s' "$cmd" | grep -qiE '(^|[^A-Za-z0-9_])(python3?|pytest|godot|gdparse|gradle|gradlew|npm|npx|node|vitest|jest|swift|swiftc|xcodebuild|docker|make|cargo|go|bash|sh|eval|exec|curl|ruby|php|java|kotlinc)([^A-Za-z0-9_]|$)'; then return 1; fi

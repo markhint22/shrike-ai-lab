@@ -445,8 +445,11 @@ calls, out, rows_, skips_ = daily_scenario(gm, "mutdemo mutdemo", env={"OVN_MUT_
 ok("D4: with a 60 s budget, 30 s cap, 0 margin: first repo runs (40 s), the second (20 s left < 30) does not", calls == ["mutdemo"], "%s %s" % (calls, out))
 calls, out, rows_, skips_ = daily_scenario(gm, "mutdemo ../evil bad;name", calls_clock=1)
 ok("D6: repo names are validated: only [A-Za-z0-9._-]+ reach resolve_range/check", calls == ["mutdemo"] and "evil" not in out and "bad" not in out, "%s %s" % (calls, out))
-calls, out, rows_, skips_ = daily_scenario(gm, "mutdemo", env={"OVN_MUT_LOAD_MAX": "abc"}, calls_clock=1)
-ok("D6: OVN_MUT_LOAD_MAX=abc does not crash daily(): the repo is still processed", calls == ["mutdemo"] and "crashed" not in out, "%s %s" % (calls, out))
+# the host's REAL 1-min load must not decide this (a busy box above the default 6 skipped the repo): pin the load, then assert the fallback value itself
+calls, out, rows_, skips_ = daily_scenario(gm, "mutdemo", env={"OVN_MUT_LOAD_MAX": "abc"}, calls_clock=1, load_seq=[0.5])
+ok("D6: OVN_MUT_LOAD_MAX=abc does not crash daily(): the repo is still processed (load 0.5 < fallback 6)", calls == ["mutdemo"] and "crashed" not in out, "%s %s" % (calls, out))
+calls, out, rows_, skips_ = daily_scenario(gm, "mutdemo", env={"OVN_MUT_LOAD_MAX": "abc"}, calls_clock=1, load_seq=[7.0])
+ok("D6b: OVN_MUT_LOAD_MAX=abc falls back to the DEFAULT 6 (not 'no limit'): load 7.0 still skips", calls == [] and "crashed" not in out and "load average 7.0 > " in out, "%s %s" % (calls, out))
 calls, out, rows_, skips_ = daily_scenario(gm, "mutdemo", env={"OVN_MUT_LOAD_MAX": "6"}, load_seq=[0.1, 99.0])
 ok("daily: load that rises after the first guard skips the repo (mid-loop re-check), recorded as a skip", calls == [] and "load rose" in out and skips_ and "load rose" in skips_[0]["reason"], "%s %s %s" % (calls, out, skips_))
 calls, out, rows_, skips_ = daily_scenario(gm, "mutdemo", calls_clock=1, argv_extra=["--no-record"])

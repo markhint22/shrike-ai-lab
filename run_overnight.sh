@@ -126,6 +126,25 @@ source "$SCRIPT_DIR/scripts/lib_stage_credit.sh" 2>/dev/null || true
 # 2026-10-02 (bugs-first): the selectors below pipe through ovn_bug_first_order; if the lib failed to source these must degrade to the OLD behaviour
 # (identity filter, no bug ever detected) instead of "command not found" emptying every selector.
 command -v ovn_bug_first_order >/dev/null 2>&1 || ovn_bug_first_order() { cat; }
+# >>> d3 scout-slice filter
+# 2026-10-18 (D3-step-ordering gap fill): the "Doable Next Steps" list the SCOUT is shown goes through the same dependency-aware item filter the stage runner's picker uses
+# (scripts/ovn_stage_order.py item-filter), so a test-first line is not offered while the open source line it verifies is. OVN_STAGE_ORDER=off|shadow|enforce, default SHADOW:
+# lines pass through unchanged and would-skip decisions go to state/stage_order_shadow.log. Fail-open everywhere (no python / script / progress file / any error => the input),
+# and a filter that would EMPTY a non-empty slice returns the input instead (the scout is never starved by the filter).
+_ovn_so_slice_filter() {
+  local _in _out _m="${OVN_STAGE_ORDER:-shadow}" _py="${SCRIPT_DIR:-.}/scripts/ovn_stage_order.py"
+  local _to=(); command -v timeout >/dev/null 2>&1 && _to=(timeout "${OVN_STAGE_ORDER_TIMEOUT:-5}")   # a hung/slow filter falls back to the input (fail-open), never stalls the scout
+  _in="$(cat)"
+  [ -n "$_in" ] || return 0
+  if [ "$_m" = off ] || [ ! -f "$_py" ] || [ ! -f OVERNIGHT_PROGRESS.md ]; then printf '%s\n' "$_in"; return 0; fi
+  if _out="$(printf '%s\n' "$_in" | ${_to[@]+"${_to[@]}"} python3 "$_py" item-filter --mode "$_m" --progress OVERNIGHT_PROGRESS.md --repo "$(basename "$PWD")" --log "${STATE_DIR:-${SCRIPT_DIR:-.}/state}/stage_order_shadow.log" 2>/dev/null)" && [ -n "$_out" ]; then
+    printf '%s\n' "$_out"
+  else
+    printf '%s\n' "$_in"
+  fi
+  return 0
+}
+# <<< d3 scout-slice filter
 command -v ovn_has_bug_line >/dev/null 2>&1 || ovn_has_bug_line() { return 1; }
 command -v ovn_is_manual_bug_text >/dev/null 2>&1 || ovn_is_manual_bug_text() { return 1; }
 command -v ovn_open_bug_count >/dev/null 2>&1 || ovn_open_bug_count() { printf '0'; }
@@ -163,9 +182,18 @@ source "$SCRIPT_DIR/scripts/lib_run_integrity.sh" 2>/dev/null || { ovn_ri_subtra
 # 2026-10-02 (harness-X X1): auto-credit needs exact path + passing VERIFY + clean tree; without the lib NOTHING is credited (fail closed).
 source "$SCRIPT_DIR/scripts/lib_auto_credit.sh" 2>/dev/null || { ovn_auto_credit(){ OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD)"; echo "--- auto-credit: lib_auto_credit.sh missing - nothing credited ---" >> "${4:-/dev/null}"; return 0; }; ovn_tree_matches_sha(){ return 0; }; }
 
+# 2026-10-18 (package D4, outcome accounting): commit shas on every outcome row + the bounded verify-timeout hold (scripts/lib_outcome_acct.sh). Missing lib => no shas, no hold (old behaviour).
+# shellcheck source=scripts/lib_outcome_acct.sh
+source "$SCRIPT_DIR/scripts/lib_outcome_acct.sh" 2>/dev/null || true
+declare -F ovn_oa_commits >/dev/null 2>&1 || ovn_oa_commits(){ printf '[]'; }
+declare -F ovn_oa_head >/dev/null 2>&1 || ovn_oa_head(){ return 0; }
+declare -F ovn_vt_decide >/dev/null 2>&1 || ovn_vt_decide(){ OVN_VT_VERDICT=off; OVN_VT_COUNT=0; OVN_VT_BASE=""; OVN_VT_MSG=""; return 0; }
+declare -F ovn_vt_reset >/dev/null 2>&1 || ovn_vt_reset(){ return 0; }
+declare -F ovn_vt_revert_held >/dev/null 2>&1 || ovn_vt_revert_held(){ return 1; }
+
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
-record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s $9=repo_dir
+record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s $9=repo_dir $10=bestn_stop $11=head_before $12=head_after (11/12 optional, D4)
   local tier cat cls sev st attempt tl src dur repo_dir item_hash feat_tag bn_stop
   attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"; repo_dir="${9:-}"; feat_tag=""; bn_stop="$(printf '%s' "${10:-}" | tr -cd 'a-z0-9_-')"
   case "$attempt" in ''|*[!0-9]*) attempt=1;; esac
@@ -319,6 +347,9 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     no-op*|noop*)                  cls=noop;      sev=bad;;
     skip*exhausted*|skip*none*|skip*empty*) cls=skipped; sev=expected;;
     skip*)                         cls=skipped;   sev=neutral;;
+    # 2026-10-18 (D4): a verify that timed out with zero failing ids is HELD unpushed (OVN_VERIFY_TIMEOUT_HOLD=enforce): not an error, not a failure, and the commit may land later
+    # (scripts/ovn_outcome_acct.py reconcile attributes that landing). Must sit before error*|fail*.
+    *verify-timeout-held*)         cls=held;      sev=neutral;;
     error*|fail*)                  cls=error;     sev=neutral;;
     held*)                         cls=held;      sev=neutral;;
     # 2026-09-09 FIX: this used to be a bare `*) cls=landed` catch-all, so ANY status string
@@ -377,6 +408,13 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # 2026-10-03 (integrity A12): every field goes through jq (--arg escapes quotes/backslashes/control bytes; numbers are digit-validated first), so a status
   # or fail_reason can never produce an invalid JSON row (one live row was malformed). jq missing/failing => the old printf (same key order).
   local _n_attempt _n_sent _n_recv _n_dur _row
+  # 2026-10-18 (D4): commit accounting. head_after = the repo HEAD at record time, head_before = HEAD when the cycle's implement step started (passed by the caller from the
+  # task log's ovn-head-before marker); commits = what the cycle added on top of it (empty for a revert/no-op). Additive fields: every legacy reader ignores them.
+  local _hb _ha _commits
+  _hb="$(printf '%s' "${11:-}" | tr -cd '0-9a-fA-F')"; _ha="$(printf '%s' "${12:-}" | tr -cd '0-9a-fA-F')"
+  [ -n "$_ha" ] || _ha="$(ovn_oa_head "$repo_dir" 2>/dev/null)"
+  # since = the cycle's start (now - duration): when the clone was rebased/merged mid-cycle head_before is no longer an ancestor and ovn_oa_commits keeps only own-authored-in-window, non-merge commits
+  _commits="$(ovn_oa_commits "$repo_dir" "$_hb" "$_ha" "$(case "${dur:-0}" in ''|*[!0-9]*) ;; *) echo $(( $(date +%s) - dur - 5 ));; esac)" 2>/dev/null)"; [ -n "$_commits" ] || _commits='[]'
   case "${attempt:-1}" in ''|*[!0-9]*) _n_attempt=1;; *) _n_attempt="${attempt:-1}";; esac
   case "${toks_sent:-0}" in ''|*[!0-9]*) _n_sent=0;; *) _n_sent="$toks_sent";; esac
   case "${toks_recv:-0}" in ''|*[!0-9]*) _n_recv=0;; *) _n_recv="$toks_recv";; esac
@@ -384,12 +422,13 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   _row="$(jq -nc --arg ts "$(date -u +%FT%TZ)" --arg repo "${2:-}" --arg id "${1:-}" --arg type "${5:-}" --arg tier "${tier:-?}" --arg category "$cat" --arg class "$cls" --arg severity "$sev" \
       --argjson attempt "$_n_attempt" --arg bestn_stop "${bn_stop:-}" --arg fail_reason "${fail_reason:-}" --arg status "$st" \
       --argjson tokens_sent "$_n_sent" --argjson tokens_recv "$_n_recv" --argjson duration_s "$_n_dur" --arg item_hash "${item_hash:-}" --arg feat_tag "${feat_tag:-}" \
-      '{ts:$ts,repo:$repo,id:$id,type:$type,tier:$tier,category:$category,class:$class,severity:$severity,attempt:$attempt,attempts:$attempt,bestn_stop:$bestn_stop,fail_reason:$fail_reason,status:$status,tokens_sent:$tokens_sent,tokens_recv:$tokens_recv,duration_s:$duration_s,item_hash:$item_hash,feat_tag:$feat_tag}' 2>/dev/null)"
+      --argjson commits "$_commits" --arg head_before "$_hb" --arg head_after "$_ha" \
+      '{ts:$ts,repo:$repo,id:$id,type:$type,tier:$tier,category:$category,class:$class,severity:$severity,attempt:$attempt,attempts:$attempt,bestn_stop:$bestn_stop,fail_reason:$fail_reason,status:$status,tokens_sent:$tokens_sent,tokens_recv:$tokens_recv,duration_s:$duration_s,item_hash:$item_hash,feat_tag:$feat_tag,commits:$commits,head_before:$head_before,head_after:$head_after}' 2>/dev/null)"
   if [ -n "$_row" ]; then
     printf '%s\n' "$_row" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
     return 0
   fi
-  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"attempts":%s,"bestn_stop":"%s","fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${attempt:-1}" "${bn_stop:-}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
+  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"attempts":%s,"bestn_stop":"%s","fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s","commits":%s,"head_before":"%s","head_after":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${attempt:-1}" "${bn_stop:-}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" "$_commits" "$_hb" "$_ha" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
 }
 FAIL_DIR="$STATE_DIR/failures"
 NOOP_DIR="$STATE_DIR/noops"
@@ -1679,13 +1718,19 @@ STUB
             echo "stage-item-line $(printf '%s' "$_stage_item_full" | tr '\n\r' '  ')" >> "$task_log"
           fi
         fi
-        if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
+        # 2026-10-18 (D2): the stage runner settled the item BEFORE any model call (OVN_STAGE_PRECREDIT=enforce: its own VERIFY already passed on the pristine tree, or a sibling owns the test).
+        # That is a benign already-done verdict (no landing, no flail), not a 'stage-unverified' failure.
+        _stage_pc=0; [ -n "$_STAGE_JSONL" ] && grep -q '"event":"precredit_applied"' "$_STAGE_JSONL" 2>/dev/null && _stage_pc=1
+        if [ "$_stage_pc" = 1 ]; then
+          _stage_oc=noop:done
+        elif [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ]; then
           _stage_oc=pass
         else
           _stage_oc=noop:flail
         fi
         mkdir -p "$SCRIPT_DIR/state" 2>/dev/null
         printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(basename "$repo")" "$_stage_oc" "$_stage_tag" "${_stage_file:-?}" >> "$SCRIPT_DIR/state/task_stats.log"
+        if [ "$_stage_pc" = 1 ]; then echo "no-op(ALREADY-DONE) stage(precredit)"; return; fi
         # 2026-10-15: each stage run is credited once (lib_stage_credit.sh). A re-read of an already-credited run is a no-op, not a second landing.
         if [ -n "$_STAGE_PUSHED" ] && [ "$_STAGE_PUSHED" -gt 0 ] && ovn_stage_credit_claim "$_STAGE_JSONL" "$SCRIPT_DIR/state/stage_credited.ledger"; then
           echo "pushed(tests:pass) stage(higher-tier)"
@@ -1709,6 +1754,8 @@ STUB
     # DISCARDED the freshly-generated/retired items - backlogs never refilled and
     # empty repos stayed empty forever (0 doable despite self-gen making 12).
     BEFORE_SHA="$(git rev-parse HEAD)"
+    # 2026-10-18 (D4): the cycle's own base sha, read back by the main loop to attribute commits to the outcome row (first attempt wins: best-of-N resets to the same base).
+    echo "--- ovn-head-before: ${BEFORE_SHA} ---" >> "${task_log:-/dev/null}"
 
     # >>> DELETE-EXECUTOR-BEGIN
     # 2026-09-30: "Delete/Remove <file>" items can NEVER succeed as an LLM udiff job here ("'/dev/null' is not in the
@@ -1983,6 +2030,7 @@ STUB
           grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null \
             | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' \
             | ovn_bug_first_order \
+            | _ovn_so_slice_filter \
             | python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" head "$DOABLE_BUDGET" \
             | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
           echo
@@ -2187,7 +2235,30 @@ IMPORTANT: your last attempt on this exact item was reverted or produced nothing
       # the same discipline to the basic scout/implement flow. Purely additive for
       # multifile:yes/untagged items - completely unaffected.
       if printf '%s' "$prompt" | grep -qi 'multifile:no'; then
-        return 1
+        # 2026-10-18 (overnight audit, iptv_apps): a (multifile:no) test item names ONLY the test file, so the model must read the SOURCE under test and says "Please add <source>.py to the chat".
+        # With the scan disabled outright, attempt 1 ended no-edit with 0 files pre-loaded and the cycle ended there (7 no-op rows in one day, the same 2 items re-run 4x). The scope guard is about
+        # what may be EDITED, so a file the model explicitly ASKED for is fed READ-ONLY (--read: aider cannot edit it, FILE_ARGS stays empty, the staged scope guard is untouched). Only paths on
+        # or just before a request line count (never every token in the log: that was the 79k-token ballooning), <= 2 files, <= OVN_NOEDIT_FEED_MAX_BYTES (60000) each, never .md / protected /
+        # dropped files. OVN_NOEDIT_READONLY_FEED=off restores the old no-feed behaviour.
+        [ "${OVN_NOEDIT_READONLY_FEED:-on}" = "off" ] && return 1
+        local found_ro=0 ro_cand ro_n=0
+        case "$ADDED_FILES" in *"|RO:"*) ro_n=$(printf '%s' "$ADDED_FILES" | grep -o '|RO:' | wc -l | tr -d ' ') ;; esac
+        while IFS= read -r ro_cand; do
+          [ -z "$ro_cand" ] && continue
+          [ "$ro_n" -ge 2 ] && break
+          case "$ro_cand" in *.md) continue ;; esac
+          case "$ADDED_FILES" in *"|${ro_cand}|"*|*"|RO:${ro_cand}|"*) continue ;; esac
+          case " ${_ovn_scout_dropped:-} " in *" $ro_cand "*) continue ;; esac
+          is_protected_file "$ro_cand" && continue
+          [ -f "$ro_cand" ] || continue
+          [ "$(wc -c < "$ro_cand" | tr -d ' ')" -le "${OVN_NOEDIT_FEED_MAX_BYTES:-60000}" ] || continue
+          READ_ARGS+=(--read "$ro_cand")
+          ADDED_FILES="${ADDED_FILES}RO:${ro_cand}|"
+          ro_n=$((ro_n + 1)); found_ro=1
+          echo "--- multifile:no read-only feed: ${ro_cand} (the model asked for it; not editable) ---" >> "$task_log"
+        done < <(awk '{ l3=l2; l2=l1; l1=$0; if (tolower($0) ~ /(please add|to the chat|add (that|this|the|these)[^.]* file)/) { print l3; print l2; print l1 } }' "$task_log" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | sort -u)
+        [ "$found_ro" -eq 1 ]
+        return
       fi
       local found_new=0
       local cand
@@ -3259,7 +3330,7 @@ $(ovn_udiff_nudge_text)"
         AFTER_SHA="$(git rev-parse HEAD)"
       fi
       if [ -f "$SCRIPT_DIR/scripts/check_migrations.py" ]; then
-        _migcheck_out="$(python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
+        _migcheck_out="$(OVN_MIG_BEFORE_SHA="$BEFORE_SHA" python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
         _migcheck_rc=$?
         printf '%s\n' "$_migcheck_out" >> "$task_log"
         if [ "$_migcheck_rc" -ne 0 ]; then
@@ -3289,7 +3360,7 @@ $(ovn_udiff_nudge_text)"
             if [ "$_migfix_after" != "$AFTER_SHA" ]; then
               AFTER_SHA="$_migfix_after"
               _ovn_land_sha="$AFTER_SHA"   # h13: the fix-up superseded the verified commit; the landing check must follow it
-              _migcheck_out="$(python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
+              _migcheck_out="$(OVN_MIG_BEFORE_SHA="$BEFORE_SHA" python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
               _migcheck_rc=$?
               printf '%s\n' "$_migcheck_out" >> "$task_log"
               echo "--- MIGRATION-SAFETY fix-up re-check: $([ "$_migcheck_rc" -eq 0 ] && echo ok || echo fail) ---" >> "$task_log"
@@ -3306,6 +3377,44 @@ $(ovn_udiff_nudge_text)"
             echo "reverted(migration-fork)"
             return
           fi
+        fi
+      fi
+
+      # APPLIED-MIGRATION IMMUTABILITY (2026-10-18): editing/deleting a migration that already exists on the prod ref rewrites history
+      # (test-automation-agent 3114b2a edited 0001_baseline.py -> duplicate columns with 0002 -> migration tests red fleet-wide for 6 hygiene passes).
+      # Default SHADOW (alert only). OVN_MIGRATION_IMMUTABLE=enforce reverts the cycle, =off disables. Fail-safe: script absent = no-op.
+      if [ -f "$SCRIPT_DIR/scripts/check_applied_migration_immutable.py" ] && [ "${OVN_MIGRATION_IMMUTABLE:-shadow}" != "off" ]; then
+        _mimm_out="$(python3 "$SCRIPT_DIR/scripts/check_applied_migration_immutable.py" "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" 2>&1)"
+        _mimm_rc=$?
+        if [ "$_mimm_rc" -ne 0 ]; then
+          printf '%s\n' "$_mimm_out" >> "$task_log"
+          if [ "${OVN_MIGRATION_IMMUTABLE:-shadow}" = "enforce" ]; then
+            echo "--- APPLIED-MIGRATION GATE: commit edited a migration already on prod - reverting to ${BEFORE_SHA} ---" >> "$task_log"
+            git reset --hard "$BEFORE_SHA" --quiet
+            git clean -fd --quiet 2>/dev/null
+            emit_alert warn "$id" "applied-migration gate reverted a commit that edited/deleted an already-applied Alembic migration"
+            echo "reverted(migration-edit)"
+            return
+          fi
+          emit_alert warn "$id" "applied-migration gate (shadow): cycle edited/deleted an Alembic migration already on prod: $(printf '%s' "$_mimm_out" | head -1 | cut -c1-160)"
+        fi
+      fi
+
+      # GHOST-TEST GATE (2026-10-18): a changed test_*.py outside every pytest collection root never runs (test-automation-agent: root tests/ vs
+      # backend/pytest.ini; e5fc16b/ae277a2 credited on tests nothing collects). Default SHADOW (alert); OVN_GHOST_TEST_GATE=enforce reverts, =off disables.
+      if [ -f "$SCRIPT_DIR/scripts/check_ghost_tests.py" ] && [ "${OVN_GHOST_TEST_GATE:-shadow}" != "off" ]; then
+        _ghost_out="$(python3 "$SCRIPT_DIR/scripts/check_ghost_tests.py" "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" 2>&1)"
+        if [ $? -ne 0 ]; then
+          printf '%s\n' "$_ghost_out" >> "$task_log"
+          if [ "${OVN_GHOST_TEST_GATE:-shadow}" = "enforce" ]; then
+            echo "--- GHOST-TEST GATE: commit added a test no pytest root collects - reverting to ${BEFORE_SHA} ---" >> "$task_log"
+            git reset --hard "$BEFORE_SHA" --quiet
+            git clean -fd --quiet 2>/dev/null
+            emit_alert warn "$id" "ghost-test gate reverted a commit whose tests sit outside every pytest collection root"
+            echo "no-op(ghost-test)"
+            return
+          fi
+          emit_alert warn "$id" "ghost-test gate (shadow): $(printf '%s' "$_ghost_out" | head -1 | cut -c1-160)"
         fi
       fi
 
@@ -3621,6 +3730,28 @@ All files you need are already in the chat. You cannot run commands or call tool
       # Status is a no-op (does NOT trip the task safety-valve); the per-item guard still
       # counts it and auto-blocks the offending item after 3 tries, so a persistently-bad
       # item self-limits instead of revert-looping forever.
+      # VERIFY-TIMEOUT HOLD (2026-10-18, D4; OVN_VERIFY_TIMEOUT_HOLD=off|shadow|enforce, default shadow): a verify killed by its cap (every red marker rc=124) with ZERO failing test ids
+      # says nothing about the commit; reverting it threw away good work (iptv: 29 cycles after the xdist-less venv rebuild). enforce = hold the commit unpushed like the lock-skip path
+      # (the next cycle verifies HEAD incl. the held commit, or it is reverted at the bound); bounded by OVN_VT_HOLD_MAX holds / OVN_VT_HOLD_MAX_HOURS, then escalate = the revert below,
+      # reset to the streak's base so the held commits go too. shadow only logs what it would do. See scripts/lib_outcome_acct.sh.
+      _ovn_vt_base=""
+      if [ "$VERIFY_RESULT" = "fail" ]; then
+        ovn_vt_decide "$SCRIPT_DIR/state" "$(basename "$PWD")" "$task_log" "${_ovn_voff:-0}" "$BEFORE_SHA"
+        case "${OVN_VT_VERDICT:-off}" in
+          hold)
+            echo "--- VERIFY-TIMEOUT HOLD: ${OVN_VT_MSG} ---" >> "$task_log"
+            emit_alert warn "$id" "verify TIMED OUT (rc=124, no failing test id): commit held unpushed instead of reverted (${OVN_VT_COUNT}/${OVN_VT_HOLD_MAX:-3}); check pytest-xdist/venv/box load"
+            echo "error(verify-timeout-held - rc=124 with no failing test, hold ${OVN_VT_COUNT}/${OVN_VT_HOLD_MAX:-3})"
+            return ;;
+          shadow-hold)
+            echo "--- VERIFY-TIMEOUT HOLD (shadow): ${OVN_VT_MSG} ---" >> "$task_log" ;;
+          escalate)
+            echo "--- VERIFY-TIMEOUT HOLD: ${OVN_VT_MSG} ---" >> "$task_log"
+            emit_alert warn "$id" "verify-timeout hold bound reached: ${OVN_VT_MSG}"
+            _ovn_vt_base="${OVN_VT_BASE:-}" ;;
+        esac
+      fi
+
       if [ "$VERIFY_RESULT" = "fail" ]; then
         OVN_CHANGED_ALL="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . | grep -v '^$' || true)"
         OVN_NONTEST="$(echo "$OVN_CHANGED_ALL" | grep -vE '(^|/)(tests?|__tests__)/|\.test\.[jt]sx?$|\.spec\.[jt]sx?$|(^|/)test_[^/]*\.py$|_test\.py$|Test\.kt$|Tests?\.swift$' | grep -v '^$' || true)"
@@ -3634,6 +3765,10 @@ All files you need are already in the chat. You cannot run commands or call tool
           # Resolve the item against the BEFORE tree: the model's commit has usually ticked its own item [x], so the post-commit tree's
           # "top item" is the NEXT item (the wrong one would be parked and counted). The reset is the same one the revert path does anyway.
           git reset --hard "$BEFORE_SHA" --quiet; git clean -fd --quiet 2>/dev/null
+          if [ -n "${_ovn_vt_base:-}" ] && ! ovn_vt_revert_held "$_ovn_vt_base" "$BEFORE_SHA" "$task_log"; then   # same escalation duty as the plain revert below
+            echo "--- VERIFY-TIMEOUT HOLD: could NOT revert the held commits (streak base ${_ovn_vt_base:0:12} unreachable from HEAD): they REMAIN in HEAD unverified ---" >> "$task_log"
+            emit_alert warn "$id" "verify-timeout escalation could NOT drop the held commits (streak base unreachable); they remain unverified in HEAD - needs a human look"
+          fi
           _nd_top="$(ovn_resolve_top_item "$PWD" "$task_log" 2>/dev/null)"
           # 2026-10-09: when the failing test file IS the item's own target (a test item whose placeholder/test the model is writing) the failure is the item's
           # own work, not an older test asserting the opposite - never park it as NEEDS-DECISION.
@@ -3662,7 +3797,14 @@ All files you need are already in the chat. You cannot run commands or call tool
             fi
           fi
         fi
+        # 2026-10-18 (D4): an escalated verify-timeout streak reverts the HELD commits too (they were never verified). ovn_vt_revert_held resets to the streak base when no queue bookkeeping
+        # was committed since, else undoes the held commits' changes on every non-bookkeeping path and KEEPS the bookkeeping (parks/credits/refills). When it cannot (base not an ancestor)
+        # the held commits stay in HEAD: say so (log + alert) instead of claiming a revert, and the next streak starts from the then-current HEAD.
         git reset --hard "$BEFORE_SHA" --quiet
+        if [ -n "${_ovn_vt_base:-}" ] && ! ovn_vt_revert_held "$_ovn_vt_base" "$BEFORE_SHA" "$task_log"; then
+          echo "--- VERIFY-TIMEOUT HOLD: could NOT revert the held commits (streak base ${_ovn_vt_base:0:12} unreachable from HEAD): they REMAIN in HEAD unverified ---" >> "$task_log"
+          emit_alert warn "$id" "verify-timeout escalation could NOT drop the held commits (streak base unreachable); they remain unverified in HEAD - needs a human look"
+        fi
         git clean -fd --quiet 2>/dev/null
         # 2026-10-17 (iptv review): rc=124 = the verify cap killed the suite; the revert proves nothing about the commit. Say so (a venv missing pytest-xdist made every iptv verify do this).
         if tail -c 4000 "$task_log" 2>/dev/null | grep -aqE 'verify-suite-red: .* rc=124( |$)'; then
@@ -3795,6 +3937,7 @@ All files you need are already in the chat. You cannot run commands or call tool
         # per-file auto-credit path and the DONE:-trailer bookkeeping path — whichever one
         # actually flipped a line) and hash every newly-checked-off line the same way this
         # guard does, via the shared ovn_item_hash() (scripts/lib_item_select.sh).
+        [ "$VERIFY_RESULT" = "pass" ] && ovn_vt_reset "$SCRIPT_DIR/state" "$(basename "$PWD")"   # 2026-10-18 (D4): a verified landing ends the verify-timeout hold streak
         if [ "$VERIFY_RESULT" = "pass" ] && command -v ovn_item_hash >/dev/null 2>&1; then
           while IFS= read -r _landed_line; do
             [ -z "$_landed_line" ] && continue
@@ -4254,7 +4397,18 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   _TASK_DURATION_S=$(( $(date +%s) - ${_TASK_START_TS:-$(date +%s)} ))
   log "Task ${ID}: ${STATUS} (${_TASK_DURATION_S}s)"
   echo "| ${ID} | ${TYPE} | ${STATUS} | ${VERSION_OR_BRANCH} | ${TASK_LOG} | ${_TASK_DURATION_S}s |" >> "$REPORT_FILE"
-  record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}" "${REPO:-}" "${_bn_stop:-}"
+  # 2026-10-18 (D4): head_before = the base sha the implement step logged (first attempt), head_after = the repo HEAD now; record_outcome derives commits=[...] from the pair.
+  _oa_hb=""; [ -n "${TASK_LOG:-}" ] && [ -f "${TASK_LOG:-}" ] && _oa_hb="$(grep -a -m1 -oE '^--- ovn-head-before: [0-9a-f]{7,40} ---' "$TASK_LOG" 2>/dev/null | grep -oE '[0-9a-f]{7,40}' | head -1)"
+  _oa_ha=""; [ "$TYPE" != "train_job" ] && [ -n "${REPO:-}" ] && _oa_ha="$(ovn_oa_head "$REPO" 2>/dev/null)"
+  record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}" "${REPO:-}" "${_bn_stop:-}" "$_oa_hb" "$_oa_ha"
+  # reconcile held commits that reached origin since (additive landed-late rows), throttled + backgrounded; OVN_OUTCOME_RECONCILE=off disables
+  if [ "${OVN_OUTCOME_RECONCILE:-on}" != off ] && [ -f "$SCRIPT_DIR/scripts/ovn_outcome_acct.py" ] && [ "$TYPE" != "train_job" ]; then
+    _oa_stamp="$STATE_DIR/outcome_reconcile.stamp"
+    if [ -z "$(find "$_oa_stamp" -mmin -"${OVN_OUTCOME_RECONCILE_MIN:-10}" 2>/dev/null)" ]; then
+      : > "$_oa_stamp" 2>/dev/null
+      ( timeout 60 python3 "$SCRIPT_DIR/scripts/ovn_outcome_acct.py" reconcile --state-dir "$STATE_DIR" --repos-dir "$SCRIPT_DIR/repos" >> "$LOG_DIR/outcome_reconcile.log" 2>&1 200>&- < /dev/null & ) 2>/dev/null   # 200>&-: never inherit run.lock (flock belongs to the open file description; a child would keep the lock held after the runner releases it)
+    fi
+  fi
   # 2026-10-09 (harness-credit-integrity item 11a/c): count the lanes this pass worked and how many of them were idle; on a repo's FIRST exhausted pass kick the work
   # supply in the background (state/exhausted_since_<repo>); any other status clears that marker so the next exhaustion kicks again.
   if [ "$TYPE" != "train_job" ]; then

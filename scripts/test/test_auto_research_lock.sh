@@ -117,12 +117,13 @@ lock_checks(){
   ar_run OVN_AR_MAX_PER_DAY=2
   [ "$(log_has "daily cap reached (2/2) - skip")" = 1 ] && [ "$(log_has "another run active")" = 0 ] && echo "1|second run after a cap exit is not 'another run active'" || echo "0|second run after a cap exit is not 'another run active'"
 
-  # E3. 2026-10-13: the Claude pass is a BONUS now (the box explorer ovn_qwen_explore.py is the engine): defaults 8 passes/day and 3 repos/run (were 2 and 2)
-  fresh; echo 7 > "$STATE/count_$(date +%F)"; ar_run
-  [ "$(log_has "daily cap reached")" = 0 ] && echo "1|default daily cap is 8: 7 passes today is NOT capped" || echo "0|default daily cap is 8: 7 passes today is NOT capped"
-  fresh; echo 8 > "$STATE/count_$(date +%F)"; ar_run
-  [ "$(log_has "daily cap reached (8/8) - skip")" = 1 ] && echo "1|default daily cap is 8: 8 passes today IS capped" || echo "0|default daily cap is 8: 8 passes today IS capped"
-  [ "$(grep -c 'MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-3}"' "$AR_SCRIPT")" = 1 ] && [ "$(grep -c 'MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-8}"' "$AR_SCRIPT")" = 1 ] && echo "1|defaults in the script: OVN_AR_MAX_PER_RUN 3, OVN_AR_MAX_PER_DAY 8" || echo "0|defaults in the script: OVN_AR_MAX_PER_RUN 3, OVN_AR_MAX_PER_DAY 8"
+  # E3. 2026-10-13: the Claude pass is a BONUS now (the box explorer ovn_qwen_explore.py is the engine): 3 repos/run. 2026-10-18: the daily cap is DERIVED from the burn rate
+  # (no history -> ceil(100*0.5/4.5)=12, see test_auto_research_resilience.sh), it was a flat 8 which 7 active repos barely fit.
+  fresh; echo 11 > "$STATE/count_$(date +%F)"; ar_run
+  [ "$(log_has "daily cap reached")" = 0 ] && echo "1|default daily cap is 12 (derived): 11 passes today is NOT capped" || echo "0|default daily cap is 12 (derived): 11 passes today is NOT capped"
+  fresh; echo 12 > "$STATE/count_$(date +%F)"; ar_run
+  [ "$(log_has "daily cap reached (12/12) - skip")" = 1 ] && echo "1|default daily cap is 12 (derived): 12 passes today IS capped" || echo "0|default daily cap is 12 (derived): 12 passes today IS capped"
+  [ "$(grep -c 'MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-3}"' "$AR_SCRIPT")" = 1 ] && [ "$(grep -c 'OVN_AR_MAX_PER_DAY_CEIL:-16' "$AR_SCRIPT")" = 1 ] && echo "1|defaults in the script: OVN_AR_MAX_PER_RUN 3, derived daily cap with ceiling 16" || echo "0|defaults in the script: OVN_AR_MAX_PER_RUN 3, derived daily cap with ceiling 16"
 
   # F. a normal run records "<pid> <epoch>" while it holds the lock and releases it afterwards
   fresh; ar_run LOCK_PEEK="$STATE/run.lock.d/holder"
@@ -223,8 +224,8 @@ r="$(lock_checks "$MT/s.sh")"; T=""
 ok "mutant 'stale takeover is rm -rf + mkdir (not atomic)' is caught ($(nfail "$r") check(s) fail)" "[ $(nfail "$r") -ge 1 ]"
 mv_lock "replaced-lock check disabled" 'if [ "$moved_line" != "$confirmed_line" ] || [ -z "$stale" ]; then' 'if false; then'
 # the original leak: the releasing trap installed only AFTER the daily-cap check
-mutate "$SCRIPT" "$MT/s0.sh" "trap 'rm -rf \"\${WORK:-}\"; drop_guard; release_lock' EXIT" ':'
-mutate "$MT/s0.sh" "$MT/s.sh" 'WORK="$(safe_mktemp_dir)" || exit 1' "WORK=\"\$(mktemp -d)\"; trap 'rm -rf \"\$WORK\"; drop_guard; release_lock' EXIT"
+mutate "$SCRIPT" "$MT/s0.sh" "trap '[ -n \"\${WORK:-}\" ] && rm -rf \"\${WORK:?}\"; drop_guard; release_lock' EXIT" ':'
+mutate "$MT/s0.sh" "$MT/s.sh" 'WORK="$(mktemp -d)"' "WORK=\"\$(mktemp -d)\"; trap 'rm -rf \"\$WORK\"; drop_guard; release_lock' EXIT"
 r="$(lock_checks "$MT/s.sh")"; T=""
 ok "mutant 'trap installed after the cap check (the original leak)' is caught ($(nfail "$r") check(s) fail)" "[ $(nfail "$r") -ge 1 ]"
 

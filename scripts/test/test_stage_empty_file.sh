@@ -100,4 +100,31 @@ OVN_STAGE_EMPTY_FILE=off OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
 t "G1 the step PASSes (nostat) even though the declared file is empty" bash -c "grep -q 'step 0 PASS (att 1' '$T/out.txt' && ! grep -q 'empty-file' '$T/out.txt'"
 t "G2 ... and the FINAL verify rejects it: QUALITY FAIL 0-byte" bash -c "cat '$Q'/state/stage_runs/$OSR_REPO-*.verify.log | grep -q 'QUALITY FAIL: backend/tests/test_foo.py is a 0-byte file'"
 osr_cleanup
+
+echo "== H: an emptied file the ITEM asked to delete (aider can only delete by writing empty content) is a deletion, not an empty-file failure (shrike-monitor 2026-10-18)"
+ITEM_DEL='[T5] backend/tests/test_old.py — Delete the file entirely as all its tests have been removed. VERIFY: `test ! -f backend/tests/test_old.py`. (cat:test; multifile:no)'
+PLAN_DEL='[{"desc":"Delete backend/tests/test_old.py","files":["backend/tests/test_old.py"],"verify":"test ! -f backend/tests/test_old.py"}]'
+SNIP_DEL=': > backend/tests/test_old.py
+echo "Applied edit to backend/tests/test_old.py"'
+setupdel(){ osr_new; osr_venv backend; osr_tracked backend/tests/test_old.py $'def test_old():\n    assert True\n'; osr_progress "- [ ] $ITEM_DEL"; osr_plan default "$PLAN_DEL"; osr_aider default "$SNIP_DEL"; }
+setupdel
+OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+t "H1 no empty-file failure for the intended deletion" NG "FAIL (empty-file"
+t "H2 the deletion is logged and journaled" bash -c "grep -q 'intended deletion: backend/tests/test_old.py' '$T/out.txt' && grep -q '\"event\":\"empty_as_delete\"' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl"
+t "H3 the step PASSes (att 1)" G "step 0 PASS (att 1"
+osr_cleanup
+
+echo "== H-mutant: OVN_STAGE_EMPTY_AS_DELETE=off restores the empty-file failure (proves H1 is caused by the new path)"
+setupdel
+OVN_STAGE_EMPTY_AS_DELETE=off OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+t "H4 off -> the emptied file is an empty-file failure again" G "FAIL (empty-file"
+osr_cleanup
+
+echo "== H-neg: an item with NO delete intent whose declared TRACKED file is truncated stays an empty-file failure"
+ITEM_NODEL='[T3] backend/tests/test_old.py — Add a second test to the file. VERIFY: `pytest backend/tests/test_old.py` (cat:test; multifile:no)'
+PLAN_NODEL='[{"desc":"add second test","files":["backend/tests/test_old.py"],"verify":"pytest backend/tests/test_old.py"}]'
+osr_new; osr_venv backend; osr_tracked backend/tests/test_old.py $'def test_old():\n    assert True\n'; osr_progress "- [ ] $ITEM_NODEL"; osr_plan default "$PLAN_NODEL"; osr_aider default "$SNIP_DEL"
+OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+t "H5 no delete intent -> still FAIL (empty-file), file not removed" bash -c "grep -q 'FAIL (empty-file' '$T/out.txt' && ! grep -q 'intended deletion' '$T/out.txt'"
+osr_cleanup
 osr_summary

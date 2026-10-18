@@ -408,7 +408,12 @@ ovn_landed_uncredited() {
   case "$(printf '%s' "$st" | tr 'A-Z' 'a-z')" in 'pushed(tests:pass)'*) ;; *) return 1 ;; esac
   n="$(grep -an '^--- landing: ' "$tl" 2>/dev/null | tail -1 | cut -d: -f1)"
   if [ -n "$n" ]; then seg="$(tail -n +$((n + 1)) "$tl" 2>/dev/null)"; else seg="$(cat "$tl" 2>/dev/null)"; fi
-  refused="$(grep -acE '^--- auto-credit: REFUSED|item has no VERIFY: clause' <<< "$seg")"
+  # 2026-10-18 (iptv overnight audit): the staged runner pushes verified code but REFUSES the tick when the item's own text-probe VERIFY is RED after the change
+  # (STAGE_NOCREDIT) and says so with a '--- stage-credit: REFUSED' line. Those rows were class=landed/good (9 iptv rows: 'replace utcnow at line N' pushed with a vacuous
+  # test, item left [ ] AUTO-SKIP); the same refusal marker now makes them landed-uncredited. OVN_STAGE_CREDIT_MARKER=off ignores the stage line (old behaviour).
+  local _refre='^--- auto-credit: REFUSED|item has no VERIFY: clause'
+  [ "${OVN_STAGE_CREDIT_MARKER:-on}" = off ] || _refre='^--- (auto|stage)-credit: REFUSED|item has no VERIFY: clause'
+  refused="$(grep -acE "$_refre" <<< "$seg")"
   [ "${refused:-0}" -gt 0 ] || return 1
   credited="$(grep -acE '^--- auto-credit: (checked off line|item-hash) ' <<< "$seg")"
   [ "${credited:-0}" -eq 0 ]

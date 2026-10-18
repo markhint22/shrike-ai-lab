@@ -43,7 +43,16 @@ if [ "$_EXT_WT" = 0 ]; then
   git -C "$clone" worktree add -q --detach "$wt" "$base" >/dev/null 2>&1 || { echo "ovn_spec_check: cannot create worktree of $base" >&2; exit 0; }
 fi
 # the repo's real .venv is untracked; link it so `python3`/pytest VERIFYs resolve the way they do in the fleet
-for v in .venv iptv-backend/.venv; do [ -e "$clone/$v" ] && [ -d "$(dirname "$wt/$v")" ] && ln -sfn "$clone/$v" "$wt/$v" 2>/dev/null; done
+# 2026-10-18 (gitlark audit): was ONLY root .venv + iptv-backend/.venv, so gitlark/TAA/shrike-monitor/shrike-notify (backend/.venv) and billwatch (billwatch-backend/.venv) ran every
+# pytest VERIFY against the system python (no pytest: rc 127 / "No module named pytest") and the explorer's red-check rejected them as verify-bad-spec:unrunnable. Link every .venv (<= depth 4) of the
+# live clone, as lib_worktree.sh wt_link_envs does; never over a real (tracked/copied) path.
+_clone_abs="$(cd "$clone" 2>/dev/null && pwd)"
+while IFS= read -r _abs; do
+  [ -n "$_abs" ] || continue
+  _rel="${_abs#"$_clone_abs"/}"
+  [ -d "$wt/$(dirname "$_rel")" ] || continue
+  if [ -L "$wt/$_rel" ] || [ ! -e "$wt/$_rel" ]; then ln -sfn "$_abs" "$wt/$_rel" 2>/dev/null; fi
+done < <(find "$_clone_abs" -maxdepth 4 -type d \( -name .git -prune -o -name node_modules -prune -o -name .venv -print -prune \) 2>/dev/null)
 
 export SHADOW_LOG; SHADOW_LOG="$(mktemp "${TMPDIR:-/tmp}/spec-check-log-XXXXXX")"
 export _REPO_LABEL="$repo"

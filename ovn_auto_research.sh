@@ -30,7 +30,27 @@ STATE="${OVN_AUTO_RESEARCH_STATE:-$HOME/.ovn_auto_research}"
 # defaults are now 8/day and 3/run. A Claude failure (usage limit, rc != 0, empty reply) is harmless: the pass is skipped without a cooldown, nothing is appended, and the
 # explorer keeps feeding the lanes. OVN_AR_MAX_PER_DAY / OVN_AR_MAX_PER_RUN still override.
 MAX_PER_RUN="${OVN_AR_MAX_PER_RUN:-3}"
-MAX_PER_DAY="${OVN_AR_MAX_PER_DAY:-8}"
+# 2026-10-18 (backlog-out incident): the lane allowlist defaulted to "iptv_apps xlite", so 5 active repos (billwatch gitlark test-automation-agent shrike-monitor shrike-notify) were
+# 'excluded: not in the research lane allowlist' every hour for 16-22h and their backlogs ran dry (nothing else refuels them: the supply/local-research crons only cover iptv_apps/xlite and
+# the Qwen explorer's items are rejected for VERIFY dialect). Default = EVERY ACTIVE repo; the discontinued ones (task-manager, social-media-manager, shrike-labs-website) stay out.
+# OVN_AR_REPOS still overrides ("all" lifts the allowlist, an explicit empty value = no allowlist).
+DEFAULT_REPOS="billwatch gitlark iptv_apps xlite test-automation-agent shrike-monitor shrike-notify"
+# DAILY CAP (2026-10-18): unless OVN_AR_MAX_PER_DAY is set, the cap is DERIVED from the fleet's burn rate (see the "cap arithmetic" log line each run): the 27B burns ~OVN_AR_BURN_PER_DAY (100)
+# items/day; this lane should supply OVN_AR_CLAUDE_SHARE (0.5) of that; one pass accepts avg_accepted items (measured from run.log, last 7d, floor 1) -> passes = ceil(burn*share/avg),
+# clamped to [number of lane repos, OVN_AR_MAX_PER_DAY_CEIL (16)]. The flat 8/day (6 used by 15:34 on 10-18) was barely above the lane count and below what 7 repos x 1-2 passes need.
+if [ -n "${OVN_AR_MAX_PER_DAY:-}" ]; then MAX_PER_DAY="$OVN_AR_MAX_PER_DAY"; CAP_EXPLICIT=1; else MAX_PER_DAY=8; CAP_EXPLICIT=0; fi
+# PASS TIMEOUT (2026-10-18): 36 of 103 logged passes died at the old 1500s cap with NO output (a killed `claude -p` returns nothing); successful passes take 7-25 min (median ~12). First attempt now
+# gets OVN_AR_TIMEOUT_S (1800) and a TIME BOX paragraph in the prompt (OVN_AR_TIMEBOX=off removes it); a rc=124 gets ONE retry with a much smaller scope (<=4 items, no web, ~15 reads,
+# OVN_AR_RETRY_TIMEOUT_S 900, its own $ cap OVN_AR_RETRY_BUDGET_USD 2, so the worst case per repo is BUDGET + RETRY_BUDGET). OVN_AR_RETRY=off disables the retry.
+TIMEOUT_S="${OVN_AR_TIMEOUT_S:-1800}"; RETRY="${OVN_AR_RETRY:-on}"; RETRY_TIMEOUT_S="${OVN_AR_RETRY_TIMEOUT_S:-900}"; RETRY_BUDGET="${OVN_AR_RETRY_BUDGET_USD:-2}"
+# FAILED-PASS COOLDOWN (2026-10-18): a failed pass (timeout after the retry, rc != 0, unparseable reply) used to set NO marker, so the same repo was re-picked first every hour and burned 25 min a time
+# while the others waited. Now a failure starts a SHORT cooldown (OVN_AR_FAIL_COOLDOWN_H=1h, doubling per consecutive failure up to OVN_AR_FAIL_COOLDOWN_MAX_H=4h; reset by a successful pass) - far
+# shorter than the 18h an empty-but-valid pass gets, so one bad hour never starves a repo - and at most OVN_AR_MAX_FAILS_PER_DAY (6) failed passes run per day.
+FAIL_BASE_H="${OVN_AR_FAIL_COOLDOWN_H:-1}"; FAIL_MAX_H="${OVN_AR_FAIL_COOLDOWN_MAX_H:-4}"; MAX_FAILS_PER_DAY="${OVN_AR_MAX_FAILS_PER_DAY:-6}"
+FAIR_H="${OVN_AR_FAIR_H:-12}"   # repos starving >= this many hours are served first, longest-starving first (round-robin applies below it)
+# SALVAGE (2026-10-18): OVN_AR_SALVAGE_REPO=<repo> [OVN_AR_SALVAGE_FILE=<reply file, default $STATE/last_reply_<repo>.txt>] re-validates a saved reply (no claude call, no cap/cooldown change)
+# and appends its accepted items to the box roadmap - recovers a pass the old parser threw away.
+SALVAGE_REPO="${OVN_AR_SALVAGE_REPO:-}"
 MIN_STARVE_H="${OVN_AR_MIN_STARVE_H:-0.5}"
 # Cooldown depends on the LAST pass's result (2026-10-03). A pass that accepted ZERO items means the repo may be genuinely complete -> wait long
 # (COOLDOWN_EMPTY_H) so it is not re-researched every run. A PRODUCTIVE pass only needs a short pause (COOLDOWN_PRODUCTIVE_H, ~one launchd interval):
@@ -40,6 +60,14 @@ COOLDOWN_EMPTY_H="${OVN_AR_COOLDOWN_EMPTY_H:-18}"
 COOLDOWN_PRODUCTIVE_H="${OVN_AR_COOLDOWN_PRODUCTIVE_H:-2}"
 ar_cooldown_s() {   # <last_accepted_count or empty> -> cooldown seconds
   case "${1:-}" in ''|0) echo $(( COOLDOWN_EMPTY_H * 3600 ));; *[!0-9]*) echo $(( COOLDOWN_EMPTY_H * 3600 ));; *) echo $(( COOLDOWN_PRODUCTIVE_H * 3600 ));; esac
+}
+ar_default_cat(){ case "$1" in xlite) echo game;; *) echo backend;; esac; }
+ar_fail_cooldown_s() {   # <consecutive failed passes> -> seconds: FAIL_BASE_H doubling per failure, capped at FAIL_MAX_H
+  local c="${1:-1}" h="$FAIL_BASE_H" i=1
+  case "$c" in ''|*[!0-9]*) c=1;; esac
+  while [ "$i" -lt "$c" ] && [ "$h" -lt "$FAIL_MAX_H" ]; do h=$((h*2)); i=$((i+1)); done
+  [ "$h" -gt "$FAIL_MAX_H" ] && h="$FAIL_MAX_H"
+  echo $(( h * 3600 ))
 }
 BUDGET="${OVN_AR_BUDGET_USD:-4}"
 MODEL="${OVN_AR_MODEL:-sonnet}"
@@ -152,6 +180,20 @@ fi
 trap '[ -n "${WORK:-}" ] && rm -rf "${WORK:?}"; drop_guard; release_lock' EXIT
 
 TODAY="$(date +%F)"; CNT_FILE="$STATE/count_$TODAY"; used="$(cat "$CNT_FILE" 2>/dev/null || echo 0)"
+FAIL_FILE="$STATE/fails_$TODAY"; fails_today="$(cat "$FAIL_FILE" 2>/dev/null || echo 0)"
+case "$fails_today" in ''|*[!0-9]*) fails_today=0;; esac
+if [ -n "$SALVAGE_REPO" ]; then
+  SALVAGE_FILE="${OVN_AR_SALVAGE_FILE:-$STATE/last_reply_$SALVAGE_REPO.txt}"
+  [ -f "$SALVAGE_FILE" ] || { log "SALVAGE $SALVAGE_REPO: no reply file at $SALVAGE_FILE - nothing to do"; exit 1; }
+  MAX_PER_DAY=999999; MAX_FAILS_PER_DAY=999999
+  log "SALVAGE $SALVAGE_REPO: re-validating $SALVAGE_FILE (no claude call; the daily count and cooldown markers are not touched)"
+else
+  # lane size for the cap floor: the allowlist words ("all" or an empty list = every default repo)
+  ALLOW_N=0; for w in ${OVN_AR_REPOS-$DEFAULT_REPOS}; do if [ "$w" = all ]; then ALLOW_N=0; break; fi; ALLOW_N=$((ALLOW_N+1)); done
+  [ "$ALLOW_N" -gt 0 ] || ALLOW_N="$(set -- $DEFAULT_REPOS; echo $#)"
+  CAP_LINE="$(python3 "$VALIDATE" --cap-arith "$LOG" "${OVN_AR_BURN_PER_DAY:-100}" "${OVN_AR_CLAUDE_SHARE:-0.5}" "$ALLOW_N" "${OVN_AR_MAX_PER_DAY_CEIL:-16}" "$CAP_EXPLICIT" "$MAX_PER_DAY" 2>/dev/null)"
+  if [ -n "$CAP_LINE" ]; then MAX_PER_DAY="${CAP_LINE%%$'\t'*}"; log "${CAP_LINE#*$'\t'}"; fi
+fi
 # 2026-10-13 (package supply-ledger): STARVATION ESCALATION above the daily cap. xlite starved 15h while this log said "daily cap reached (2/2)" every hour for ~22h.
 # ovn_supply_ledger.py (box cron) writes state/supply_escalate_<repo> (JSON, once per local day) when a priority lane's 24h duty is under the floor with nothing
 # pullable. When the cap is reached, markers of TODAY for repos on the research allowlist allow up to OVN_AR_ESCALATE_MAX (default 2) EXTRA passes above MAX_PER_DAY, for those
@@ -162,7 +204,7 @@ if [ "$used" -ge "$MAX_PER_DAY" ]; then
   ESC_MODE="${OVN_AUTO_RESEARCH_ESCALATE:-shadow}"; ESC_MAX="${OVN_AR_ESCALATE_MAX:-2}"; ESC_MIN_H="${OVN_AR_ESCALATE_MIN_H:-3}"; esc_repos=""
   case "$ESC_MODE" in on|shadow) ;; *) ESC_MODE=off;; esac
   if [ "$ESC_MODE" != off ] && [ "$used" -lt $(( MAX_PER_DAY + ESC_MAX )) ] 2>/dev/null; then
-    if [ "${OVN_AR_REPOS+set}" = set ]; then ESC_ALLOW="$OVN_AR_REPOS"; else ESC_ALLOW="iptv_apps xlite"; fi   # same default as the candidate allowlist below (an explicitly empty value = no allowlist)
+    if [ "${OVN_AR_REPOS+set}" = set ]; then ESC_ALLOW="$OVN_AR_REPOS"; else ESC_ALLOW="$DEFAULT_REPOS"; fi   # same default as the candidate allowlist below (an explicitly empty value = no allowlist)
     esc_repos="$(ssh -o ConnectTimeout=20 -o BatchMode=yes "$SRV" "cat ~/$REMOTE/state/supply_escalate_* 2>/dev/null" 2>/dev/null | python3 -c '
 import json, sys
 today, allow = sys.argv[1], sys.argv[2].split()
@@ -188,9 +230,11 @@ print(" ".join(seen))' "$TODAY" "$ESC_ALLOW" 2>/dev/null)"
   fi
 fi
 
+if [ "$fails_today" -ge "$MAX_FAILS_PER_DAY" ]; then log "failed-pass cap reached ($fails_today/$MAX_FAILS_PER_DAY failed passes today) - skip (OVN_AR_MAX_FAILS_PER_DAY)"; exit 0; fi
+
 WORK="$(mktemp -d)" || { log "mktemp -d failed - skip (never write scratch files relative to an empty WORK)"; exit 1; }
 [ -n "$WORK" ] && [ -d "$WORK" ] || { log "mktemp -d returned no usable directory - skip"; exit 1; }   # 2026-10-16: an empty WORK would have made every "$WORK/..." write below land in /
-FORCE="${OVN_AR_FORCE_REPOS:-}"   # testing only: space-separated repos; bypasses starving/ready/cooldown checks (caps still apply)
+FORCE="${SALVAGE_REPO:-${OVN_AR_FORCE_REPOS:-}}"   # (salvage mode forces its one repo) testing only: space-separated repos; bypasses starving/ready/cooldown checks (caps still apply)
 if [ -z "$FORCE" ]; then
   ssh -o ConnectTimeout=20 -o BatchMode=yes "$SRV" "cat ~/$REMOTE/state/research_trigger_starving.json" > "$WORK/starving.json" 2>"$WORK/err" \
     || { log "ssh/starving.json read failed: $(head -c 200 "$WORK/err")"; exit 1; }
@@ -198,11 +242,11 @@ fi
 
 # starving repos, longest first, fresh snapshot only (checker runs every 30 min; >3h old = checker itself is dead)
 if [ -n "$FORCE" ]; then CANDIDATES="$FORCE"; else
-# 2026-10-09 (review fix): Claude capacity is scarce, so a candidate must be BOTH on the lane allowlist (OVN_AR_REPOS, default "iptv_apps xlite" = the
-# active dev lanes; "all" disables it) AND really short of work: the trigger check writes each record's `pullable` count (what the fleet can take next);
+# 2026-10-09 (review fix): Claude capacity is scarce, so a candidate must be BOTH on the lane allowlist (OVN_AR_REPOS, default = every ACTIVE repo,
+# see DEFAULT_REPOS; "all" disables it) AND really short of work: the trigger check writes each record's `pullable` count (what the fleet can take next);
 # a repo whose pullable is above OVN_AR_PULLABLE_MAX (default 10 = OVN_TRIGGER_PULLABLE_MIN) is not starving whatever the planner log says. Without this the
 # round-robin handed the 2nd daily slot to shrike-notify (pullable 42) / shrike-monitor (35) and xlite got nothing. Excluded repos are logged with the reason.
-python3 - "$WORK/starving.json" "$MIN_STARVE_H" "${OVN_AR_PULLABLE_MAX:-10}" "${OVN_AR_REPOS-iptv_apps xlite}" > "$WORK/cand.tsv" 2> "$WORK/cand.err" <<'PY'
+python3 - "$WORK/starving.json" "$MIN_STARVE_H" "${OVN_AR_PULLABLE_MAX:-10}" "${OVN_AR_REPOS-$DEFAULT_REPOS}" > "$WORK/cand.tsv" 2> "$WORK/cand.err" <<'PY'
 import json, sys, time
 mn = float(sys.argv[2]); pmax = float(sys.argv[3]); allow = sys.argv[4].split()
 try:
@@ -227,9 +271,13 @@ PY
 # 2026-10-09 ORDER: with MAX_PER_DAY=2 "longest-starving first" gave BOTH daily slots to xlite (10-08 01:33+03:47, 10-09 02:05+04:20) while iptv_apps' last pass
 # was 10-07 08:21. roundrobin = fewest passes that ACCEPTED items in the last 48h (from run.log "<repo>: accepted N/M" lines, N>0) first, then the longest
 # starving. OVN_AR_ORDER=legacy keeps the old longest-first order. The chosen order is logged so the next run shows it.
-CANDIDATES="$(python3 - "$WORK/cand.tsv" "$LOG" "${OVN_AR_ORDER:-roundrobin}" 2> "$WORK/order.err" <<'PY'
+CANDIDATES="$(python3 - "$WORK/cand.tsv" "$LOG" "${OVN_AR_ORDER:-roundrobin}" "$FAIR_H" 2> "$WORK/order.err" <<'PY'
 import re, sys, time
 cand, log_path, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    fair = float(sys.argv[4])
+except (IndexError, ValueError):
+    fair = 12.0
 rows = [l.rstrip("\n").split("\t") for l in open(cand) if l.strip()]
 acc = {}
 if mode != "legacy":
@@ -246,9 +294,15 @@ if mode != "legacy":
                     acc[m.group(2)] = acc.get(m.group(2), 0) + 1
     except OSError:
         pass
-    rows.sort(key=lambda r: (acc.get(r[0], 0), -float(r[1])))   # stable: ties keep the longest-starving order
+    # 2026-10-18 fairness: a repo starving >= FAIR_H hours (billwatch 22h, shrike-monitor 19h ... while xlite at 5h took the slots) is served FIRST, longest-starving first;
+    # below that the round-robin applies (fewest accepted passes in 48h first, then longest starving). OVN_AR_FAIR_H=0 disables the override.
+    def _key(r):
+        h = float(r[1])
+        return (0, -h, 0) if fair > 0 and h >= fair else (1, acc.get(r[0], 0), -h)
+    rows.sort(key=_key)   # stable
 if rows:
-    sys.stderr.write("candidate order (%s): %s\n" % (mode, " ".join("%s[accepted48h=%d starving=%sh]" % (r[0], acc.get(r[0], 0), r[1]) for r in rows)))
+    sys.stderr.write("candidate order (%s): %s%s\n" % (mode, " ".join("%s[accepted48h=%d starving=%sh]" % (r[0], acc.get(r[0], 0), r[1]) for r in rows),
+                     " [fairness: starving >= %gh served first]" % fair if mode != "legacy" and fair > 0 and any(float(r[1]) >= fair for r in rows) else ""))
 for r in rows:
     print(r[0])
 PY
@@ -264,6 +318,14 @@ for repo in $CANDIDATES; do
   if [ -z "$FORCE" ] && [ -f "$marker" ] && [ $(( $(date +%s) - $(cat "$marker") )) -lt "$(ar_cooldown_s "$(cat "$STATE/researched_n_$repo" 2>/dev/null)")" ]; then
     log "$repo: in cooldown ($(( $(ar_cooldown_s "$(cat "$STATE/researched_n_$repo" 2>/dev/null)") / 3600 ))h after a pass that accepted ${n_last:-$(cat "$STATE/researched_n_$repo" 2>/dev/null || echo ?)} item(s)) - skip"; continue
   fi
+  fmarker="$STATE/failed_$repo"
+  if [ -z "$FORCE" ] && [ -f "$fmarker" ]; then
+    read -r f_ts f_n < "$fmarker" 2>/dev/null || true
+    case "${f_ts:-x}" in *[!0-9]*) f_ts=0;; esac
+    if [ $(( $(date +%s) - ${f_ts:-0} )) -lt "$(ar_fail_cooldown_s "${f_n:-1}")" ]; then
+      log "$repo: in failed-pass cooldown ($(( $(ar_fail_cooldown_s "${f_n:-1}") / 3600 ))h after ${f_n:-1} consecutive failed pass(es)) - skip, the other repos are served first"; continue
+    fi
+  fi
   in="$WORK/in_$repo"; mkdir -p "$in"
   # re-check on the box right before spending money: is it STILL dry? (a refuel/landing may have fixed it)
   ready_n="$(ssh -o BatchMode=yes "$SRV" "grep -cE '^- \[ \] \[P[1-4]\] \[ready\]' ~/$REMOTE/roadmap/$repo.md 2>/dev/null || true")"
@@ -278,7 +340,8 @@ for repo in $CANDIDATES; do
   # 2026-10-04: read a FRESH detached checkout of the branch the fleet works on, never the Mac clone's working tree (it lags: the agent "verified via Read"
   # that files the fleet had deleted still existed, and proposed re-deleting them). Falls back to the clone (with a log line) if the worktree cannot be made.
   src="$WORK/src_$repo"
-  if git -C "$clone" worktree add -q --detach "$src" origin/overnight/feature 2>/dev/null || git -C "$clone" worktree add -q --detach "$src" origin/develop 2>/dev/null; then :; else log "$repo: could not create a fresh checkout - reading the clone's working tree (may be stale)"; src="$clone"; fi
+  if [ -n "$SALVAGE_REPO" ]; then src="$clone"
+  elif git -C "$clone" worktree add -q --detach "$src" origin/overnight/feature 2>/dev/null || git -C "$clone" worktree add -q --detach "$src" origin/develop 2>/dev/null; then :; else log "$repo: could not create a fresh checkout - reading the clone's working tree (may be stale)"; src="$clone"; fi
   out="$in/proposed.md"; : > "$out"
 
   log "$repo: starting research pass (model=$MODEL budget=\$$BUDGET)"
@@ -292,33 +355,59 @@ for repo in $CANDIDATES; do
 DO NOT REPEAT - these features are already OPEN (roadmap [ready]/needs-research, or backlog items still waiting to be worked):
 ${open_titles:-(none)}"
   fi
+  timebox=""
+  if [ "${OVN_AR_TIMEBOX:-on}" != "off" ]; then
+    timebox="TIME BOX: this pass is KILLED after $((TIMEOUT_S/60)) minutes and a killed pass returns NOTHING, so everything you found is lost. Budget about 40 Read/Grep/Glob calls in total; once you have 3-5 verified items, or after ~40 calls, STOP investigating and write the final reply with only what you already verified (fewer items is fine)."
+  fi
   prompt="You are refueling ONE repo's feature roadmap for an autonomous overnight coding fleet (a local 27B model implements items one at a time, each gated by the repo's tests). REPO: $repo. A READ-ONLY checkout of the CURRENT code the fleet works on is $src (read ONLY this checkout - any other clone of the repo can be stale; you have no write or edit tools at all).
 Read: $in/roadmap.md (current roadmap: note the stated maturity/stopping point and everything already decomposed/done - do NOT duplicate), $in/README.md (line format), $in/recent.txt (recent commits + queue tail). Then read the real repo (README, docs, file tree, the code you propose to touch).
 Produce up to 10 NEW features worth building, grounded in actual code. Priority: (1) real live bugs/silent failures with file evidence, (2) security/legal/store/reliability gaps, (3) missing tests for important untested modules, (4) features fitting the repo's wedge. HONESTY: if the repo is genuinely at its 'complete - maintain only' line, return FEWER items, even zero; never invent filler. Every item must cite files that exist (verify with Read/Grep in the checkout). Art generation is human-gated: propose no art items.
 QUALITY RULES (a 2026-10-04 audit of the fleet's landings found 19 dead helpers nothing calls, ghost tests that never run, and add/remove loops): (a) NEVER propose adding a new standalone helper/predicate/constant/formatter function, or a test for one, unless the SAME item also changes an existing production caller to use it - name that caller as file:line and verify it exists; a function nothing calls is rejected. (b) NEVER propose deleting a file or function without Grep-verifying in the checkout that it still exists and has no non-test callers; never re-propose anything the roadmap already marks done [x] or decomposed. (c) Tests must live where the repo's own test command collects them (iptv_apps: iptv-backend/tests/ ONLY, never next to modules under app/; xlite: res://tests/ ONLY, never res://test/). (d) Prefer items that change user-visible behaviour or fix a real bug; at most 2 test-only items per pass, and only for important modules with real logic and no existing test. (e) One item = one behavioural change with a concrete verifiable outcome; no refactor/cleanup/rename items unless you demonstrate a defect they fix.
 ${scope_rules:+$scope_rules
+}${timebox:+$timebox
 }Your FINAL reply must contain ONLY the feature lines (no preamble, no commentary, no code fences), one per line, exactly:
 - [ ] [P<1-4>] [ready] <short title> — <what/why with file paths and evidence> {cat: <backend|web|mobile|game|infra|test>; size: <S|M|L>; multifile: <yes|no>; research: <none|repo|web>}
 Status must be the literal word ready. Each item under ~900 characters, single line. If you add nothing, reply with exactly the word NONE."
-  ( cd "$in" && ${TIMEOUT_BIN:+$TIMEOUT_BIN 1500} "$CLAUDE_BIN" -p "$prompt" --model "$MODEL" --max-budget-usd "$BUDGET" \
-      --permission-mode dontAsk --no-session-persistence \
-      --allowedTools "Read Grep Glob WebSearch WebFetch" \
-      --add-dir "$src" --add-dir "$in" > "$in/claude_reply.txt" 2> "$in/claude_stderr.txt" ); rc=$?
+  run_claude(){   # <prompt> <timeout_s> <budget_usd> <tools>
+    ( cd "$in" && ${TIMEOUT_BIN:+$TIMEOUT_BIN $2} "$CLAUDE_BIN" -p "$1" --model "$MODEL" --max-budget-usd "$3" \
+        --permission-mode dontAsk --no-session-persistence \
+        --allowedTools "$4" \
+        --add-dir "$src" --add-dir "$in" > "$in/claude_reply.txt" 2> "$in/claude_stderr.txt" ); return $?
+  }
+  if [ -n "$SALVAGE_REPO" ]; then cp "$SALVAGE_FILE" "$in/claude_reply.txt"; rc=0
+  else
+    run_claude "$prompt" "$TIMEOUT_S" "$BUDGET" "Read Grep Glob WebSearch WebFetch"; rc=$?
+    if [ "$rc" -eq 124 ] && [ "$RETRY" != "off" ]; then
+      log "$repo: attempt 1 timed out after ${TIMEOUT_S}s (rc=124, no output) - retrying ONCE with a smaller scope (<=4 items, no web, ${RETRY_TIMEOUT_S}s, budget \$$RETRY_BUDGET)"
+      retry_prompt="$prompt
+RETRY SCOPE (the previous attempt was killed for running too long and produced nothing): propose AT MOST 4 items, make at most ~15 Read/Grep/Glob calls, do NOT use web tools (they are off), start from the files touched by the recent commits in $in/recent.txt, and write the final reply as soon as you have 2-4 verified items."
+      run_claude "$retry_prompt" "$RETRY_TIMEOUT_S" "$RETRY_BUDGET" "Read Grep Glob"; rc=$?
+    fi
+  fi
   [ "$src" != "$clone" ] && { git -C "$clone" worktree remove --force "$src" 2>/dev/null; git -C "$clone" worktree prune 2>/dev/null; }
   cp "$in/claude_reply.txt" "$STATE/last_reply_$repo.txt" 2>/dev/null
   # the agent has no Write tool: the proposed lines ARE its reply (headless scoped-Write permissions are not honored)
-  grep '^- \[ \]' "$in/claude_reply.txt" > "$out" 2>/dev/null || true
+  # 2026-10-18: tolerant parse (bold / "[needs-research -> ready] P1 . bug . area" / no em-dash / no {cat:}) - see ovn_auto_research_validate.py --normalize. Prose and invalid lines are still rejected (logged).
+  python3 "$VALIDATE" --normalize "$in/claude_reply.txt" --default-cat "$(ar_default_cat "$repo")" > "$out" 2> "$in/normalize.err" || true
+  while read -r l; do log "$repo: $l"; done < "$in/normalize.err"
   after="$(cd "$clone" && git status --porcelain | cksum)"
   if [ "$before" != "$after" ]; then log "$repo: LOCAL CLONE CHANGED during research pass - discarding output, NOT applying (investigate $clone)"; continue; fi
-  if [ "$rc" -ne 0 ]; then log "$repo: claude exited rc=$rc: $(tail -c 300 "$in/claude_stderr.txt" "$in/claude_reply.txt" | tr '\n' ' ')"; continue; fi
-  if [ ! -s "$out" ] && ! grep -qx 'NONE' "$in/claude_reply.txt"; then log "$repo: reply had no feature lines and no NONE - treating as a FAILED pass, no cooldown set (see $STATE/last_reply_$repo.txt): $(head -c 200 "$in/claude_reply.txt" | tr '\n' ' ')"; continue; fi
+  mark_fail(){   # a failed pass: short escalating cooldown + the daily failed-pass counter (never in DRY_RUN / salvage)
+    [ -n "${DRY_RUN:-}" ] || [ -n "$SALVAGE_REPO" ] && return 0
+    local n=0; [ -f "$fmarker" ] && n="$(awk '{print $2}' "$fmarker" 2>/dev/null)"; case "$n" in ''|*[!0-9]*) n=0;; esac
+    n=$((n+1)); echo "$(date +%s) $n" > "$fmarker"; fails_today=$((fails_today+1)); echo "$fails_today" > "$FAIL_FILE"
+    log "$repo: failed-pass cooldown started ($(( $(ar_fail_cooldown_s "$n") / 3600 ))h, $n consecutive failure(s), $fails_today/$MAX_FAILS_PER_DAY failed passes today)"
+  }
+  if [ "$rc" -ne 0 ]; then log "$repo: claude exited rc=$rc: $(tail -c 300 "$in/claude_stderr.txt" "$in/claude_reply.txt" | tr '\n' ' ')"; mark_fail; continue; fi
+  if [ ! -s "$out" ] && ! grep -qxE '[*` ]*NONE[.*` ]*' "$in/claude_reply.txt"; then log "$repo: reply had no feature lines and no NONE - treating as a FAILED pass, short failed-pass cooldown (see $STATE/last_reply_$repo.txt): $(head -c 200 "$in/claude_reply.txt" | tr '\n' ' ')"; mark_fail; continue; fi
+  rm -f "$fmarker"   # a parseable reply ends the failure streak
 
   python3 "$VALIDATE" "$out" "$in/roadmap.md" 12 > "$in/accepted.md" 2> "$in/validate.err"
   while read -r l; do log "$repo: $l"; done < "$in/validate.err"
   n="$(grep -c '^- \[ \]' "$in/accepted.md" || true)"
   done_n=$((done_n+1))
   # a DRY_RUN must not consume the daily cap or start the repo's cooldown (it applies nothing)
-  if [ -z "${DRY_RUN:-}" ]; then used=$((used+1)); echo "$used" > "$CNT_FILE"; date +%s > "$marker"; echo "${n:-0}" > "$STATE/researched_n_$repo"; fi
+  if [ -z "${DRY_RUN:-}" ] && [ -z "$SALVAGE_REPO" ]; then used=$((used+1)); echo "$used" > "$CNT_FILE"; date +%s > "$marker"; echo "${n:-0}" > "$STATE/researched_n_$repo"; fi
   if [ "${n:-0}" -eq 0 ]; then log "$repo: 0 accepted (repo may be complete, or agent output invalid) - cooldown set"; continue; fi
   if [ -n "${DRY_RUN:-}" ]; then log "$repo: DRY_RUN - $n item(s) validated, NOT applied ($in/accepted.md)"; cp "$in/accepted.md" "$STATE/dryrun_$repo.md"; continue; fi
 

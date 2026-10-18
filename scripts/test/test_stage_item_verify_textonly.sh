@@ -15,6 +15,8 @@ no_(){ ! stage_item_verify_textonly "$1"; }
 t "U1 the xlite generate_intent shape (grep -n ... returns no output) is a text probe" yes_ '[T4] scripts/battle/enemy_intent.gd — Delete the function. VERIFY: `grep -n "func generate_intent" scripts/battle/enemy_intent.gd` returns no output. (cat:refactor)'
 t "U2 grep -q ... is a text probe" yes_ '[T1] a.gd — x. VERIFY: `grep -q "def foo" backend/app/foo.py` (cat:python)'
 t "U3 test -f / ! grep are text probes" yes_ '[T1] a.gd — x. VERIFY: `test ! -f scripts/battle/loot_table.gd && echo PASS`'
+t "U3b X && echo FAIL || echo PASS is still a text probe (iptv streams.py false credit)" yes_ '[T3] a.py — x. VERIFY: `grep -E "def a|def b" a.py && echo "FAIL" || echo "PASS"`'
+t "U3c a runner behind the echo form is NOT a text probe" no_ '[T3] a.py — x. VERIFY: `pytest tests/t.py && echo FAIL || echo PASS`'
 t "U3b ! grep is a text probe" yes_ '[T1] a.gd — x. VERIFY: `! grep -n "foo" a.gd`'
 t "U4 pytest is NOT a text probe (its FAIL can be an env gap)" no_ '[T2] a.py — x. VERIFY: `python -m pytest tests/test_a.py -v` (cat:python)'
 t "U5 grep && pytest is NOT a text probe" no_ '[T2] a.py — x. VERIFY: `grep -q "x" a.py && python -m pytest tests/test_a.py -v`'

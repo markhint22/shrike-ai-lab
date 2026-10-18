@@ -68,4 +68,10 @@ PYEOF
 if [ -n "$NEW" ]; then
   n="$(printf '%s\n' "$NEW" | grep -c .)"
   say "=== $n repo(s) newly confirmed starving — ntfy suppressed (see ovn_fleet_health.sh), detail: $(printf '%s\n' "$NEW" | paste -sd';' - | sed 's/;/; /g')"
+  # 2026-10-18: say WHY, one concise line per newly starving repo (depth, burn, runway, last supply source, root cause) from ovn_supply_report.py. Log only (no new alerter);
+  # the hourly update (ovn_notify.py update) carries the same lines. --dry-run: never clobber state/supply_report.json with a partial repo list. OVN_SUPPLY_LINE=0 = off.
+  if [ "${OVN_SUPPLY_LINE:-1}" != "0" ]; then
+    repos_csv="$(printf '%s\n' "$NEW" | sed 's/:.*//' | paste -sd',' -)"
+    python3 scripts/ovn_supply_report.py --dry-run --repos "$repos_csv" 2>>"$LOG" | while IFS= read -r sl; do say "supply: $sl"; done || true   # a missing/broken report must never change this script's exit status
+  fi
 fi

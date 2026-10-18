@@ -12,7 +12,7 @@ relative to the section; only the ORDER of open unchecked items within Next Step
 Usage: ovn_prioritize_tiers.py <OVERNIGHT_PROGRESS.md>   (edits in place; prints a one-line summary)
 Idempotent: running twice is a no-op (already ordered).
 """
-import re, sys
+import os, re, sys
 
 TIER_RE = re.compile(r'\[T([1-5])\]|·T([1-5])·')
 PARKED_RE = re.compile(r'AUTO-SKIP|HUMAN-ONLY|BLOCKED')
@@ -36,6 +36,49 @@ def rank(line):
     if t in (1, 2):
         return 1
     return 2  # T4/T5
+
+
+FEAT_RE = re.compile(r'\[feat:[^\]]+\]')
+RETIRE_RE = re.compile(r'\u2014\s*(delete|remove)\b', re.I)
+
+
+def _target(line):
+    """the edit target = text before the first ' \u2014 ' (item shape: '[Tn] path \u2014 description')."""
+    head = line.split('\u2014', 1)[0]
+    m = re.findall(r'[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}', head)
+    return m[-1] if m else ''
+
+
+def _is_test_path(t):
+    return t.startswith('tests/') or '/tests/' in t or os.path.basename(t).startswith('test_')
+
+
+def feat_dep_ranks(blocks):
+    """2026-10-18 (xlite night audit): a 'delete dead helpers' feature is a CHAIN - retire the TESTS that call the helpers FIRST, then delete the source.
+    Tier ranking (T3 first, T1/T2 after) put the T3 source-deletion ahead of the open T1 test-retirement of the SAME feat, so the source delete ran
+    while the tests still called it: 5 stage-unverified no-ops in a row (turn_manager, 13:57-14:57Z) and a build-red revert, each time the 27B
+    'repair round' re-adding the function. Returns {block index: adjusted rank} lowering an open test-retirement item to the best rank of the
+    open (non-parked) source-deletion items sharing its [feat:] tag. OVN_PRIO_FEAT_DEPS=off disables (kill switch)."""
+    if os.environ.get('OVN_PRIO_FEAT_DEPS', 'on') == 'off':
+        return {}
+    src_best = {}
+    for i, b in enumerate(blocks):
+        ln = b[0]
+        fm = FEAT_RE.search(ln)
+        if not fm or PARKED_RE.search(ln) or not RETIRE_RE.search(ln) or _is_test_path(_target(ln)):
+            continue
+        k = fm.group(0)
+        src_best[k] = min(src_best.get(k, 99), rank(ln))
+    adj = {}
+    for i, b in enumerate(blocks):
+        ln = b[0]
+        fm = FEAT_RE.search(ln)
+        if not fm or PARKED_RE.search(ln) or not RETIRE_RE.search(ln) or not _is_test_path(_target(ln)):
+            continue
+        best = src_best.get(fm.group(0))
+        if best is not None and best < rank(ln):
+            adj[i] = best
+    return adj
 
 
 def main():
@@ -79,7 +122,9 @@ def main():
     if not blocks:
         print("no open items in Next Steps — nothing to do")
         return
-    ordered = sorted(range(len(blocks)), key=lambda i: (rank(blocks[i][0]), i))
+    adj = feat_dep_ranks(blocks)
+    # (rank, phase, index): an adjusted test-retirement ties its source-delete's rank but sorts BEFORE it (phase 0)
+    ordered = sorted(range(len(blocks)), key=lambda i: (adj.get(i, rank(blocks[i][0])), 0 if i in adj else 1, i))
     if ordered == list(range(len(blocks))):
         print("already prioritized — no change")
         return

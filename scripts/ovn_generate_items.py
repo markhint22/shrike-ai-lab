@@ -119,6 +119,24 @@ def scan(root):
 
     return found
 
+def _lint_block(block, n_gen, root):
+    """2026-10-18 (D1): VERIFY shape lint over the generated block (these templates carry no VERIFY today; the hook covers any that gain one). OVN_VERIFY_LINT=off|shadow|enforce.
+    enforce applies BOTH outcomes: a rewritten item replaces its line and a dropped item leaves the block (n_gen follows); shadow/off return the block byte-identical. Never raises.
+    -> (block, n_gen)"""
+    try:
+        import ovn_verify_shape_lint as _vsl
+        _head, _items = block.split("\n- [ ]", 1)[0], ["- [ ]" + x for x in block.split("\n- [ ]")[1:]]
+        _lines = [x.rstrip("\n") for x in _items]
+        _kept, _dropped, _ = _vsl.process_lines(_lines, root, os.path.basename(root.rstrip("/")), "generate_items")
+        if _dropped or _kept != _lines:
+            if not _kept:
+                return "", 0
+            return _head + "".join("\n" + x if not x.startswith("\n") else x for x in _kept) + "\n", len(_kept)
+    except Exception:
+        pass
+    return block, n_gen
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: ovn_generate_items.py <repo_root> [max_items]"); sys.exit(2)
@@ -145,12 +163,14 @@ def main():
         # items were showing up as tier="?" in outcome stats/ntfy digests, masking real
         # tier-capability signal (this was ~66% of all outcomes fleet-wide).
         block += "- [ ] [T1] [%s] %s\n" % (pri, txt)
+    n_gen = len(new)
+    block, n_gen = _lint_block(block, n_gen, root)   # 2026-10-18 (D1): VERIFY shape lint hook
     if "## Needs human" in existing:
         out = existing.replace("\n## Needs human", "\n" + block + "\n## Needs human", 1)
     else:
         out = existing.rstrip() + "\n" + block
     open(prog, 'w', encoding='utf-8').write(out)
-    print("GENERATED=%d" % len(new))
+    print("GENERATED=%d" % n_gen)
 
 if __name__ == '__main__':
     main()

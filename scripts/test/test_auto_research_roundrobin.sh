@@ -86,11 +86,16 @@ rr_checks(){
   ar_run DRY_RUN=1 OVN_AR_MAX_PER_RUN=3 OVN_AR_REPOS=all; o="$(order_of)"
   [ "$o" = "shrike-notify iptv_apps " ] && echo "1|a record without a pullable field (older checker) is not filtered" || echo "0|a record without a pullable field (older checker) is not filtered [got: $o]"
 
-  # 7. (review fix) lane allowlist: default = iptv_apps + xlite only, even when an inactive lane has no pullable info; OVN_AR_REPOS=all lifts it
+  # 7. (review fix) lane allowlist: an EXPLICIT OVN_AR_REPOS list is honoured, even when an excluded lane has no pullable info; OVN_AR_REPOS=all lifts it.
+  #    (2026-10-18: the DEFAULT is now every active repo - see test_auto_research_resilience.sh - so the old "iptv_apps + xlite" restriction is exercised via an explicit list;
+  #    the default still excludes the discontinued repos)
   fresh_state; ar_starving shrike-notify:40 billwatch:30 xlite:6 iptv_apps:5
-  ar_run DRY_RUN=1 OVN_AR_MAX_PER_RUN=4; o="$(order_of)"
-  [ "$o" = "xlite iptv_apps " ] && echo "1|default allowlist keeps only the active dev lanes (iptv_apps, xlite)" || echo "0|default allowlist keeps only the active dev lanes (iptv_apps, xlite) [got: $o]"
+  ar_run DRY_RUN=1 OVN_AR_MAX_PER_RUN=4 'OVN_AR_REPOS=iptv_apps xlite'; o="$(order_of)"
+  [ "$o" = "xlite iptv_apps " ] && echo "1|an explicit allowlist keeps only the listed lanes (iptv_apps, xlite)" || echo "0|an explicit allowlist keeps only the listed lanes (iptv_apps, xlite) [got: $o]"
   grep -aq "excluded shrike-notify: not in the research lane allowlist" "$T/out.txt" && echo "1|allowlist exclusion is logged" || echo "0|allowlist exclusion is logged"
+  fresh_state; ar_starving shrike-labs-website:50 billwatch:30 xlite:6
+  ar_run DRY_RUN=1 OVN_AR_MAX_PER_RUN=4; o="$(order_of)"
+  [ "$o" = "billwatch xlite " ] && grep -aq "excluded shrike-labs-website: not in the research lane allowlist" "$T/out.txt" && echo "1|the default allowlist = active repos: billwatch served, discontinued shrike-labs-website excluded" || echo "0|the default allowlist = active repos: billwatch served, discontinued shrike-labs-website excluded [got: $o]"
   fresh_state; ar_starving shrike-notify:40 billwatch:30 xlite:6
   ar_run DRY_RUN=1 OVN_AR_MAX_PER_RUN=4 OVN_AR_REPOS=all; o="$(order_of)"
   [ "$o" = "shrike-notify billwatch xlite " ] && echo "1|OVN_AR_REPOS=all lifts the allowlist" || echo "0|OVN_AR_REPOS=all lifts the allowlist [got: $o]"
@@ -310,15 +315,15 @@ mv_rr(){   # <name> <anchor> <replacement>
   local r; r="$(rr_checks "$MT/s.sh")"; T=""
   ok "round-robin mutant '$1' is caught ($(nfail "$r") check(s) fail)" "[ $(nfail "$r") -ge 1 ]"
 }
-mv_rr "no sorting" 'rows.sort(key=lambda r: (acc.get(r[0], 0), -float(r[1])))' 'pass'
-mv_rr "tie-break prefers the LEAST starving" 'rows.sort(key=lambda r: (acc.get(r[0], 0), -float(r[1])))' 'rows.sort(key=lambda r: (acc.get(r[0], 0), float(r[1])))'
+mv_rr "no sorting" 'rows.sort(key=_key)   # stable' 'pass'
+mv_rr "tie-break prefers the LEAST starving" 'else (1, acc.get(r[0], 0), -h)' 'else (1, acc.get(r[0], 0), h)'
 mv_rr "48h window is 4800h" 'time.time() - t <= 48 * 3600' 'time.time() - t <= 4800 * 3600'
 mv_rr "zero-accepted passes counted" 'if m and int(m.group(3)) > 0:' 'if m and int(m.group(3)) >= 0:'
 mv_rr "legacy is the default order" '"${OVN_AR_ORDER:-roundrobin}"' '"${OVN_AR_ORDER:-legacy}"'
 mv_rr "order line not logged" '[ -s "$WORK/order.err" ] && log "$(cat "$WORK/order.err")"' 'true'
 mv_rr "pullable filter disabled (the review's major defect)" 'if isinstance(pull, (int, float)) and not isinstance(pull, bool) and pull > pmax:' 'if False:'
 mv_rr "lane allowlist disabled" 'if allow and "all" not in allow and r["repo"] not in allow:' 'if False:'
-mv_rr "allowlist default empty" '"${OVN_AR_REPOS-iptv_apps xlite}"' '"${OVN_AR_REPOS-}"'
+mv_rr "allowlist default empty" '"${OVN_AR_REPOS-$DEFAULT_REPOS}"' '"${OVN_AR_REPOS-}"'
 mv_rr "pullable limit ignores OVN_AR_PULLABLE_MAX" '"${OVN_AR_PULLABLE_MAX:-10}"' '10'
 mv_rr "bad starving.json crashes with a traceback" 'except (OSError, ValueError):' 'except KeyError:'
 mv_rr "exclusions not logged" '[ -s "$WORK/cand.err" ] && while IFS= read -r l; do log "$l"; done < "$WORK/cand.err"' 'true'

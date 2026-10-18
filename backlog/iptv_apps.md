@@ -526,3 +526,13 @@
 # --- deterministic work supply 2026-10-18 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- 27B-decomposed from roadmap [2026-10-18]: Test `update_watch_progress` endpoint — Add a test for `update_watch_progress` in `iptv-ba (review + tweak) [feat:iptv_apps-20261018-test-update-watch-progress-endpoint-add-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix parental daily-limit timezone mismatch in report_usage — `iptv-backend/app/routers/par (review + tweak) [feat:iptv_apps-20261018-fix-parental-daily-limit-timezone-mismat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix broken region filter in get_trending_streams — `iptv-backend/app/services/trending.py: (review + tweak) [feat:iptv_apps-20261018-fix-broken-region-filter-in-get-trending] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix stream credentials leaked in proxy error logs — `iptv-backend/app/routers/streams.py:2 (review + tweak) [feat:iptv_apps-20261018-fix-stream-credentials-leaked-in-proxy-e] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix relay endpoint not forwarding Range header for VOD byte-range seeking — `iptv-backend/ (review + tweak) [feat:iptv_apps-20261018-fix-relay-endpoint-not-forwarding-range-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Add tests for get_trending_streams region filter and day-window — `iptv-backend/app/servic (review + tweak) [feat:iptv_apps-20261018-add-tests-for-get-trending-streams-regio] ---

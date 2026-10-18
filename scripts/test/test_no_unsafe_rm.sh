@@ -22,6 +22,13 @@ t "A1 no unsafe rm -r / find -delete / python rmtree pattern anywhere under scri
 t "A2 the lint is registered in run_all.sh before finish (outside finish())" bash -c "awk '/bash test_no_unsafe_rm.sh/{r=NR} /^echo; finish/{f=NR} END{exit !(r && f && r<f)}' '$HERE/run_all.sh'"
 t "A3 the registration is not inside the finish() function body" bash -c "awk '/^finish\\(\\)\\{/{i=1} i&&/test_no_unsafe_rm/{bad=1} /^}/{i=0} END{exit bad}' '$HERE/run_all.sh'"
 
+# runtime data dirs at the queue ROOT (repos/ = live fleet clones, state/) are not queue source; a nested one is still linted (a mutant must be caught there)
+d="$SB/m_root"; mkdir -p "$d/repos/app" "$d/state/x" "$d/scripts/repos"
+for f in "$d/repos/app/a.sh" "$d/state/x/b.sh" "$d/scripts/repos/c.sh"; do printf '#!/usr/bin/env bash\nrm -rf "$X"\n' > "$f"; done
+out="$("$PY" -I "$LINT" "$d" 2>&1)"
+t "A4 unsafe lines under the root-level repos/ and state/ are not linted" bash -c "! printf '%s' '$out' | grep -q -e '/repos/app/a.sh' -e '/state/x/b.sh'"
+t "A5 ...but a nested scripts/repos/ is still linted (the skip is top-level only)" bash -c "printf '%s' '$out' | grep -q '/scripts/repos/c.sh'"
+
 echo "== B: mutant proof - each re-introduced unsafe line makes the lint FAIL on a scratch copy"
 mut(){ # $1=name $2=file content line -> prints the lint exit code
   local d="$SB/m_$1"; mkdir -p "$d"; printf '%s\n' '#!/usr/bin/env bash' "$2" > "$d/mutant.sh"

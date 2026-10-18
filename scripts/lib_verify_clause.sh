@@ -108,7 +108,14 @@ _resolve_tool_paths(){
     cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/python3?#${vpy}#g; s#(^|&& |; )python3? #\1${vpy} #g")"
   fi
 
-  vpytest="$(find -L "$cddir" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  # 2026-10-18 (test-automation-agent audit): a stage worktree has no .venv (gitignored), so bare `pytest` died rc=127 "command not found" and every
+  # pytest item-verify row was UNRUNNABLE (decision no-evidence). OVN_VERIFY_VENV_FALLBACK=<fleet repo dir> (set only by stage_item_verify_run) lets
+  # the search fall back to the live clone's venv; the clause still runs in the worktree cwd, against the worktree's code.
+  if [ -z "$(find -L "$cddir" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)" ] && [ -n "${OVN_VERIFY_VENV_FALLBACK:-}" ] && [ -d "$OVN_VERIFY_VENV_FALLBACK" ]; then
+    vpytest="$(find -L "$OVN_VERIFY_VENV_FALLBACK" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  else
+    vpytest="$(find -L "$cddir" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
+  fi
   if [ -n "$vpytest" ]; then
     vpytest="$(cd "$(dirname "$vpytest")" 2>/dev/null && pwd)/$(basename "$vpytest")"
     cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/pytest#${vpytest}#g; s#(^|&& |; )pytest #\1${vpytest} #g")"
@@ -376,6 +383,23 @@ _verify_k_fallback_cmd(){
 _VC_MEMO=""; _VC_MEMO_ON=0   # per-call memo of identical VERIFY commands (newline separated, fields split by \037: key RESULT RC TMO WHY ADOPT_ROOT ADOPT_ORIG_RC)
 _LAST_VERIFY_RESULT=""
 _LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""; _LAST_VERIFY_BARE=""
+# _verify_echo_verdict <vcmd> -> prints `neg|<probe>` / `pos|<probe>` when the clause is `PROBE && echo <FAIL-word> || echo <PASS-word>` (neg), `PROBE && echo <PASS-word> || echo <FAIL-word>` (pos)
+# or `PROBE || echo <FAIL-word>` (pos); prints nothing otherwise (incl. a probe that itself contains && / || / ; / $( / backticks: not safely re-readable).
+_verify_echo_verdict() {
+  local c="$1" fw='(FAIL|FAILED|FAILS|BAD|ERROR|NOT[ _A-Za-z]*|STILL[ _A-Za-z]*|FOUND|PRESENT|EXISTS|NO)' pw='(PASS|PASSED|OK|GOOD|YES|ABSENT|GONE|DONE|CLEAN)' q='["'"'"']?' probe kind=""
+  c="$(printf '%s' "$c" | sed -E 's/[[:space:]]+$//; s/;[[:space:]]*$//')"
+  if   printf '%s' "$c" | grep -qiE "&&[[:space:]]*echo[[:space:]]+${q}${fw}${q}[[:space:]]*\|\|[[:space:]]*echo[[:space:]]+${q}${pw}${q}\$"; then
+    kind=neg; probe="$(printf '%s' "$c" | sed -E "s/[[:space:]]*&&[[:space:]]*echo[[:space:]]+[^|]*\|\|.*\$//")"
+  elif printf '%s' "$c" | grep -qiE "&&[[:space:]]*echo[[:space:]]+${q}${pw}${q}[[:space:]]*\|\|[[:space:]]*echo[[:space:]]+${q}${fw}${q}\$"; then
+    kind=pos; probe="$(printf '%s' "$c" | sed -E "s/[[:space:]]*&&[[:space:]]*echo[[:space:]]+[^|]*\|\|.*\$//")"
+  elif printf '%s' "$c" | grep -qiE "[^|]\|\|[[:space:]]*echo[[:space:]]+${q}${fw}${q}\$" && ! printf '%s' "$c" | grep -qE '&&'; then
+    kind=pos; probe="$(printf '%s' "$c" | sed -E "s/[[:space:]]*\|\|[[:space:]]*echo[[:space:]]+[^|]*\$//")"
+  else return 0; fi
+  [ -n "$probe" ] || return 0
+  case "$probe" in *'$('*|*'`'*|*';'*|*'&&'*|*'||'*) return 0 ;; esac
+  printf '%s|%s' "$kind" "$probe"
+}
+
 shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_VERIFY_RESULT.
   local ln="$1" line vcmd rc out tail_out ts tmo
   ts="$(date -u +%FT%TZ)"
@@ -424,6 +448,27 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
   if [ "${OVN_VERIFY_POLARITY:-on}" != off ] && [ -f "$_VC_DIR/ovn_credit_items.py" ]; then
     _pol="$(timeout 10 python3 "$_VC_DIR/ovn_credit_items.py" polarity "$PROG" "$ln" 2>/dev/null | head -1)"
     case "$_pol" in "neg grep") _pol=neg; _poltool=grep ;; "neg exit") _pol=neg; _poltool=exit ;; "neg "*) _pol=unknown ;; pos) _pol=pos ;; *) _pol=unknown ;; esac
+  fi
+  # 2026-10-18 (iptv overnight audit): `PROBE && echo "FAIL" || echo "PASS"` (and `PROBE && echo PASS || echo FAIL`, `PROBE || echo FAIL`) ALWAYS exits 0: the echo, not the probe, decides the exit
+  # status. iptv `Remove the definitions of check_session_limit...` carried `grep -E "def check_session_limit|..." file && echo "FAIL" || echo "PASS"`: with every def still present the clause
+  # read PASS BEFORE and AFTER (item_verify refuse:already GREEN), the staged repair round re-added the deleted functions and the item was ticked [x] (staged 4/4 DONE) with nothing deleted.
+  # Re-read such a clause by the PROBE's own exit status: an echo-FAIL-on-success clause states an absence (neg), an echo-PASS-on-success clause states a presence (pos).
+  # OVN_VERIFY_ECHO_VERDICT=shadow (default: logs `note=echo-verdict mode=shadow would=...` to the shadow log, verdicts unchanged) | on (apply) | off.
+  local _evmode="${OVN_VERIFY_ECHO_VERDICT:-shadow}" _evr="" _evk="" _evp=""
+  if [ "$_evmode" != off ]; then
+    _evr="$(_verify_echo_verdict "$vcmd")"
+    if [ -n "$_evr" ]; then
+      _evk="${_evr%%|*}"; _evp="${_evr#*|}"
+      if [ "$_evmode" = on ]; then
+        vcmd="$_evp"
+        if [ "$_evk" = neg ]; then
+          _pol=neg; _poltool=exit
+          case "$(printf '%s' "$_evp" | sed -E 's/.*\| *//')" in grep\ *|egrep\ *|fgrep\ *) _poltool=grep ;; esac
+        else _pol=pos; _poltool=""; fi
+      else
+        echo "$ts repo=$_REPO_LABEL line=$ln note=echo-verdict mode=shadow would=$_evk probe=$(printf '%s' "$_evp" | head -c 200)" >> "$SHADOW_LOG"
+      fi
+    fi
   fi
   local _polmark=""; [ "$_pol" = neg ] && _polmark=" polarity=neg"
   # identical command already judged in THIS call (two items sharing one VERIFY): reuse the verdict, do not run it again

@@ -119,6 +119,10 @@ def clean_outcome(d):
          "id": as_str(d.get("id")), "type": as_str(d.get("type")), "tier": as_str(d.get("tier"), "?") or "?", "category": as_str(d.get("category")),
          "feat_tag": as_str(d.get("feat_tag")), "item_hash": as_str(d.get("item_hash")), "duration_s": as_int(d.get("duration_s"), 1800),
          "attempt": as_int(d.get("attempt"), None)}
+    # 2026-10-18 (D4): record_outcome() now stamps the cycle's own commit shas. Carried through ADVISORILY (ledger field outcome_commits + a match flag against the time-window
+    # derivation); the time-window attribution above stays the source of truth. Old rows have no commits => []; a malformed list is ignored, never a reason to drop the row.
+    cm = d.get("commits")
+    r["commits"] = [x for x in cm if isinstance(x, str) and 7 <= len(x) <= 40 and all(c in "0123456789abcdefABCDEF" for c in x)][:20] if isinstance(cm, list) else []
     return r, False
 
 
@@ -423,7 +427,8 @@ def derive_records(rows, existing_keys, claimed, stats=None):
                             "item_hash": r.get("item_hash", "") or "", "risk": rc_, "risk_basis": basis,
                             "commits": [c["sha"] for c in mine], "subjects": [c["subject"][:120] for c in mine], "files": files[:60],
                             "commit_basis": "time-window" if mine else ("no-clone" if not rd else "none"),
-                            "item_text_found": bool(line), "weak_oracle": weak_oracle(line), "flags": flags})
+                            "item_text_found": bool(line), "weak_oracle": weak_oracle(line), "flags": flags,
+                            **({"outcome_commits": r["commits"], "outcome_commits_match": bool({c["sha"] for c in mine} & set(r["commits"]))} if r.get("commits") else {})})
             except Exception:  # noqa: BLE001 - one bad row must not freeze the cursor for every later row
                 stats["failed"] += 1
     # persist last outcome epoch per repo

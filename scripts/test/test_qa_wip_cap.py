@@ -401,6 +401,20 @@ ok("alert_once waits on the phase5_alerted.lock flock while another process hold
 p5c.atomic_write(os.path.join(STATE, "mode_test.txt"), "x")
 ok("atomic_write files are 0644 (not mkstemp's 0600)", oct(os.stat(os.path.join(STATE, "mode_test.txt")).st_mode & 0o777) == "0o644")
 
+# ---------------------------------------------------------------- 11b. OVN_QA_WIP_CAP_SCOPE: repos that are never promoted must not alert forever
+_mixed = pending("xlite", 21) + pending("billwatch", 3)
+ok("scope unset: every repo counted (xlite OVER, global counts both)", comp(_mixed)["repos"]["xlite"]["state"] == "OVER" and comp(_mixed)["global"]["count"] == 24)
+os.environ["OVN_QA_WIP_CAP_SCOPE"] = "billwatch,iptv_apps"
+try:
+    _rs = comp(_mixed)
+    ok("scope set: xlite is not counted, not alerted, and not in the global count", "xlite" not in _rs["repos"] and _rs["global"]["count"] == 3 and WC.over_scopes(_rs) == [], _rs["global"])
+    ok("scope set: an in-scope repo still alerts over its cap", WC.over_scopes(comp(pending("billwatch", 9) + pending("xlite", 30))) == [("repo:billwatch", 9, 8)])
+    ok("scope set: eligibility of an out-of-scope repo is eligible (no row)", WC.eligibility(_rs, "xlite", "B", "", "soft")["eligible"] is True)
+finally:
+    del os.environ["OVN_QA_WIP_CAP_SCOPE"]
+ok("scope garbage entries are ignored (falls back to all repos)", (os.environ.__setitem__("OVN_QA_WIP_CAP_SCOPE", "../x, ") or WC.scope_repos()) is None)
+del os.environ["OVN_QA_WIP_CAP_SCOPE"]
+
 # ---------------------------------------------------------------- 12. MUTANT: raise the cap / remove the alert in a COPY and the over-cap scenario must fail
 SCEN = r'''
 import os, sys, json
@@ -440,6 +454,28 @@ ok("mutant control: the unmodified code passes the over-cap scenario", scenario(
 ok("MUTANT cap raised (billwatch 8 -> 80): over-cap scenario FAILS", mutate("cap", '"billwatch": 8', '"billwatch": 80') is False)
 ok("MUTANT comparison weakened (n > cap -> n > cap + 100): over-cap scenario FAILS", mutate("cmp", "    if n > cap:", "    if n > cap + 100:") is False)
 ok("MUTANT over_scopes drops repos: alert scope list FAILS", mutate("scopes", 'if r["state"] == "OVER"]', 'if r["state"] == "NEVER"]') is False)
+SCOPE_SCEN = SCEN.replace("rep = wc.compute(", "os.environ['OVN_QA_WIP_CAP_SCOPE'] = 'xlite'\nrep = wc.compute(").replace('rep["repos"]["billwatch"]["state"]', 'rep["repos"].get("billwatch", {}).get("state", "OUT")')
+
+
+def scope_scenario(moddir):
+    p = subprocess.run([PY, "-I", "-c", SCOPE_SCEN, moddir], capture_output=True, text=True, env={"PATH": os.environ.get("PATH", ""), "QA_STATE_DIR": STATE})
+    try:
+        d = json.loads(p.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+    return d["state"] == "OUT" and d["over"] == []
+
+
+ok("scope scenario control: billwatch out of scope -> not counted, no alert", scope_scenario(QA) is True)
+_sd = os.path.join(T, "mut_scope"); os.makedirs(_sd)
+for _f in ("wip_cap.py", "qa_common.py", "qa_ledger.py", "phase5_common.py"):
+    shutil.copy(os.path.join(QA, _f), os.path.join(_sd, _f))
+_src = open(os.path.join(_sd, "wip_cap.py")).read()
+_needle = "(scope is None or r[\"repo\"] in scope)"
+_ok_needle = _needle in _src
+if _ok_needle:
+    open(os.path.join(_sd, "wip_cap.py"), "w").write(_src.replace(_needle, "True", 1))
+ok("MUTANT scope filter removed: the out-of-scope repo is counted again, scenario FAILS", _ok_needle and scope_scenario(_sd) is False)
 ok("mutation strings really match the source (a stale needle would pass silently)", mutate("n1", '"billwatch": 8', '"billwatch": 8') is True)
 
 shutil.rmtree(T, ignore_errors=True) if os.path.basename(T).startswith("wipcap-test-") else None

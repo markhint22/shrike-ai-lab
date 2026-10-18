@@ -32,7 +32,15 @@ mkrepo(){ # name
 }
 # mkwt <repo> <parent-dir> <minutes-old> -> echoes path
 mkwt(){
-  local wt; wt="$(safe_mktemp_dir_in "$2" ovnws)" || exit 1; EXTRA+=("$wt")
+  local wt
+  case "$2" in
+    # The sweeper only ever touches literal /tmp (and must ignore /var/tmp), so these two parents are the system dirs themselves; they are never a
+    # sandbox root once TMPDIR is redirected (the sandboxed suite), so safe_mktemp_dir_in would refuse them. Plain mktemp -d creates a NEW uniquely
+    # named dir (never removes anything); cleanup only removes dirs recorded in EXTRA.
+    /tmp|/var/tmp) wt="$(mktemp -d "$2/ovnws.XXXXXX")" || exit 1; [ -n "$wt" ] && [ -d "$wt" ] || exit 1 ;;
+    *) wt="$(safe_mktemp_dir_in "$2" ovnws)" || exit 1 ;;
+  esac
+  EXTRA+=("$wt")
   git -C "$Q/repos/$1" worktree add -q --detach "$wt" >/dev/null 2>&1
   touch -d "$3 minutes ago" "$wt"; echo "$wt"
 }

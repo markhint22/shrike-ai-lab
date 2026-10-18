@@ -8,6 +8,7 @@
 # rejected it — this backfills coverage for that gate itself, not just documents the
 # incident after the fact.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # fail-closed sandbox helpers (lint_unsafe_rm.py)
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 CM="${OVN_CHECK_MIGRATIONS:-$HOME/overnight-queue/scripts/check_migrations.py}"
 [ -f "$CM" ] || { echo "  SKIP: $CM not found on this host"; exit 0; }
@@ -31,7 +32,7 @@ EOF
 out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
 ok  "clean linear chain -> exit 0"                 "[ $rc -eq 0 ]"
 ok  "clean linear chain -> reports OK"              "printf '%s' \"\$out\" | grep -q 'MIGRATION SAFETY: OK'"
-rm -rf "$d"
+safe_rm_rf "$d"
 
 # ---- 2. duplicate revision id in two files (the exact gitlark shape) -> FAIL ----
 d=$(safe_mktemp_dir) || exit 1; mkvdir "$d"
@@ -50,7 +51,7 @@ EOF
 out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
 nok "duplicate revision id -> does NOT exit 0"      "[ $rc -eq 0 ]"
 ok  "duplicate revision id -> flagged by name"      "printf '%s' \"\$out\" | grep -q \"revision '013' declared in 2 files\""
-rm -rf "$d"
+safe_rm_rf "$d"
 
 # ---- 3. multiple heads (a disconnected side-chain) -> FAIL ----
 d=$(safe_mktemp_dir) || exit 1; mkvdir "$d"
@@ -69,7 +70,7 @@ EOF
 out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
 nok "multiple heads -> does NOT exit 0"             "[ $rc -eq 0 ]"
 ok  "multiple heads -> flagged"                     "printf '%s' \"\$out\" | grep -q 'MULTIPLE HEADS'"
-rm -rf "$d"
+safe_rm_rf "$d"
 
 # ---- 4. String FK pointing at a UUID target (the billwatch shape) -> FAIL ----
 d=$(safe_mktemp_dir) || exit 1; mkvdir "$d"
@@ -99,13 +100,71 @@ EOF
 out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
 nok "String FK to UUID target -> does NOT exit 0"   "[ $rc -eq 0 ]"
 ok  "String FK to UUID target -> flagged"           "printf '%s' \"\$out\" | grep -q 'is String but target'"
-rm -rf "$d"
+safe_rm_rf "$d"
+
+# ---- 4b. tuple down_revision (an Alembic MERGE migration) -> parents are NOT heads (2026-10-18 TAA) ----
+# Regression: the regex read `down_revision = ('0007', '0379c2620417')` as '(' so a CORRECT merge
+# showed its own parents as extra heads -> 'MULTIPLE HEADS' -> claude/feature -> develop blocked 10h.
+d="$(safe_mktemp_dir)" || exit 1; mkvdir "$d"
+cat > "$d/alembic/versions/0001_base.py" <<'EOF'
+revision = "0001_base"
+down_revision = None
+EOF
+cat > "$d/alembic/versions/0002_a.py" <<'EOF'
+revision: str = "0002_a"
+down_revision: Union[str, None] = "0001_base"
+EOF
+cat > "$d/alembic/versions/0003_b.py" <<'EOF'
+revision = "0003_b"
+down_revision = "0001_base"
+EOF
+cat > "$d/alembic/versions/0004_merge.py" <<'EOF'
+revision = '0004'
+down_revision = ('0002_a', '0003_b')
+EOF
+out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
+ok  "tuple-parent merge of two branches -> single head, exit 0"   "[ $rc -eq 0 ]"
+# mutant: same tree minus the merge file -> the two real heads MUST still be flagged
+rm "$d/alembic/versions/0004_merge.py"
+out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
+nok "two branches with NO merge -> still flagged (gate not weakened)" "[ $rc -eq 0 ]"
+ok  "two branches with NO merge -> MULTIPLE HEADS names both"      "printf '%s' \"\$out\" | grep -q \"MULTIPLE HEADS \\['0002_a', '0003_b'\\]\""
+# a merge that lists only ONE of the two heads leaves the other as a head
+cat > "$d/alembic/versions/0004_merge.py" <<'EOF'
+revision = '0004'
+down_revision = ('0002_a',)
+EOF
+out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
+nok "merge listing only one parent -> still flagged"              "[ $rc -eq 0 ]"
+ok  "merge listing only one parent -> 0003_b reported as head"    "printf '%s' \"\$out\" | grep -q '0003_b'"
+safe_rm_rf "$d"
+
+# ---- 4c. applied-migration immutability (2026-10-18 TAA 3114b2a: baseline edited after it was applied) ----
+d="$(safe_mktemp_dir)" || exit 1; mkvdir "$d"
+( cd "$d" && git init -q && git config user.email t@t && git config user.name t
+  printf 'revision = "0001_base"\ndown_revision = None\n' > alembic/versions/0001_base.py
+  git add -A && git commit -q -m base ) >/dev/null 2>&1
+B="$(git -C "$d" rev-parse HEAD)"
+printf 'revision = "0001_base"\ndown_revision = None\n# edited after being applied\n' > "$d/alembic/versions/0001_base.py"
+git -C "$d" commit -qam "edit applied baseline" >/dev/null 2>&1
+out="$(OVN_MIG_BEFORE_SHA=$B python3 "$CM" "$d" 2>&1)"; rc=$?
+ok  "immutability shadow (default): edit of an existing migration is reported"        "printf '%s' \"\$out\" | grep -q 'IMMUTABILITY (shadow).*0001_base.py'"
+ok  "immutability shadow (default): never fails the check (exit 0)"                   "[ $rc -eq 0 ]"
+out="$(OVN_MIG_IMMUTABLE=enforce OVN_MIG_BEFORE_SHA=$B python3 "$CM" "$d" 2>&1)"; rc=$?
+nok "immutability enforce: edit of an existing migration fails"                       "[ $rc -eq 0 ]"
+out="$(OVN_MIG_IMMUTABLE=off OVN_MIG_BEFORE_SHA=$B python3 "$CM" "$d" 2>&1)"; rc=$?
+ok  "immutability off: silent and exit 0"                                             "[ $rc -eq 0 ] && ! printf '%s' \"\$out\" | grep -q IMMUTABILITY"
+printf 'revision = "0002_new"\ndown_revision = "0001_base"\n' > "$d/alembic/versions/0002_new.py"
+git -C "$d" checkout -q "$B" -- alembic/versions/0001_base.py; git -C "$d" add -A; git -C "$d" commit -qm "add new migration, restore baseline" >/dev/null 2>&1
+out="$(OVN_MIG_IMMUTABLE=enforce OVN_MIG_BEFORE_SHA=$B python3 "$CM" "$d" 2>&1)"; rc=$?
+ok  "immutability enforce: ADDING a new migration (baseline unchanged vs BEFORE) passes"  "[ $rc -eq 0 ]"
+safe_rm_rf "$d/.git"; safe_rm_rf "$d"   # safe_rm_rf refuses a git checkout root: drop the throwaway .git first
 
 # ---- 5. no alembic dirs at all -> safe no-op OK (nothing to check) ----
 d=$(safe_mktemp_dir) || exit 1
 out="$(python3 "$CM" "$d" 2>&1)"; rc=$?
 ok  "no alembic dirs -> exit 0 (nothing to check)"  "[ $rc -eq 0 ]"
-rm -rf "$d"
+safe_rm_rf "$d"
 
 echo "check_migrations.py: $P passed, $F failed"
 [ "$F" -eq 0 ]

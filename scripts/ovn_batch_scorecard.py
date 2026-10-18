@@ -111,6 +111,8 @@ try:
             tag = r.get("feat_tag") or ""
             if not tag:
                 continue
+            if r.get("class") == "landed-late":
+                continue   # D4: a pure attribution row (a held commit that reached origin later); it must never enter the denominator, a land rate is per cycle that ran
             t = parse_ts(r.get("ts", ""))
             if t is None or t < cutoff:
                 continue

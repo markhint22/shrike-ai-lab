@@ -105,6 +105,19 @@ def pullable(repo):
         return sum(1 for l in (bt + "\n" + pt).split("\n") if re.match(r"^- \[ \] \[T[1-5]\]", l) and not held.search(l))
 
 
+def _cause_suffix(repo, now):
+    """2026-10-18: ' | cause: ...' from ovn_supply_report (why nothing is producing supply for this repo), '' when unknown. OVN_SUPPLY_LINE=0 = off. Never raises."""
+    if os.environ.get("OVN_SUPPLY_LINE", "1") == "0":
+        return ""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ovn_supply_report as sr
+        t = sr.cause_text(repo, rep=sr.collect(now=now, root=OVN_DIR, state=os.path.dirname(STATE), repos=[repo]))
+        return " | cause: " + t if t else ""
+    except Exception:
+        return ""
+
+
 def floor_alerts(starving, last_backlog, now):
     """ONE alerts.log warn per lane per local day for a lane at the roadmap-feature floor (see the module docstring). `starving` rows carry the unrounded hours as `_h`.
     Returns the alert lines written. Never raises: an unwritable alerts.log/marker = no alert (and no marker), the next run retries."""
@@ -139,6 +152,7 @@ def floor_alerts(starving, last_backlog, now):
             continue
         line = "[%s] warn | ongoing-%s | roadmap-feature floor: %s has had backlog %d and no [ready] roadmap feature for %.1fh (since %s) - promote a [needs-research] feature to [ready] in roadmap/%s.md (Claude research pass)" % (
             time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), repo, repo, n, r["_h"], time.strftime("%Y-%m-%d %H:%M", time.localtime(r["starving_since"])), repo)
+        line += _cause_suffix(repo, now)
         try:
             if chronic:
                 # 2026-10-13 (G5): the lane's FIRST floor alert is written as before (onset); a lane that stays at the floor is folded into ONE daily

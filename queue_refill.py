@@ -63,6 +63,12 @@ try:
 except Exception:  # pragma: no cover - a deployment without the module simply has no shadow lint
     _VM = None
 
+# 2026-10-18 (package D1): VERIFY SHAPE lint (unsatisfiable / vacuous / unrunnable shapes). OVN_VERIFY_LINT=off|shadow|enforce, default shadow.
+try:
+    import ovn_verify_shape_lint as _VSL
+except Exception:  # pragma: no cover - a deployment without the module has no shape lint
+    _VSL = None
+
 # 2026-10-12 (package uidcredit): the shared canonical item identity (annotation/state-tag/tier-insensitive) lives in scripts/ovn_credit_items.py. Fallback to the
 # legacy comparison below when the module is not deployed next to this file (OVN_REFILL_CANON=legacy forces it).
 try:
@@ -123,6 +129,26 @@ def _extract_verify(line):
 
 # 2026-10-15 (P2): VERIFY malformation lint, SHADOW ONLY. Every pulled item's VERIFY is linted and one JSON line per item is appended to
 # state/verify_lint_shadow.log. Findings never change what is queued or how it is run. OVN_VERIFY_LINT=off disables it. OVN_VERIFY_LINT_LOG overrides the path.
+def _shape_lint_item(l2, orig, repo_root, quarantined, flagged):
+    """D1: lint the SHAPE of an eligible item's VERIFY BEFORE the pre-credit check (a vacuous `| wc -l` VERIFY otherwise credits the item as already done with no work).
+    shadow (default): the line is returned unchanged and the finding recorded in `flagged`. enforce: a mechanically fixable clause is rewritten, anything else is dropped
+    (quarantined, never lost) and None is returned. off / no module / any error: unchanged. Never raises."""
+    if _VSL is None or _VSL.mode() == "off":
+        return l2
+    try:
+        d, out, res = _VSL.lint_item_line(l2, repo_root)
+        if d == "ok":
+            return l2
+        flagged.append((l2, d, res))
+        if d == "dropped":
+            quarantined.append((orig, "VL", ",".join(f["code"] for f in res["findings"])))
+            return None
+        return out
+    except Exception as e:
+        sys.stderr.write("queue_refill: verify shape lint skipped (%s: %s)\n" % (type(e).__name__, e))
+        return l2
+
+
 def _verify_lint_shadow(pulled_lines, repo_root):
     mode = os.environ.get("OVN_VERIFY_LINT", "shadow")
     if mode.lower() == "off" or _VM is None:
@@ -228,6 +254,16 @@ def collected_test_dir(repo_root):
         return "iptv-backend/tests/"
     if os.path.isfile(os.path.join(repo_root, "project.godot")) and os.path.isdir(os.path.join(repo_root, "tests")):
         return "tests/"
+    # 2026-10-18 (test-automation-agent audit): a backend/-rooted pytest layout (backend/pytest.ini, testpaths=tests, NO root pytest.ini). Items say `tests/x.py`
+    # (backend-relative) and the staged runner creates it at the REPO ROOT, which nothing collects: 3 ghost tests landed + were credited overnight (a vacuous duplicate,
+    # a failing copy, a test that passes with the fix reverted). OVN_RELOCATE_BACKEND_TESTS=off is the kill switch (repair of item text only, same mechanism as iptv).
+    if os.environ.get("OVN_RELOCATE_BACKEND_TESTS", "on") != "off" and not os.path.isfile(os.path.join(repo_root, "pytest.ini")) \
+            and os.path.isdir(os.path.join(repo_root, "backend", "tests")) and os.path.isfile(os.path.join(repo_root, "backend", "pytest.ini")):
+        try:
+            if re.search(r"^\s*testpaths\s*=\s*tests\s*$", open(os.path.join(repo_root, "backend", "pytest.ini"), encoding="utf-8").read(), re.M):
+                return "backend/tests/"
+        except OSError:
+            pass
     return None
 
 
@@ -562,6 +598,7 @@ def main():
     repo_label = os.path.splitext(os.path.basename(backlog))[0]
     pull, credited, scanned = [], [], 0      # pull / credited hold (original_line, line_to_use)
     held = 0
+    shape_flagged = []
     batch_seen = set()   # 2026-10-12 (uidcredit): two identical eligible backlog lines used to BOTH be pulled in one run (`existing` only knew the files); the 2nd is pruned as a duplicate
     for l in eligible:
         if len(pull) >= n or scanned >= SCAN_CAP:
@@ -579,6 +616,9 @@ def main():
             continue
         scanned += 1
         batch_seen.add(_bn)
+        l2 = _shape_lint_item(l2, l, repo_root, quarantined, shape_flagged)   # D1 (shadow default): before the credit check
+        if l2 is None:
+            continue
         if already_satisfied(l2, repo_root):
             credited.append((l, l2))
         else:
@@ -604,6 +644,8 @@ def main():
             pull[i] = l2
             relocated += 1
 
+    if shape_flagged and _VSL is not None:
+        _VSL.log_flagged(shape_flagged, repo_label, "queue_refill", _VSL.mode(), scanned)
     _verify_lint_shadow(pull, repo_root)   # P2: shadow-only, never blocks
     extra = (f"  QUARANTINED={len(quarantined)}" if quarantined else "") + (f"  HELD={held}" if held else "") \
         + (f"  VACUOUS_ECHO={vacuous}" if vacuous else "") + (f"  REPAIRED={repaired}" if repaired else "")

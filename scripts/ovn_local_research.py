@@ -324,6 +324,16 @@ def existing_titles(roadmap_text):
     return titles[-60:]
 
 
+# where each repo's collected tests live (prompt rule c); repos not listed fall back to "wherever the repo's existing tests live"
+LEGACY_HINT = "iptv_apps: iptv-backend/tests/ only; xlite: tests/ only"  # the exact text the two original lanes always got
+TESTS_HINT = {"gitlark": "backend/tests/ only", "billwatch": "billwatch-backend/tests/ only",
+              "test-automation-agent": "backend/tests/ only", "shrike-monitor": "backend/tests/ only", "shrike-notify": "backend/tests/ only"}
+
+
+def tests_hint(repo):
+    return TESTS_HINT.get(repo) or (LEGACY_HINT if repo in ("iptv_apps", "xlite") else "next to the repo's existing tests (see the evidence paths)")
+
+
 def build_prompt(repo, evidence, titles):
     ev = "\n".join("%d. [%s] %s:%d - %s" % (i + 1, e["kind"], e["file"], e["line"], e["text"]) for i, e in enumerate(evidence))
     ex = "\n".join("- " + t for t in titles)
@@ -336,10 +346,10 @@ EVIDENCE:
 ALREADY ON THE ROADMAP (do not duplicate):
 %s
 
-RULES: (a) NEVER propose adding a standalone helper/predicate/constant, or a test for one, unless the SAME item changes an existing production caller to use it. (b) One item = one behavioural change with a concrete verifiable outcome; no refactor/rename/cleanup unless you name the defect it fixes. (c) Tests live where the repo collects them (iptv_apps: iptv-backend/tests/ only; xlite: tests/ only). (d) Prefer evidence kinds no-rate-limit, uncoerced-load, swallowed-exception, then untested-function/untested-class (at most 1 test-only item), then todo. (e) If the evidence does not justify an item, return fewer; reply NONE if nothing is worth doing.
+RULES: (a) NEVER propose adding a standalone helper/predicate/constant, or a test for one, unless the SAME item changes an existing production caller to use it. (b) One item = one behavioural change with a concrete verifiable outcome; no refactor/rename/cleanup unless you name the defect it fixes. (c) Tests live where the repo collects them (%s). (d) Prefer evidence kinds no-rate-limit, uncoerced-load, swallowed-exception, then untested-function/untested-class (at most 1 test-only item), then todo. (e) If the evidence does not justify an item, return fewer; reply NONE if nothing is worth doing.
 Reply with ONLY item lines, one per line, exactly:
 - [ ] [P<1-4>] [ready] <short title> — <what/why naming the evidence file:line in backticks, e.g. `path/file.py:12`, and the concrete fix + test> {cat: <backend|web|mobile|game|infra|test>; size: <S|M|L>; multifile: <yes|no>; research: none}
-Each item under 900 characters, single line.""" % (repo, ev, ex)
+Each item under 900 characters, single line.""" % (repo, ev, ex, tests_hint(repo))
 
 
 def call_model(prompt):

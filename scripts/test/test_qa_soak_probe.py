@@ -419,6 +419,37 @@ ok("a second soak cron run while one holds the lock is skipped, exit 0, the prob
    p.returncode == 0 and "still holds" in p.stdout and not os.path.exists(os.path.join(d, "qa", "soak_probe.py.argv")), (p.stdout, p.stderr))
 if flock_bin:
     fh.close()
+print("== soak cron serialises on state/staging_e2e.lock (the lock e2e + daily smoke take)")
+def soak_run(d, st, script=None, **env):
+    argvf = os.path.join(d, "qa", "soak_probe.py.argv")
+    if os.path.exists(argvf):
+        os.remove(argvf)
+    pr = subprocess.run(["bash", script or os.path.join(d, "qa", "soak_probe_cron.sh")], env=dict(cenv, OVN_SOAK_REPOS="billwatch", QA_STATE_DIR=st, OVN_SOAK_E2E_LOCK_WAIT_S="2", **env), capture_output=True, text=True, timeout=60)
+    return pr, os.path.exists(argvf)
+d2 = fake_qa("cron_soak_e2e", "soak_probe_cron.sh", "soak_probe.py")
+st2 = os.path.join(d2, "state"); lk = os.path.join(st2, "staging_e2e.lock")
+os.makedirs(lk, exist_ok=True); open(os.path.join(lk, "pid"), "w").write("99999\n")
+pr, called = soak_run(d2, st2)
+ok("e2e lock held by another job: the sample is SKIPPED (logged), the probe is NOT called, exit 0, and the other job's lock is left alone",
+   pr.returncode == 0 and not called and "SKIPPED" in pr.stdout and "staging_e2e.lock busy" in pr.stdout and os.path.isdir(lk) and open(os.path.join(lk, "pid")).read().strip() == "99999", (pr.stdout, pr.stderr))
+old = time.time() - 2 * 3600
+os.utime(lk, (old, old))
+pr, called = soak_run(d2, st2)
+ok("a STALE e2e lock (2 h old) is taken over: the probe runs and the lock is released afterwards", pr.returncode == 0 and called and not os.path.exists(lk), (pr.stdout, pr.stderr))
+pr, called = soak_run(d2, st2)
+ok("free lock: the probe runs and the lock is released afterwards (the e2e run is not blocked)", pr.returncode == 0 and called and not os.path.exists(lk), (pr.stdout, pr.stderr))
+pr, called = soak_run(d2, st2, OVN_SOAK_E2E_LOCK="off")
+ok("OVN_SOAK_E2E_LOCK=off: no lock is taken", pr.returncode == 0 and called and not os.path.exists(lk), (pr.stdout, pr.stderr))
+msrc = open(os.path.join(QA, "soak_probe_cron.sh")).read()
+tgt = 'e2e_take || {'
+assert tgt in msrc
+open(os.path.join(d2, "qa", "soak_probe_cron.mutant.sh"), "w").write(msrc.replace(tgt, 'true || {', 1))
+os.makedirs(lk, exist_ok=True); open(os.path.join(lk, "pid"), "w").write("99999\n")
+pr, called = soak_run(d2, st2, script=os.path.join(d2, "qa", "soak_probe_cron.mutant.sh"))
+ok("MUTANT (lock not taken) is caught: it runs the probe while the e2e lock is held", called and "SKIPPED" not in pr.stdout, (pr.stdout, pr.stderr))
+for f in os.listdir(lk):
+    os.remove(os.path.join(lk, f))
+os.rmdir(lk)
 d = fake_qa("cron_fuzz", "contract_fuzz_cron.sh", "contract_fuzz.py", extra_files=("qa_common.py",))
 p = subprocess.run(["bash", os.path.join(d, "qa", "contract_fuzz_cron.sh")], env=dict(cenv, QA_STATE_DIR=os.path.join(d, "state"), OVN_FUZZ_LOAD_MAX="100000"), capture_output=True, text=True, timeout=60)
 fa = open(os.path.join(d, "qa", "contract_fuzz.py.argv")).read().splitlines() if os.path.exists(os.path.join(d, "qa", "contract_fuzz.py.argv")) else []

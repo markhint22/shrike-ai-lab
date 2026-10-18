@@ -19,6 +19,8 @@ QA-lane items continue").
 
 Starting caps (plan section 6, guesses to tune from data):  billwatch / iptv_apps / gitlark 8, test-automation-agent 12, every other repo 15,
 global 40, and 8 per class A AREA (area = the first two path components of the feature's first non-test, non-doc file).
+Scope: OVN_QA_WIP_CAP_SCOPE="billwatch,iptv_apps" counts ONLY those repos (default unset = every repo). Repos the daily promote never promotes (xlite, shrike-monitor, ...) never reach
+origin/main, so they could never clear and would alert every UTC day; the Phase 5 cron line scopes the observer to the promoted repos.
 Override without a deploy: OVN_QA_WIP_CAP_REPOS="billwatch=6,xlite=20"  OVN_QA_WIP_CAP_DEFAULT=15  OVN_QA_WIP_CAP_GLOBAL=40  OVN_QA_WIP_CAP_AREA=8.
 State per scope: UNDER (< cap), AT (== cap: the plan's "at the cap a repo stops picking new behavioral items"), OVER (> cap: the alert).
 
@@ -98,6 +100,12 @@ def caps():
     return rc, _int_env("OVN_QA_WIP_CAP_DEFAULT", DEFAULT_REPO_CAP), _int_env("OVN_QA_WIP_CAP_GLOBAL", GLOBAL_CAP), _int_env("OVN_QA_WIP_CAP_AREA", AREA_CAP)
 
 
+def scope_repos():
+    """Repos the observer counts (OVN_QA_WIP_CAP_SCOPE, comma list); None = all repos."""
+    names = [x.strip() for x in os.environ.get("OVN_QA_WIP_CAP_SCOPE", "").split(",") if x.strip() and ql.safe_name(x.strip())]
+    return set(names) if names else None
+
+
 def cap_state(n, cap):
     """UNDER | AT | OVER. Pure."""
     if n > cap:
@@ -153,7 +161,8 @@ def compute(recs, evs, now, is_cleared, max_age_days=30):
     -> report dict {repos: {repo: {...}}, global: {...}, areas: {area-key: {...}}}."""
     rc, dflt, gcap, acap = caps()
     cleared_recs = set(e["rec"] for e in evs if e.get("type") in CLEARING_EVENTS and e.get("rec"))
-    feats = [f for f in build_features([r for r in recs if now - r["epoch"] <= max_age_days * 86400])]
+    scope = scope_repos()
+    feats = [f for f in build_features([r for r in recs if now - r["epoch"] <= max_age_days * 86400 and (scope is None or r["repo"] in scope)])]
     repos = {}
     pending = []
     for f in feats:

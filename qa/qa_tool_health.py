@@ -147,6 +147,11 @@ BAD_MARKERS = ("Traceback (most recent call last)", "ModuleNotFoundError", "Impo
                "cannot open shared object", "error while loading shared libraries", "Library not loaded", "dyld:")
 
 
+# `mutmut --version` (mutmut 3.x has no version flag) imports everything, then dies with this FileNotFoundError when run outside a project. That is a HEALTHY wheel: the first real
+# install (2026-10-18, ops/install_qa_tools.sh) made the sentinel call it "broken" forever. Only this exact config message is excused; any other traceback still counts.
+BENIGN_MARKERS = ("Could not figure out where the code to mutate is",)
+
+
 def probe_broken(path):
     """None when `path --version` looks runnable; else a short reason. ONLY an OSError at exec (wrong arch / not executable) or a non-zero exit whose output
     carries an import / exec / shared-library failure counts. A timeout or a plain non-zero exit is NOT broken (some tools reject --version)."""
@@ -164,6 +169,8 @@ def probe_broken(path):
         return None
     out = ((r.stdout or "") + (r.stderr or ""))[:8000]
     if r.returncode != 0:
+        if any(b in out for b in BENIGN_MARKERS) and not any(m in out for m in BAD_MARKERS if m != "Traceback (most recent call last)"):
+            return None
         for m in BAD_MARKERS:
             if m in out:
                 return "--version fails (%s)" % m
@@ -208,6 +215,27 @@ def fuzz_repos():
     except Exception:  # noqa: BLE001
         pass
     return DEFAULT_FUZZ_REPOS
+
+
+def fuzz_dark_item():
+    """The nightly contract fuzz is installed but has SKIPPED its last OVN_QA_FUZZ_DARK_RUNS (default 3) runs on load (logs/contract_fuzz.log), so the gate is dark and the
+    cron line alone says nothing about that. -> one finding item or None. Only a recent log counts (a log from an off/removed cron is not a live gate). Advisory like every row here."""
+    n = int(_num("OVN_QA_FUZZ_DARK_RUNS", 3))
+    if n <= 0:
+        return None
+    p = os.path.join(qc.ovn_dir(), "logs", "contract_fuzz.log")
+    try:
+        if now_ts() - os.path.getmtime(p) > _num("OVN_QA_FUZZ_DARK_MAX_AGE_H", 96) * 3600:
+            return None
+        with open(p, errors="replace") as f:
+            lines = [ln for ln in f.read().splitlines()[-400:] if " contract_fuzz: " in ln]
+    except OSError:
+        return None
+    last = lines[-n:]
+    if len(last) < n or not all("skipped (1-min load average" in ln for ln in last):
+        return None
+    return {"key": "state:contract_fuzz_dark", "gate": "contract_fuzz",
+            "problem": "the last %d nightly contract fuzz runs were all SKIPPED on box load (logs/contract_fuzz.log: %s); the gate has produced no row. Raise OVN_FUZZ_LOAD_MAX or move the cron slot" % (n, last[-1][:160])}
 
 
 def check_state():
@@ -264,6 +292,9 @@ def check_state():
         if not os.path.isfile(bp):
             items.append({"key": "state:contract_fuzz_baseline_" + repo, "gate": "contract_fuzz",
                           "problem": "state/qa_shadow/contract_fuzz_baseline_%s.json missing (written only by contract_fuzz.py --accept-baseline)" % repo})
+    dark = fuzz_dark_item()
+    if dark:
+        items.append(dark)
     return items
 
 

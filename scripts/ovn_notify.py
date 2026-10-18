@@ -290,7 +290,7 @@ def queue_depths():
 
 def _last_real_attempts():
     """({repo: epoch of its newest NON-skip outcomes row}, epoch of the oldest row scanned or None). Read as bytes: 2 old rows hold NUL bytes
-    and are simply unparseable; ts is UTC. Skip rows (class "skipped", status "skip(...)") are the idle loop's own heartbeat, not work."""
+    and are simply unparseable; ts is UTC. Skip rows (class "skipped", status "skip(...)") are the idle loop's own heartbeat, not work; so are landed-late attribution rows."""
     last, first = {}, None
     try:
         size = os.path.getsize(_p("outcomes.jsonl"))
@@ -306,8 +306,8 @@ def _last_real_attempts():
                     continue
                 if first is None:
                     first = t
-                if d.get("class") == "skipped" or str(d.get("status", "")).startswith("skip"):
-                    continue
+                if d.get("class") in ("skipped", "landed-late") or str(d.get("status", "")).startswith("skip"):
+                    continue   # landed-late (D4) is an attribution row stamped at reconcile time, not a lane attempt: it must not reset the idle-lane clock
                 if t > last.get(d.get("repo"), 0):
                     last[d.get("repo")] = t
     except OSError:
@@ -495,6 +495,46 @@ def duty_line(t):
         return None
 
 
+def supply_report(t, depths=None):
+    """The supply report (ovn_supply_report) for the hourly update: state/supply_report.json when < 2 h old, else computed in-process against THIS module's ROOT/STATE.
+    None when OVN_SUPPLY_LINE=0 or anything fails (the update must never break on it)."""
+    if os.environ.get("OVN_SUPPLY_LINE", "1") == "0":
+        return None
+    try:
+        _d = os.path.dirname(os.path.abspath(__file__))
+        if _d not in sys.path:
+            sys.path.insert(0, _d)
+        import ovn_supply_report as sr
+        return sr.fresh_report(t, STATE) or sr.collect(now=t, root=ROOT, state=STATE, depths=depths)
+    except Exception:
+        return None
+
+
+def supply_lines(rep):
+    """One concise line per starving repo (max OVN_SUPPLY_LINES_MAX, the rest grouped by cause); [] when none or no report."""
+    try:
+        import ovn_supply_report as sr
+        return sr.digest_lines(rep) if rep else []
+    except Exception:
+        return []
+
+
+def empty_cause_text(rep, empty):
+    """'excluded: gitlark, shrike-monitor · cap: billwatch' for the 'Queue empty' bullet (primary cause class of each empty repo); None without a report."""
+    try:
+        by = {}
+        for r in empty:
+            rec = ((rep or {}).get("repos") or {}).get(r) or {}
+            if rec.get("cause_class"):
+                by.setdefault(rec["cause_class"], []).append(r)
+        if not by:
+            return None
+        import ovn_supply_report as sr
+        return "no supply - " + " · ".join("%s: %s" % (c, ", ".join(rs)) for c, rs in sorted(by.items(), key=lambda kv: sr.CAUSE_ORDER.index(kv[0])))
+    except Exception:
+        return None
+
+
 def compose_update(window=3600, at=None):
     """Return (title, body, needs_count). Pure function of state + the clock (`at` for tests)."""
     t = at or now()
@@ -543,21 +583,26 @@ def compose_update(window=3600, at=None):
     lines.append("Queues low: " + ", ".join("%s (%d)" % (k, v) for v, k in low) if low else "Queues stocked")
     # 2026-10-09: both lanes sat idle 11.5 of 36 h without any line saying so (an empty queue never tripped "Fleet stalled", which needs >10 queued items).
     # OVN_IDLE_LINE=0 turns the line off. Hourly-update text only: no push channel of its own.
+    sup = supply_report(t, depths)   # 2026-10-18: ovn_supply_report (read once: the idle lines, the supply lines and the 'Queue empty' bullet all use it)
     if os.environ.get("OVN_IDLE_LINE", "1") != "0":
+        _covered = set(r for r, rec in ((sup or {}).get("repos") or {}).items() if rec.get("starving") and rec.get("line"))   # the supply line below already says it (with the cause)
         for repo, age in idle_lanes(depths, t):
-            lines.append("Lane idle %s: %s" % (_hours(age), repo))
+            if repo not in _covered:
+                lines.append("Lane idle %s: %s" % (_hours(age), repo))
     # 2026-10-13: duty of the product lanes next to their input rate, so a lane that "ran" 5% of the day is visible in the one hourly update (no push of its own).
     # OVN_DUTY_LINE=0 turns it off. Read from state/supply_ledger.json when fresh (<2 h), else computed in-process by ovn_supply_ledger; any failure = no line.
     if os.environ.get("OVN_DUTY_LINE", "1") != "0":
         dl = duty_line(t)
         if dl:
             lines.append(dl)
+    # 2026-10-18: "backlog is out" said nothing about WHY. One line per starving repo: depth, burn, runway, last supply source, root cause (ovn_supply_report). Text only: no push of its own.
+    lines.extend(supply_lines(sup))
     if recovered:
         lines.append("Back up: " + ", ".join(re.sub(r"^.*?:\s*", "", t) for t in recovered[:4]))
     # 2026-10-08: an EMPTY active queue is the most important thing to know (the lane is idle) and used to hide under an "all good" title.
     empty = sorted(k for v, k in low if v == 0)
     if empty:
-        needs.insert(0, {"title": "Queue empty: %s" % ", ".join(empty), "text": "that lane has nothing to do until the refuel adds work (work supply runs every 30 min)", "prio": "high", "ts": t})
+        needs.insert(0, {"title": "Queue empty: %s" % ", ".join(empty), "text": empty_cause_text(sup, empty) or "that lane has nothing to do until the refuel adds work (work supply runs every 30 min)", "prio": "high", "ts": t})
     for bn in reversed(boot_notes(t if at else None)):   # 2026-10-10: a reboot / silent queue is at least as important as an empty queue
         needs.insert(0, {"title": bn["title"], "text": bn["text"], "prio": bn["prio"], "ts": t})
     shown = needs[:3]

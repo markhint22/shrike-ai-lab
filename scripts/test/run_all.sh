@@ -346,6 +346,7 @@ echo; echo "===== executor hook ====="; bash test_executor_hook.sh || rc=1
 echo; echo "===== fixup gates e2e ====="; bash test_fixup_gates_e2e.sh || rc=1
 echo; echo "===== fixup own test placeholder ====="; bash test_fixup_own_test_placeholder.sh || rc=1
 echo; echo "===== fixup undid item ====="; bash test_fixup_undid_item.sh || rc=1
+echo; echo "===== fixup undo ws (shadow) ====="; bash test_fixup_undo_ws.sh || rc=1
 echo; echo "===== git sync failure ====="; bash test_git_sync_failure.sh || rc=1
 echo; echo "===== git sync size guard (no push of a >90 MB blob; GitHub rejects >100 MB) ====="; run_or_notrun test_git_sync_size_guard.sh
 echo; echo "===== live-repo guard (a test subshell that lost its cd must never commit into the live repo) ====="; bash test_live_repo_guard.sh || rc=1
@@ -402,6 +403,7 @@ echo; echo "===== r10: ovn failure ack candidates ====="; bash test_ovn_failure_
 echo; echo "===== r10: ovn log cap ====="; bash test_ovn_log_cap.sh || rc=1
 echo; echo "===== r10: ovn mutation scan term ====="; bash test_ovn_mutation_scan_term.sh || rc=1
 echo; echo "===== r10: ovn supply r10 ====="; bash test_ovn_supply_r10.sh || rc=1
+echo; echo "===== relocate backend/tests layout (TAA ghost root tests, 2026-10-18) ====="; bash test_relocate_backend_tests.sh || rc=1
 echo; echo "===== r10: ovn work supply filter ====="; bash test_ovn_work_supply_filter.sh || rc=1
 echo; echo "===== r10: prod alembic snapshot ====="; bash test_prod_alembic_snapshot.sh || rc=1
 echo; echo "===== r10: qa antigaming r10 ====="; bash test_qa_antigaming_r10.sh || rc=1
@@ -447,6 +449,7 @@ echo; echo "===== r16: uidcredit r12 guards ====="; bash test_uidcredit_r12_guar
 echo; echo "===== r16: verify audit ====="; bash test_verify_audit.sh || rc=1
 echo; echo "===== r16: verify polarity ====="; bash test_verify_polarity.sh || rc=1
 echo; echo "===== r16: verify polarity shadow ====="; bash test_verify_polarity_shadow.sh || rc=1
+echo; echo "===== r18: verify echo verdict ====="; bash test_verify_echo_verdict.sh || rc=1
 echo; echo "===== r16: verify safe ====="; bash test_verify_safe.sh || rc=1
 echo; echo "===== r17: chronic alert n2 ====="; bash test_chronic_alert_n2.sh || rc=1
 echo; echo "===== r17: create exists shortcircuit ====="; bash test_create_exists_shortcircuit.sh || rc=1
@@ -494,6 +497,7 @@ echo; echo "===== stage file feed ====="; run_or_notrun test_stage_file_feed.sh
 echo; echo "===== stage retry signature ====="; run_or_notrun test_stage_retry_signature.sh
 echo; echo "===== stage scope learn ====="; bash test_stage_scope_learn.sh || rc=1
 echo; echo "===== stage verify-only shadow ====="; bash test_stage_verifyonly_shadow.sh || rc=1
+echo; echo "===== stage precredit (D2) ====="; bash test_stage_precredit.sh || rc=1
 echo; echo "===== qwen explore (explorer; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_explore.sh || rc=1
 echo; echo "===== qwen explore hook ====="; bash test_qwen_explore_hook.sh || rc=1
 echo; echo "===== qwen critic (second-opinion stage; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_critic.sh || rc=1
@@ -517,6 +521,22 @@ echo; echo "===== run all sandboxed ====="; bash test_run_all_sandboxed.sh || rc
 echo; echo "===== QA Phase 4: contract fuzz registry (billwatch/gitlark), tool installer, cron proposal ====="; bash test_qa_contract_fuzz_registry.sh || rc=1
 echo; echo "===== QA Phase 4: broken-deploy drill (fixtures; 4/4 classes would hold, CORS mutant) ====="; bash test_qa_deploy_drill.sh || rc=1
 echo; echo "===== QA Phase 4: soak probe + summary + shadow promote_gate read ====="; bash test_qa_soak_probe.sh || rc=1
+echo; echo "===== D1: VERIFY shape linter (shadow default; OVN_VERIFY_LINT=off|shadow|enforce; real box items, tree-confirmed rules, hooks, audit, mutants) ====="; bash test_verify_shape_lint.sh || rc=1
+echo; echo "===== D1 repair: ovn_planner.sh verify-lint hook (recount, [decomposed] marking, quarantine, fail-open fall-through + timeout; planner mutants) ====="; bash test_verify_lint_planner_hook.sh || rc=1
 echo; echo "===== qa tool health (P1 gate tool sentinel + installer; hermetic, with mutants) ====="; bash test_qa_tool_health.sh || rc=1
+echo; echo "===== check applied migration immutable ====="; bash test_check_applied_migration_immutable.sh || rc=1
+echo; echo "===== check ghost tests ====="; bash test_check_ghost_tests.sh || rc=1
+echo; echo "===== outcome acct ====="; bash test_outcome_acct.sh || rc=1
+echo; echo "===== verify venv fallback ====="; bash test_verify_venv_fallback.sh || rc=1
+echo; echo "===== stage order ====="; bash test_stage_order.sh || rc=1
+echo; echo "===== qa install tools cron ====="; bash test_qa_install_tools_cron.sh || rc=1
+echo; echo "===== auto research resilience ====="; bash test_auto_research_resilience.sh || rc=1
+echo; echo "===== ovn supply report ====="; bash test_ovn_supply_report.sh || rc=1
+echo; echo "===== ovn needs research promote ====="; bash test_ovn_needs_research_promote.sh || rc=1
+echo; echo "===== ovn supply extended ====="; bash test_ovn_supply_extended.sh || rc=1
+echo; echo "===== planner nrp ====="; bash test_planner_nrp.sh || rc=1
+echo; echo "===== supply cron installer ====="; bash test_supply_cron_installer.sh || rc=1
+echo; echo "===== qwen verify normalize ====="; bash test_qwen_verify_normalize.sh || rc=1
+echo; echo "===== qwen explore dialect ====="; bash test_qwen_explore_dialect.sh || rc=1
 echo; finish || rc=1
 exit $rc

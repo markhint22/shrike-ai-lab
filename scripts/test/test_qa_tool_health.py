@@ -164,6 +164,12 @@ def core(script, label):
     stub(os.path.join(w["bin"], "mypy"), "#!/bin/sh\necho 'unknown option' >&2\nexit 2\n")
     rc, r = run(w, script=script)
     chk(r["details"]["tools"]["ruff"]["status"] == "broken" and r["details"]["tools"]["mypy"]["status"] == "ok")
+    # mutmut 3.x outside a project: Traceback + the "no source paths" FileNotFoundError is a HEALTHY install; the same traceback ending in an ImportError is not
+    w = build(fresh(label + "-mutmut"), skip_tools=("mutmut", "ruff"))
+    stub(os.path.join(w["bin"], "mutmut"), "#!/bin/sh\necho 'Traceback (most recent call last):' >&2\necho 'FileNotFoundError: Could not figure out where the code to mutate is. Please specify it' >&2\nexit 1\n")
+    stub(os.path.join(w["bin"], "ruff"), "#!/bin/sh\necho 'Traceback (most recent call last):' >&2\necho 'FileNotFoundError: Could not figure out where the code to mutate is.' >&2\necho 'ImportError: cannot import name x' >&2\nexit 1\n")
+    rc, r = run(w, script=script)
+    chk(r["details"]["tools"]["mutmut"]["status"] == "ok" and r["details"]["tools"]["ruff"]["status"] == "broken")
     # the state temp file name is unique per process: a stale fixed-name .tmp is never touched
     w = build(fresh(label + "-tmp"), skip_tools=("bandit",))
     fixed = os.path.join(w["state"], "tool_health_state.json.tmp")
@@ -225,6 +231,34 @@ def atomic_check(script):
     return bad
 
 
+def dark_check(script):
+    """-> failed assertions of the contract-fuzz 'gate is dark' finding (0 on the real script)."""
+    import time
+    bad = 0
+    def log(w, lines, age_h=0):
+        os.makedirs(os.path.join(w["ovn"], "logs"), exist_ok=True)
+        lp = os.path.join(w["ovn"], "logs", "contract_fuzz.log")
+        with open(lp, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        t = time.time() - age_h * 3600
+        os.utime(lp, (t, t))
+    sk = "2026-10-18 04:20:01 contract_fuzz: skipped (1-min load average 6.82 > 6)"
+    ran = "2026-10-17 04:20:01 contract_fuzz: iptv_apps ref=origin/develop PASS | ok (60s)"
+    for label, lines, age, want in (("3 load skips in a row", [sk] * 3, 0, True),
+                                    ("only 2 skips", [sk] * 2, 0, False),
+                                    ("a run between the skips", [sk, sk, ran, sk], 0, False),
+                                    ("PAUSED skips are not load skips", ["2026-10-18 04:20:01 contract_fuzz: skipped (state/PAUSED exists)"] * 3, 0, False),
+                                    ("stale log (cron removed/off)", [sk] * 3, 200, False)):
+        w = build(fresh("dark-" + label.split()[0] + str(age)))
+        log(w, lines, age)
+        rc, r = run(w, script=script)
+        got = "state:contract_fuzz_dark" in r["details"].get("findings", [])
+        if got != want:
+            bad += 1
+            print("    dark_check %r: want %s got %s %s" % (label, want, got, r["details"].get("findings")))
+    return bad
+
+
 def make_mutants():
     src = open(SCRIPT).read()
     muts = {
@@ -235,11 +269,14 @@ def make_mutants():
         "missing-tool-looks-found": ("    p = os.path.join(venv_dir(), name)\n    return p if os.path.isfile(p) and os.access(p, os.X_OK) else None\n\n\ndef shebang_broken", "    return '/bin/sh'\n\n\ndef shebang_broken"),
         "creds-always-required": ('optional = bool(creds.get("repo_default")) or bool(ee and pe and os.environ.get(ee) and os.environ.get(pe))', "optional = False"),
         "env-shebang-ignored": ("return not (names and shutil.which(names[0]))", "return False"),
+        "mutmut-config-error-is-broken": ('if any(b in out for b in BENIGN_MARKERS) and', 'if False and'),
         "probe-off": ('if os.environ.get("OVN_QA_TOOL_HEALTH_PROBE", "1") == "0":', "if True:"),
         "fixed-tmp-name": ('return tempfile.mkstemp(dir=qc.state_dir(), prefix="tool_health_state.", suffix=".tmp")',
                            'return os.open(state_file() + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), state_file() + ".tmp"'),
         "alert-unbounded": ("def bounded_keys(keys, cap=300):", "def bounded_keys(keys, cap=10 ** 9):"),
         "non-atomic-replace": ("os.replace(tmp, path)", "shutil.copyfile(tmp, path)"),
+        "fuzz-dark-not-flagged": ('if len(last) < n or not all("skipped (1-min load average" in ln for ln in last):', "if True:"),
+        "fuzz-dark-any-skip": ('not all("skipped (1-min load average" in ln for ln in last)', 'not any("skipped (1-min load average" in ln for ln in last)'),
     }
     out = {}
     d = fresh("mutants")
@@ -497,9 +534,12 @@ def main():
 
     # ---------------------------------------------------------------- 8 failure injection on the script itself
     ok("core behaviours hold on the real script", core(SCRIPT, "real") == 0)
+    ok("a contract fuzz that skipped its last 3 runs on load is flagged as a dark gate (not for 2 skips, a run in between, PAUSED skips, or a stale log)", dark_check(SCRIPT) == 0)
     for name, mp in make_mutants().items():
         if name == "non-atomic-replace":
             ok("mutant %s is detected" % name, atomic_check(mp) > 0)
+        elif name.startswith("fuzz-dark"):
+            ok("mutant %s is detected" % name, dark_check(mp) > 0)
         else:
             ok("mutant %s is detected" % name, core(mp, "m-" + name) > 0)
 

@@ -109,6 +109,27 @@ def credit_only_label(n):
     return "" if not n else "%d credit-only" % n
 
 
+# 2026-10-18 (D4 outcome accounting): scripts/ovn_outcome_acct.py reconcile appends class "landed-late" (severity neutral) when a commit a cycle HELD (VERIFY-SKIP, lock-contended,
+# verify-timeout hold) reaches origin later. It attributes a landing to the cycle that made the commit; it is NOT a new attempt, so it stays outside good, bad and the pass rate
+# (benign, like UNCREDITED/CREDIT_ONLY) and readers that count `class == "landed"` already exclude it. Use count_landed_late()/landed_late_label() to report it.
+LANDED_LATE_CLASS = "landed-late"
+
+
+def is_landed_late(row):
+    """True for a state/outcomes.jsonl row recorded by the held-commit reconcile."""
+    return isinstance(row, dict) and row.get("class") == LANDED_LATE_CLASS
+
+
+def count_landed_late(rows):
+    """Number of landed-late rows in an iterable of outcomes.jsonl rows."""
+    return sum(1 for r in rows if is_landed_late(r))
+
+
+def landed_late_label(n):
+    """'N landed-late' (held commits that reached origin later), or '' when there are none."""
+    return "" if not n else "%d landed-late" % n
+
+
 def bucket(oc):
     """state/task_stats.log's `oc` column -> "good" | "bad" | "benign".
 
@@ -158,6 +179,8 @@ def bucket_from_outcome_row(row):
     if row.get("fail_reason") == "context-exceeded" and row.get("class") != "landed":
         return "bad"
     if row.get("class") == CREDIT_ONLY_CLASS:   # r11 F7: bookkeeping-only push, its own bucket (benign whatever a stale severity says)
+        return "benign"
+    if row.get("class") == LANDED_LATE_CLASS:   # D4: attribution row for a held commit that landed later; never a new attempt, whatever severity says
         return "benign"
     if row.get("class") == UNCREDITED_CLASS:   # its own bucket (see is_uncredited): never a win, never a failure, whatever the severity field says
         return "benign"

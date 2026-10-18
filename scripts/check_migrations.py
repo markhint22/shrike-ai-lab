@@ -38,29 +38,62 @@ def find_versions_dirs(root):
     return out
 
 
-def rev_and_down(text):
+def _ast_downs(text):
+    """down_revision as a list of parent ids via ast (handles a tuple/list MERGE migration
+    `down_revision = ('0007', '0379c2620417')`, which the old regex read as '(' - the merge's
+    parents then looked like unmerged heads and a CORRECT merge was flagged 'MULTIPLE HEADS',
+    blocking claude/feature -> develop for 10h on 2026-10-18). None = could not parse."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    for node in tree.body:
+        tgt, val = None, None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            tgt, val = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            tgt, val = node.target, node.value
+        if not (isinstance(tgt, ast.Name) and tgt.id == "down_revision"):
+            continue
+        if isinstance(val, ast.Constant):
+            return [val.value] if isinstance(val.value, str) else []
+        if isinstance(val, (ast.Tuple, ast.List)):
+            return [e.value for e in val.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        return None
+    return None
+
+
+def rev_and_down_all(text):
+    """(revision, [parent ids]) - parents is a list (empty for the root migration)."""
     r = re.search(r"^revision(?:\s*:\s*[^=]+)?\s*=\s*['\"]([^'\"]+)", text, re.M)
-    d = re.search(r"^down_revision(?:\s*:\s*[^=]+)?\s*=\s*['\"]?([^'\"\n]+)", text, re.M)
-    dn = d.group(1).strip() if d else None
-    if dn in ("None", "none", ""):
-        dn = None
-    return (r.group(1) if r else None), dn
+    downs = _ast_downs(text)
+    if downs is None:   # unparseable file: legacy regex fallback (single parent)
+        d = re.search(r"^down_revision(?:\s*:\s*[^=]+)?\s*=\s*['\"]?([^'\"\n]+)", text, re.M)
+        dn = d.group(1).strip() if d else None
+        downs = [] if dn in (None, "None", "none", "") else [dn]
+    return (r.group(1) if r else None), downs
+
+
+def rev_and_down(text):
+    """Legacy single-parent view (first parent) kept for callers that import it."""
+    r, downs = rev_and_down_all(text)
+    return r, (downs[0] if downs else None)
 
 
 def check_single_head(vdir, problems):
     revs = {}
+    downs = set()
     for f in os.listdir(vdir):
         if not f.endswith(".py") or f.startswith("__"):
             continue
-        rev, down = rev_and_down(open(os.path.join(vdir, f), encoding="utf-8").read())
+        rev, parents = rev_and_down_all(open(os.path.join(vdir, f), encoding="utf-8").read())
+        downs.update(parents)
         if rev:
             revs.setdefault(rev, []).append(f)
     # duplicate revision ids
     for rev, files in revs.items():
         if len(files) > 1:
             problems.append(f"{vdir}: revision '{rev}' declared in {len(files)} files: {', '.join(sorted(files))}")
-    downs = {rev_and_down(open(os.path.join(vdir, f), encoding='utf-8').read())[1]
-             for f in os.listdir(vdir) if f.endswith('.py') and not f.startswith('__')}
     heads = [r for r in revs if r not in downs]
     if len(heads) > 1:
         problems.append(f"{vdir}: MULTIPLE HEADS {sorted(heads)} — 'alembic upgrade head' will fail")
@@ -138,6 +171,33 @@ def check_fk_types(vdir, problems):
                 f"— Postgres will reject the FK (use postgresql.UUID(as_uuid=True))")
 
 
+def check_applied_migrations_unmodified(root, problems):
+    """APPLIED-MIGRATION IMMUTABILITY (2026-10-18, test-automation-agent 3114b2a): the 27B 'aligned' the already-applied 0001_baseline.py with the models (added
+    llm_input_tokens columns that 0002 adds again) -> `alembic upgrade head` died with 'duplicate column name' and the repo's gate stayed red for 10h. A migration that
+    already existed before the change is history: fixes belong in a NEW migration. Needs OVN_MIG_BEFORE_SHA (the commit before the change; run_overnight.sh sets it).
+    OVN_MIG_IMMUTABLE=shadow (default: report on stderr, never fails) | enforce (fails) | off."""
+    mode = os.environ.get("OVN_MIG_IMMUTABLE", "shadow")
+    before = os.environ.get("OVN_MIG_BEFORE_SHA", "")
+    if mode == "off" or not before:
+        return
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", root, "diff", "--name-status", "--diff-filter=M", before, "HEAD", "--", "*alembic/versions/*.py"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return
+    if out.returncode != 0:
+        return
+    mod = [ln.split("\t", 1)[1] for ln in out.stdout.splitlines() if "\t" in ln]
+    if not mod:
+        return
+    msg = "already-applied migration(s) MODIFIED (history must not change - add a new migration instead): " + ", ".join(sorted(mod))
+    if mode == "enforce":
+        problems.append(msg)
+    else:
+        print("MIGRATION IMMUTABILITY (shadow): " + msg, file=sys.stderr)
+
+
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else "."
     vdirs = find_versions_dirs(root)
@@ -149,6 +209,7 @@ def main():
         check_revision_ids(vd, problems)
         check_single_head(vd, problems)
         check_fk_types(vd, problems)
+    check_applied_migrations_unmodified(root, problems)
     if problems:
         print("MIGRATION SAFETY: FAIL")
         for p in problems:

@@ -71,7 +71,15 @@ __st_tmpbase(){ # the directory new sandboxes are created in: $TMPDIR when set, 
   local b="${TMPDIR:-}"
   if [ -z "$b" ]; then
     b="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)"
-    [ -n "$b" ] && [ -d "$b" ] || b=/tmp
+    if [ -z "$b" ] || [ ! -d "$b" ]; then
+      # Linux/GNU: no per-user OS temp dir, TMPDIR unset => /tmp. A dir directly in /tmp has only 2 components (refused by the >=3 rule and shared with other users), so use a private
+      # per-user subdir /tmp/ovn-s<uid> (owned by us, mode 700, not a symlink; same dir safe_use_short_tmp uses). Fail closed: any doubt => fall back to the bare /tmp, which the checks then refuse.
+      b=/tmp; local u="/tmp/ovn-s$(id -u)"
+      if [ ! -L "$u" ]; then
+        [ -d "$u" ] || mkdir -m 700 "$u" 2>/dev/null
+        if [ -d "$u" ] && [ ! -L "$u" ] && [ -O "$u" ]; then chmod 700 "$u" 2>/dev/null; b="$u"; fi
+      fi
+    fi
   fi
   printf '%s\n' "${b%/}"
 }
@@ -100,7 +108,7 @@ __st_mkdir_in(){ # $1=base dir (absolute, existing) $2=label -> prints the new d
   # 2026-10-17: the new dir must ALSO pass the check safe_set_sandbox_home / safe_rm_rf will apply later (strictly under an allowed sandbox root). A TMPDIR that is /tmp, HOME, a symlink to /tmp ...
   # is not an allowed root: fail up front instead of leaking a dir that nothing may remove.
   __st_under_root "$p" || { echo "safe_mktemp_dir: '$p' is not strictly under an allowed temp root (TMPDIR='${TMPDIR:-}' is /tmp, HOME, a symlink to one, or otherwise protected) - refusing" >&2; rmdir "$d" 2>/dev/null; return 1; }
-  [ "$(__st_ncomp "$p")" -ge 3 ] || { echo "safe_mktemp_dir: '$p' has fewer than 3 path components" >&2; return 1; }
+  [ "$(__st_ncomp "$p")" -ge 3 ] || { echo "safe_mktemp_dir: '$p' has fewer than 3 path components" >&2; rmdir "$d" 2>/dev/null; return 1; }
   printf '%s\n' "$p"
 }
 

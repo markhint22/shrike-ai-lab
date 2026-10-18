@@ -20,3 +20,9 @@
 # worktree + non-force push (retry x5). One deduped alerts.log warn per (repo,file,day). Never touches the live checkout, checked lines or other repos; infra failure = log line, exit 0.
 # Kill switch: OVN_CHURN_GUARD=off (or comment the line).  Dry run: DRY_RUN=1 scripts/ovn_churn_guard.sh.  Rollback: delete the line.
 */20 * * * * OVN_CHURN_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_churn_guard.sh
+
+# --- 2026-10-18 supply report (ovn_supply_report.py): per starving repo depth / burn / runway / last supply source / root cause -> state/supply_report.json + logs/supply_report.log.
+# READ-ONLY and pushes nothing: ovn_notify.py update (hourly) and ovn_research_trigger_check.{sh,py} read it. Every 30 min at :14/:44 (before the :20 hourly update).
+14,44 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_supply_report.py >> logs/supply_report.cron.log 2>&1
+# MAC crontab (NOT the box): ships the auto-research run.log + bridge status to the box so the report can name auto-research causes (lane excluded / rc=124 / parser reject / cap).
+# 17 * * * * python3 $HOME/LocalProjects/shared/scripts/overnight-queue/scripts/ovn_supply_report.py --export-ar | ssh -o BatchMode=yes mhintermeister@100.79.64.64 'cat > overnight-queue/state/.ar_status.tmp && mv overnight-queue/state/.ar_status.tmp overnight-queue/state/auto_research_status.json'

@@ -112,10 +112,24 @@ GUT_SUBDIRS="$(gut_subdirs_flag)"
 source scripts/lib_new_tests.sh 2>/dev/null || true
 # 2026-10-13 (package stage): deterministic guards (mis-targeted Verify steps / items, class_name conflicts, named tests, item-VERIFY red-before, web verify). Lib missing => every guard is a no-op.
 source scripts/lib_stage_guards.sh 2>/dev/null || true
+source scripts/lib_outcome_acct.sh 2>/dev/null || true   # 2026-10-18 (D4): ovn_oa_commits for the outcome row (absent => commits=[])
 declare -F stage_step_mistarget >/dev/null 2>&1 || { stage_step_mistarget(){ return 1; }; stage_item_mistarget(){ return 1; }; stage_class_conflict(){ return 1; }
   stage_named_tests_check(){ return 0; }; stage_item_verify_run(){ printf 'NO_VERIFY_CLAUSE|lib missing'; }; stage_item_verify_decision(){ echo OK; }; stage_item_verify_textonly(){ return 1; }; stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|context_length|prompt is too long|exceed_context|contextwindowexceeded|exceeds the available context size' "${1:-/dev/null}" 2>/dev/null; }
   stage_red_before_check(){ return 0; }; stage_web_verify(){ return 0; }; stage_tree_restore(){ return 0; }; }
 if ! acquire_lock state/stage.lock 209 30 ovn-stage-runner; then exit 0; fi
+# >>> d3 step-ordering helpers
+# 2026-10-18 (D3-step-ordering): dependency-aware ordering of staged work (scripts/ovn_stage_order.py). OVN_STAGE_ORDER=off|shadow|enforce, default shadow (journal-only: state/stage_order_shadow.log
+# + 'step_order' events in the run journal; plan, picker and steps are untouched). enforce: the picker skips queue items whose [feat:] prerequisites are not done, a red-by-design test step is merged
+# into the commit of the step it needs (else reordered after it), and a step whose prerequisite step did not land is parked (the item is then PARTIAL, never checked off). Missing script => no-op.
+_SO_MODE="${OVN_STAGE_ORDER:-shadow}"; case "$_SO_MODE" in off|shadow|enforce) ;; *) _SO_MODE=shadow ;; esac
+_SO_PY="scripts/ovn_stage_order.py"; [ -f "$_SO_PY" ] || _SO_MODE=off
+_SO_LOG="${OVN_STAGE_ORDER_LOG:-state/stage_order_shadow.log}"
+_so_item_filter(){   # stdin = candidate queue lines -> stdout = the lines the picker may take (all of them unless enforce)
+  local _in _out; _in="$(cat)"
+  if [ "$_SO_MODE" = off ]; then printf '%s\n' "$_in"; return 0; fi
+  if _out="$(printf '%s\n' "$_in" | python3 "$_SO_PY" item-filter --mode "$_SO_MODE" --progress "$rd/OVERNIGHT_PROGRESS.md" --repo "$repo" --log "$_SO_LOG" 2>/dev/null)"; then printf '%s\n' "$_out"; else printf '%s\n' "$_in"; fi
+}
+# <<< d3 step-ordering helpers
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
 # lock + contends on the 27B (this exact runaway crashed tok/s to 4 and had a 58-min zombie). Recursively
@@ -232,6 +246,7 @@ _pick_item(){
   # picked set is bug items the python-preference below is skipped - a Kotlin/GDScript bug must not queue behind a python roadmap item.
   _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | grep -E '\[T[345]\]|·T[345]·' \
               | grep -vE '\btests?/[A-Za-z0-9_./-]*\.gd\b|\btest_[A-Za-z0-9_]*\.gd\b')"
+  _doable="$(printf '%s\n' "$_doable" | _so_item_filter | grep -E '^- \[ \] ')"   # D3: drop items whose feature-group prerequisites are not done (enforce); shadow journals only
   if printf '%s\n' "$_doable" | ovn_has_bug_line; then
     item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
   else
@@ -359,6 +374,7 @@ wt="$(mktemp -d "/tmp/stage-${repo}.XXXX" 2>/dev/null)" || wt=""   # 2026-10-16:
 git -C "$rd" worktree add -q "$wt" origin/overnight/feature 2>/dev/null || { say "worktree failed"; exit 1; }
 cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; rm -f "${TMPDIR:-/tmp}"/ovn_stage_"$$".* 2>/dev/null; return 0; }   # 2026-10-17: per-run scratch files (prompt/attempt/drop) die with the run even when it is killed mid-step
 trap cleanup EXIT
+_ST_H0="$(git -C "$wt" rev-parse -q --verify HEAD 2>/dev/null)"   # 2026-10-18 (D4): the stage run's base sha, for the outcome row's head_before/commits
 # 2026-09-09 FIX: a fresh `git worktree add` never includes gitignored content, so node_modules
 # is always absent here - every PER-STEP frontend gate (ovn_autotest.sh, called after every single
 # aider attempt) hit "Cannot find package 'vitest'" and reported it as api-mismatch/no-edit/timeout
@@ -481,6 +497,10 @@ to 1-2 files.' ;;
   if [ "${OVN_STAGE_HELPER_HINT:-on}" != off ]; then
     _rules="$_rules"$'\nHELPERS: put any new helper function in the SAME file that calls it (the file the TASK names), in the same step as its first caller. NEVER add a helper to a different or unrelated module (for example a battle, damage or util file) that nothing calls: a function with no caller is dead code and is rejected.'
   fi
+  # D3 (2026-10-18): OVN_STAGE_ORDER=enforce lets the plan declare ordering. Off/shadow leave the prompt byte-identical to before.
+  if [ "${_SO_MODE:-off}" = enforce ]; then
+    _rules="$_rules"$'\nORDERING: a step MAY add "depends_on":[0-based indexes of EARLIER steps] when it needs symbols or files those steps create. List a step that fixes or adds code BEFORE any step whose test exercises it (a test of new behavior is red until the code exists).'
+  fi
   # 2026-10-07: a previous staged run at THIS item that landed nothing recorded why (state/item_fails/stage-<repo>.<hash>.priorfail, written by the
   # zero-landing retry budget below); a blind re-decomposition just repeats the same failing plan.
   local _prior="" _pf; _pf="state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail"
@@ -518,6 +538,99 @@ _bg_filter(){ if [ "$_bg_on" = 1 ]; then python3 "$_bg_py" filter-steps ${_bg_dr
 
 # 2026-10-03 (A8): the plan used to be re-made by the model on EVERY attempt (3, 2, 4, 2, 1, 2 steps for the same bug), so attempt 2 never built on attempt 1.
 # A manual bug now persists its FIRST plan (state/bug_plans/<md5 of the item text>.json) and reuses it on the next attempt; removed on escalation / full pass.
+# >>> n4-stage-waste helpers: verify-only preflight (Part 5)
+# 2026-10-13 (N4 stage-runner-waste, Part 5, SHADOW ONLY) VERIFY-ONLY PREFLIGHT. shrike-monitor bf654f65 '[T3] ... Verify existing test suite passes without modification' (VERIFY `pytest backend/tests/test_monitors_api.py -v`
+# = 34 passed on overnight/feature, nothing to edit) burned 9 no-edit attempts / 330k tokens: the 27B has nothing to change and the item is already satisfied on the pristine tree. The runner already runs the item's
+# own VERIFY on the pristine tree (stage_item_verify_run, OVN_STAGE_ITEM_VERIFY shadow); when that verdict is PASS for an item whose description only asks to verify/ensure/confirm something, the verdict is LOGGED here
+# (event verify_only_pristine_pass + state/stage_verifyonly_shadow.log) so the lead can see how many items a deterministic credit would settle. NOTHING changes: no enforcement, no credit, no skipped steps.
+# OVN_STAGE_VERIFYONLY_PREFLIGHT=off|shadow (default shadow; any other value = shadow: there is deliberately no enforcing mode in this package).
+stage_item_is_verify_only(){   # $1=item text -> rc 0 when the description (before VERIFY:) only asks to verify / confirm / ensure / check and names no change to make
+  local d
+  d="$(printf '%s' "$1" | sed -E 's/VERIFY:.*$//')"
+  grep -qiE '(^|[]—-] *|\. )(verify|confirm|ensure|check|validate)\b' <<< "$d" || return 1
+  # a change verb anywhere in the description (the reviewer found 'Modify the ... path to call X' and 'Ensure _f returns Y instead of falling back' misread as verify-only: these are edit requests)
+  grep -qiE '\b(add|adds|adding|create|implement|write|fix|wire|refactor|replace|remove|change|update|rename|migrate|delete|extend|introduce|modify|modifies|set|sets|use|uses|call|calls|handle|handles|swap|swaps|move|moves|route|routes|return|returns|raise|raises|emit|emits|make|makes|reject|rejects|accept|accepts|contain|contains|include|includes|define|defines|expose|exposes|has an?|attach|attached|attaches|apply|applied|applies|place|placed|places|wrap|wrapped|wraps|inject|injected|register|registered)\b' <<< "$d" && return 1
+  grep -qiE '\b(instead of|rather than)\b' <<< "$d" && return 1
+  return 0
+}
+# the shadow log is append-only by design; keep it bounded (default 256 KiB -> newest 500 lines survive)
+stage_shadow_log_cap(){   # $1=file  [$2=max bytes]
+  local f="$1" max="${2:-${OVN_STAGE_SHADOW_LOG_MAX:-262144}}" sz
+  case "$max" in ''|*[!0-9]*) max=262144;; esac
+  [ -f "$f" ] || return 0
+  sz="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"; case "$sz" in ''|*[!0-9]*) return 0;; esac
+  [ "$sz" -gt "$max" ] || return 0
+  tail -n 500 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
+  return 0
+}
+# <<< n4-stage-waste helpers: verify-only preflight (Part 5)
+
+# >>> d2 helpers: pre-edit credit (precredit)
+# 2026-10-18 (D2-prestate-credit): a staged item whose OWN VERIFY already passes on the PRISTINE tree burned 2+ runs (~275k tokens) as no-ops (shrike-monitor 051e535 duplicate, shrike-notify
+# severity_map): verification-only items, and items whose test a sibling item already landed. This runs BEFORE the planner/model (decompose is the first LLM call), using the same honest pristine probe
+# as OVN_STAGE_ITEM_VERIFY (stage_item_verify_run: repo venv on PATH, own shadow log). scripts/ovn_precredit.py decides (PASS + non-vacuous VERIFY + verify-only/specific-test-node; duplicate when a sibling
+# owns the same test node). OVN_STAGE_PRECREDIT=off|shadow|enforce, default shadow: shadow journals the would-credit decision (event precredit_decision + state/stage_precredit_shadow.log) and the model runs
+# exactly as before; enforce credits the progress line `- [x] (already-satisfied: ...)` / `(duplicate: ...)`, pushes it and exits without calling the model. Auto-picked items only (an explicit item arg and
+# manual bugs are never credited here). To promote: set OVN_STAGE_PRECREDIT=enforce where the runner is launched after reading the shadow log.
+stage_precredit_run(){   # uses globals: wt rd repo item item_arg tier RUNID _bg_on ; sets _PRE_EARLY (pristine verdict, reused by the item-VERIFY block); rc 0 = item settled (caller exits 0), rc 1 = go on
+  local mode _pk_vo=0 _pk_decu _pk_json _pk_dec _pk_why _pk_key _pk_sib _pk_snap _pk_note _pk_log _pk_py="$HOME/overnight-queue/scripts/ovn_precredit.py"
+  mode="$(_sg_mode "${OVN_STAGE_PRECREDIT:-}" shadow 2>/dev/null || echo shadow)"
+  [ "$mode" = off ] && return 1
+  [ -f "$_pk_py" ] || return 1
+  declare -F stage_item_verify_run >/dev/null 2>&1 || return 1
+  # shadow must be behaviour-neutral: probe ONLY where the pre-existing item-VERIFY probe would have run (OVN_STAGE_ITEM_VERIFY != off and the item is not mis-targeted); otherwise leave
+  # _PRE_EARLY empty so the later block behaves exactly as before. (The pre-existing probe also ran for manual-bug items, so those are not newly costed.)
+  [ "${OVN_STAGE_ITEM_VERIFY:-shadow}" = off ] && return 1
+  if OVN_STAGE_SHADOW_LOG=/dev/null stage_item_mistarget "$wt" "$item" >/dev/null 2>&1; then return 1; fi
+  _pk_snap="$(git -C "$wt" status --porcelain -uall 2>/dev/null)"
+  _PRE_EARLY="$(OVN_STAGE_REPO="$repo" OVN_STAGE_REPO_DIR="$rd" stage_item_verify_run "$wt" "$item")"
+  declare -F stage_tree_restore >/dev/null 2>&1 && stage_tree_restore "$wt" "$_pk_snap"
+  stage_item_is_verify_only "$item" && _pk_vo=1
+  _pk_json="$(timeout 20 python3 -I "$_pk_py" decide --item "$item" --pre "$_PRE_EARLY" --progress "$wt/OVERNIGHT_PROGRESS.md" --wt "$wt" --verify-only "$_pk_vo" 2>/dev/null)"
+  _pk_dec="$(printf '%s' "$_pk_json" | jq -r '.decision // "none"' 2>/dev/null)"; [ -n "$_pk_dec" ] || _pk_dec=none
+  _pk_why="$(printf '%s' "$_pk_json" | jq -r '.reason // ""' 2>/dev/null)"
+  _pk_key="$(printf '%s' "$_pk_json" | jq -r '.key // ""' 2>/dev/null)"
+  _pk_sib="$(printf '%s' "$_pk_json" | jq -r '.sibling // ""' 2>/dev/null)"
+  [ "$_pk_dec" = none ] && { say "pre-edit credit: no (${_pk_why:-no decision}) [mode=$mode]"; return 1; }
+  _pk_decu="$(printf '%s' "$_pk_dec" | tr '[:lower:]' '[:upper:]')"   # upper-case via tr: bash 3.2 (the Mac) lacks the caret expansion
+  say "pre-edit credit: WOULD $_pk_decu before any model call [mode=$mode]: ${_pk_why:0:200}${_pk_sib:+ | sibling: ${_pk_sib:0:120}}"
+  jlog "$(jq -nc --arg r "$RUNID" --arg m "$mode" --arg d "$_pk_dec" --arg w "$_pk_why" --arg k "$_pk_key" --arg s "$_pk_sib" --arg pre "${_PRE_EARLY%%|*}" '{run:$r,event:"precredit_decision",mode:$m,would:$d,pre:$pre,why:$w,key:$k,sibling:$s}')"
+  _pk_log="${OVN_STAGE_PRECREDIT_LOG:-state/stage_precredit_shadow.log}"
+  stage_shadow_log_cap "$_pk_log"
+  echo "$(date '+%F %T') [$repo] precredit mode=$mode would=$_pk_dec run=$RUNID item=${item:0:160} why=${_pk_why:0:160}" >> "$_pk_log" 2>/dev/null
+  [ "$mode" = enforce ] || return 1
+  if [ -n "$item_arg" ]; then say "pre-edit credit: not applied (explicit item argument: only queue-picked items are credited)"; return 1; fi
+  if [ "${_bg_on:-0}" = 1 ]; then say "pre-edit credit: not applied (manual bug item: a bug is never credited without a fix)"; return 1; fi
+  _pk_note="$([ "$_pk_dec" = duplicate ] && echo "duplicate: sibling owns the VERIFY test ${_pk_key:0:80}" || echo "already-satisfied: pre-edit VERIFY green, non-vacuous")"
+  ./queue.sh hold "$repo" >/dev/null 2>&1
+  git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
+  git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null
+  if [ "$(python3 -I "$_pk_py" mark --progress "$rd/OVERNIGHT_PROGRESS.md" --item "$item" --decision "$_pk_dec" --note "$_pk_note" 2>/dev/null | jq -r '.marked' 2>/dev/null)" = true ] \
+     && ! git -C "$rd" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+    git -C "$rd" add OVERNIGHT_PROGRESS.md
+    git -C "$rd" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): pre-edit credit T$tier item ($_pk_dec: its own VERIFY already passes before any edit)"
+    if git -C "$rd" push -q origin overnight/feature 2>/dev/null || { git -C "$rd" pull -q --rebase origin overnight/feature 2>/dev/null && git -C "$rd" push -q origin overnight/feature 2>/dev/null; }; then
+      ./queue.sh release "$repo" >/dev/null 2>&1
+      jlog "$(jq -nc --arg r "$RUNID" --arg d "$_pk_dec" '{run:$r,event:"precredit_applied",decision:$d,model_calls:0}')"
+      say "pre-edit credit APPLIED ($_pk_dec): item checked off and pushed, the model was never called"
+      return 0
+    fi
+    git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null
+    say "pre-edit credit: push failed (fleet racing) - item left OPEN, the normal run continues"
+  else
+    git -C "$rd" checkout -q -- OVERNIGHT_PROGRESS.md 2>/dev/null
+    say "pre-edit credit: could not locate the open item line - nothing written, the normal run continues"
+  fi
+  ./queue.sh release "$repo" >/dev/null 2>&1
+  return 1
+}
+# <<< d2 helpers: pre-edit credit (precredit)
+_PRE_EARLY=""
+if stage_precredit_run; then
+  jlog "$(jq -nc --arg r "$RUNID" --argjson t "${tier:-0}" '{run:$r,event:"summary",tier:$t,passed:0,total:0,verified:true,commits_pushed:0,precredit:true}')"
+  say "DONE: pre-edit credit (0 model calls) for T$tier item. log: $SLOG"
+  exit 0
+fi
 STEPS_JSON=""; _bg_reused=0
 if [ "$_bg_on" = 1 ]; then
   _bg_dropf="$(mktemp "${TMPDIR:-/tmp}/ovn_stage_$$.XXXXXX")"; : > "$_bg_dropf"
@@ -528,6 +641,20 @@ if [ "$_bg_on" = 1 ]; then
   else STEPS_JSON=""; fi
 fi
 [ -n "$STEPS_JSON" ] || STEPS_JSON="$(decompose "$item")"
+# D3: order the plan by dependency (shadow: unchanged + journaled; enforce: merge red-by-design test steps into their fix step, else reorder)
+if [ "$_SO_MODE" != off ] && [ -n "$STEPS_JSON" ]; then
+  _so_res="$(printf '%s' "$STEPS_JSON" | python3 "$_SO_PY" plan --mode "$_SO_MODE" --repo "$repo" --run "$RUNID" --item "$item" --log "$_SO_LOG" 2>/dev/null)"
+  if [ -n "$_so_res" ] && printf '%s' "$_so_res" | jq -e '.steps | type=="array"' >/dev/null 2>&1; then
+    _so_nd="$(printf '%s' "$_so_res" | jq '.decisions | length')"
+    if [ "${_so_nd:-0}" -gt 0 ]; then
+      say "step-order ($_SO_MODE): $_so_nd decision(s): $(printf '%s' "$_so_res" | jq -r '[.decisions[] | (.event + ":" + ((.step // "")|tostring) + "->" + ((.needs // "")|tostring) + ":" + (.action // ""))] | join(", ")')"
+      jlog "$(printf '%s' "$_so_res" | jq -c --arg r "$RUNID" --arg m "$_SO_MODE" '{run:$r,event:"step_order",mode:$m,changed:.changed,decisions:.decisions}')"
+    fi
+    # shadow: keep the model's plan byte-for-byte (the annotated copy only adds deps); enforce: use the transformed plan
+    [ "$_SO_MODE" = enforce ] && STEPS_JSON="$(printf '%s' "$_so_res" | jq -c '.steps')"
+    [ "$_SO_MODE" = shadow ] && _SO_ANN="$(printf '%s' "$_so_res" | jq -c '.steps')"
+  fi
+fi
 NSTEPS="$(printf '%s' "$STEPS_JSON" | jq 'length' 2>/dev/null || echo 0)"
 if [ "${NSTEPS:-0}" -lt 1 ]; then
   say "decompose produced no steps — abort"; jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"decompose_failed\"}"
@@ -580,6 +707,15 @@ say "watchdog rearmed for ${_armed}s (NSTEPS=$NSTEPS, dynamic budget was ${_dyna
 #   declared empty file (in the step FILES, or named by the item) -> fa=empty-file, rc=1, the retry prompt is told to write the full content
 #   undeclared empty NEW file (junk path) -> removed ('reaped empty undeclared file') and the step carries on; if that leaves the tree unchanged the step is a no-edit
 # `__init__.py` / `.gitkeep` / `.keep` / `py.typed` / `.gdignore` (marker files that are empty by design) are left alone (never reaped, never a failure here): behaviour for them is exactly what it was. OVN_STAGE_EMPTY_FILE=off disables.
+# 2026-10-18: does the item text state an intent to delete exactly file $2? (VERIFY `test ! -f|-e <path>`, or "Delete|Remove the file|module [entirely|<path>]", or "Delete <path>").
+stage_item_wants_delete(){   # $1=item text $2=repo-relative path
+  local itm="$1" p="$2" head
+  head="$(printf '%s' "$itm" | sed -E 's/VERIFY:.*$//')"
+  case "$itm" in *"test ! -f $p"*|*"test ! -e $p"*|*"[ ! -f $p ]"*) return 0;; esac
+  printf '%s' "$head" | grep -qiE "(delete|remove)[[:space:]]+(the[[:space:]]+)?(file|module)([[:space:]]+entirely)?([[:space:]]|\.|,|$)" && case "$head" in *"$p"*) return 0;; esac
+  printf '%s' "$head" | grep -qiF -- "delete $p" && return 0
+  return 1
+}
 STAGE_EF_DECLARED=""; STAGE_EF_NOEDIT=0
 stage_empty_files_scan(){   # $1=worktree $2=step files (space-sep) $3=item text. rc 0 = act on it (STAGE_EF_DECLARED non-empty -> empty-file; STAGE_EF_NOEDIT=1 -> tree emptied by the reap -> no-edit)
   local w="$1" files="$2" itm="$3" p cand decl="" t hit
@@ -598,7 +734,18 @@ stage_empty_files_scan(){   # $1=worktree $2=step files (space-sep) $3=item text
         case "$t" in */*) case "$p" in */"$t") hit=1; break;; esac;; esac   # a path token with a directory part may be repo-relative to a sub-package; a bare basename must match exactly
       done <<< "$decl"
     fi
-    if [ "$hit" = 1 ]; then STAGE_EF_DECLARED="$STAGE_EF_DECLARED $p"; continue; fi
+    if [ "$hit" = 1 ]; then
+      # 2026-10-18 (shrike-monitor audit): aider's whole-file editor can only "delete" a file by writing EMPTY content (3 shrike-monitor T5 runs, 3 x empty-file/no-edit, ~140k tokens, item
+      # "Delete backend/tests/test_paginate.py ... VERIFY: test ! -f ..."). When the item states a delete intent for exactly this tracked file, an emptied file IS the deletion: git rm it and carry on.
+      # No delete intent -> still an empty-file failure. OVN_STAGE_EMPTY_AS_DELETE=off restores the old behaviour.
+      if [ "${OVN_STAGE_EMPTY_AS_DELETE:-on}" != off ] && git -C "$w" cat-file -e "HEAD:$p" 2>/dev/null && stage_item_wants_delete "$itm" "$p"; then
+        git -C "$w" rm -qf -- "$p" >/dev/null 2>&1 || { rm -f "$w/$p"; git -C "$w" add -A -- "$p" >/dev/null 2>&1; }
+        say "  empty declared file is an intended deletion: $p"
+        jlog "$(jq -nc --arg r "$RUNID" --arg f "$p" '{run:$r,event:"empty_as_delete",file:$f}')"
+        continue
+      fi
+      STAGE_EF_DECLARED="$STAGE_EF_DECLARED $p"; continue
+    fi
     # undeclared: only a NEW file (not in HEAD) is ever reaped - never touch a tracked file the step truncated
     if ! git -C "$w" cat-file -e "HEAD:$p" 2>/dev/null; then
       git -C "$w" rm -qf --cached -- "$p" >/dev/null 2>&1; rm -f "$w/$p"
@@ -858,32 +1005,6 @@ PY
 }
 # <<< n4-stage-waste helpers: file-feed (Part 4)
 
-# >>> n4-stage-waste helpers: verify-only preflight (Part 5)
-# 2026-10-13 (N4 stage-runner-waste, Part 5, SHADOW ONLY) VERIFY-ONLY PREFLIGHT. shrike-monitor bf654f65 '[T3] ... Verify existing test suite passes without modification' (VERIFY `pytest backend/tests/test_monitors_api.py -v`
-# = 34 passed on overnight/feature, nothing to edit) burned 9 no-edit attempts / 330k tokens: the 27B has nothing to change and the item is already satisfied on the pristine tree. The runner already runs the item's
-# own VERIFY on the pristine tree (stage_item_verify_run, OVN_STAGE_ITEM_VERIFY shadow); when that verdict is PASS for an item whose description only asks to verify/ensure/confirm something, the verdict is LOGGED here
-# (event verify_only_pristine_pass + state/stage_verifyonly_shadow.log) so the lead can see how many items a deterministic credit would settle. NOTHING changes: no enforcement, no credit, no skipped steps.
-# OVN_STAGE_VERIFYONLY_PREFLIGHT=off|shadow (default shadow; any other value = shadow: there is deliberately no enforcing mode in this package).
-stage_item_is_verify_only(){   # $1=item text -> rc 0 when the description (before VERIFY:) only asks to verify / confirm / ensure / check and names no change to make
-  local d
-  d="$(printf '%s' "$1" | sed -E 's/VERIFY:.*$//')"
-  grep -qiE '(^|[]—-] *|\. )(verify|confirm|ensure|check|validate)\b' <<< "$d" || return 1
-  # a change verb anywhere in the description (the reviewer found 'Modify the ... path to call X' and 'Ensure _f returns Y instead of falling back' misread as verify-only: these are edit requests)
-  grep -qiE '\b(add|adds|adding|create|implement|write|fix|wire|refactor|replace|remove|change|update|rename|migrate|delete|extend|introduce|modify|modifies|set|sets|use|uses|call|calls|handle|handles|swap|swaps|move|moves|route|routes|return|returns|raise|raises|emit|emits|make|makes|reject|rejects|accept|accepts|contain|contains|include|includes|define|defines|expose|exposes|has an?)\b' <<< "$d" && return 1
-  grep -qiE '\b(instead of|rather than)\b' <<< "$d" && return 1
-  return 0
-}
-# the shadow log is append-only by design; keep it bounded (default 256 KiB -> newest 500 lines survive)
-stage_shadow_log_cap(){   # $1=file  [$2=max bytes]
-  local f="$1" max="${2:-${OVN_STAGE_SHADOW_LOG_MAX:-262144}}" sz
-  case "$max" in ''|*[!0-9]*) max=262144;; esac
-  [ -f "$f" ] || return 0
-  sz="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"; case "$sz" in ''|*[!0-9]*) return 0;; esac
-  [ "$sz" -gt "$max" ] || return 0
-  tail -n 500 "$f" > "$f.tmp.$$" 2>/dev/null && mv -f "$f.tmp.$$" "$f" 2>/dev/null || rm -f "$f.tmp.$$" 2>/dev/null
-  return 0
-}
-# <<< n4-stage-waste helpers: verify-only preflight (Part 5)
 
 # ---- run ONE sub-step: returns 0 pass / 1 fail. logs the attempt. ----
 run_step(){ # $1=idx $2=desc $3=files(space-sep) $4=verify $5=redecomp-left
@@ -1139,6 +1260,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
 
 # ---- run all steps ----
 passed=0
+_SO_DONE=""; _SO_ANN=""   # D3: ids of the steps that landed (the unmet-prerequisite gate); _SO_ANN = shadow-mode annotated plan (carries deps)
 STAGE_PARTIAL=0   # steps that landed only some of their re-decomposed sub-steps (see run_step)
 STAGE_STEP_TEXT=""   # "desc<TAB>verify" of every step that LANDED (the tests they promised are checked in the final tree)
 STAGE_MISTARGET_ITEM=0
@@ -1156,7 +1278,8 @@ STAGE_IV_PRE=""
 _iv_mode="${OVN_STAGE_ITEM_VERIFY:-shadow}"
 if [ "$STAGE_MISTARGET_ITEM" = 0 ] && [ "$_iv_mode" != off ]; then
   _iv_snap="$(git -C "$wt" status --porcelain -uall 2>/dev/null)"
-  STAGE_IV_PRE="$(OVN_STAGE_REPO="$repo" OVN_STAGE_REPO_DIR="$rd" stage_item_verify_run "$wt" "$item")"
+  if [ -n "${_PRE_EARLY:-}" ]; then STAGE_IV_PRE="$_PRE_EARLY"   # D2: already probed (pristine) before the planner ran
+  else STAGE_IV_PRE="$(OVN_STAGE_REPO="$repo" OVN_STAGE_REPO_DIR="$rd" stage_item_verify_run "$wt" "$item")"; fi
   stage_tree_restore "$wt" "$_iv_snap"   # a VERIFY run must leave nothing behind that the per-step no-edit check (git status) would read as an edit (the provisioned node_modules / .godot symlinks stay)
   say "item VERIFY on the pristine tree: ${STAGE_IV_PRE%%|*}"
   # 2026-10-13 (N4 Part 5, SHADOW ONLY): see stage_item_is_verify_only. Logs only - never changes enforcement, credit or the steps that run.
@@ -1172,7 +1295,15 @@ for i in $(seq 0 $((NSTEPS-1))); do
   d="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].desc")"
   f="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].files // [] | join(\" \")")"
   v="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].verify // \"tests green\"")"
-  run_step "$i" "$d" "$f" "$v" "$REDECOMP" && passed=$((passed+1))
+  # D3: runtime gate. A step whose prerequisite step has not landed is parked (enforce) - never run red-by-design before the fix it tests; shadow only journals the would-have decision.
+  _so_sid="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].id // $i")"; _so_um=""
+  if [ "$_SO_MODE" != off ]; then _so_um="$(printf '%s' "${_SO_ANN:-$STEPS_JSON}" | python3 "$_SO_PY" unmet --i "$i" --done "$_SO_DONE" 2>/dev/null)"; fi
+  if [ -n "$_so_um" ]; then
+    say "  step $i waits for unlanded prerequisite step(s) [$_so_um] (step-order $_SO_MODE)"
+    jlog "$(jq -nc --arg r "$RUNID" --argjson i "$i" --arg u "$_so_um" --arg m "$_SO_MODE" '{run:$r,step:$i,event:(if $m=="enforce" then "step_parked_dep" else "would_park_dep" end),mode:$m,unmet:$u}')"
+    if [ "$_SO_MODE" = enforce ]; then STAGE_PARTIAL=$((STAGE_PARTIAL+1)); continue; fi
+  fi
+  if run_step "$i" "$d" "$f" "$v" "$REDECOMP"; then passed=$((passed+1)); _SO_DONE="$_SO_DONE $_so_sid"; fi
 done
 fi
 
@@ -1284,7 +1415,20 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     done < <(find "$wt" -maxdepth 3 -type f -name "Dockerfile" -print0 2>/dev/null)
   fi
   # SEMANTIC: a "wire/integrate/register X into FILE" item must leave FILE actually referencing X
-  if printf '%s' "$item" | grep -qiE '\b(wire|integrate|register|hook|call|invoke)\b'; then
+  # 2026-10-18 FIX (gitlark audit): match the trigger words against the item's PROSE only. The item
+  # carries a trailing `[feat:...-should-invoke-]` tag and `<!-- ... -->` annotations; hyphens are
+  # non-word chars so `\binvoke\b` matched INSIDE the feat tag of a pure REMOVAL item ("Remove the
+  # import and all test cases for `should_invoke_control_plane`") and the gate then demanded the
+  # file still reference the symbol it had just been asked to delete -> 3 consecutive
+  # no-op(stage-unverified) cycles (~35 min of model time) on gitlark. Also skip removal items
+  # (leading Remove/Delete/Drop/Retire verb): "never uses X" is the goal there, not a failure.
+  # Off-switch: OVN_STAGE_SEMANTIC_PROSE_ONLY=0 restores the old whole-text match.
+  local _sem_text="$item"
+  if [ "${OVN_STAGE_SEMANTIC_PROSE_ONLY:-1}" = 1 ]; then
+    _sem_text="$(printf '%s' "$item" | sed -E 's/<!--.*-->//g; s/\[feat:[^]]*\]//g')"
+    if printf '%s' "$_sem_text" | grep -qiE '^\[T[0-9]\] +[^ ]+ +(—|-) +(remove|delete|drop|retire)\b'; then _sem_text=""; fi
+  fi
+  if printf '%s' "$_sem_text" | grep -qiE '\b(wire|integrate|register|hook|call|invoke)\b'; then
     local sym sym_alt tgt refs ok=0 cand
     sym="$(printf '%s' "$item" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*`' | head -1 | tr -d '`' | sed 's/.*\.//')"
     # 2026-09-19 FIX: the FIRST bare-identifier backtick token is frequently the function being
@@ -1634,6 +1778,9 @@ if [ "$VERIFIED" = 1 ] && [ "${_iv_mode:-off}" != off ] && [ "${STAGE_MISTARGET_
     *) jlog "$(jq -nc --arg r "$RUNID" --arg pre "${STAGE_IV_PRE%%|*}" --arg m "$_iv_mode" '{run:$r,event:"item_verify",mode:$m,pre:$pre,post:"not-run",decision:"no-evidence"}')" ;;
   esac
 fi
+# 2026-10-18 (iptv overnight audit): tell the caller (run_overnight.sh -> task_log -> ovn_landed_uncredited) that verified code is about to be pushed WITHOUT ticking the item, so the
+# outcome row is landed-uncredited (neutral) instead of landed/good. 9 iptv rows were counted as good landings although the item's own VERIFY was RED and the item stayed [ ].
+[ "${STAGE_NOCREDIT:-0}" = 1 ] && printf '%s\n' "--- stage-credit: REFUSED - ${STAGE_NOCREDIT_WHY:-item VERIFY did not confirm the change} ---"
 qa_baseline_record "$VERIFIED"   # SHADOW only (QA S4): one paired row (baseline verdict vs the runner's final decision); no-op unless the first verify was red
 jlog "$(jq -nc --arg r "$RUNID" --argjson v "$VERIFIED" '{run:$r,event:"verify",verified:($v==1)}')"
 
@@ -1676,9 +1823,21 @@ f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; p=int(os.environ["OVN_P"]); 
 nocredit=os.environ.get("OVN_NOCREDIT")=="1"   # 2026-10-13: item VERIFY did not confirm the change (enforce mode only): never check the item off
 # 2026-10-10 (BX-09): a step that landed only some of its re-decomposed sub-steps (BLOCKED ones are not landed) must not let the item be checked off as fully done
 partial=int(os.environ.get("OVN_PARTIAL") or 0)
-lines=open(f,encoding="utf-8").read().split("\n"); key=item[:55]
+# 2026-10-18 FIX (xlite audit): the line to check off / escalate is the EXACT picked item, not the first line that merely contains item[:55]. Two sibling items often share a
+# 55-char prefix (xlite "Delete the function definition `generate_intent`..." vs "`intent_label`..."): the first-substring match ticked/escalated the WRONG sibling, so the
+# executed item stayed open and re-ran as no-op(stage-unverified) x3 while an item whose code never landed was credited. Ambiguous (no exact line, tied prefix) => touch nothing.
+def pick_line(lines, item):
+    exact=[i for i,l in enumerate(lines) if l.startswith("- [ ] ") and l[6:]==item]
+    if exact: return exact[0]
+    key=item[:55]
+    cand=[i for i,l in enumerate(lines) if l.startswith("- [ ] ") and key and key in l]
+    if len(cand)<=1: return cand[0] if cand else None
+    cps={i:len(os.path.commonprefix([lines[i][6:],item])) for i in cand}
+    top=max(cps.values()); tops=[i for i in cand if cps[i]==top]
+    return tops[0] if len(tops)==1 and top>=55 else None
+lines=open(f,encoding="utf-8").read().split("\n"); pick=pick_line(lines,item)
 for i,ln in enumerate(lines):
-    if ln.startswith("- [ ] ") and key and key in ln:
+    if i==pick:
         if p>=n and partial==0 and not nocredit:  # fully done -> check it off
             lines[i]=ln.replace("- [ ] ","- [x] ",1)+f"  <!-- staged {p}/{n} DONE -->"
         elif os.environ.get("OVN_BUG") == "1":
@@ -1766,10 +1925,22 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   rm -f "$_zf" "state/item_fails/stage-${repo}.${_zh}.priorfail" "state/item_fails/stage-${repo}.${_zh}.lastsig" "state/item_fails/stage-${repo}.${_zh}.scopeseen" "state/item_fails/stage-${repo}.${_zh}.scopeext"
   OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" python3 - <<'PY'
 import os
-f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]; key=item[:55]
-lines=open(f,encoding="utf-8").read().split("\n")
+f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]
+# 2026-10-18 FIX (xlite audit): the line to check off / escalate is the EXACT picked item, not the first line that merely contains item[:55]. Two sibling items often share a
+# 55-char prefix (xlite "Delete the function definition `generate_intent`..." vs "`intent_label`..."): the first-substring match ticked/escalated the WRONG sibling, so the
+# executed item stayed open and re-ran as no-op(stage-unverified) x3 while an item whose code never landed was credited. Ambiguous (no exact line, tied prefix) => touch nothing.
+def pick_line(lines, item):
+    exact=[i for i,l in enumerate(lines) if l.startswith("- [ ] ") and l[6:]==item]
+    if exact: return exact[0]
+    key=item[:55]
+    cand=[i for i,l in enumerate(lines) if l.startswith("- [ ] ") and key and key in l]
+    if len(cand)<=1: return cand[0] if cand else None
+    cps={i:len(os.path.commonprefix([lines[i][6:],item])) for i in cand}
+    top=max(cps.values()); tops=[i for i in cand if cps[i]==top]
+    return tops[0] if len(tops)==1 and top>=55 else None
+lines=open(f,encoding="utf-8").read().split("\n"); pick=pick_line(lines,item)
 for i,ln in enumerate(lines):
-    if ln.startswith("- [ ] ") and key and key in ln and "[CLAUDE]" not in ln and "AUTO-SKIP staged: 27B could not land this" not in ln:
+    if i==pick and "[CLAUDE]" not in ln and "AUTO-SKIP staged: 27B could not land this" not in ln:
         lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged: 27B could not land this (beyond it) — route to CLAUDE] ",1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
@@ -1827,10 +1998,15 @@ emit_unverified_outcome(){
   tsent="$(jq -s '[.[].tokens_sent // 0] | add // 0' "$SLOG" 2>/dev/null)"; trecv="$(jq -s '[.[].tokens_recv // 0] | add // 0' "$SLOG" 2>/dev/null)"
   nat="$(grep -c '"verdict":"\(pass\|fail\)"' "$SLOG" 2>/dev/null)"; [ "${nat:-0}" -ge 1 ] 2>/dev/null || nat=1
   now="$(date +%s)"; dur=$(( now - ${_ST0:-$now} ))
+  # 2026-10-18 (D4): commit accounting, same additive fields as run_overnight.sh record_outcome (head_after = the stage worktree's HEAD; commits = what the run added on top of its base)
+  local hb ha cm
+  hb="$(printf '%s' "${_ST_H0:-}" | tr -cd '0-9a-fA-F')"; ha=""; [ -n "${wt:-}" ] && [ -d "$wt" ] && ha="$(git -C "$wt" rev-parse -q --verify HEAD 2>/dev/null)"
+  cm='[]'; if declare -F ovn_oa_commits >/dev/null 2>&1 && [ -n "$hb" ] && [ -n "$ha" ]; then cm="$(ovn_oa_commits "$wt" "$hb" "$ha" 2>/dev/null)"; [ -n "$cm" ] || cm='[]'; fi
   jq -nc --arg ts "$(date -u +%FT%TZ)" --arg repo "$repo" --arg id "ongoing-${repo//_/-}" --argjson tier "${tier:-3}" --arg cat "$cat" \
     --argjson att "$nat" --arg fr "$fr" --arg detail "$detail" --argjson ts_ "${tsent:-0}" --argjson tr_ "${trecv:-0}" --argjson dur "$dur" --arg ih "$ih" --arg ft "$ft" --arg run "$RUNID" --arg ust "$ust" \
+    --argjson cm "$cm" --arg hb "$hb" --arg ha "$ha" \
     '{ts:$ts,repo:$repo,id:$id,type:"aider_fix",tier:($tier|tostring),category:$cat,class:"noop",severity:"bad",attempt:$att,attempts:$att,bestn_stop:"",
-      fail_reason:$fr,detail:$detail,status:$ust,tokens_sent:$ts_,tokens_recv:$tr_,duration_s:$dur,item_hash:$ih,feat_tag:$ft,stage_run:$run}' \
+      fail_reason:$fr,detail:$detail,status:$ust,tokens_sent:$ts_,tokens_recv:$tr_,duration_s:$dur,item_hash:$ih,feat_tag:$ft,stage_run:$run,commits:$cm,head_before:$hb,head_after:$ha}' \
     >> state/outcomes.jsonl 2>/dev/null || true
   return 0
 }

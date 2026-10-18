@@ -89,4 +89,24 @@ ok "only first Next Steps section reordered" "$(same "$P" '## Next Steps\n- [ ] 
 out="$(run "$T/missing.md")"; rc=$?
 ok "missing file -> nonzero exit (traceback)" "$(has "$out" 'FileNotFoundError')"
 python3 "$S" >/dev/null 2>&1; ok "no args -> nonzero exit" "$([ $? != 0 ] && echo 1 || echo 0)"
+# 10. feat dependency chain (2026-10-18 xlite): the open T1 test-retirement of a feat must run BEFORE its T3 source-deletion (tier ranking alone put the T3 first -> 5 stage-unverified no-ops)
+printf '%s\n' '## Next Steps' \
+ '- [ ] [T1] tests/test_turn_manager.gd — Remove all test functions that call the dead helpers. VERIFY: `grep -c x tests/test_turn_manager.gd` [feat:xlite-20261018-delete-dead-helpers]' \
+ '- [ ] [T3] scripts/turn/turn_manager.gd — Delete the function definitions for get_a and get_b. VERIFY: `grep -E "func get_a" scripts/turn/turn_manager.gd` [feat:xlite-20261018-delete-dead-helpers]' \
+ '- [ ] [T3] scripts/other.gd — Add a thing. [feat:xlite-20261018-unrelated]' \
+ '- [ ] [T1] tests/test_other.gd — Remove a test. [feat:xlite-20261018-unrelated]' \
+ '- [ ] [T3] scripts/z.gd — Delete zfun. [feat:xlite-20261018-parkedtests]' \
+ '- [ ] [T1] tests/test_z.gd — Remove ztests. [AUTO-SKIP parked] [feat:xlite-20261018-parkedtests]' > "$P"
+run "$P" >/dev/null
+tm_t="$(grep -n 'tests/test_turn_manager' "$P" | cut -d: -f1)"; tm_s="$(grep -n 'scripts/turn/turn_manager' "$P" | cut -d: -f1)"
+ok "open test-retire runs BEFORE the same-feat T3 source-delete" "$([ "$tm_t" -lt "$tm_s" ] && echo 1 || echo 0)"
+ok "test-retire is lifted to the T3 bucket (above the unrelated T3 add)" "$([ "$tm_s" -lt "$(grep -n 'scripts/other.gd' "$P" | cut -d: -f1)" ] && echo 1 || echo 0)"
+ok "unrelated feat: T1 test-retire stays below the T3 (no cross-feat lift)" "$([ "$(grep -n 'scripts/other.gd' "$P" | cut -d: -f1)" -lt "$(grep -n 'tests/test_other' "$P" | cut -d: -f1)" ] && echo 1 || echo 0)"
+ok "parked test-retire is not lifted (stays below actionable)" "$([ "$(grep -n 'scripts/z.gd' "$P" | cut -d: -f1)" -lt "$(grep -n 'tests/test_z' "$P" | cut -d: -f1)" ] && echo 1 || echo 0)"
+# mutant: kill switch off restores the old order (source-delete first) - proves the assertions above detect the dependency fix
+printf '%s\n' '## Next Steps' \
+ '- [ ] [T1] tests/test_turn_manager.gd — Remove all test functions that call the dead helpers. [feat:xlite-20261018-delete-dead-helpers]' \
+ '- [ ] [T3] scripts/turn/turn_manager.gd — Delete the function definitions for get_a. [feat:xlite-20261018-delete-dead-helpers]' > "$P"
+OVN_PRIO_FEAT_DEPS=off run "$P" >/dev/null
+ok "MUTANT OVN_PRIO_FEAT_DEPS=off: legacy order (T3 source-delete first) is restored" "$([ "$(grep -n 'scripts/turn/turn_manager' "$P" | cut -d: -f1)" -lt "$(grep -n 'tests/test_turn_manager' "$P" | cut -d: -f1)" ] && echo 1 || echo 0)"
 echo "  $pass passed, $fail failed"; [ "$fail" = 0 ]

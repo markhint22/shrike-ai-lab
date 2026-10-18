@@ -119,6 +119,13 @@ for r in $REPOS; do
 
   # next [ready] feature (skip needs-research/decomposed/done)
   feat_line="$(grep -nE '^- \[ \] \[P[1-4]\] \[ready\]' "$rm" 2>/dev/null | head -1)"
+  # 2026-10-18: no [ready] feature -> try the bounded, code-grounded needs-research promotion BEFORE giving up (OVN_NEEDS_RESEARCH_PROMOTE=off|shadow|enforce, default shadow:
+  # shadow only logs what it would promote). A promotion rewrites the roadmap line, so the feature is re-read below.
+  if [ -z "$feat_line" ] && [ "${OVN_NEEDS_RESEARCH_PROMOTE:-shadow}" != "off" ] && [ -f "scripts/ovn_needs_research_promote.py" ]; then
+    _nrp_out="$(OVN_DIR="$PWD" python3 scripts/ovn_needs_research_promote.py "$r" 2>&1 | tail -3 | tr '\n' ' ')"
+    [ -n "$_nrp_out" ] && say_rl "${r}:nrp" "$r: needs-research promotion (${OVN_NEEDS_RESEARCH_PROMOTE:-shadow}): ${_nrp_out:0:200}"
+    feat_line="$(grep -nE '^- \[ \] \[P[1-4]\] \[ready\]' "$rm" 2>/dev/null | head -1)"
+  fi
   if [ -z "$feat_line" ]; then
     say_rl "$r" "$r: backlog low ($bcount) but no [ready] roadmap feature (needs Claude research?)"
     needs_research_alert "$r" "$bcount"
@@ -303,6 +310,23 @@ PROMPT_END
       say "$r: every decomposed item already exists - nothing appended; marked feature [decomposed]"
       clear_research_alert "$r"
       continue
+    fi
+  fi
+  # 2026-10-18 (package D1): VERIFY SHAPE lint on the decomposed items (unsatisfiable grep -n|grep fn, short -A window, `| wc -l`, double cd prefix, wrong pytest root, billwatch_backend.app).
+  # OVN_VERIFY_LINT=off|shadow|enforce (default shadow: log + alerts count only; enforce rewrites a mechanically fixable VERIFY or drops the item into backlog/quarantine/<repo>.md).
+  _vsl_py="$HOME/overnight-queue/scripts/ovn_verify_shape_lint.py"
+  if [ "${OVN_VERIFY_LINT:-shadow}" != off ] && [ -f "$_vsl_py" ]; then
+    if _vsl_out="$(printf '%s\n' "$items" | timeout "${OVN_VERIFY_LINT_TIMEOUT:-30}" python3 "$_vsl_py" filter --tree "repos/$r" --repo "$r" --dropped "$(dirname "$bl")/quarantine/$r.md" 2>/dev/null)"; then
+      _vsl_n="$(printf '%s\n' "$_vsl_out" | grep -c '^- \[ \]')"
+      if [ "${_vsl_n:-0}" -lt "${n:-0}" ] || [ "$_vsl_out" != "$items" ]; then
+        say "$r: verify-lint (mode ${OVN_VERIFY_LINT:-shadow}) kept ${_vsl_n:-0} of ${n:-0} decomposed item(s)"
+      fi
+      items="$_vsl_out"; n="$_vsl_n"
+      if [ "${n:-0}" -le 0 ]; then
+        sed -i "${fln}s/\[ready\]/[decomposed]/" "$rm"
+        say "$r: verify-lint dropped every decomposed item (quarantined) - nothing appended; marked feature [decomposed]"
+        continue
+      fi
     fi
   fi
   {

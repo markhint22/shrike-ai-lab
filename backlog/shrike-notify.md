@@ -204,3 +204,11 @@
 # --- 27B-decomposed from roadmap [2026-10-17]: Delete dead `SELECT Token` in `TokenStore.revoke_token()` — `persistence.py:283-285` execu (review + tweak) [feat:shrike-notify-20261017-delete-dead-select-token-in-tokenstore-r] ---
 
 # --- 27B-decomposed from roadmap [2026-10-17]: Delete `test_requirements_pin.py` and `utils/versions.py` — `test_requirements_pin.py:9-12 (review + tweak) [feat:shrike-notify-20261017-delete-test-requirements-pin-py-and-util] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: GET /topics returns empty after process restart with NOTIFY_PERSIST=1 — `broker.topics()`  (review + tweak) [feat:shrike-notify-20261018-get-topics-returns-empty-after-process-r] ---
+
+# --- deterministic work supply 2026-10-18 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: broker.persistence_failures counter never surfaced in health endpoint — `broker.py:79,128` (review + tweak) [feat:shrike-notify-20261018-broker-persistence-failures-counter-neve] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: test_no_duplicate_definitions.py guard excludes tests/ — allowing duplicate test functions (review + tweak) [feat:shrike-notify-20261018-test-no-duplicate-definitions-py-guard-e] ---

@@ -295,4 +295,28 @@ t "godot step: GODOT4.md passed via --read and the Godot-4 message used" bash -c
 t "godot full verify (GUT) passed and landed" bash -c "grep -q 'independent full-verify: PASSED' '$T/out.txt' && grep -q -- '-- GUT FULL --' '$Q'/state/stage_runs/*.verify.log"
 osr_cleanup
 
+# -------- M. sibling items sharing a 55-char prefix: the EXECUTED item is the one checked off (2026-10-18 xlite audit) --------
+echo "== M: sibling items with a shared 55-char prefix"
+SIB_PRE='[T3] backend/app/foo.py — Add the shared foo helper function named '
+SIB_A="${SIB_PRE}alpha with its test. VERIFY: \`pytest backend/tests/test_foo.py\` (cat:python)"
+SIB_B="${SIB_PRE}beta with its test. VERIFY: \`pytest backend/tests/test_foo.py\` (cat:python)"
+osr_new; osr_venv backend
+osr_progress "- [ ] [AUTO-SKIP staged: 27B could not land this (beyond it) — route to CLAUDE] $SIB_A" "- [ ] $SIB_B"
+osr_plan default "$PLAN_FOO"
+osr_aider 1 "$SNIP_FOO"
+osr_run "$OSR_REPO"
+t "sibling run lands 1/1 (the picker skipped the AUTO-SKIP sibling and ran the plain one)" bash -c "[ $RC = 0 ] && grep -q 'DONE: 1/1 steps landed' '$T/out.txt'"
+t "the EXECUTED sibling (beta) is the one checked off with the staged tag" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep '^- \[x\] ' | grep -q 'named beta.*staged 1/1 DONE'"
+t "the earlier sibling (alpha, escalated) is NOT credited (first-substring match used to tick it)" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep 'named alpha' | grep -q '^- \[ \] \[AUTO-SKIP staged: 27B'"
+osr_cleanup
+
+osr_new; osr_venv backend
+osr_progress "- [ ] [AUTO-SKIP staged: 27B could not land this (beyond it) — route to CLAUDE] $SIB_A" "- [ ] $SIB_B"
+osr_plan 1 '[{"desc":"big step","files":["backend/app/foo.py"],"verify":"pytest"}]'
+osr_plan 2 '[{"desc":"only one sub","files":["backend/app/foo.py"],"verify":"pytest"}]'
+OVN_STAGE_ZERO_CAP=1 osr_run "$OSR_REPO"
+t "sibling escalation: the executed item (beta) gets the AUTO-SKIP tag" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep 'named beta' | grep -q 'AUTO-SKIP staged: 27B could not land this'"
+t "sibling escalation: alpha is not tagged a second time" bash -c "[ \"\$(git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep 'named alpha' | grep -o 'AUTO-SKIP staged: 27B' | wc -l | tr -d ' ')\" = 1 ]"
+osr_cleanup
+
 osr_summary
