@@ -378,3 +378,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-19 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `list_epg_sources` and `create_epg_source` — Add unit tests for `list_epg_sources` in `iptv-backend/app/routers/epg.py:254` and `create_epg_source` in `iptv-backend/app/routers/epg.py:283` to verify EPG source retrieval and creation logic, including validation of source metadata. {cat: test; size: M; multifile: no; research: none}
+
+## Local research 2026-10-19 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `enrich_watch_history` and `enrich_continue_watching` — Add unit tests for the untested public functions in `iptv-backend/app/routers/watch_history.py:65` and `iptv-backend/app/routers/watch_history.py:88` to verify data enrichment logic and error handling {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [ready] Test `list_epg_source_runs`, `update_epg_source`, and `activate_epg_source` — Add unit tests for the untested public functions in `iptv-backend/app/routers/epg.py:271`, `iptv-backend/app/routers/epg.py:417`, and `iptv-backend/app/routers/epg.py:442` to verify EPG source management logic {cat: test; size: M; multifile: no; research: none}
