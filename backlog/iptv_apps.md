@@ -552,3 +552,5 @@
 # --- 27B-decomposed from roadmap [2026-10-19]: iOS `MainTabView.swift` tab items have no `.accessibilityIdentifier(...)`, forcing E2E tab (review + tweak) [feat:iptv_apps-20261019-ios-maintabview-swift-tab-items-have-no-] ---
 
 # --- 27B-decomposed from roadmap [2026-10-19]: `downloads.py`'s `_visible_stream_or_404` skips parental rating ceiling — `iptv-backend/ap (review + tweak) [feat:iptv_apps-20261019-downloads-py-s-visible-stream-or-404-ski] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: Test `list_epg_sources` and `create_epg_source` — Add unit tests for `list_epg_sources` in (review + tweak) [feat:iptv_apps-20261019-test-list-epg-sources-and-create-epg-sou] ---
