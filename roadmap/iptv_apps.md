@@ -366,3 +366,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-19 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `get_profile` and `delete_profile` — Add tests for `get_profile` in `iptv-backend/app/routers/profiles.py:138` and `delete_profile` in `iptv-backend/app/routers/profiles.py:200` to verify profile retrieval and deletion logic {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-19 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test watch-history mutation and state endpoints — Add tests for `update_watch_position`, `get_resume_state`, `delete_watch_history`, `clear_watch_history`, and `add_to_continue_watching` in `iptv-backend/app/routers/watch_history.py:295`, `iptv-backend/app/routers/watch_history.py:429`, `iptv-backend/app/routers/watch_history.py:461`, `iptv-backend/app/routers/watch_history.py:480`, and `iptv-backend/app/routers/watch_history.py:525` to verify state transitions and persistence {cat: test; size: M; multifile: no; research: none}
