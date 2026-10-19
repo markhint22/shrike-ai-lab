@@ -540,3 +540,5 @@
 # --- 27B-decomposed from roadmap [2026-10-18]: Fix N+1 queries in get_continue_watching by batching lookups — `iptv-backend/app/routers/c (review + tweak) [feat:iptv_apps-20261018-fix-n-1-queries-in-get-continue-watching] ---
 
 # --- 27B-decomposed from roadmap [2026-10-18]: Test `create_profile` and `update_profile` — Add tests for `create_profile` in `iptv-backe (review + tweak) [feat:iptv_apps-20261018-test-create-profile-and-update-profile-a] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: Test `get_profile` and `delete_profile` — Add tests for `get_profile` in `iptv-backend/app (review + tweak) [feat:iptv_apps-20261019-test-get-profile-and-delete-profile-add-] ---

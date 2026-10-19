@@ -365,4 +365,4 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `create_profile` and `update_profile` — Add tests for `create_profile` in `iptv-backend/app/routers/profiles.py:99` and `update_profile` in `iptv-backend/app/routers/profiles.py:148` to verify profile creation and modification logic {cat: test; size: M; multifile: no; research: none}
 
 ## Local research 2026-10-19 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_profile` and `delete_profile` — Add tests for `get_profile` in `iptv-backend/app/routers/profiles.py:138` and `delete_profile` in `iptv-backend/app/routers/profiles.py:200` to verify profile retrieval and deletion logic {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_profile` and `delete_profile` — Add tests for `get_profile` in `iptv-backend/app/routers/profiles.py:138` and `delete_profile` in `iptv-backend/app/routers/profiles.py:200` to verify profile retrieval and deletion logic {cat: test; size: S; multifile: no; research: none}
