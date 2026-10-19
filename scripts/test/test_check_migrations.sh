@@ -141,7 +141,7 @@ safe_rm_rf "$d"
 
 # ---- 4c. applied-migration immutability (2026-10-18 TAA 3114b2a: baseline edited after it was applied) ----
 d="$(safe_mktemp_dir)" || exit 1; mkvdir "$d"
-( cd "$d" && git init -q && git config user.email t@t && git config user.name t
+( cd "$d" || exit 1; git init -q && git config user.email t@t && git config user.name t
   printf 'revision = "0001_base"\ndown_revision = None\n' > alembic/versions/0001_base.py
   git add -A && git commit -q -m base ) >/dev/null 2>&1
 B="$(git -C "$d" rev-parse HEAD)"

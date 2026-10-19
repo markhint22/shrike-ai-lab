@@ -170,10 +170,13 @@ source "$SCRIPT_DIR/scripts/lib_autotest_base.sh" 2>/dev/null || ovn_autotest_ba
 declare -F ovn_repo_has_autotest >/dev/null 2>&1 || ovn_repo_has_autotest(){ { find "${1:-.}" -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | grep -q . || find "${1:-.}" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null | grep -q .; }; }   # lib missing: the old predicate
 # shellcheck source=scripts/lib_fixup.sh
 source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ echo "own-test"; }; ovn_fixup_direction(){ echo "Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug."; }; }
+declare -F ovn_fixup_dedupe_defs >/dev/null 2>&1 || ovn_fixup_dedupe_defs(){ return 0; }   # lib_fixup.sh missing/old: no post-fix-up de-duplication (2026-10-18)
 declare -F ovn_is_delete_intent >/dev/null 2>&1 || ovn_is_delete_intent(){ grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b' <<< "${1:-}"; }   # lib_fixup.sh missing: legacy regex
 # shellcheck source=scripts/lib_fixup_prompt.sh
 # 2026-10-02 (harness-X X3): fix-up prompts built from FACTS (the committed diff, failing ids + assertions), never the old "last change" wording.
 source "$SCRIPT_DIR/scripts/lib_fixup_prompt.sh" 2>/dev/null || { ovn_fixup_prompt(){ printf '%s\n\nThe following change was just committed. Ignore any example from your instructions (is_prime/sympy/mathweb).\n\n%s\n\n%s' "$1" "$4" "$5"; }; ovn_fixup_failure_facts(){ printf '%s' "${2:-}"; }; ovn_fixup_extra_files(){ :; }; }
+# shellcheck source=scripts/lib_build_break_park.sh
+source "$SCRIPT_DIR/scripts/lib_build_break_park.sh" 2>/dev/null || ovn_bb_escalate(){ return 0; }
 # shellcheck source=scripts/lib_run_integrity.sh
 # 2026-10-03 (integrity track A5/A6): NO-NEW-RED baseline subtraction, landed-commit reachability, per-repo cycle-active marker. Missing lib => OLD behaviour
 # (no subtraction, reachability assumed, no marker).
@@ -3568,6 +3571,18 @@ $(ovn_udiff_nudge_text)"
           # the fix-up could never even see it). Capped: <=4 extra files, each <=60KB, so the
           # 65K context is never blown (see the OVERNIGHT_PROGRESS.md incident above).
           _buildfix_evidence="$(_ovn_buildbreak_evidence "$task_log")"
+          # 2026-10-18 (xlite reverted(build-break) x2): a "delete dead helpers" commit removed a function that another (not yet deleted) helper still called. Godot reports
+          # ONE parse error per script, so the fix-up was told about one missing name at a time. List EVERY deleted-but-still-called function with its deleted source so the
+          # model can restore them in one edit (and the callers' files are pulled into the chat by the file-extraction just below). OVN_DANGLING_REFS=off disables.
+          if [ "${OVN_DANGLING_REFS:-on}" != off ] && [ -f "$SCRIPT_DIR/scripts/ovn_dangling_refs.py" ]; then
+            _bf_dang="$(timeout 30 python3 "$SCRIPT_DIR/scripts/ovn_dangling_refs.py" check "$PWD" "$BEFORE_SHA" "$AFTER_SHA" --source 2>/dev/null | head -c 2500)"
+            if [ -n "$_bf_dang" ]; then
+              echo "--- BUILD-GATE: deleted function(s) still called: $(printf '%s' "$_bf_dang" | grep -a '^DANGLING' | cut -f2 | tr '\n' ' ') ---" >> "$task_log"
+              _buildfix_evidence="KEY: the commit DELETED function(s) that are still called. Restore EVERY one of them in a single edit (do not restore only the first name; do not define any twice), or delete the callers too:
+${_bf_dang}
+${_buildfix_evidence}"
+            fi
+          fi
           _buildfix_extra="$(printf '%s\n' "$_buildfix_evidence" | grep -aoE '[A-Za-z0-9_./@-]+\.(py|ts|tsx|vue|js|kt|gd):[0-9]+' | sed 's/:[0-9]*$//' | grep -avE '(^|/)(\.venv|node_modules|site-packages)/' | awk '!s[$0]++' | head -8)"
           _buildfix_nextra=0
           for _bp in $_buildfix_extra; do
@@ -3588,8 +3603,16 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
           echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
+            _fx_prev_sha="$AFTER_SHA"
             AFTER_SHA="$_buildfix_after"
             _ovn_land_sha="$AFTER_SHA"   # h13: see the Tier-2 fix-up refresh below
+            # 2026-10-18 (xlite reverted(build-break) x2): a fix-up that "restores" code can have its udiff hunk applied at TWO places (duplicate GDScript func = compile error).
+            # De-duplicate byte-identical copies before the re-verify; see ovn_fixup_dedupe_defs in lib_fixup.sh.
+            _fx_dd="$(ovn_fixup_dedupe_defs "$_fx_prev_sha")"
+            if [ -n "$_fx_dd" ]; then
+              echo "--- BUILD-GATE fix-up introduced duplicate definition(s), removed: $(printf '%s' "$_fx_dd" | tr '\n' ' ') ---" >> "$task_log"
+              AFTER_SHA="$(git rev-parse HEAD)"; _ovn_land_sha="$AFTER_SHA"
+            fi
             _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
             VERIFY_RESULT="$(run_repo_verification)"
             echo "--- BUILD-GATE fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"
@@ -3609,6 +3632,16 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
             timeout 60 "$HOME/godot/godot4" --headless --path . --import >/dev/null 2>>"$task_log"
           fi
           emit_alert warn "$id" "build-gate reverted a commit that broke the build (syntax/import/parse error) — the model produced non-loading code"
+          # 2026-10-18 (xlite TurnManager helper deletions: 3 build-break reverts of the SAME item, ~45 min each): after OVN_BUILD_BREAK_PARK_AFTER (2) of them park the item for Claude.
+          # OVN_BUILD_BREAK_PARK=off|shadow|enforce, default SHADOW (counts + logs would-park only). scripts/lib_build_break_park.sh; the counter resets when the item lands.
+          _bb_esc="$(ovn_bb_escalate "$PWD" "$SCRIPT_DIR/state" "$task_log" "${branch:-}" 2>/dev/null)" || _bb_esc=""
+          case "$_bb_esc" in
+            parked*)      echo "--- BUILD-GATE: item ${_bb_esc} consecutive build-break reverts - PARKED [CLAUDE] ---" >> "$task_log"
+                          emit_alert warn "$id" "build-break escalation: item reverted(build-break) ${_bb_esc#parked }x in a row - parked [CLAUDE] for Claude (OVN_BUILD_BREAK_PARK=enforce)";;
+            would-park*)  echo "--- BUILD-GATE: SHADOW would-park: ${_bb_esc#would-park } consecutive build-break reverts of this item (OVN_BUILD_BREAK_PARK=shadow) ---" >> "$task_log";;
+            park-failed*) echo "--- BUILD-GATE: build-break park could not be applied (${_bb_esc}) ---" >> "$task_log";;
+            count*)       echo "--- BUILD-GATE: build-break revert #${_bb_esc#count } of this item ---" >> "$task_log";;
+          esac
           echo "reverted(build-break)"
           return
         fi
@@ -3704,8 +3737,14 @@ All files you need are already in the chat. You cannot run commands or call tool
           echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then
+            _fix_prev_sha_t2="$AFTER_SHA"
             AFTER_SHA="$_fixup_after"
             _ovn_land_sha="$AFTER_SHA"   # h13: a landed Tier-2 fix-up (it may rewrite the commit) supersedes the pre-fix-up sha; refresh so the landing check does not flag the stale one
+            _fx_dd="$(ovn_fixup_dedupe_defs "$_fix_prev_sha_t2")"
+            if [ -n "$_fx_dd" ]; then
+              echo "--- Tier-2 fix-up introduced duplicate definition(s), removed: $(printf '%s' "$_fx_dd" | tr '\n' ' ') ---" >> "$task_log"
+              AFTER_SHA="$(git rev-parse HEAD)"; _ovn_land_sha="$AFTER_SHA"
+            fi
             _ovn_voff="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
             VERIFY_RESULT="$(run_repo_verification)"
             echo "--- Tier-2 fix-up re-verify: ${VERIFY_RESULT} ---" >> "$task_log"

@@ -173,6 +173,28 @@ def run(cmd, cwd=None, timeout=120, env=None, polite=True, input_text=None):
         return 127, "", str(ex)
 
 
+def private_tool_env(base):
+    """Env for an external scanner (semgrep, gitleaks) that must not touch the real HOME.
+    2026-10-18: on the sandboxed box the real HOME is READ-ONLY; semgrep crashed writing ~/.semgrep/settings*.yml and the Python traceback was
+    reported as 'unparsable output'. Every writable location (HOME, XDG_*, TMPDIR, semgrep settings/version cache/log) is a private dir under
+    `base` (the gate's own scratch dir), so the tool works with a read-only or a writable real HOME alike. Telemetry / version checks are off and
+    git's safe.directory comes from GIT_CONFIG_* env (never ~/.gitconfig, which the private HOME hides). Returns the env overlay dict."""
+    d = {k: os.path.join(base, k) for k in ("home", "config", "cache", "state", "tmp")}
+    for p in d.values():
+        os.makedirs(p, exist_ok=True)
+    sg = os.path.join(base, "semgrep")
+    os.makedirs(sg, exist_ok=True)
+    return {
+        "HOME": d["home"], "XDG_CONFIG_HOME": d["config"], "XDG_CACHE_HOME": d["cache"], "XDG_STATE_HOME": d["state"], "XDG_DATA_HOME": d["state"],
+        "TMPDIR": d["tmp"],
+        "SEMGREP_SETTINGS_FILE": os.path.join(sg, "settings.yml"), "SEMGREP_VERSION_CACHE_PATH": os.path.join(sg, "version_cache"),
+        "SEMGREP_LOG_FILE": os.path.join(sg, "semgrep.log"),
+        "SEMGREP_SEND_METRICS": "off", "SEMGREP_ENABLE_VERSION_CHECK": "0", "SEMGREP_FORCE_COLOR": "0", "NO_COLOR": "1",
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
 def git(repo_dir, *args, timeout=60):
     return run(["git", "-C", repo_dir] + list(args), timeout=timeout, polite=False)
 

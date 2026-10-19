@@ -191,7 +191,7 @@ bash "$AG" --drop-stubs "$T/does-not-exist" >/dev/null 2>&1; ok "bad repo path e
 
 # ---------- 5. hook wiring + fail-safe guards ----------
 RO="$Q/run_overnight.sh"; BH="$Q/branch_hygiene.sh"; SR="$Q/ovn_stage_runner.sh"
-_a="$(grep -n -- '--drop-stubs' "$RO" | head -1 | cut -d: -f1)"; _b="$(grep -n '_migcheck_out="\$(python3' "$RO" | head -1 | cut -d: -f1)"
+_a="$(grep -n -- '--drop-stubs' "$RO" | head -1 | cut -d: -f1)"; _b="$(grep -n '_migcheck_out="\$(.*check_migrations\.py' "$RO" | head -1 | cut -d: -f1)"
 ok  "run_overnight: drop-stubs before migration gate" "[ -n '$_a' ] && [ -n '$_b' ] && [ '$_a' -lt '$_b' ]"
 ok  "run_overnight: drop-stubs again after the revert" "grep -B3 'emit_alert warn \"\$id\" \"migration-safety gate reverted' '$RO' | grep -q -- '--drop-stubs'"
 ok  "run_overnight: dep gate guarded by [ -f lib ] (fail-safe)" "grep -q 'if \\[ -f \"\$SCRIPT_DIR/scripts/lib_dep_import_check.py\" \\]' '$RO'"

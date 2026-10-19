@@ -477,6 +477,149 @@ ok("tool timeout leaves no qa-wt-*/qa-gl-* scratch dirs behind", res is not None
 rc, res, out = chk("lg", b0, h3, RT, ["--tools", "ruff"], extra_env={"TMPDIR": tdir})
 ok("normal run leaves no scratch dirs behind", not [d for d in os.listdir(tdir) if d.startswith("qa-")], os.listdir(tdir))
 
+print("== private tool HOME (2026-10-18: real HOME read-only in the box sandbox) ==")
+# stub semgrep that behaves like the real one: it WRITES settings under $HOME/.semgrep and its XDG/TMPDIR dirs, and dies with a traceback if it cannot
+STUB_SEMGREP_HOME = stub("semgrep-home", r"""
+import sys, json, os
+h = os.environ["HOME"]
+try:
+    os.makedirs(os.path.join(h, ".semgrep"), exist_ok=True)
+    open(os.path.join(h, ".semgrep", "settings.yml"), "w").write("x")
+    for k in ("XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "TMPDIR"):
+        open(os.path.join(os.environ[k], "probe"), "w").write("x")
+    open(os.environ["SEMGREP_SETTINGS_FILE"], "w").write("x")
+except (OSError, KeyError) as e:
+    sys.stderr.write("Traceback (most recent call last):\n  File \"semgrep/settings.py\", line 123, in save\n%s: %s\n" % (type(e).__name__, e)); sys.exit(2)
+if os.environ.get("SEMGREP_SEND_METRICS") != "off" or os.environ.get("SEMGREP_ENABLE_VERSION_CHECK") != "0":
+    print("telemetry on"); sys.exit(3)
+res = []
+for f in [a for a in sys.argv[1:] if a.endswith((".py", ".js"))]:
+    for i, l in enumerate(open(f, errors="replace"), 1):
+        if "BADTHING" in l:
+            res.append({"path": f, "check_id": "r.qa-test-rule", "start": {"line": i}, "extra": {"severity": "ERROR", "message": "bad"}})
+print(json.dumps({"results": res, "errors": []}))
+""")
+STUB_SEMGREP_CRASH = stub("semgrep-crash", "import sys; sys.stderr.write('Traceback (most recent call last):\\nOSError: boom\\n'); sys.exit(2)")
+# gitleaks 8.18.4 shape: NO git/dir subcommands (unknown command), `detect --source X [--log-opts R | --no-git]`; also needs a writable HOME and safe.directory via env
+STUB_GITLEAKS_OLD = stub("gitleaks-old", r"""
+import sys, json, os, subprocess
+a = sys.argv[1:]
+if a[0] != "detect":
+    sys.stderr.write('Error: unknown command "%s" for "gitleaks"\n' % a[0]); sys.exit(1)
+h = os.environ["HOME"]
+try:
+    open(os.path.join(h, ".gl_probe"), "w").write("x")
+except OSError as e:
+    sys.stderr.write("FTL %s\n" % e); sys.exit(1)
+if os.environ.get("GIT_CONFIG_KEY_0") != "safe.directory" or os.environ.get("GIT_CONFIG_VALUE_0") != "*":
+    sys.stderr.write("FTL fatal: detected dubious ownership\n"); sys.exit(1)
+rep = a[a.index("-r") + 1]
+src = a[a.index("--source") + 1]
+found = []
+if "--log-opts" in a:
+    out = subprocess.run(["git", "-C", src, "log", "-p", "--format=", a[a.index("--log-opts") + 1]], capture_output=True, text=True).stdout
+    fn = None
+    for l in out.splitlines():
+        if l.startswith("+++ b/"):
+            fn = l[6:]
+        elif "SECRETMARK" in l and l.startswith("+"):
+            found.append({"RuleID": "github-pat", "File": fn, "StartLine": 1, "Line": l, "Match": "REDACTED"})
+else:
+    assert "--no-git" in a
+    for dp, dn, fns in os.walk(src):
+        for f in fns:
+            q = os.path.join(dp, f)
+            if ".git" in q.split(os.sep):
+                continue
+            for i, l in enumerate(open(q, errors="replace"), 1):
+                if "SECRETMARK" in l:
+                    found.append({"RuleID": "github-pat", "File": os.path.relpath(q, src), "StartLine": i, "Line": l, "Match": "REDACTED"})
+json.dump(found, open(rep, "w"))
+""")
+STUB_GITLEAKS_BROKEN = stub("gitleaks-broken", "import sys; sys.stderr.write('FTL something real broke\\n'); sys.exit(1)")
+
+ROHOME = os.path.join(T, "rohome")
+os.makedirs(ROHOME)
+os.chmod(ROHOME, 0o555)
+mkrepo("ph", {"app/ok.py": "x = 1\n"})
+ph0 = sha("ph")
+ph1 = commit("ph", {"app/bad.py": "y = 1  # BADTHING\n"}, "bad line")
+ph2 = commit("ph", {"app/ok2.py": "z = 2\n"}, "clean line")
+ph_sec = commit("ph", {"app/cfg.py": "T = 'SECRETMARK'\n"}, "seeded secret")
+RO = {"HOME": ROHOME}
+rc, res, out = chk("ph", ph0, ph1, {"semgrep": STUB_SEMGREP_HOME}, ["--tools", "semgrep", "--baseline", "base"], extra_env=RO)
+cell = ((res or {}).get("details") or {}).get("cells", {}).get("semgrep", {})
+ok("semgrep runs with a READ-ONLY real HOME (private HOME/XDG/TMPDIR): negative control -> FAIL, cell OK",
+   res and res["verdict"] == "FAIL" and cell.get("status") == "OK" and cell.get("new") == 1, (res, out[-300:]))
+rc, res, out = chk("ph", ph1, ph2, {"semgrep": STUB_SEMGREP_HOME}, ["--tools", "semgrep", "--baseline", "base"], extra_env=RO)
+ok("semgrep with read-only HOME: benign control -> PASS (cell OK, not UNVERIFIED)", res and res["verdict"] == "PASS" and res["details"]["cells"]["semgrep"]["status"] == "OK", res)
+ok("the real (read-only) HOME is left untouched by the tool", os.listdir(ROHOME) == [], os.listdir(ROHOME))
+rc, res, out = chk("ph", ph0, ph1, {"semgrep": STUB_SEMGREP_CRASH}, ["--tools", "semgrep", "--baseline", "base"], extra_env=RO)
+cell = ((res or {}).get("details") or {}).get("cells", {}).get("semgrep", {})
+ok("a crashing semgrep is UNVERIFIED (never PASS) and the note says WHY (last traceback line), not just 'Traceback'",
+   res and res["verdict"] == "UNVERIFIED" and cell.get("status") == "UNVERIFIED" and "OSError: boom" in cell.get("note", ""), res)
+rc, res, out = chk("ph", ph0, ph_sec, {"gitleaks": STUB_GITLEAKS_OLD}, ["--tools", "gitleaks", "--baseline", "base"], extra_env=RO)
+cell = ((res or {}).get("details") or {}).get("cells", {}).get("gitleaks", {})
+ok("gitleaks 8.18-style CLI (no git/dir subcommands), read-only HOME, git mode: seeded secret -> FAIL, cell OK",
+   res and res["verdict"] == "FAIL" and cell.get("status") == "OK" and cell.get("new") == 1, (res, out[-300:]))
+rc, res, out = chk("ph", ph0, ph2, {"gitleaks": STUB_GITLEAKS_OLD}, ["--tools", "gitleaks", "--baseline", "base"], extra_env=RO)
+ok("gitleaks 8.18-style CLI: benign range -> PASS (cell OK)", res and res["verdict"] == "PASS" and res["details"]["cells"]["gitleaks"]["status"] == "OK", res)
+rc, res, out = gate(["baseline", "--repo", "ph", "--ref", ph_sec, "--tools", "gitleaks"], tools={"gitleaks": STUB_GITLEAKS_OLD}, extra_env=RO)
+bl_cell = ((res or {}).get("details") or {}).get("cells", {}).get("gitleaks", {})
+ok("gitleaks 8.18-style CLI: directory mode (baseline of a tree with a secret) finds it, cell OK", bl_cell.get("status") == "OK" and bl_cell.get("n") == 1, (res, out[-300:]))
+rc, res, out = chk("ph", ph0, ph_sec, {"gitleaks": STUB_GITLEAKS_BROKEN}, ["--tools", "gitleaks", "--baseline", "base"], extra_env=RO)
+cell = ((res or {}).get("details") or {}).get("cells", {}).get("gitleaks", {})
+ok("a genuinely failing gitleaks (not 'unknown command') is UNVERIFIED, never PASS, and the cause is in the note",
+   res and res["verdict"] == "UNVERIFIED" and "something real broke" in cell.get("note", ""), res)
+
+# --- REPAIR 2 (c): pip-audit must run in the private tool env (real pip-audit writes ~/.cache/pip-audit; the box HOME is read-only in the sandbox)
+STUB_PIPAUDIT_CACHE = stub("pip-audit-cache", r"""
+import sys, json, os
+def need_writable(d):
+    try:
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, "probe"), "w").write("x")
+    except OSError as e:
+        sys.stderr.write("OSError: [Errno 30] Read-only file system: %r\n" % d); sys.exit(2)
+# what the real tool does: platformdirs user_cache_dir = $XDG_CACHE_HOME/pip-audit (default $HOME/.cache/pip-audit), unless --cache-dir is given
+cd = sys.argv[sys.argv.index("--cache-dir") + 1] if "--cache-dir" in sys.argv else os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(os.environ["HOME"], ".cache"), "pip-audit")
+need_writable(cd)
+need_writable(os.environ.get("PIP_CACHE_DIR") or os.path.join(os.environ["HOME"], ".cache", "pip"))
+req = sys.argv[sys.argv.index("-r") + 1]
+deps = []
+for l in open(req):
+    n, v = l.strip().split("==")
+    deps.append({"name": n, "version": v, "vulns": [{"id": "PYSEC-TEST-1", "description": "seeded vuln"}] if n == "vulnpkg" else []})
+print(json.dumps({"dependencies": deps})); sys.exit(1 if any(d["vulns"] for d in deps) else 0)
+""")
+pa0 = sha("dp")
+pa1 = commit("dp", {"requirements-cache.txt": "vulnpkg==9.0.0\nclean==1.0\n"}, "pip-audit cache probe: new vulnerable pin")
+pa2 = commit("dp", {"requirements-cache2.txt": "clean==2.0\n"}, "pip-audit cache probe: clean pin")
+rc, res, out = chk("dp", pa0, pa1, {"pip-audit": STUB_PIPAUDIT_CACHE}, ["--tools", "pip-audit"], extra_env=RO)
+cell = ((res or {}).get("details") or {}).get("cells", {}).get("pip-audit", {})
+ok("pip-audit with a READ-ONLY real HOME (private HOME/XDG/cache dir): vulnerable new pin -> FLAG, cell OK (was UNVERIFIED OSError)",
+   res and res["verdict"] == "FLAG" and cell.get("status") == "OK", (res, out[-300:]))
+rc, res, out = chk("dp", pa1, pa2, {"pip-audit": STUB_PIPAUDIT_CACHE}, ["--tools", "pip-audit"], extra_env=RO)
+ok("pip-audit with a read-only real HOME: clean pin -> PASS (cell OK, not UNVERIFIED)",
+   res and res["verdict"] == "PASS" and res["details"]["cells"]["pip-audit"]["status"] == "OK", res)
+ok("pip-audit never touched the real (read-only) HOME", os.listdir(ROHOME) == [], os.listdir(ROHOME))
+
+# --- REPAIR 2 (c): gitleaks >= 8.19 first-choice path: `git` / `dir` subcommands are used FIRST and the old `detect` form is not run when they work
+glog = os.path.join(T, "gl_new_argv.log")
+rc, res, out = chk("ph", ph0, ph_sec, {"gitleaks": STUB_GITLEAKS}, ["--tools", "gitleaks", "--baseline", "base"], extra_env=dict(RO, STUB_ARGV_LOG=glog))
+calls = [json.loads(l) for l in open(glog) if l.startswith("[")]
+# (the gate also scans the base side in directory mode, so `dir` may follow `git`; the OLD `detect` form must never run)
+ok("gitleaks >= 8.19 (git mode): first call is the `git` subcommand with --log-opts, the old `detect` fallback never runs, secret -> FAIL",
+   res and res["verdict"] == "FAIL" and calls and calls[0][0] == "git" and "--log-opts" in calls[0] and "--source" not in calls[0]
+   and all(c[0] in ("git", "dir") for c in calls), (res, calls))
+os.remove(glog)
+rc, res, out = gate(["baseline", "--repo", "ph", "--ref", ph_sec, "--tools", "gitleaks"], tools={"gitleaks": STUB_GITLEAKS}, extra_env=dict(RO, STUB_ARGV_LOG=glog))
+calls = [json.loads(l) for l in open(glog) if l.startswith("[")]
+bl_cell = ((res or {}).get("details") or {}).get("cells", {}).get("gitleaks", {})
+ok("gitleaks >= 8.19 (directory mode): first-choice `dir` subcommand is called exactly once, no `detect`/`--no-git`, finds the secret",
+   bl_cell.get("status") == "OK" and bl_cell.get("n") == 1 and [c[0] for c in calls] == ["dir"] and "--no-git" not in calls[0], (res, calls))
+os.chmod(ROHOME, 0o755)
+
 print("== real-tool tests (box) ==")
 sys.path.insert(0, os.path.join(OQ, "qa"))
 import gate_scanners as gs  # noqa: E402
@@ -674,6 +817,38 @@ if have["semgrep"]:
     ok("semgrep ruleset file is valid YAML with the expected number of rules", open(RULES).read().count("\n  - id: ") == 14)
 else:
     skip("per-rule semgrep positives/negatives", "semgrep not installed")
+
+print("== real tools under an explicit read-only AND a writable HOME (tools located via QA_TOOL_*, not ~) ==")
+RWHOME = os.path.join(T, "rwhome")
+os.makedirs(RWHOME)
+os.chmod(ROHOME, 0o555)
+for label, hm in (("read-only HOME", ROHOME), ("writable HOME", RWHOME)):
+    env_h = {"HOME": hm}
+    if have["semgrep"]:
+        tl = {"semgrep": have["semgrep"]}
+        rc, res, out = chk("rt", r_clean, r_bad, tl, ["--tools", "semgrep", "--baseline", "base"], extra_env=env_h)
+        cell = ((res or {}).get("details") or {}).get("cells", {}).get("semgrep", {})
+        rules = {n["rule"] for n in (res or {}).get("details", {}).get("new", [])}
+        ok("REAL semgrep, %s: seeded insecure module -> FAIL with the expected rules (cell OK, not UNVERIFIED)" % label,
+           res and res["verdict"] == "FAIL" and cell.get("status") == "OK"
+           and {"qa-shell-true-nonliteral", "qa-eval-exec-nonliteral", "qa-unsafe-deserialization", "qa-tls-verify-disabled"} <= rules, (cell, rules))
+        rc, res, out = chk("rt", r0, r_clean, tl, ["--tools", "semgrep", "--baseline", "base"], extra_env=env_h)
+        ok("REAL semgrep, %s: benign control -> PASS with the cell actually OK" % label,
+           res and res["verdict"] == "PASS" and res["details"]["cells"]["semgrep"]["status"] == "OK", res)
+    else:
+        skip("REAL semgrep, %s" % label, "semgrep not installed")
+    if have["gitleaks"]:
+        tl = {"gitleaks": have["gitleaks"]}
+        rc, res, out = chk("rt", r_bad, r_secret, tl, ["--tools", "gitleaks", "--baseline", "base"], extra_env=env_h)
+        cell = ((res or {}).get("details") or {}).get("cells", {}).get("gitleaks", {})
+        ok("REAL gitleaks, %s: committed provider token -> FAIL, cell OK (not 'gitleaks failed')" % label,
+           res and res["verdict"] == "FAIL" and cell.get("status") == "OK" and cell.get("new", 0) >= 1 and TOKEN not in out, (cell, out[-200:]))
+        rc, res, out = chk("rt", r0, r_clean, tl, ["--tools", "gitleaks", "--baseline", "base"], extra_env=env_h)
+        ok("REAL gitleaks, %s: benign range -> PASS with the cell actually OK" % label,
+           res and res["verdict"] == "PASS" and res["details"]["cells"]["gitleaks"]["status"] == "OK", res)
+    else:
+        skip("REAL gitleaks, %s" % label, "gitleaks not installed")
+os.chmod(ROHOME, 0o755)
 
 print("== severity classification (unit) ==")
 fk = lambda tool, rule, file="app/x.py", sev="WARNING", **kw: dict(tool=tool, rule=rule, file=file, sev=sev, **kw)

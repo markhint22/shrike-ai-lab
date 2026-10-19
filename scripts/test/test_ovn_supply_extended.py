@@ -129,8 +129,12 @@ del os.environ["OVN_SUPPLY_WEBHOOK_GUARD"]
 bv = mkrepo({"billwatch-backend/.venv/bin/python": ""})
 ok("_venv_python finds billwatch-backend/.venv", (W._venv_python(bv) or "").endswith("billwatch-backend/.venv/bin/python"))
 sc = open(os.path.join(SCRIPTS, "ovn_spec_check.sh")).read()
-ok("ovn_spec_check.sh links backend/.venv and billwatch-backend/.venv into the red-before worktree",
-   "for v in .venv iptv-backend/.venv backend/.venv billwatch-backend/.venv; do" in sc)
+# 2026-10-18 (7af72c2): the hard-coded 4-name list was replaced by a generic discovery of EVERY .venv (<= depth 4), which covers backend/.venv and billwatch-backend/.venv
+# (behaviour is proven end-to-end by test_spec_check_links_subdir_venv.sh); assert the discovery is present and the old root-only/two-name list is gone.
+def _links_every_venv(src):
+    return "-maxdepth 4" in src and "-name .venv -print -prune" in src
+ok("ovn_spec_check.sh links backend/.venv and billwatch-backend/.venv into the red-before worktree (generic .venv discovery, depth <= 4)", _links_every_venv(sc))
+ok("MUTANT (discovery reduced to the root .venv only) is caught", not _links_every_venv(sc.replace("-name .venv -print -prune", "-name .venv_x -print -prune")))
 
 # ---- d: local research prompt names each repo's real tests dir
 for repo, want in (("gitlark", "backend/tests/ only"), ("billwatch", "billwatch-backend/tests/ only"), ("shrike-notify", "backend/tests/ only")):

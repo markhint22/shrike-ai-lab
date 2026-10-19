@@ -1101,3 +1101,35 @@ ovn_executor_hook() {
   _ex_fail "push failed after rebase-retry"
   return 1
 }
+
+# =====================================================================================================================================================
+# 2026-10-18 (xlite reverted(build-break) x2, 21:32Z / 22:04Z): the BUILD-GATE fix-up "restored" a deleted GDScript function and aider's udiff applied the
+# restore hunk at TWO places (get_phase_name defined at line 61 AND line 146 of turn_manager.gd: reverted commit 0551207). A duplicate function name is a
+# compile error, so the re-verify failed on "Could not resolve class TurnManager", the cycle was reverted after ~45 min of GUT runs, and the same item was
+# retried (it only landed on the 3rd attempt). run_overnight.sh already de-duplicates byte-identical re-added definitions after the MAIN aider call, but
+# never after a FIX-UP call - the one aider call that is told to "restore" code and so is the most likely to repeat a block.
+#   ovn_fixup_dedupe_defs <from_sha>      (cwd = the repo; <from_sha> = the sha before the fix-up commit)
+#     runs dedupe_gd_duplicate_functions.py / dedupe_python_duplicate_defs.py over every .gd / .py file changed in <from_sha>..HEAD and commits what they
+#     removed as ONE commit. Only byte-identical later copies are removed (the scripts' own contract). Prints one line per changed file to stdout; rc 0 always;
+#     never leaves a dirty index. OVN_FIXUP_DEDUPE=off disables it.
+# =====================================================================================================================================================
+ovn_fixup_dedupe_defs() {
+  local from="${1:-}" od f out ext py changed=0
+  [ "${OVN_FIXUP_DEDUPE:-on}" = off ] && return 0
+  [ -n "$from" ] || return 0
+  od="${SCRIPT_DIR:-$(cd "$_OVN_LF_DIR/.." 2>/dev/null && pwd)}"
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    case "$f" in *.gd) py="$od/dedupe_gd_duplicate_functions.py";; *.py) py="$od/dedupe_python_duplicate_defs.py";; *) continue;; esac
+    [ -f "$py" ] || continue
+    out="$(python3 "$py" "$f" 2>/dev/null)"
+    if [ -n "$out" ] && [ "$out" != "unchanged" ]; then
+      echo "${f}: ${out}"
+      git add -- "$f" >/dev/null 2>&1 && changed=1
+    fi
+  done < <(git diff --name-only --diff-filter=AM "$from" HEAD -- '*.gd' '*.py' 2>/dev/null)
+  if [ "$changed" = 1 ] && ! git diff --cached --quiet 2>/dev/null; then
+    git commit -q -m "fix: auto-remove duplicate definition(s) a fix-up introduced" >/dev/null 2>&1 || git reset -q >/dev/null 2>&1
+  fi
+  return 0
+}

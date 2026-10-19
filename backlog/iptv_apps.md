@@ -536,3 +536,7 @@
 # --- 27B-decomposed from roadmap [2026-10-18]: Fix relay endpoint not forwarding Range header for VOD byte-range seeking — `iptv-backend/ (review + tweak) [feat:iptv_apps-20261018-fix-relay-endpoint-not-forwarding-range-] ---
 
 # --- 27B-decomposed from roadmap [2026-10-18]: Add tests for get_trending_streams region filter and day-window — `iptv-backend/app/servic (review + tweak) [feat:iptv_apps-20261018-add-tests-for-get-trending-streams-regio] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Fix N+1 queries in get_continue_watching by batching lookups — `iptv-backend/app/routers/c (review + tweak) [feat:iptv_apps-20261018-fix-n-1-queries-in-get-continue-watching] ---
+
+# --- 27B-decomposed from roadmap [2026-10-18]: Test `create_profile` and `update_profile` — Add tests for `create_profile` in `iptv-backe (review + tweak) [feat:iptv_apps-20261018-test-create-profile-and-update-profile-a] ---

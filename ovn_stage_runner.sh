@@ -1559,6 +1559,33 @@ sys.exit(1)
       echo "-- QUALITY FAIL: no changed test exercises the changed source (no new symbol, added route, NOR the changed module referenced) --" >> "$vlog"; vok=0
     fi
   fi
+  # LANDING QUALITY (2026-10-18 landing audit, every pushed(tests:pass) of 6h; scripts/ovn_landing_quality.py): a green suite cannot see a tautological assertion (`assert .. or True`:
+  # billwatch), a discarded `_ = call()` that only "uses" an import for the item's VERIFY (test-automation-agent), a function defined twice in one class so the second shadows the first
+  # (shrike-notify), or a NEW private helper nothing but its own test references (iptv `_to_utc`). 4 true positives / 0 false positives over the 52 fleet commits of that window.
+  # Findings are `-- QUALITY FAIL` rows (the repair prompt carries them). OVN_STAGE_LANDING_QUALITY=off|shadow|enforce (default enforce); the checker exiting 2 (git error) = no verdict.
+  # 2026-10-18 repair (adversarial review): each rule is enforced or shadow per OVN_LQ_RULES_ENFORCE (default = only the rules with 0 false positives over a 2878-landing replay of 7 repos);
+  # the checker prints enforced findings as `RULE<TAB>path<TAB>detail` and shadow-only ones as `~RULE...` (never rc 1): journaled as event landing_quality_shadow, never a QUALITY FAIL.
+  if [ "$vok" = 1 ] && [ "${OVN_STAGE_LANDING_QUALITY:-enforce}" != off ] && [ -f scripts/ovn_landing_quality.py ]; then
+    local _lq="" _lqrc=0 _lqb _lqe _lqs
+    _lqb="$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)"
+    if [ -n "$_lqb" ]; then _lq="$(timeout "${OVN_LQ_TIMEOUT:-90}" python3 scripts/ovn_landing_quality.py check "$wt" "$_lqb" HEAD 2>/dev/null)" || _lqrc=$?; fi
+    _lqs="$(printf '%s\n' "$_lq" | grep '^~' || true)"
+    _lqe="$(printf '%s\n' "$_lq" | grep -v '^~' | grep . || true)"
+    if [ -n "$_lqs" ] && [ "$_lqrc" -le 1 ]; then
+      say "landing-quality SHADOW (not enforced): $(printf '%s' "$_lqs" | tr '\t\n' ' |' | cut -c1-300)"
+      jlog "$(jq -nc --arg r "$RUNID" --arg d "$(printf '%s' "$_lqs" | tr '\t\n' ' |' | cut -c1-600)" '{run:$r,event:"landing_quality_shadow",mode:"shadow-rule",detail:$d}')"
+    fi
+    if [ "$_lqrc" = 1 ] && [ -n "$_lqe" ]; then
+      say "landing-quality (${OVN_STAGE_LANDING_QUALITY:-enforce}): $(printf '%s' "$_lqe" | tr '\t\n' ' |' | cut -c1-300)"
+      jlog "$(jq -nc --arg r "$RUNID" --arg d "$(printf '%s' "$_lqe" | tr '\t\n' ' |' | cut -c1-600)" --arg m "${OVN_STAGE_LANDING_QUALITY:-enforce}" '{run:$r,event:"landing_quality",mode:$m,detail:$d}')"
+      if [ "${OVN_STAGE_LANDING_QUALITY:-enforce}" = enforce ]; then
+        while IFS=$'\t' read -r _lqr _lqp _lqd; do
+          [ -n "$_lqr" ] && echo "-- QUALITY FAIL: $_lqp: ${_lqr} - ${_lqd} --" >> "$vlog"
+        done <<< "$_lqe"
+        vok=0
+      fi
+    fi
+  fi
   # NAMED TESTS (2026-10-13, iptv F2): every test function the item / a landed step PROMISED ("Add test test_x") must exist in the FINAL tree and pass when run by node id (rc 4 / 5 = not found /
   # not collected = a failure). A repair round used to delete the very test it was meant to fix and the green suite (which no longer contained it) credited the item. The failure lines are
   # `-- QUALITY FAIL` rows, so the repair prompt carries them. OVN_STAGE_NAMED_TESTS=off|shadow|enforce (default enforce).

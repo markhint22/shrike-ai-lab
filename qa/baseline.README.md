@@ -220,3 +220,8 @@ only when the repo has no `.venv/bin/pytest`; a missing module degrades to the o
   "Ignoring script ... does not extend GutTest" are not failures). So the 43 UNVERIFIED xlite rows since 10-03 were "no baseline", and on a green develop the baseline is simply the empty set:
   any red GUT test in a staged run is then a NEW failure (FAIL), which is the correct, conservative answer.
 * Deploy: copy `qa/baseline_verify_gut.py` next to `baseline_verify.py` (rsync of qa/ does it). The cron already lists `xlite` in `OVN_BASELINE_REFRESH_REPOS` (scripts/cron.txt).
+
+## Repo coverage of the refresh cron (2026-10-18)
+The live cron refreshed only `iptv_apps xlite`, so the gate answered `no baseline for repo - not guessing` for billwatch / gitlark / test-automation-agent. The
+script already handles their layouts (`billwatch-backend/.venv`, `backend/.venv`; a decoy `backend/venv` is ignored). Proposed crontab delta (iptv_apps LAST because
+its suite hits the 900s timeout and the repos share one 3300s budget): `ops/cron.baseline.proposed.txt`. Pinned by `scripts/test/test_qa_baseline_refresh_repos.py`.

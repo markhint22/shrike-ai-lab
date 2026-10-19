@@ -27,6 +27,9 @@ sys.path.insert(0, SCRIPTS)
 for k in ("OVN_SUPPLY_RUNWAY_H", "OVN_SUPPLY_FRESH_H", "OVN_AR_STATUS_MAX_H", "OVN_SUPPLY_LINE", "OVN_SUPPLY_LINES_MAX", "OVN_SUPPLY_BURN_H", "OVN_IDLE_LINE", "OVN_DUTY_LINE", "OVN_DIR", "OVN_NOTIFY_STATE"):
     os.environ.pop(k, None)
 BASE = os.path.realpath(tempfile.mkdtemp(prefix="supply-report-"))
+# 2026-10-18: every run (and every mutant child) leaked this dir: the suite's tmp-leak report counted 1118 entries here. Remove it on any exit (guarded: only our own prefixed dir).
+import atexit, shutil  # noqa: E402
+atexit.register(lambda: shutil.rmtree(BASE, ignore_errors=True) if os.path.basename(BASE).startswith("supply-report-") and os.path.dirname(BASE) == os.path.realpath(tempfile.gettempdir()) else None)
 ROOT = os.path.join(BASE, "q")
 STATE = os.path.join(ROOT, "state")
 os.environ["OVN_DIR"] = ROOT

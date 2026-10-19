@@ -280,6 +280,7 @@ echo; echo "===== QA gate: scanners ====="; python3 test_qa_scanners.py || rc=1
 echo; echo "===== QA gate: baseline-relative verify ====="; python3 test_qa_baseline.py || rc=1
 echo; echo "===== QA gate: baseline-relative verify - staged-runner SHADOW hook ====="; bash test_baseline_shadow_hook.sh || rc=1
 echo; echo "===== QA gate: baseline-relative verify - refresh cron ====="; bash test_baseline_refresh_cron.sh || rc=1
+echo; echo "===== QA gate: baseline refresh repo coverage + layouts ====="; python3 test_qa_baseline_refresh_repos.py || rc=1
 echo; echo "===== QA gate: release candidate + staging ====="; python3 test_qa_release.py || rc=1
 echo; echo "===== QA: escape ledger + scorecard ====="; bash test_qa_ledger.sh || rc=1
 echo; echo "===== QA: Phase 0 exit + precondition report (read-only) ====="; bash test_qa_phase0_report.sh || rc=1
@@ -538,5 +539,21 @@ echo; echo "===== planner nrp ====="; bash test_planner_nrp.sh || rc=1
 echo; echo "===== supply cron installer ====="; bash test_supply_cron_installer.sh || rc=1
 echo; echo "===== qwen verify normalize ====="; bash test_qwen_verify_normalize.sh || rc=1
 echo; echo "===== qwen explore dialect ====="; bash test_qwen_explore_dialect.sh || rc=1
+echo; echo "===== spec check links subdir venv ====="; bash test_spec_check_links_subdir_venv.sh || rc=1
+# 2026-10-18 SAFETY NET: a test file that never got a line above (concurrent agents all append at THIS spot, so a merge "keep both" resolution or a
+# forgotten line silently drops one; 7af72c2 shipped test_spec_check_links_subdir_venv.sh unregistered) is RUN here anyway, loudly, so an omission
+# can never mean "never runs in the gate". test_pipeline_lint.sh still FAILS on it so the registration gets added; this only closes the silent hole.
+for _t in test_*.sh; do
+  [ -e "$_t" ] || continue
+  grep -qE "(bash|run_or_notrun) $_t([^A-Za-z0-9_.-]|\$)" "$HERE_RA/run_all.sh" && continue
+  echo; echo "===== UNREGISTERED TEST (auto-run; add it to run_all.sh): $_t ====="; run_or_notrun "$_t"
+done
+echo; echo "===== run all autodiscover ====="; bash test_run_all_autodiscover.sh || rc=1
+echo; echo "===== buildgate fixup dedupe dangling e2e ====="; bash test_buildgate_fixup_dedupe_dangling_e2e.sh || rc=1
+echo; echo "===== fixup dedupe defs ====="; bash test_fixup_dedupe_defs.sh || rc=1
+echo; echo "===== ovn dangling refs ====="; bash test_ovn_dangling_refs.sh || rc=1
+echo; echo "===== ovn landing quality ====="; bash test_ovn_landing_quality.sh || rc=1
+echo; echo "===== stage landing quality ====="; bash test_stage_landing_quality.sh || rc=1
+echo; echo "===== build break park ====="; bash test_build_break_park.sh || rc=1
 echo; finish || rc=1
 exit $rc

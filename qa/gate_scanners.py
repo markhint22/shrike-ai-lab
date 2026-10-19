@@ -339,28 +339,49 @@ def run_semgrep(root, files, timeout, ctx):
     if not fs:
         return "NA", [], "no scannable files"
     res = []
-    for ch in chunks(fs, 1500):
-        rc, out, err = qc.run([exe, "scan", "--config", RULES, "--metrics=off", "--disable-version-check", "--quiet", "--json", "--disable-nosem",
-                               "--timeout", "20", "--no-git-ignore", "--max-target-bytes", str(MAX_BYTES)] + ch,
-                              cwd=root, timeout=timeout, env=SEMGREP_ENV)
-        if rc in (124, 127):
-            return "UNVERIFIED", [], "semgrep %s" % ("timed out" if rc == 124 else "missing")
-        try:
-            data = json.loads(out)
-        except ValueError:
-            return "UNVERIFIED", [], "semgrep gave unparsable output (rc=%s): %s" % (rc, norm(err)[:120])
-        for e in data.get("errors", []):
-            if e.get("level") == "error" and "Rule" in str(e.get("type", "")):
-                return "UNVERIFIED", [], "semgrep ruleset error: %s" % norm(str(e.get("message") or e.get("long_msg")))[:120]
-        for d in data.get("results", []):
-            fn = d.get("path") or ""
-            if is_test(fn):
-                ctx["test_skipped"] = ctx.get("test_skipped", 0) + 1
-                continue
-            rid = (d.get("check_id") or "?").split(".")[-1]
-            ex = d.get("extra") or {}
-            res.append(mk("semgrep", rid, fn, (d.get("start") or {}).get("line"), ex.get("severity", "WARNING"), (ex.get("message") or "").split("\n")[0]))
+    tmp = tempfile.mkdtemp(prefix="qa-sg-")
+    try:
+        tenv = qc.private_tool_env(tmp)
+        for ch in chunks(fs, 1500):
+            rc, out, err = qc.run([exe, "scan", "--config", RULES, "--metrics=off", "--disable-version-check", "--quiet", "--json", "--disable-nosem",
+                                   "--timeout", "20", "--no-git-ignore", "--max-target-bytes", str(MAX_BYTES)] + ch,
+                                  cwd=root, timeout=timeout, env=dict(SEMGREP_ENV, **tenv))
+            r = _semgrep_chunk(rc, out, err, ctx)
+            if isinstance(r, tuple):
+                return r
+            res.extend(r)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     return "OK", res, ""
+
+
+def _last_line(text):
+    """Last non-empty line (the exception message of a traceback), so the UNVERIFIED note says WHY, not just 'Traceback'."""
+    ls = [x for x in (text or "").strip().splitlines() if x.strip()]
+    return ls[-1] if ls else ""
+
+
+def _semgrep_chunk(rc, out, err, ctx):
+    """One semgrep invocation's result -> list of findings, or an (UNVERIFIED, [], note) tuple."""
+    res = []
+    if rc in (124, 127):
+        return "UNVERIFIED", [], "semgrep %s" % ("timed out" if rc == 124 else "missing")
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return "UNVERIFIED", [], "semgrep gave unparsable output (rc=%s): %s" % (rc, norm(_last_line(err))[:120])
+    for e in data.get("errors", []):
+        if e.get("level") == "error" and "Rule" in str(e.get("type", "")):
+            return "UNVERIFIED", [], "semgrep ruleset error: %s" % norm(str(e.get("message") or e.get("long_msg")))[:120]
+    for d in data.get("results", []):
+        fn = d.get("path") or ""
+        if is_test(fn):
+            ctx["test_skipped"] = ctx.get("test_skipped", 0) + 1
+            continue
+        rid = (d.get("check_id") or "?").split(".")[-1]
+        ex = d.get("extra") or {}
+        res.append(mk("semgrep", rid, fn, (d.get("start") or {}).get("line"), ex.get("severity", "WARNING"), (ex.get("message") or "").split("\n")[0]))
+    return res
 
 
 def run_gitleaks(root, files, timeout, ctx):
@@ -378,15 +399,22 @@ def run_gitleaks(root, files, timeout, ctx):
             fh.write("[extend]\nuseDefault = true\n")
         open(ign, "w").close()
         common = ["--redact", "--no-banner", "--exit-code", "0", "-f", "json", "-r", rep, "-c", cfg, "-i", ign, "--ignore-gitleaks-allow"]
+        tenv = qc.private_tool_env(tmp)
+        tenv.update({"GITLEAKS_CONFIG": "", "GITLEAKS_CONFIG_TOML": ""})
+        # gitleaks >= 8.19 has the `git` / `dir` subcommands; the box has 8.18.4 (`detect --source`, `--no-git`). Try the new form and fall
+        # back ONLY on 'unknown command' (a real failure still lands in the rc != 0 -> UNVERIFIED branch below).
         if ctx.get("range"):
-            cmd = [exe, "git"] + common + ["--log-opts", ctx["range"], ctx["repo_path"]]
+            cmds = [[exe, "git"] + common + ["--log-opts", ctx["range"], ctx["repo_path"]],
+                    [exe, "detect"] + common + ["--log-opts", ctx["range"], "--source", ctx["repo_path"]]]
         else:
-            cmd = [exe, "dir"] + common + [root]
-        rc, out, err = qc.run(cmd, timeout=timeout, env={"GITLEAKS_CONFIG": "", "GITLEAKS_CONFIG_TOML": ""})
+            cmds = [[exe, "dir"] + common + [root], [exe, "detect"] + common + ["--no-git", "--source", root]]
+        rc, out, err = qc.run(cmds[0], timeout=timeout, env=tenv)
+        if rc != 0 and "unknown command" in (err or "") + (out or ""):
+            rc, out, err = qc.run(cmds[1], timeout=timeout, env=tenv)
         if rc in (124, 127):
             return "UNVERIFIED", [], "gitleaks %s" % ("timed out" if rc == 124 else "missing")
         if rc != 0:
-            return "UNVERIFIED", [], "gitleaks failed rc=%s" % rc
+            return "UNVERIFIED", [], "gitleaks failed rc=%s: %s" % (rc, norm(_last_line(err))[:120])
         try:
             data = json.load(open(rep)) if os.path.exists(rep) else []
         except ValueError:
@@ -432,7 +460,15 @@ def run_pip_audit(root, files, timeout, ctx):
                 continue
             tf = os.path.join(tmp, "req.txt")
             open(tf, "w").write("\n".join(lines) + "\n")
-            rc, out, err = qc.run([exe, "-r", tf, "--no-deps", "--disable-pip", "-f", "json", "--progress-spinner", "off"], timeout=timeout)
+            # 2026-10-18: pip-audit writes its vulnerability-service cache under ~/.cache/pip-audit (platformdirs -> XDG_CACHE_HOME); in the box
+            # sandbox the real HOME is read-only so it died with 'OSError: read-only ... ~/.cache/pip-audit' (UNVERIFIED every time). Run it in the
+            # same private HOME/XDG/TMPDIR as the other scanners, with its cache and pip's explicitly inside the gate's scratch dir.
+            pa_cache = os.path.join(tmp, "pip-audit-cache")
+            os.makedirs(pa_cache, exist_ok=True)
+            tenv = qc.private_tool_env(tmp)
+            tenv.update({"PIP_CACHE_DIR": os.path.join(pa_cache, "pip"), "PIP_AUDIT_CACHE_DIR": pa_cache})
+            rc, out, err = qc.run([exe, "-r", tf, "--no-deps", "--disable-pip", "-f", "json", "--progress-spinner", "off", "--cache-dir", pa_cache],
+                                  timeout=timeout, env=tenv)
             if rc in (124, 127):
                 return "UNVERIFIED", [], "pip-audit %s" % ("timed out" if rc == 124 else "missing")
             try:

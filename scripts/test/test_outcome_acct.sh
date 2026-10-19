@@ -218,7 +218,7 @@ mutate "$THR" '-mmin -"${OVN_OUTCOME_RECONCILE_MIN:-10}"' '-mmin -0' "$tmp/mut_t
 # escalation reset to the streak base
 gb="$tmp/gb"; mkdir -p "$gb"; git -C "$gb" init -q -b main; echo a > "$gb/a"; git -C "$gb" add -A; git -C "$gb" commit -q -m base; g0="$(git -C "$gb" rev-parse HEAD)"
 echo b > "$gb/b"; git -C "$gb" add -A; git -C "$gb" commit -q -m held1; echo c > "$gb/c"; git -C "$gb" add -A; git -C "$gb" commit -q -m held2; g2="$(git -C "$gb" rev-parse HEAD)"
-rst(){ ( cd "$gb" && git reset -q --hard "$g2"; git clean -fdq; task_log="$tmp/rst.log"; : > "$task_log"; : > "$tmp/rst.alerts"; BEFORE_SHA="$g2"; _ovn_vt_base="$1"; id=ongoing-gb
+rst(){ ( cd "$gb" || exit 1; git reset -q --hard "$g2"; git clean -fdq; task_log="$tmp/rst.log"; : > "$task_log"; : > "$tmp/rst.alerts"; BEFORE_SHA="$g2"; _ovn_vt_base="$1"; id=ongoing-gb
           emit_alert(){ echo "$1|$3" >> "$tmp/rst.alerts"; }; source "$LIB"
           [ -n "${2:-}" ] && { echo p > OVERNIGHT_PROGRESS.md; git add -A; git commit -q -m prog; BEFORE_SHA="$(git rev-parse HEAD)"; }
           [ "${2:-}" = unrelated ] && { git checkout -q --orphan other 2>/dev/null; git rm -rqf . ; echo z > z; git add z; git commit -q -m other; BEFORE_SHA="$(git rev-parse HEAD)"; }
