@@ -542,3 +542,13 @@
 # --- 27B-decomposed from roadmap [2026-10-18]: Test `create_profile` and `update_profile` — Add tests for `create_profile` in `iptv-backe (review + tweak) [feat:iptv_apps-20261018-test-create-profile-and-update-profile-a] ---
 
 # --- 27B-decomposed from roadmap [2026-10-19]: Test `get_profile` and `delete_profile` — Add tests for `get_profile` in `iptv-backend/app (review + tweak) [feat:iptv_apps-20261019-test-get-profile-and-delete-profile-add-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: Test watch-history mutation and state endpoints — Add tests for `update_watch_position`, ` (review + tweak) [feat:iptv_apps-20261019-test-watch-history-mutation-and-state-en] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: `GET /api/content/continue-watching` bypasses kid-profile parental rating ceiling — `iptv- (review + tweak) [feat:iptv_apps-20261019-get-api-content-continue-watching-bypass] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: Android `EpgViewModel.toggleChannelFavorite()` uses legacy account-wide `is_favorite` API, (review + tweak) [feat:iptv_apps-20261019-android-epgviewmodel-togglechannelfavori] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: iOS `MainTabView.swift` tab items have no `.accessibilityIdentifier(...)`, forcing E2E tab (review + tweak) [feat:iptv_apps-20261019-ios-maintabview-swift-tab-items-have-no-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: `downloads.py`'s `_visible_stream_or_404` skips parental rating ceiling — `iptv-backend/ap (review + tweak) [feat:iptv_apps-20261019-downloads-py-s-visible-stream-or-404-ski] ---
