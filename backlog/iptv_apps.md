@@ -554,3 +554,11 @@
 # --- 27B-decomposed from roadmap [2026-10-19]: `downloads.py`'s `_visible_stream_or_404` skips parental rating ceiling — `iptv-backend/ap (review + tweak) [feat:iptv_apps-20261019-downloads-py-s-visible-stream-or-404-ski] ---
 
 # --- 27B-decomposed from roadmap [2026-10-19]: Test `list_epg_sources` and `create_epg_source` — Add unit tests for `list_epg_sources` in (review + tweak) [feat:iptv_apps-20261019-test-list-epg-sources-and-create-epg-sou] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: Test `enrich_watch_history` and `enrich_continue_watching` — Add unit tests for the untest (review + tweak) [feat:iptv_apps-20261019-test-enrich-watch-history-and-enrich-con] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: Test `list_epg_source_runs`, `update_epg_source`, and `activate_epg_source` — Add unit tes (review + tweak) [feat:iptv_apps-20261019-test-list-epg-source-runs-update-epg-sou] ---
+
+# --- 27B-decomposed from roadmap [2026-10-19]: Test `delete_epg_source` and `refresh_epg_source` — Add tests for `delete_epg_source` in ` (review + tweak) [feat:iptv_apps-20261019-test-delete-epg-source-and-refresh-epg-s] ---
+
+# --- deterministic work supply 2026-10-19 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
