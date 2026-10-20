@@ -230,3 +230,11 @@
 # --- 27B-decomposed from roadmap [2026-10-19]: Test `require_wildcard_or_bootstrap` — Add tests for the untested public function at `back (review + tweak) [feat:shrike-notify-20261019-test-require-wildcard-or-bootstrap-add-t] ---
 
 # --- 27B-decomposed from roadmap [2026-10-19]: Test `list_tokens` — Add tests for the untested public function at `backend/app/routers/to (review + tweak) [feat:shrike-notify-20261019-test-list-tokens-add-tests-for-the-untes] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: Health endpoint permanently returns 503 after any DB blip because it uses the lifetime cou (review + tweak) [feat:shrike-notify-20261020-health-endpoint-permanently-returns-503-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: Fix `broker._history` deque closure capturing wrong `history_size` — `backend/app/services (review + tweak) [feat:shrike-notify-20261020-fix-broker-history-deque-closure-capturi] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: `/health/detailed` always returns `status: "ok"` even when persistence is degraded — `back (review + tweak) [feat:shrike-notify-20261020-health-detailed-always-returns-status-ok] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: `schemas.py:TokenRequest` with `ge=1` constraint is a dead divergent duplicate — `backend/ (review + tweak) [feat:shrike-notify-20261020-schemas-py-tokenrequest-with-ge-1-constr] ---
