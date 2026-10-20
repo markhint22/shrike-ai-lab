@@ -20,7 +20,7 @@
 set -uo pipefail
 
 [ "${OVN_AUTO_RESEARCH:-on}" = "off" ] && exit 0
-SHARED="${SHARED_DIR:-$HOME/LocalProjects/shared}"
+SHARED="${SHARED_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"   # L2-mac-jobs: the checkout this script lives in (the live checkout under launchd), not a hard-coded path
 SRV="${OVN_SSH:-mhintermeister@192.168.68.145}"
 REMOTE="${OVN_REMOTE_DIR:-overnight-queue}"
 CLONES="${OVN_CLONES_DIR:-$HOME/LocalProjects}"
@@ -75,6 +75,7 @@ CLAUDE_BIN="${OVN_AR_CLAUDE:-$(command -v claude || echo $HOME/.local/bin/claude
 # macOS has no `timeout` unless Homebrew coreutils is on PATH (an interactive/restricted PATH made every pass fail with rc=127): use timeout/gtimeout when present, else run unbounded (the claude --max-budget-usd cap still bounds the pass).
 TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
 VALIDATE="$SHARED/scripts/overnight-queue/ovn_auto_research_validate.py"
+. "$SHARED/scripts/overnight-queue/ovn_claude_auth.sh" 2>/dev/null || { ovn_claude_is_auth_failure(){ return 1; }; ovn_claude_auth_probe(){ return 2; }; ovn_claude_auth_alert(){ return 0; }; ovn_claude_auth_clear(){ return 0; }; }   # missing lib = old behaviour, never a crash
 mkdir -p "$STATE"
 LOG="$STATE/run.log"
 log(){ echo "$(date '+%F %T') $*" | tee -a "$LOG"; }
@@ -309,6 +310,21 @@ PY
 )"; [ -s "$WORK/order.err" ] && log "$(cat "$WORK/order.err")"; fi
 [ -z "$CANDIDATES" ] && { log "no repo starving >= ${MIN_STARVE_H}h (or snapshot stale)"; exit 0; }
 
+# AUTH PREFLIGHT (2026-10-19): a tiny `claude -p ok` probe once per tick, only when a pass is about to run (idle ticks cost nothing). An expired login makes every pass die in ~4s;
+# those are NOT failed passes (they used to burn the 6/day failed-pass cap and per-repo cooldowns and lock the lane out after the login recovered). Not authenticated = skip this
+# tick cheaply, ONE urgent alert per outage (HUMAN: /login on the Mac), retry next tick; authenticated again = the outage ends and the lane resumes at once (starving-first order above).
+# OVN_AR_AUTH_PREFLIGHT=off disables the probe (mid-run auth failures are still classified and never counted).
+if [ -z "$SALVAGE_REPO" ] && [ "${OVN_AR_AUTH_PREFLIGHT:-on}" != off ]; then
+  ovn_claude_auth_probe "$CLAUDE_BIN" "$TIMEOUT_BIN" "$MODEL"; probe_rc=$?
+  if [ "$probe_rc" -eq 1 ]; then
+    if [ -z "${DRY_RUN:-}" ] && ovn_claude_auth_alert "$STATE" "auto-research" "$OVN_CLAUDE_AUTH_LAST"; then log "AUTH: claude is not authenticated (${OVN_CLAUDE_AUTH_LAST}) - alert sent once; HUMAN: run 'claude' and /login on the Mac"; fi
+    log "AUTH: claude is not authenticated - tick skipped, no failed-pass budget or cooldown consumed; retry next tick"; exit 0
+  elif [ "$probe_rc" -eq 0 ]; then
+    [ -z "${DRY_RUN:-}" ] && [ -e "$STATE/auth_outage" ] && log "AUTH: claude authenticates again - outage over, resuming"
+    [ -z "${DRY_RUN:-}" ] && ovn_claude_auth_clear "$STATE" "auto-research"
+  fi
+fi
+
 done_n=0
 for repo in $CANDIDATES; do
   [ "$done_n" -ge "$MAX_PER_RUN" ] && break
@@ -398,6 +414,11 @@ RETRY SCOPE (the previous attempt was killed for running too long and produced n
     n=$((n+1)); echo "$(date +%s) $n" > "$fmarker"; fails_today=$((fails_today+1)); echo "$fails_today" > "$FAIL_FILE"
     log "$repo: failed-pass cooldown started ($(( $(ar_fail_cooldown_s "$n") / 3600 ))h, $n consecutive failure(s), $fails_today/$MAX_FAILS_PER_DAY failed passes today)"
   }
+  if [ "$rc" -ne 0 ] && ovn_claude_is_auth_failure "$in/claude_stderr.txt" "$in/claude_reply.txt"; then   # logged out MID-run: not a failed pass (no cap, no cooldown), end the tick
+    log "$repo: claude exited rc=$rc with an AUTHENTICATION failure ($(tail -c 200 "$in/claude_stderr.txt" "$in/claude_reply.txt" | tr '\n' ' ')) - NOT counted as a failed pass, no cooldown; tick ends, retry next tick"
+    [ -n "${DRY_RUN:-}" ] || ovn_claude_auth_alert "$STATE" "auto-research" "rc=$rc mid-run" || true
+    break
+  fi
   if [ "$rc" -ne 0 ]; then log "$repo: claude exited rc=$rc: $(tail -c 300 "$in/claude_stderr.txt" "$in/claude_reply.txt" | tr '\n' ' ')"; mark_fail; continue; fi
   if [ ! -s "$out" ] && ! grep -qxE '[*` ]*NONE[.*` ]*' "$in/claude_reply.txt"; then log "$repo: reply had no feature lines and no NONE - treating as a FAILED pass, short failed-pass cooldown (see $STATE/last_reply_$repo.txt): $(head -c 200 "$in/claude_reply.txt" | tr '\n' ' ')"; mark_fail; continue; fi
   rm -f "$fmarker"   # a parseable reply ends the failure streak
@@ -420,3 +441,5 @@ RETRY SCOPE (the previous attempt was killed for running too long and produced n
   fi
 done
 log "run complete: $done_n repo(s) researched, $used/$MAX_PER_DAY today"
+# L2-mac-jobs: success heartbeat (supervisor: scripts/mac_jobs_health.py). Inline on purpose: this must work even if mac_lib.sh is missing.
+mkdir -p "${OVN_MAC_STATE:-$HOME/.ovn_mac_jobs}/hb" 2>/dev/null && date +%s > "${OVN_MAC_STATE:-$HOME/.ovn_mac_jobs}/hb/ovn-auto-research" 2>/dev/null

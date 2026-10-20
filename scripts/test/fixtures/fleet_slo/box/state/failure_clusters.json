@@ -1,0 +1,166 @@
+{
+ "iptv_apps::pipeline:staged: the independent full verify failed, so nothing was pushed": {
+  "count": 17,
+  "first_seen": "2026-10-17T07:16:36Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T20:59:27Z",
+  "sample_item_hashes": [
+   "0b16d71d53e61ab1eeab0441bf355c85",
+   "d095c05b59900c4cc7641e7a0bf046c8",
+   "5ad21e3cb17d7fa0b042a269f6b417b7",
+   "e7ce04f9f3f20a439b2ab15fa2105282",
+   "4711da32649846289caeaa4a3a49349b"
+  ],
+  "status": "new"
+ },
+ "iptv_apps::pipeline:staged: a step kept failing and was re-split smaller": {
+  "count": 10,
+  "first_seen": "2026-10-17T16:14:07Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T21:06:39Z",
+  "sample_item_hashes": [
+   "c8b64a1ac8cc6617686249d05e7124c4",
+   "0b16d71d53e61ab1eeab0441bf355c85",
+   "d095c05b59900c4cc7641e7a0bf046c8",
+   "5ad21e3cb17d7fa0b042a269f6b417b7",
+   "4711da32649846289caeaa4a3a49349b"
+  ],
+  "status": "new"
+ },
+ "iptv_apps::pipeline:tests-red: the change broke a test that used to pass": {
+  "count": 10,
+  "first_seen": "2026-10-17T06:20:41Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T09:11:44Z",
+  "sample_item_hashes": [
+   "307c5ffe4aad1bb737a00515026c283d",
+   "f8b20ec8ded50ef7ea2d8b17751e5247",
+   "ab0dbddab6b76105c3cf890e150e0afe",
+   "a23052fc016f2374444d4351dce59ec7"
+  ],
+  "status": "new"
+ },
+ "xlite::pipeline:staged: the independent full verify failed, so nothing was pushed": {
+  "count": 9,
+  "first_seen": "2026-10-17T04:53:47Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T14:57:46Z",
+  "sample_item_hashes": [
+   "c51e643b3dbe908251bc626a950f377a",
+   "9c25a7013d3059c7c8e269c720f6d375",
+   "ca3e506e43fd409f5cabb9115b608760",
+   "597a713161da32169c7acd583b18238c"
+  ],
+  "status": "new"
+ },
+ "iptv_apps::pipeline:flail: the model attempted it but produced no usable change": {
+  "count": 8,
+  "first_seen": "2026-10-17T13:47:00Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T17:34:36Z",
+  "sample_item_hashes": [
+   "ab0dbddab6b76105c3cf890e150e0afe",
+   "a23052fc016f2374444d4351dce59ec7",
+   "60dbc55f2fad7d37b85544f74ee98084",
+   "62e38396004a1f266c5e5bb6139e4c0f",
+   "c7d5ced704ceb57db6b2dd116604b1e7"
+  ],
+  "status": "new"
+ },
+ "test-automation-agent::pipeline:staged: the independent full verify failed, so nothing was pushed": {
+  "count": 8,
+  "first_seen": "2026-10-17T18:25:59Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T23:44:50Z",
+  "sample_item_hashes": [
+   "f957210c83cede16da302ed9ea4900ed",
+   "ea31ca93cb7d9b1dacbecff2e3e69daf",
+   "7b1f0379f39189e7ad7652b829e672f0"
+  ],
+  "status": "new"
+ },
+ "gitlark::pipeline:staged: the independent full verify failed, so nothing was pushed": {
+  "count": 7,
+  "first_seen": "2026-10-17T17:31:11Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T06:23:51Z",
+  "sample_item_hashes": [
+   "9f7f5884b129f6d8fb138ddfcb458ad1",
+   "318a22645abbd64401a944d466db38bd",
+   "0435198dbf136b39372df013a2a90623"
+  ],
+  "status": "new"
+ },
+ "iptv_apps::pipeline:staged: gave up and escalated to Claude (beyond the local model)": {
+  "count": 7,
+  "first_seen": "2026-10-17T08:32:29Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T21:23:47Z",
+  "sample_item_hashes": [
+   "9d863169c95373049d450756970aaa39",
+   "c8b64a1ac8cc6617686249d05e7124c4",
+   "0b16d71d53e61ab1eeab0441bf355c85",
+   "5ad21e3cb17d7fa0b042a269f6b417b7",
+   "4711da32649846289caeaa4a3a49349b"
+  ],
+  "status": "new"
+ },
+ "shrike-monitor::pipeline:staged: a step kept failing and was re-split smaller": {
+  "count": 5,
+  "first_seen": "2026-10-17T21:08:18Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T02:57:44Z",
+  "sample_item_hashes": [
+   "47f893c1450241c00f3933ce17ea6046",
+   "773c57a6740d67ed8f0e27f175c27d8a"
+  ],
+  "status": "new"
+ },
+ "xlite::pipeline:staged: a step kept failing and was re-split smaller": {
+  "count": 5,
+  "first_seen": "2026-10-17T23:44:44Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-19T00:07:56Z",
+  "sample_item_hashes": [
+   "aceff6f6eeb8bad7bad69fc2766db02c",
+   "ca3e506e43fd409f5cabb9115b608760",
+   "7b92ba0e83885a0222c0434a382dfe7a"
+  ],
+  "status": "new"
+ },
+ "xlite::pipeline:staged: gave up and escalated to Claude (beyond the local model)": {
+  "count": 5,
+  "first_seen": "2026-10-17T11:34:55Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T14:36:02Z",
+  "sample_item_hashes": [
+   "9c25a7013d3059c7c8e269c720f6d375",
+   "aceff6f6eeb8bad7bad69fc2766db02c",
+   "ca3e506e43fd409f5cabb9115b608760",
+   "597a713161da32169c7acd583b18238c"
+  ],
+  "status": "new"
+ },
+ "billwatch::aider:hunk-failed-to-apply": {
+  "count": 4,
+  "first_seen": "2026-10-18T03:39:45Z",
+  "fix_commit": null,
+  "generator_addressed": null,
+  "last_seen": "2026-10-18T05:16:42Z",
+  "sample_item_hashes": [
+   "56d0d99e063280ec5a59dc1d3bb4003a"
+  ],
+  "status": "new"
+ }
+}

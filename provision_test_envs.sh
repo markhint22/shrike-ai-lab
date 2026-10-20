@@ -72,6 +72,14 @@ for t in "${TARGETS[@]}"; do
       case " ${OVN_PROVISION_UPGRADE_REPOS:-shrike-notify} " in
         *" $repo "*) .venv/bin/pip install --quiet -U fastapi starlette pytest pytest-asyncio pytest-cov httpx >> "$LOG" 2>&1 || STATUS=$? ;;
       esac
+      # 2026-10-18 (L1 box drift): after the 10-16 rebuild the venvs of five repos had no pytest-xdist and none had its requirements-dev.txt, and nothing noticed for hours.
+      # OVN_PROVISION_EXTRA=on (default OFF: this script is byte-for-byte what it was for every existing caller, incl. the 2-hourly cron) additionally installs pytest-xdist
+      # into EVERY python venv and the repo's requirements-dev.txt when it exists. ops/box_bootstrap.sh turns it on for a rebuild; ops/box_verify.py asserts the result hourly.
+      # Rollback: unset it (nothing it installed is removed).
+      if [ "${OVN_PROVISION_EXTRA:-off}" = on ]; then
+        .venv/bin/pip install --quiet "pytest-xdist>=3.5.0" >> "$LOG" 2>&1 || STATUS=$?
+        if [ -f "requirements-dev.txt" ]; then .venv/bin/pip install --quiet -r requirements-dev.txt >> "$LOG" 2>&1 || STATUS=$?; fi
+      fi
     else
       echo "  no requirements.txt found" >> "$LOG"
       STATUS=1

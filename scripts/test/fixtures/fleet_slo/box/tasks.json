@@ -1,0 +1,67 @@
+[
+ {
+  "id": "ongoing-iptv-apps",
+  "enabled": true,
+  "repo": "$HOME/overnight-queue/repos/iptv_apps"
+ },
+ {
+  "id": "ongoing-xlite",
+  "enabled": true,
+  "repo": "$HOME/overnight-queue/repos/xlite"
+ },
+ {
+  "id": "chickadee-railway-404",
+  "enabled": false,
+  "repo": "$HOME/overnight-queue/repos/iptv_apps"
+ },
+ {
+  "id": "ripple-backend-html",
+  "enabled": false,
+  "repo": "$HOME/overnight-queue/repos/social-media-manager"
+ },
+ {
+  "id": "specpilot-railway-404",
+  "enabled": false,
+  "repo": "$HOME/overnight-queue/repos/test-automation-agent"
+ },
+ {
+  "id": "ongoing-billwatch",
+  "enabled": true,
+  "repo": "$HOME/overnight-queue/repos/billwatch"
+ },
+ {
+  "id": "ongoing-gitlark",
+  "enabled": true,
+  "repo": "$HOME/overnight-queue/repos/gitlark"
+ },
+ {
+  "id": "ongoing-task-manager-platform",
+  "enabled": false,
+  "repo": "$HOME/overnight-queue/repos/task-manager-platform"
+ },
+ {
+  "id": "ongoing-shrike-labs-website",
+  "enabled": false,
+  "repo": "$HOME/overnight-queue/repos/shrike-labs-website"
+ },
+ {
+  "id": "ongoing-social-media-manager",
+  "enabled": false,
+  "repo": "$HOME/overnight-queue/repos/social-media-manager"
+ },
+ {
+  "id": "ongoing-test-automation-agent",
+  "enabled": true,
+  "repo": "$HOME/overnight-queue/repos/test-automation-agent"
+ },
+ {
+  "id": "ongoing-shrike-notify",
+  "enabled": true,
+  "repo": "$HOME/overnight-queue/repos/shrike-notify"
+ },
+ {
+  "id": "ongoing-shrike-monitor",
+  "enabled": true,
+  "repo": "$HOME/overnight-queue/repos/shrike-monitor"
+ }
+]

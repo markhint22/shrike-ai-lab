@@ -1,0 +1,144 @@
+{
+ "accepted": [
+  {
+   "class": "human",
+   "fix": "bash ops/install_*_cron.sh --apply --enable card_pilot (check its prerequisites first)",
+   "key": "cron_off:card_pilot",
+   "msg": "cron line 'card_pilot' is off by default and still off: that gate is not running",
+   "reason": "shadow-only LLM card pilot is deliberately off until a human decides to run it (ops/cron.qa.proposed.txt, off by default)",
+   "sev": "warn"
+  },
+  {
+   "class": "human",
+   "fix": "bash ops/install_*_cron.sh --apply --enable card_pilot_report (check its prerequisites first)",
+   "key": "cron_off:card_pilot_report",
+   "msg": "cron line 'card_pilot_report' is off by default and still off: that gate is not running",
+   "reason": "report of the card pilot above; off together with it",
+   "sev": "warn"
+  }
+ ],
+ "checks": {
+  "android": "ok",
+  "backups": "ok",
+  "capacity": "ok",
+  "crontab": "3 item(s)",
+  "gpu": "ok",
+  "qa_tools": "ok",
+  "state": "6 item(s)",
+  "supply": "1 item(s)",
+  "systemd": "ok",
+  "tools": "ok",
+  "venvs": "6 item(s)"
+ },
+ "counts": {
+  "accepted": 2,
+  "crit": 6,
+  "drift": 14,
+  "human": 7
+ },
+ "iso": "2026-10-18T19:51:40",
+ "items": [
+  {
+   "class": "regen",
+   "fix": "ops/box_bootstrap.sh (repo clones) or git clone git@github.com:markhint22/billwatch.git",
+   "key": "venv:billwatch:repo_missing",
+   "msg": "billwatch is not cloned ($HOME/overnight-queue/repos/billwatch/billwatch-backend)",
+   "sev": "crit"
+  },
+  {
+   "class": "regen",
+   "fix": "ops/box_bootstrap.sh (repo clones) or git clone git@github.com:markhint22/gitlark.git",
+   "key": "venv:gitlark:repo_missing",
+   "msg": "gitlark is not cloned ($HOME/overnight-queue/repos/gitlark/backend)",
+   "sev": "crit"
+  },
+  {
+   "class": "regen",
+   "fix": "ops/box_bootstrap.sh (repo clones) or git clone git@github.com:markhint22/iptv_apps.git",
+   "key": "venv:iptv_apps:repo_missing",
+   "msg": "iptv_apps is not cloned ($HOME/overnight-queue/repos/iptv_apps/iptv-backend)",
+   "sev": "crit"
+  },
+  {
+   "class": "regen",
+   "fix": "ops/box_bootstrap.sh (repo clones) or git clone git@github.com:markhint22/test-automation-agent.git",
+   "key": "venv:test-automation-agent:repo_missing",
+   "msg": "test-automation-agent is not cloned ($HOME/overnight-queue/repos/test-automation-agent/backend)",
+   "sev": "crit"
+  },
+  {
+   "class": "regen",
+   "fix": "ops/box_bootstrap.sh (repo clones) or git clone git@github.com:markhint22/shrike-monitor.git",
+   "key": "venv:shrike-monitor:repo_missing",
+   "msg": "shrike-monitor is not cloned ($HOME/overnight-queue/repos/shrike-monitor/backend)",
+   "sev": "crit"
+  },
+  {
+   "class": "regen",
+   "fix": "ops/box_bootstrap.sh (repo clones) or git clone git@github.com:markhint22/shrike-notify.git",
+   "key": "venv:shrike-notify:repo_missing",
+   "msg": "shrike-notify is not cloned ($HOME/overnight-queue/repos/shrike-notify/backend)",
+   "sev": "crit"
+  },
+  {
+   "class": "human",
+   "fix": "bash ops/install_*_cron.sh --apply --enable contract_fuzz (check its prerequisites first)",
+   "key": "cron_off:contract_fuzz",
+   "msg": "cron line 'contract_fuzz' is off by default and still off: that gate is not running",
+   "sev": "warn"
+  },
+  {
+   "class": "human",
+   "fix": "railway link (account login) in billwatch, `railway variables --kv --service <postgres/backend> | grep DATABASE_URL`, write to state/billwatch_db_url, chmod 600 (see docs/BOX_RECOVERY.md)",
+   "key": "state:billwatch_db_url_missing",
+   "msg": "state/billwatch_db_url missing (the 03:10 billwatch summary job fails)",
+   "sev": "warn"
+  },
+  {
+   "class": "human",
+   "fix": "create state/qa_creds/iptv_apps.json {\"email\":..., \"password\":...} (the canonical premium staging account), chmod 600 (docs/BOX_RECOVERY.md)",
+   "key": "state:qa_creds_iptv_apps",
+   "msg": "state/qa_creds/iptv_apps.json missing: the box staging e2e runner has no login (login-dependent cells UNVERIFIED)",
+   "sev": "warn"
+  },
+  {
+   "class": "human",
+   "fix": "write the staging backend base URL (one line, https://...; `railway service list`/domain of the staging environment) into state/staging_url_billwatch",
+   "key": "state:staging_url_billwatch",
+   "msg": "state/staging_url_billwatch missing or empty",
+   "sev": "warn"
+  },
+  {
+   "class": "human",
+   "fix": "write the staging backend base URL (one line, https://...; `railway service list`/domain of the staging environment) into state/staging_url_gitlark",
+   "key": "state:staging_url_gitlark",
+   "msg": "state/staging_url_gitlark missing or empty",
+   "sev": "warn"
+  },
+  {
+   "class": "human",
+   "fix": "write the staging backend base URL (one line, https://...; `railway service list`/domain of the staging environment) into state/staging_url_iptv_apps",
+   "key": "state:staging_url_iptv_apps",
+   "msg": "state/staging_url_iptv_apps missing or empty",
+   "sev": "warn"
+  },
+  {
+   "class": "human",
+   "fix": "run qa/contract_fuzz.py once by hand, review, then --accept-baseline (qa/contract_fuzz.ACCEPT_BASELINE.md)",
+   "key": "state:contract_fuzz_baseline_iptv_apps",
+   "msg": "state/qa_shadow/contract_fuzz_baseline_iptv_apps.json missing (written only by contract_fuzz.py --accept-baseline)",
+   "sev": "warn"
+  },
+  {
+   "class": "regen",
+   "fix": "check the explorer cron / logs/qwen_explore.log",
+   "key": "supply:explorer_no_log",
+   "msg": "state/qwen_explore.jsonl missing: the Qwen explorer has never run here",
+   "sev": "warn"
+  }
+ ],
+ "mode": "shadow",
+ "ok": false,
+ "skipped": [],
+ "ts": 1792371100.0
+}

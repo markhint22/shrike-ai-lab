@@ -1,0 +1,11 @@
+[2026-10-18 18:03:16] info | work-supply:gitlark | added 12 mechanical item(s) (dropped none)
+2026-10-18 18:17:01 info | py-root-retry | stage-test-automation-agent item=1:4015644130 FAIL->PASS under project root /tmp/stage-test-automation-agent.eVTq/backend (orig_rc=1; OVN_VERIFY_PY_ROOT=off refuses it) clause=python -c "from backend.app.routers.test_runs import start_test_run"
+2026-10-18 18:22:49 info | py-root-retry | stage-test-automation-agent item=1:4015644130 FAIL->PASS under project root /tmp/stage-test-automation-agent.eVTq/backend (orig_rc=1; OVN_VERIFY_PY_ROOT=off refuses it) clause=python -c "from backend.app.routers.test_runs import start_test_run"
+[2026-10-18 18:35:01] WARN | evidence-freshness | staging deploy snapshots are stale: newest is 71 min old (max 30). Mac qa-staging-export not running: launchctl kickstart gui/$(id -u)/com.shrike.qa-staging-export (log ~/.qa_staging_export.log; needs the Railway CLI login)
+2026-10-18 18:40:40 info | verify-lint | xlite filter: 1 of 5 item VERIFY clause(s) flagged (mode=shadow: V1)
+[2026-10-18 18:54:25] WARN | qtests | sandboxed suite rc=1
+2026-10-18 18:59:06 info | verify-lint | xlite queue_refill: 1 of 5 item VERIFY clause(s) flagged (mode=shadow: V1)
+[2026-10-18 19:01:10] info | local-research:xlite | refueled 1 [ready] item(s) from local-27B drafts (Claude not needed)
+[2026-10-18 19:17:12] info | local-research:test-automation-agent | refueled 3 [ready] item(s) from local-27B drafts (Claude not needed)
+2026-10-18 19:40:13 info | verify-lint | shrike-notify filter: 2 of 5 item VERIFY clause(s) flagged (mode=shadow: V1)
+2026-10-18 19:41:47 info | verify-lint | shrike-notify queue_refill: 2 of 13 item VERIFY clause(s) flagged (mode=shadow: V1)

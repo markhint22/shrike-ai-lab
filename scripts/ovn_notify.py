@@ -519,6 +519,19 @@ def supply_lines(rep):
         return []
 
 
+def slo_lines(t):
+    """2026-10-18 (package L5-fleet-slo): ONE line from ovn_fleet_slo when an SLO has been in breach > 1 h (plus one when the SLO summary itself went stale). [] unless
+    its mode is `on` (default shadow; `ovn_fleet_slo.py mode off` is the rollback). Reads state/fleet_slo.json of THIS module's STATE; never raises."""
+    try:
+        _d = os.path.dirname(os.path.abspath(__file__))
+        if _d not in sys.path:
+            sys.path.insert(0, _d)
+        import ovn_fleet_slo as slo
+        return slo.update_lines(STATE, t)
+    except Exception:
+        return []
+
+
 def empty_cause_text(rep, empty):
     """'excluded: gitlark, shrike-monitor · cap: billwatch' for the 'Queue empty' bullet (primary cause class of each empty repo); None without a report."""
     try:
@@ -533,6 +546,41 @@ def empty_cause_text(rep, empty):
         return "no supply - " + " · ".join("%s: %s" % (c, ", ".join(rs)) for c, rs in sorted(by.items(), key=lambda kv: sr.CAUSE_ORDER.index(kv[0])))
     except Exception:
         return None
+
+
+def autodeploy_report(t):
+    """state/autodeploy_report.json (ops/box_autodeploy.sh) -> (line, need) for the hourly update; (None, None) when OVN_AUTODEPLOY_LINE=0 or the job never ran.
+    A report older than 3 h means the cron job stopped: that is itself a line AND a 'to look at' bullet (a silent deploy job is how fixes sat undeployed for hours, 2026-10-18).
+    need = {title, text, prio} when the box is stale beyond the report's stale_threshold_h (default 12) or a deploy/rollback failed. Never raises."""
+    if os.environ.get("OVN_AUTODEPLOY_LINE", "1") == "0":
+        return None, None
+    try:
+        p = _p("autodeploy_report.json")
+        rep = json.load(open(p))
+        if rep.get("mode") == "off":
+            return None, None            # a switched-off job is not a stale one
+        age = t - float(rep.get("ts") or os.path.getmtime(p))
+        if age > 3 * 3600:
+            msg = "Box code: autodeploy report is %s old (cron job not running?)" % _hours(age)
+            return msg, {"title": "Box autodeploy report stale", "text": "last run %s ago - check ops/box_autodeploy.sh in the crontab" % _hours(age), "prio": "high"}
+        line = str(rep.get("line") or "").strip() or None
+        need = None
+        ahead, oldest = int(rep.get("ahead") or 0), float(rep.get("oldest_age_h") if rep.get("oldest_age_h") is not None else -1)
+        thr = float(rep.get("stale_threshold_h") or 12)
+        reasons = [str(x) for x in (rep.get("reasons") or [])]
+        if rep.get("decision") in ("rollback_failed",):
+            need = {"title": "Box deploy ROLLBACK FAILED", "text": "; ".join(reasons[:2]) or "see state/deploy_ledger.jsonl", "prio": "urgent"}
+        elif rep.get("decision") == "rolled_back":
+            need = {"title": "Box deploy rolled back", "text": "; ".join(reasons[:2]) or "see state/deploy_ledger.jsonl", "prio": "high"}
+        elif ahead > 0 and oldest >= thr and rep.get("decision") != "deployed":
+            # shadow mode can never deploy: the staleness is still reported every hour (line + bullet) but is not an urgent action item until enforce is on
+            enforcing = rep.get("mode") == "enforce"
+            need = {"title": "Box code stale: %dh behind %s (%d commits)" % (oldest, rep.get("branch", "claude/feature"), ahead),
+                    "text": ("; ".join(reasons[:2]) or "no blocker recorded") + ("" if enforcing else " (shadow mode: nothing deploys automatically; OVN_AUTODEPLOY=enforce or box_autodeploy.sh deploy-sha)"),
+                    "prio": "high" if enforcing else "default"}
+        return line, need
+    except Exception:
+        return None, None
 
 
 def compose_update(window=3600, at=None):
@@ -597,6 +645,12 @@ def compose_update(window=3600, at=None):
             lines.append(dl)
     # 2026-10-18: "backlog is out" said nothing about WHY. One line per starving repo: depth, burn, runway, last supply source, root cause (ovn_supply_report). Text only: no push of its own.
     lines.extend(supply_lines(sup))
+    lines.extend(slo_lines(t))   # 2026-10-18: fleet SLO breach > 1 h (mode on only; no push of its own)
+    _ad_line, _ad_need = autodeploy_report(t)   # 2026-10-18 (L4): box vs repo drift + gated auto-deploy verdict; text only, no push of its own
+    if _ad_line:
+        lines.append(_ad_line)
+    if _ad_need:
+        needs.insert(0, {"title": _ad_need["title"], "text": _ad_need["text"], "prio": _ad_need["prio"], "ts": t})
     if recovered:
         lines.append("Back up: " + ", ".join(re.sub(r"^.*?:\s*", "", t) for t in recovered[:4]))
     # 2026-10-08: an EMPTY active queue is the most important thing to know (the lane is idle) and used to hide under an "all good" title.

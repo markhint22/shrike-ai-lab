@@ -12,7 +12,8 @@
 #                 toward retire — moving it out of the live file never re-opens the dedup bug.
 # Idempotent + dedup on both ends, so it's safe to run on a schedule.
 set -uo pipefail
-SHARED="${SHARED_DIR:-$HOME/LocalProjects/shared}"
+# L2-mac-jobs: default = the checkout this script lives in (the dedicated live checkout under launchd), NOT a hard-coded interactive path. SHARED_DIR still overrides.
+SHARED="${SHARED_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 QUEUE="$SHARED/CLAUDE_QUEUE.md"
 ARCHIVE="$SHARED/CLAUDE_QUEUE_DONE.md"
 BRIDGE="$SHARED/scripts/overnight-queue/claude_queue_bridge.py"
@@ -24,6 +25,18 @@ TMP="$(mktemp -d)" || { echo "claude_queue_bridge: mktemp -d failed - abort" >&2
 trap 'rm -rf "${TMP:?}"' EXIT
 log(){ echo "$(date '+%F %T') $*"; }
 
+# L2-mac-jobs: when this IS the live checkout, bring it current first (fast-forward / wedged-state recovery live in mac_live_sync.sh; mode OVN_MAC_JOBS, default shadow = report only)
+if [ -f "$SHARED/scripts/mac_live_sync.sh" ] && [ "$(cd "${MAC_LIVE_DIR:-$HOME/LocalProjects/shared-live}" 2>/dev/null && pwd -P)" = "$(cd "$SHARED" && pwd -P)" ]; then
+  bash "$SHARED/scripts/mac_live_sync.sh" 2>&1 | while read -r l; do log "sync: $l"; done
+fi
+# L2-mac-jobs review fix: ONE bridge pass at a time, and mac_live_sync.sh (every 5 min) can tell "a pass is editing the queue docs right now" (bridge.lock) from a real dirty checkout.
+# Taken AFTER the sync above so that sync still clears residue left by a killed earlier pass.
+BRIDGE_LOCK="${OVN_MAC_STATE:-$HOME/.ovn_mac_jobs}/bridge.lock"
+if [ -f "$SHARED/scripts/mac_lib.sh" ]; then
+  . "$SHARED/scripts/mac_lib.sh"
+  if ! mac_lock_acquire "$BRIDGE_LOCK" 3600; then log "another bridge pass holds $BRIDGE_LOCK - skipping this run"; exit 0; fi
+  trap 'rm -rf "${TMP:?}"; mac_lock_release "$BRIDGE_LOCK"' EXIT
+fi
 [ -f "$QUEUE" ] || { log "no CLAUDE_QUEUE.md at $QUEUE — abort"; exit 1; }
 
 # ---- one round-trip: pull server state (AUTO-SKIP items + existing prework basenames) ----
@@ -112,40 +125,22 @@ archive_out="$(python3 "$ARCHIVER" "$QUEUE" "$ARCHIVE" 2>&1)"
 log "archive: $archive_out"
 
 # ---- Pass E: commit + push any changes this pass made ----
-# FIX 2026-09-28: this script mutates CLAUDE_QUEUE.md/CLAUDE_QUEUE_DONE.md every hour
-# (harvest/retire/archive) but never committed or pushed - left the shared repo dirty
-# for hours at a time until a human or an interactive Claude session noticed and swept
-# it up in an after-the-fact "update claude queue" commit. Close that gap here instead.
-LOCKLIB="$SHARED/scripts/overnight-queue/scripts/lib_lock.sh"
-# shellcheck disable=SC1090
-[ -f "$LOCKLIB" ] && source "$LOCKLIB"
-(
-  cd "$SHARED" || exit 0
-  if ! command -v acquire_lock >/dev/null 2>&1; then
-    log "commit: lib_lock.sh unavailable, skipping commit this pass"
-  elif acquire_lock "$SHARED/scripts/overnight-queue/state/claude_queue_bridge_commit.lock" 224 30 "claude-queue-bridge-commit" log; then
-    if git diff --quiet -- CLAUDE_QUEUE.md CLAUDE_QUEUE_DONE.md 2>/dev/null; then
-      log "commit: no queue-doc changes this pass"
-    else
-      branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo develop)"
-      git add CLAUDE_QUEUE.md CLAUDE_QUEUE_DONE.md
-      git commit -q -m "chore(queue): automated bridge pass $(date '+%F %H:%M')"
-      git fetch -q origin "$branch" 2>/dev/null
-      if git push -q origin "$branch" 2>"$TMP/pusherr"; then
-        log "commit: pushed CLAUDE_QUEUE.md/CLAUDE_QUEUE_DONE.md changes to $branch"
-      else
-        log "commit: push rejected, rebasing and retrying"
-        if git pull --rebase -q origin "$branch" 2>>"$TMP/pusherr" && git push -q origin "$branch" 2>>"$TMP/pusherr"; then
-          log "commit: pushed after rebase"
-        else
-          log "commit: push STILL failed after rebase - $(cat "$TMP/pusherr")"
-        fi
-      fi
-    fi
-    flock -u 224
-  else
-    log "commit: lock contended, skipping this pass (next tick will catch up)"
-  fi
-)
+# FIX 2026-09-28: this script mutates CLAUDE_QUEUE.md/CLAUDE_QUEUE_DONE.md every hour (harvest/retire/archive); Pass E commits and pushes them.
+# FIX 2026-10-18 (L2-mac-jobs): the old inline version pushed `origin <current branch name>` (on a detached HEAD that pushes nothing) and answered a rejection with
+# `git pull --rebase` on a branch holding merge commits - that started a 1244-commit interactive rebase which wedged the shared checkout for hours. The logic now lives in
+# scripts/mac_live_commit_push.sh: explicit HEAD:refs/heads/develop refspec, MERGE (never rebase) on rejection, bounded retries, merge conflicts aborted at once, a wedged
+# checkout is refused (or, on the dedicated live checkout in enforce mode, repaired). Exit 0 = pushed or nothing to commit.
+COMMIT_HELPER="$SHARED/scripts/mac_live_commit_push.sh"
+if [ -f "$COMMIT_HELPER" ]; then
+  bash "$COMMIT_HELPER" "$SHARED" "chore(queue): automated bridge pass $(date '+%F %H:%M')" CLAUDE_QUEUE.md CLAUDE_QUEUE_DONE.md 2>&1 | while read -r l; do log "commit: $l"; done
+  commit_rc="${PIPESTATUS[0]}"
+else
+  log "commit: $COMMIT_HELPER missing - queue docs NOT committed this pass"; commit_rc=4
+fi
 
-log "claude_queue_bridge pass complete"
+log "claude_queue_bridge pass complete (commit rc=$commit_rc)"
+# L2-mac-jobs: success heartbeat (supervisor scripts/mac_jobs_health.py): the whole pass worked AND the queue docs are pushed (or there was nothing to push)
+if [ "$commit_rc" = 0 ]; then
+  mkdir -p "${OVN_MAC_STATE:-$HOME/.ovn_mac_jobs}/hb" 2>/dev/null && date +%s > "${OVN_MAC_STATE:-$HOME/.ovn_mac_jobs}/hb/claudequeuebridge" 2>/dev/null
+fi
+[ "$commit_rc" = 0 ] || exit 1

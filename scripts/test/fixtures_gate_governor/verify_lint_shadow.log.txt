@@ -1,0 +1,5 @@
+{"findings": [], "verify": "true"}
+{"findings": [], "verify": "true"}
+{"findings": [], "verify": "grep -q \"def other_helper\" app.py"}
+{"findings": [{"code": "target-path-missing", "detail": "iptv-backend/tests/test_already_ok.py (cwd .)"}], "verify": "pytest iptv-backend/tests/test_already_ok.py"}
+{"findings": [{"code": "target-path-missing", "detail": "iptv-backend/tests/test_already_ok.py (cwd .)"}], "verify": "pytest iptv-backend/tests/test_already_ok.py"}

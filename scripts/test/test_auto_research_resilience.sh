@@ -42,8 +42,10 @@ setup(){   # <script> <validator>
   cat > "$FAKEBIN/claude" <<'EOS'
 #!/usr/bin/env bash
 # scripted claude: call N replies per line N of $CAPTURE/modes: NONE | boldnone | prose | fail | reply:<file>   (default NONE)
-n=$(( $(cat "$CAPTURE/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$CAPTURE/n"
 prompt=""; a=("$@"); while [ $# -gt 0 ]; do case "$1" in -p) prompt="$2"; shift;; esac; shift; done
+# the auth-preflight probe (`claude -p ok ...`): logged to probe.log, never to calls.log; fails like the real logged-out CLI while $CAPTURE/auth_down exists
+if [ "$prompt" = ok ]; then echo probe >> "$CAPTURE/probe.log"; if [ -e "$CAPTURE/auth_down" ]; then echo "Not logged in · Please run /login"; exit 1; fi; echo ok; exit 0; fi
+n=$(( $(cat "$CAPTURE/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$CAPTURE/n"
 printf '%s\n' "${a[@]}" > "$CAPTURE/cargs_$n.txt"
 repo="$(printf '%s\n' "$prompt" | sed -n 's/.*REPO: \([A-Za-z0-9_-]*\)\..*/\1/p' | head -1)"
 echo "${repo:-unknown}" >> "$CAPTURE/calls.log"
@@ -52,6 +54,7 @@ case "$m" in
   reply:*) cat "${m#reply:}" ;;
   boldnone) echo '**NONE**' ;;
   fail) echo "boom" >&2; exit 3 ;;
+  authfail) echo "Not logged in · Please run /login"; exit 1 ;;
   prose) echo 'I looked around the repository and everything seems fine. Nothing to report in the requested format.' ;;
   *) echo NONE ;;
 esac
@@ -59,6 +62,7 @@ EOS
   cat > "$FAKEBIN/timeout" <<'EOS'
 #!/usr/bin/env bash
 # scripted timeout: call N behaves per line N of $CAPTURE/tmodes: timeout (exit 124, claude never runs) | run (default)
+[ "${3:-}" = -p ] && [ "${4:-}" = ok ] && { shift; exec "$@"; }   # the auth-preflight probe passes through, uncounted
 k=$(( $(cat "$CAPTURE/tn" 2>/dev/null || echo 0) + 1 )); echo "$k" > "$CAPTURE/tn"
 echo "$1" >> "$CAPTURE/timeouts.log"; shift
 printf '%s\n' "$@" > "$CAPTURE/targs_$k.txt"

@@ -537,6 +537,8 @@ echo; echo "===== ovn needs research promote ====="; bash test_ovn_needs_researc
 echo; echo "===== ovn supply extended ====="; bash test_ovn_supply_extended.sh || rc=1
 echo; echo "===== planner nrp ====="; bash test_planner_nrp.sh || rc=1
 echo; echo "===== supply cron installer ====="; bash test_supply_cron_installer.sh || rc=1
+echo; echo "===== L1 box drift detector (box_verify: healthy world = 0 drift, each ever-broken prerequisite flagged alone, alert de-dup, modes, mutants) ====="; bash test_box_verify.sh || rc=1
+echo; echo "===== L1 box bootstrap: full fake-HOME REBUILD DRILL (recover -> bootstrap -> box_verify acceptance), SHA256/licence/crontab gates, provision EXTRA, mutants ====="; bash test_box_bootstrap.sh || rc=1
 echo; echo "===== qwen verify normalize ====="; bash test_qwen_verify_normalize.sh || rc=1
 echo; echo "===== qwen explore dialect ====="; bash test_qwen_explore_dialect.sh || rc=1
 echo; echo "===== spec check links subdir venv ====="; bash test_spec_check_links_subdir_venv.sh || rc=1
@@ -555,5 +557,21 @@ echo; echo "===== ovn dangling refs ====="; bash test_ovn_dangling_refs.sh || rc
 echo; echo "===== ovn landing quality ====="; bash test_ovn_landing_quality.sh || rc=1
 echo; echo "===== stage landing quality ====="; bash test_stage_landing_quality.sh || rc=1
 echo; echo "===== build break park ====="; bash test_build_break_park.sh || rc=1
+echo; echo "===== mac live sync ====="; bash test_mac_live_sync.sh || rc=1
+echo; echo "===== mac live commit push ====="; bash test_mac_live_commit_push.sh || rc=1
+echo; echo "===== mac jobs health ====="; bash test_mac_jobs_health.sh || rc=1
+echo; echo "===== mac jobs install ====="; bash test_mac_jobs_install.sh || rc=1
+echo; echo "===== mac bridge e2e ====="; bash test_mac_bridge_e2e.sh || rc=1
+echo; echo "===== ovn gate governor ====="; bash test_ovn_gate_governor.sh || rc=1
+echo; echo "===== ovn fleet slo ====="; bash test_ovn_fleet_slo.sh || rc=1
+echo; echo "===== box autodeploy ====="; bash test_box_autodeploy.sh || rc=1
+echo; echo "===== box deploy ====="; bash test_box_deploy.sh || rc=1
+echo; echo "===== install autodeploy cron ====="; bash test_install_autodeploy_cron.sh || rc=1
+echo; echo "===== notify autodeploy ====="; bash test_notify_autodeploy.sh || rc=1
+echo; echo "===== suite candidate ====="; run_or_notrun test_suite_candidate.sh
+echo; echo "===== auto research auth ====="; bash test_auto_research_auth.sh || rc=1
+echo; echo "===== research lane L2 guard ====="; bash test_research_lane_l2_guard.sh || rc=1
+echo; echo "===== pilot flags exported to children ====="; bash test_pilot_flags_exported.sh || rc=1
+echo; echo "===== mac review fixes ====="; bash test_mac_review_fixes.sh || rc=1
 echo; finish || rc=1
 exit $rc

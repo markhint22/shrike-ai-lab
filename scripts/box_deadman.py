@@ -369,6 +369,17 @@ def run(dry=False):
     return " ".join(out) or ("ok" if not bad else "bad:" + ",".join(sorted(bad)))
 
 
+def _mac_hb(name):
+    """L2-mac-jobs: success heartbeat read by scripts/mac_jobs_health.py (epoch seconds in ~/.ovn_mac_jobs/hb/<name>). Never raises."""
+    try:
+        d = os.path.join(os.environ.get("OVN_MAC_STATE") or os.path.expanduser("~/.ovn_mac_jobs"), "hb")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "w") as f:
+            f.write(str(int(time.time())))
+    except OSError:
+        pass
+
+
 def main(argv):
     try:
         if "--status" in argv:
@@ -383,6 +394,8 @@ def main(argv):
                 print("relay:", send_relay("Box deadman test (ignore)", "manual delivery test", "low", "wrench", ""))
             return 0
         print(run(dry="--dry-run" in argv))
+        if "--dry-run" not in argv:
+            _mac_hb("box-deadman")   # the run completed (an unreachable box is an ALERT, not a failed run)
     except Exception as e:  # noqa: BLE001 - a dead-man must never crash launchd into a restart loop
         try:
             log("ERROR %s: %s" % (type(e).__name__, e))

@@ -220,5 +220,53 @@ RH="$W/h8"; mkdir -p "$RH"
 RC_REPOS="iptv_apps" rc --skip-godot --skip-aider --skip-hostkey --no-cron --bundles "$W/bundles" >"$W/o8" 2>&1
 ok "clone from bundle, origin set to github ssh url" "[ -d '$RH/overnight-queue/repos/iptv_apps/.git' ] && [ \"\$(git -C '$RH/overnight-queue/repos/iptv_apps' remote get-url origin)\" = 'git@github.com:markhint22/iptv_apps.git' ]"
 
+
+echo "== crontab step: per-line idempotence on a crontab that already has the hand-installed (UNMARKED) backup lines (L1 review: bootstrap doubled them)"
+SNAPF="$OPS/crontab.box.snapshot.txt"
+cnt(){ grep -v '^[[:space:]]*#' "$W/crontab.state" | grep -cE "$1"; }
+nsave(){ ls "$W"/drive/box-backups/crontab.pre-recover.* "$RH"/crontab.pre-recover.* 2>/dev/null | wc -l | tr -d ' '; }
+RH="$W/h18"; mkdir -p "$RH/overnight-queue/ops" "$RH/overnight-queue/logs"; cp "$BAK" "$RH/overnight-queue/ops/box_home_backup.sh"
+cp "$SNAPF" "$W/crontab.state"
+ok "fixture: the committed live-box snapshot carries one daily + one hourly backup line and NO marker and NO heartbeat check" "[ \$(cnt 'box_home_backup\\.sh[[:space:]]+daily') = 1 ] && [ \$(cnt 'box_home_backup\\.sh[[:space:]]+hourly') = 1 ] && ! grep -q 'box_recover-backup-lines' '$W/crontab.state' && [ \$(cnt 'heartbeat-') = 0 ]"
+N0="$(nsave)"
+RC_HOME="$RH" RC_BACKUPS="$W/drive/box-backups" bash "$REC" --skip-queue --skip-godot --skip-aider --skip-hostkey --skip-repos >"$W/o18" 2>&1; r18=$?
+ok "bootstrap's exact call on that crontab: rc 0 and STILL exactly one daily and one hourly backup line (was 2 + 2)" "[ $r18 = 0 ] && [ \$(cnt 'box_home_backup\\.sh[[:space:]]+daily') = 1 ] && [ \$(cnt 'box_home_backup\\.sh[[:space:]]+hourly') = 1 ]"
+ok "  the two MISSING heartbeat checks were added exactly once each, marker once, every other snapshot line preserved" "[ \$(cnt 'heartbeat-daily\\.log') = 1 ] && [ \$(cnt 'heartbeat-hourly\\.log') = 1 ] && [ \$(grep -c '^# box_recover-backup-lines v2' '$W/crontab.state') = 1 ] && [ \$(grep -v '^[[:space:]]*#' '$SNAPF' | grep -vc '^[[:space:]]*\$') = \$(( \$(grep -v '^[[:space:]]*#' '$W/crontab.state' | grep -vc '^[[:space:]]*\$') - 2 )) ]"
+cp "$W/crontab.state" "$W/cron.after18"; N1="$(nsave)"
+RC_HOME="$RH" RC_BACKUPS="$W/drive/box-backups" bash "$REC" --skip-queue --skip-godot --skip-aider --skip-hostkey --skip-repos >"$W/o18b" 2>&1; r18b=$?
+ok "  second call: rc 0, crontab byte-identical, no new save file (idempotent)" "[ $r18b = 0 ] && cmp -s '$W/crontab.state' '$W/cron.after18' && [ \$(nsave) = $N1 ]"
+# all four lines present by hand, no marker: nothing at all changes
+RH="$W/h19"; mkdir -p "$RH/overnight-queue/ops" "$RH/overnight-queue/logs"; cp "$BAK" "$RH/overnight-queue/ops/box_home_backup.sh"
+printf '%s\n' '0 1 * * * /usr/bin/precious-job' '17 3 * * * BB_HOME=/x bash /x/overnight-queue/ops/box_home_backup.sh daily >> /x/box_backup.out 2>&1' '41 * * * * BB_HOME=/x bash /x/overnight-queue/ops/box_home_backup.sh hourly >> /x/box_backup.out 2>&1' '53 6 * * * [ -n "$(find /d/heartbeat-daily.log -mmin -1560)" ] || echo stale' '54 6 * * * [ -n "$(find /d/heartbeat-hourly.log -mmin -180)" ] || echo stale' > "$W/crontab.state"
+cp "$W/crontab.state" "$W/cron.before19"; N2="$(nsave)"
+RC_HOME="$RH" RC_BACKUPS="$W/drive/box-backups" bash "$REC" --skip-queue --skip-godot --skip-aider --skip-hostkey --skip-repos >"$W/o19" 2>&1; r19=$?
+ok "all four lines already there by hand: rc 0, crontab byte-identical, NO save file, says so" "[ $r19 = 0 ] && cmp -s '$W/crontab.state' '$W/cron.before19' && [ \$(nsave) = $N2 ] && grep -q 'already present' '$W/o19'"
+# commented-out lines are not 'present'
+RH="$W/h20"; mkdir -p "$RH/overnight-queue/ops" "$RH/overnight-queue/logs"; cp "$BAK" "$RH/overnight-queue/ops/box_home_backup.sh"
+printf '%s\n' '#17 3 * * * bash /x/overnight-queue/ops/box_home_backup.sh daily' '# 41 * * * * bash /x/overnight-queue/ops/box_home_backup.sh hourly' > "$W/crontab.state"
+RC_HOME="$RH" RC_BACKUPS="$W/drive/box-backups" bash "$REC" --skip-queue --skip-godot --skip-aider --skip-hostkey --skip-repos >"$W/o20" 2>&1; r20=$?
+ok "commented-out backup lines do not count: all four active lines are added" "[ $r20 = 0 ] && [ \$(cnt 'box_home_backup\\.sh[[:space:]]+daily') = 1 ] && [ \$(cnt 'box_home_backup\\.sh[[:space:]]+hourly') = 1 ] && [ \$(cnt 'heartbeat-') = 2 ]"
+# mutants: dropping either per-line guard must be caught by the snapshot scenario
+mutr(){ python3 - "$REC" "$1" "$2" <<'PYEOF'
+import sys
+s = open(sys.argv[1]).read(); old = sys.argv[3]
+assert s.count(old) == 1, "anchor %r found %d" % (old, s.count(old))
+open(sys.argv[2], "w").write(s.replace(old, ""))
+PYEOF
+}
+mutr "$W/rec_m1.sh" "    has_line 'box_home_backup\\.sh[[:space:]]+daily([[:space:]]|\$)' && add_daily=0" || ok "mutant anchor daily guard" "false"
+mutr "$W/rec_m2.sh" "    has_line 'box_home_backup\\.sh[[:space:]]+hourly([[:space:]]|\$)' && add_hourly=0" || ok "mutant anchor hourly guard" "false"
+mutr "$W/rec_m3.sh" "    if [ \"\$add_daily\$add_hourly\$add_hbd\$add_hbh\" = 0000 ]; then say \"backup + heartbeat cron lines already present (installed by hand, no marker): nothing to add, crontab unchanged\"; return 0; fi" || ok "mutant anchor all-present guard" "false"
+for m in 1 2; do
+  RH="$W/hm$m"; mkdir -p "$RH/overnight-queue/ops" "$RH/overnight-queue/logs"; cp "$BAK" "$RH/overnight-queue/ops/box_home_backup.sh"; cp "$SNAPF" "$W/crontab.state"
+  RC_HOME="$RH" RC_BACKUPS="$W/drive/box-backups" bash "$W/rec_m$m.sh" --skip-queue --skip-godot --skip-aider --skip-hostkey --skip-repos >/dev/null 2>&1
+  if [ "$m" = 1 ]; then ok "MUTANT without the daily guard is caught (2 daily lines on the live-box crontab)" "[ \$(cnt 'box_home_backup\\.sh[[:space:]]+daily') = 2 ]"
+  else ok "MUTANT without the hourly guard is caught (2 hourly lines on the live-box crontab)" "[ \$(cnt 'box_home_backup\\.sh[[:space:]]+hourly') = 2 ]"; fi
+done
+RH="$W/hm3"; mkdir -p "$RH/overnight-queue/ops" "$RH/overnight-queue/logs"; cp "$BAK" "$RH/overnight-queue/ops/box_home_backup.sh"
+cp "$W/cron.before19" "$W/crontab.state"; N3="$(nsave)"
+RC_HOME="$RH" RC_BACKUPS="$W/drive/box-backups" bash "$W/rec_m3.sh" --skip-queue --skip-godot --skip-aider --skip-hostkey --skip-repos >/dev/null 2>&1
+ok "MUTANT without the all-present early return is caught (a no-op call rewrote the crontab: marker appeared)" "grep -q '^# box_recover-backup-lines v2' '$W/crontab.state'"
+
 echo; echo "box_recover: pass=$P fail=$F"
 [ "$F" = 0 ]

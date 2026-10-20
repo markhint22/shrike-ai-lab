@@ -1,0 +1,7 @@
+--- [fixup-tests-lost] shadow: WOULD RESET to 147cd536f8fb and report no-op(fixup-undid-item) under OVN_FIXUP_REVERIFY=enforce (kept: mode=shadow) ---
+--- [fixup-verify-fail] (buildgate, mode=shadow) after the buildgate fix-up the item's own VERIFY no longer passes ---
+--- [prod-touch] (mode=shadow) a test item changed production file(s): backend/app/utils/cron_match.py ---
+--- [prod-touch] (mode=enforce) a test item changed production file(s): scripts/battle/aoe.gd ---
+--- VERIFY-TIMEOUT HOLD (shadow): shadow: would HOLD this timed-out commit unpushed (hold 1/3); reverting as before ---
+--- BUILD-GATE: SHADOW would-park: 2 consecutive build-break reverts of this item (OVN_BUILD_BREAK_PARK=shadow) ---
+--- [fixup-tests-lost] (tier2, mode=shadow) the tier2 fix-up removed test(s) the item added: tests/test_x.py ---

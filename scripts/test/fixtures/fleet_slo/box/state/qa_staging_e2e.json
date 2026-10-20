@@ -1,0 +1,1 @@
+{"ts": "2026-10-18T19:13:37Z", "base": "https://chickadeestream-backend-staging.up.railway.app", "staging_commit": "e0cf861f2c4398eb7f3c2729aa7bed3e40f002cd", "passed": 17, "total": 17, "failed": [], "cells": [{"cell": "revenuecat_lifecycle", "verdict": "PASS", "ms": 8708, "detail": "all 17 lifecycle checks passed"}]}

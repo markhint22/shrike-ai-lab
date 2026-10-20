@@ -23,6 +23,7 @@ ar_setup(){
   AR_SCRIPT="$SHARED_T/scripts/overnight-queue/ovn_auto_research.sh"
   cp "$script" "$AR_SCRIPT"
   cp "${validator:-$here/../../ovn_auto_research_validate.py}" "$SHARED_T/scripts/overnight-queue/ovn_auto_research_validate.py"
+  cp "${AR_LIB:-$here/../../ovn_claude_auth.sh}" "$SHARED_T/scripts/overnight-queue/ovn_claude_auth.sh"   # the auth-preflight helper the script sources
   PYDIR="$(dirname "$(command -v python3)")"
   for r in iptv_apps xlite billwatch shrike-notify shrike-monitor; do mkdir -p "$CLONES/$r"; git init -q "$CLONES/$r" 2>/dev/null; done
   cat > "$FAKEBIN/ssh" <<'EOS'
@@ -49,12 +50,19 @@ EOS
 #!/usr/bin/env bash
 # stub claude: capture the prompt (the argument after -p) per repo, reply NONE
 prompt=""; while [ $# -gt 0 ]; do case "$1" in -p) prompt="$2"; shift;; esac; shift; done
+# the auth-preflight probe (`claude -p ok ...`): logged to probe.log, never to calls.log; fails like the real logged-out CLI while $CAPTURE/auth_down exists
+if [ "$prompt" = ok ]; then echo probe >> "$CAPTURE/probe.log"; if [ -e "$CAPTURE/auth_down" ]; then echo "Not logged in · Please run /login"; exit 1; fi; echo ok; exit 0; fi
 repo="$(printf '%s\n' "$prompt" | sed -n 's/.*REPO: \([A-Za-z0-9_-]*\)\..*/\1/p' | head -1)"
 printf '%s' "$prompt" > "$CAPTURE/prompt_${repo:-unknown}.txt"
 echo "${repo:-unknown}" >> "$CAPTURE/calls.log"
 echo NONE
 EOS
-  chmod +x "$FAKEBIN/ssh" "$FAKEBIN/scp" "$FAKEBIN/claude"
+  cat > "$FAKEBIN/curl" <<'EOS'
+#!/usr/bin/env bash
+# stub curl: the auth alert push is recorded (never a real network call)
+printf '%s\n' "$*" >> "$CAPTURE/curl.log"
+EOS
+  chmod +x "$FAKEBIN/ssh" "$FAKEBIN/scp" "$FAKEBIN/claude" "$FAKEBIN/curl"
   : > "$BOX/ssh.log"
   # the stubs must be what the script's PATH resolves (never the real ssh/scp/claude)
   [ "$(PATH="$FAKEBIN:$PYDIR:/usr/bin:/bin" type -P ssh)" = "$FAKEBIN/ssh" ] || { echo "FATAL: stub ssh is not first on PATH"; exit 2; }

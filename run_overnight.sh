@@ -75,7 +75,9 @@ export PATH="$HOME/aider-venv/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 # (own tasks.json/state/logs/scripts, stub aider/curl on PATH, HOME pointing at a temp dir). Unset in production.
 SCRIPT_DIR="${OVN_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 # optional pilot flags (OVN_ARCHITECT / OVN_BESTOF_N / OVN_EDIT_FORMAT) — toggle without restarts
-[ -f "$SCRIPT_DIR/state/pilot_flags.env" ] && . "$SCRIPT_DIR/state/pilot_flags.env" || true
+# 2026-10-20: the flags must be EXPORTED. A plain `.` only set shell variables, so child processes (ovn_stage_runner.sh, the explorer, the planner)
+# never saw OVN_STAGE_SCOPE_LEARN=on / OVN_STAGE_SAME_SIG_STOP=on etc. - every flag in this file was silently ignored since it existed.
+if [ -f "$SCRIPT_DIR/state/pilot_flags.env" ]; then set -a; . "$SCRIPT_DIR/state/pilot_flags.env"; set +a; fi
 
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-shrike-local}"
 MODEL_NAME="${OVERNIGHT_MODEL:-qwen-dflash-27B}"

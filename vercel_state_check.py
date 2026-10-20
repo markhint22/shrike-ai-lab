@@ -100,6 +100,17 @@ def push(title, body, urgent, dry):
         print("push failed:", e)
 
 
+def _mac_hb(name):
+    """L2-mac-jobs: success heartbeat read by scripts/mac_jobs_health.py (epoch seconds in ~/.ovn_mac_jobs/hb/<name>). Never raises."""
+    try:
+        d = os.path.join(os.environ.get("OVN_MAC_STATE") or os.path.expanduser("~/.ovn_mac_jobs"), "hb")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "w") as f:
+            f.write(str(int(time.time())))
+    except OSError:
+        pass
+
+
 def main():
     dry = "--dry-run" in sys.argv
     try:
@@ -112,6 +123,7 @@ def main():
         by_name = {p["name"]: p["id"] for p in api(tok, "/v9/projects?teamId=%s&limit=100" % TEAM)["projects"]}
     except Exception as e:  # noqa: BLE001
         print("project list failed: %s" % e); by_name = {}
+    listed_ok = bool(by_name)
     for rel in PROJECTS:
         if rel not in by_name:
             print("%s: project not found in team (skipped)" % rel); continue
@@ -167,6 +179,8 @@ def main():
         print("%s: prod=%s bad_previews_%dh=%d retries_pending=%d" % (name, st(prod[0]) if prod else "-", WINDOW_H, len(bad), len(pending)))
     if not dry:
         json.dump(state, open(STATE, "w"))
+        if listed_ok:
+            _mac_hb("vercel-state-check")
 
 
 if __name__ == "__main__":

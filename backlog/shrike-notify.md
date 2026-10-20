@@ -238,3 +238,7 @@
 # --- 27B-decomposed from roadmap [2026-10-20]: `/health/detailed` always returns `status: "ok"` even when persistence is degraded — `back (review + tweak) [feat:shrike-notify-20261020-health-detailed-always-returns-status-ok] ---
 
 # --- 27B-decomposed from roadmap [2026-10-20]: `schemas.py:TokenRequest` with `ge=1` constraint is a dead divergent duplicate — `backend/ (review + tweak) [feat:shrike-notify-20261020-schemas-py-tokenrequest-with-ge-1-constr] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: REST `GET /{topic}/messages` silently drops `persisted` field while SSE/WebSocket expose i (review + tweak) [feat:shrike-notify-20261020-rest-get-topic-messages-silently-drops-p] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: `test_no_duplicate_definitions.py` has an exact-duplicate AST scan that masks the still-op (review + tweak) [feat:shrike-notify-20261020-test-no-duplicate-definitions-py-has-an-] ---
