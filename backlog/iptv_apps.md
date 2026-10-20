@@ -564,3 +564,15 @@
 # --- deterministic work supply 2026-10-19 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- deterministic work supply 2026-10-20 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: `clear_watch_history` silently leaves ContinueWatching rows — `DELETE /api/history` in `wa (review + tweak) [feat:iptv_apps-20261020-clear-watch-history-silently-leaves-cont] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: `GET /api/history/continue` (watch_history.py) exposes mature content to kid profiles — `g (review + tweak) [feat:iptv_apps-20261020-get-api-history-continue-watch-history-p] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: Discovery continue-watching recommendations not profile-scoped — `stream_discovery_service (review + tweak) [feat:iptv_apps-20261020-discovery-continue-watching-recommendati] ---
+
+# --- deterministic work supply 2026-10-20 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: `SearchHistory` model lacks `profile_id` — `models/search.py:14-28` defines `SearchHistory (review + tweak) [feat:iptv_apps-20261020-searchhistory-model-lacks-profile-id-mod] ---
+
+# --- 27B-decomposed from roadmap [2026-10-20]: `update_reminder` accepts past `program_start` dates — `reminders.py:152-181` calls `setat (review + tweak) [feat:iptv_apps-20261020-update-reminder-accepts-past-program-sta] ---
