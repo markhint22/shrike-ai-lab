@@ -27,7 +27,7 @@ OSR_ALL_T=()
 osr_new(){   # build a fresh fake tree. sets T H Q O RD
   T="$(safe_mktemp_dir)" || exit 1; OSR_ALL_T+=("$T"); H="$T/home"; Q="$H/overnight-queue"; O="$T/origin.git"; RD="$Q/repos/$OSR_REPO"
   mkdir -p "$Q/scripts" "$Q/state" "$Q/logs" "$Q/assets" "$H/aider-venv/bin" "$H/godot" "$T/scn" "$T/llm" "$Q/repos"
-  cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$REALQ/scripts/lib_gut_xml.sh" "$REALQ/scripts/lib_new_tests.sh" "$Q/scripts/"
+  cp "$REALQ/scripts/lib_lock.sh" "$REALQ/scripts/lib_pytest_parallel.sh" "$REALQ/scripts/lib_gut_xml.sh" "$REALQ/scripts/lib_new_tests.sh" "$REALQ/scripts/lib_stage_guards.sh" "$Q/scripts/"   # lib_stage_guards.sh: stage_item_wants_delete / pure-delete / live-files helpers live there since 2026-10-20 (the runner falls back to "no delete intent" without it)
   cp "$REALQ/ovn_classify_fail.sh" "$Q/"
   echo '# godot4 rules' > "$Q/assets/GODOT4.md"; echo '{}' > "$Q/model-metadata.json"
   _osr_stub "$Q/scripts/ovn_log_tokens.sh" '#!/usr/bin/env bash

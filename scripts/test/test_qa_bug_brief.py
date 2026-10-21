@@ -792,7 +792,8 @@ srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 PORT = srv.server_address[1]
 ENVD = {"PATH": SHIM + ":" + MINPATH, "HOME": ROOT, "OVN_DIR": OVN, "NTFY_SERVER": "http://127.0.0.1:9", "NTFY_TOPIC": "t", "LITELLM_BASE": "http://127.0.0.1:%d" % PORT,
-        "OVN_MANUAL_MODEL": "qwen-test", "OVN_BUG_BRIEF_SPAWN": "off", "OVN_BUG_BRIEF_CALL_TIMEOUT": "5", "OVN_BUG_BRIEF_BUDGET_S": "40", "PYTHONDONTWRITEBYTECODE": "1"}
+        "OVN_MANUAL_MODEL": "qwen-test", "OVN_BUG_BRIEF_SPAWN": "off", "OVN_BUG_BRIEF_CALL_TIMEOUT": "5", "OVN_BUG_BRIEF_BUDGET_S": "40", "PYTHONDONTWRITEBYTECODE": "1",
+        "OVN_MANUAL_STRICT_SUPPORT": "off"}   # these tests exercise the brief hook with synthetic notes; the strict support gate (3998ba1) is covered by test_manual_notes_support_gate.sh
 
 
 def envi(extra=None, drop=()):

@@ -81,6 +81,12 @@ try:
     for f in ("claude_queue_bridge.py", "claude_queue_bridge.sh", "archive_claude_queue_done.py"):
         shutil.copy(os.path.join(OVNQ, f), os.path.join(shared, "scripts", "overnight-queue", f))
     shutil.copy(os.path.join(OVNQ, "scripts", "lib_lock.sh"), os.path.join(shared, "scripts", "overnight-queue", "scripts", "lib_lock.sh"))
+    # 4bf44b4/d394694 (L2-mac-jobs): the bridge exits 1 when <repo>/scripts/mac_live_commit_push.sh is missing ("queue docs NOT committed"). This test is about the harvest/retire
+    # logic, not committing, so give the synthetic tree a no-op helper (the real one is covered by test_mac_live_commit_push.sh).
+    _h = os.path.join(shared, "scripts", "mac_live_commit_push.sh")
+    with open(_h, "w") as _f:
+        _f.write("#!/usr/bin/env bash\nexit 0\n")
+    os.chmod(_h, 0o755)
     # ssh stub: run the remote command locally with HOME=fake home (last argv = the command). scp stub: cp to the path after 'host:~/'
     open(os.path.join(stubs, "ssh"), "w").write('#!/usr/bin/env bash\nfor a in "$@"; do c="$a"; done\nHOME="%s" exec bash -c "$c"\n' % home)
     open(os.path.join(stubs, "scp"), "w").write(
