@@ -172,6 +172,7 @@ source "$SCRIPT_DIR/scripts/lib_autotest_base.sh" 2>/dev/null || ovn_autotest_ba
 declare -F ovn_repo_has_autotest >/dev/null 2>&1 || ovn_repo_has_autotest(){ { find "${1:-.}" -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | grep -q . || find "${1:-.}" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null | grep -q .; }; }   # lib missing: the old predicate
 # shellcheck source=scripts/lib_fixup.sh
 source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ echo "own-test"; }; ovn_fixup_direction(){ echo "Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug."; }; }
+declare -F ovn_aider_commit_rescue >/dev/null 2>&1 || ovn_aider_commit_rescue(){ return 1; }   # lib_fixup.sh missing/old: no commit rescue (2026-10-20)
 declare -F ovn_fixup_dedupe_defs >/dev/null 2>&1 || ovn_fixup_dedupe_defs(){ return 0; }   # lib_fixup.sh missing/old: no post-fix-up de-duplication (2026-10-18)
 declare -F ovn_is_delete_intent >/dev/null 2>&1 || ovn_is_delete_intent(){ grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b' <<< "${1:-}"; }   # lib_fixup.sh missing: legacy regex
 # shellcheck source=scripts/lib_fixup_prompt.sh
@@ -3598,11 +3599,13 @@ ${_buildfix_evidence}"
           echo "--- BUILD-GATE fix-up: evidence=$(printf '%s' "$_buildfix_evidence" | wc -c)B extra_files=${_buildfix_nextra} ---" >> "$task_log"
           echo "--- BUILD-GATE fix-up: one bounded attempt at the structural break before reverting: ${_buildfix_summary:0:200}" >> "$task_log"
           _ovn_fx0="$(date +%s)"   # r11 P9: '--- fixup done in Ns ---' after the aider call (the re-verify logs its own '--- verify done ---')
+          _ovn_fx_off="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"   # 2026-10-20: log offset for ovn_aider_commit_rescue
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_buildfix_fileargs[@]}" \
             --message "$(ovn_fixup_prompt "The change below was just committed and it broke the build." "$BEFORE_SHA" "$AFTER_SHA" "REAL failing output from the verify run (verbatim; you already have every file it names in the chat):
 ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code loads again. Do not ask for more output - the error above is complete. If it is 'No module named X' / 'cannot import name X': either create X or remove the import that needs it. If the committed change deleted a file, also update or delete the tests/imports that still reference it. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.")" \
             >> "$task_log" 2>&1
           echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
+          ovn_aider_commit_rescue "$AFTER_SHA" "$task_log" "${_ovn_fx_off:-0}" "fix: build-gate fix-up (aider commit crashed; tracked edit rescued)" || true
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
             _fx_prev_sha="$AFTER_SHA"

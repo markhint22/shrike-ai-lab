@@ -377,6 +377,13 @@ def list_files(repo, ref, names=None):
     return keep
 
 
+_COMMENT_LINE = re.compile(r"^\s*(//|/\*|\*|\*/|#(?!\[)|<!--|--\s)")
+
+def is_comment_line(text):
+    """True when a grep hit sits on a comment (or doc-comment) line: such a hit is prose, not code, and must never be the fix target by itself."""
+    return bool(_COMMENT_LINE.match(text or ""))
+
+
 def grep_kw(repo, ref, variant, allowed, specs=None):
     """-> {path: (line_no, text)} for fixed-string case-insensitive matches (first hit per file). `specs` = path prefixes to search."""
     rc, out, _ = git(repo, "grep", "-n", "-I", "-i", "-F", "-m", "2", "-e", variant, ref, "--", *(specs or []), timeout=40)
@@ -552,6 +559,34 @@ def det_margin():
         return float(v)
     except ValueError:
         return 1.0
+
+
+def _support_is_code(cand):
+    """A candidate counts as code-supported when at least one piece of its evidence is a NON-comment code line, a named file, or the agentic
+    loop verified it. A candidate whose evidence is only a file-name match or a comment line is not enough (see OVN_MANUAL_STRICT_SUPPORT)."""
+    if os.environ.get("OVN_MANUAL_STRICT_SUPPORT", "on") == "off":
+        return True
+    ev = cand.get("evidence") or ""
+    matched = cand.get("matched") or []
+    if cand.get("agentic_verified") or cand.get("role") == "named":
+        return True
+    if any("named in note" in m for m in matched):
+        return True
+    # evidence formatted "<path>:<line>: <text>" is a grep hit on a line of the file
+    m = re.match(r"^(.+?):(\d+): (.*)$", ev, re.S)
+    if m and not is_comment_line(m.group(3)):
+        return True
+    return False
+
+
+def _support_summary(cand):
+    ev = cand.get("evidence") or ""
+    m = re.match(r"^(.+?):(\d+): (.*)$", ev, re.S)
+    if m and is_comment_line(m.group(3)):
+        return "only a comment line (%s:%s)" % (m.group(1), m.group(2))
+    if "file name" in ev:
+        return "only a file-name match (%s)" % ev
+    return "weak evidence (%s)" % ev[:120]
 
 
 def locate_v2(rp, ref, note, flow, platform=None, use_model=True, model_fn=None, repo_name=""):
@@ -1135,6 +1170,11 @@ def _cmd_add(args):
                     if res.get("model_order"):
                         byp = {c["path"]: c for c in good}
                         good = [byp[p] for p in res["model_order"] if p in byp] or good
+                if good and not _support_is_code(good[0]):
+                    # 2026-10-20 gate: the top candidate is supported only by a comment line or a file-name match, so the fix would
+                    # target prose or a file that merely shares the note's word. Park it for a human instead of queuing a wrong fix.
+                    entry["triage_reason"] = "weak support: %s" % _support_summary(good[0])
+                    good = []
                 if good:
                     entry["path"] = good[0]["path"]
                     if res.get("also"):

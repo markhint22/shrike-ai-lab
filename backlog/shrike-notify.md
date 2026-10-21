@@ -254,3 +254,7 @@
 # --- 27B-decomposed from roadmap [2026-10-21]: Delete 3 dead `Settings` fields in `config.py` — `backend/app/config.py:112-122` defines ` (review + tweak) [feat:shrike-notify-20261021-delete-3-dead-settings-fields-in-config-] ---
 
 # --- 27B-decomposed from roadmap [2026-10-21]: Fix normalize_topic to avoid trailing hyphens after truncation — `backend/app/utils/topic_ (review + tweak) [feat:shrike-notify-20261021-fix-normalize-topic-to-avoid-trailing-hy] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Fix SSE/WS duplicate frame delivery when a message is published during the subscribe-to-hi (review + tweak) [feat:shrike-notify-20261021-fix-sse-ws-duplicate-frame-delivery-when] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Delete empty `backend/app/utils/truncate.py` and `backend/tests/test_truncate.py` — both f (review + tweak) [feat:shrike-notify-20261021-delete-empty-backend-app-utils-truncate-] ---

@@ -148,6 +148,13 @@ def norm_node(raw, idx):
     return n
 
 
+SCHEMA_PATH_RE = re.compile(r"(?:^|/)(?:models?|schemas?)(?:/|\.py$)|alembic/versions/|(?:^|/)migrations?/")
+
+
+def _is_schema_node(n):
+    return n.get("cat") == "schema" or any(SCHEMA_PATH_RE.search(f) for f in files_of(n))
+
+
 def build_edges(nodes):
     """-> (edges, notes): edges are (b, a, kind) = node b needs node a. Edges that close a cycle are dropped (weak kinds first) and listed in notes."""
     edges = []
@@ -188,6 +195,15 @@ def build_edges(nodes):
             # tier_stem (queue items only): a test-only item waits for lower-tier source items of its group whose module stem its test file name carries
             # (test_usage_role_check.py <- routers/usage.py): the group's tier ladder is the research pass's own build order
             if b.get("tier") and a.get("tier") and b["test_only"] and not a["test_only"] and a["tier"] < b["tier"] and not a["removal"]:
+                stems = [os.path.splitext(os.path.basename(f))[0] for f in files_of(a)]
+                bn = " ".join(os.path.basename(f) for f in files_of(b))
+                if any(len(st) >= 4 and st in bn for st in stems):
+                    edges.append((b["id"], a["id"], "tier_stem"))
+            # tier_stem for SCHEMA prerequisites (2026-10-20, iptv search_history.profile_id): a non-test item of the group (the endpoint/router that uses the new
+            # column) waits for the lower-tier model/migration item whose module stem it shares (models/search.py <- routers/search.py). The 27B ran the T3/T4 endpoint
+            # items 8x while the T2 model item was still open: their VERIFY cannot pass without the column -> 8 stage-unverified cycles (~2.5h of GPU). OVN_STAGE_ORDER_SCHEMA_TIER=off disables.
+            if (os.environ.get("OVN_STAGE_ORDER_SCHEMA_TIER", "on") != "off" and b.get("tier") and a.get("tier") and a["tier"] < b["tier"]
+                    and not b["test_only"] and not a["test_only"] and not a["removal"] and not b["removal"] and _is_schema_node(a) and not _is_schema_node(b)):
                 stems = [os.path.splitext(os.path.basename(f))[0] for f in files_of(a)]
                 bn = " ".join(os.path.basename(f) for f in files_of(b))
                 if any(len(st) >= 4 and st in bn for st in stems):

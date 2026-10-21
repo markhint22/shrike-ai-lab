@@ -18,6 +18,8 @@ t "U3 test -f / ! grep are text probes" yes_ '[T1] a.gd — x. VERIFY: `test ! -
 t "U3b X && echo FAIL || echo PASS is still a text probe (iptv streams.py false credit)" yes_ '[T3] a.py — x. VERIFY: `grep -E "def a|def b" a.py && echo "FAIL" || echo "PASS"`'
 t "U3c a runner behind the echo form is NOT a text probe" no_ '[T3] a.py — x. VERIFY: `pytest tests/t.py && echo FAIL || echo PASS`'
 t "U3b ! grep is a text probe" yes_ '[T1] a.gd — x. VERIFY: `! grep -n "foo" a.gd`'
+t "U3d 'test -f X && exit 1 || exit 0' (Delete-the-file absence assertion; TAA token_aggregator false credit) is a text probe" yes_ '[T4] backend/app/utils/token_aggregator.py - Delete the file. VERIFY: `test -f backend/app/utils/token_aggregator.py && exit 1 || exit 0`'
+t "U3e a runner behind exit 1 || exit 0 is still NOT a text probe" no_ '[T4] a.py - x. VERIFY: `pytest tests/t.py && exit 1 || exit 0`'
 t "U4 pytest is NOT a text probe (its FAIL can be an env gap)" no_ '[T2] a.py — x. VERIFY: `python -m pytest tests/test_a.py -v` (cat:python)'
 t "U5 grep && pytest is NOT a text probe" no_ '[T2] a.py — x. VERIFY: `grep -q "x" a.py && python -m pytest tests/test_a.py -v`'
 t "U6 a godot run is NOT a text probe" no_ '[T2] a.gd — x. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gexit`'

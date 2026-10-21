@@ -213,6 +213,25 @@ def cli_cap_and_trunc(modpath):
     return control and capped and os.stat(lg).st_ino != ino and os.path.getsize(lg) < 262144
 
 
+def schema_sibling(modpath, extra):
+    """True when the T3/T4 router items of a feat group are blocked (enforce) by the open T2 model item and a done model item does not block."""
+    feat = "[feat:iptv_apps-20261020-sh-x]"
+    t2 = "- [ ] [T2] iptv-backend/app/models/search.py — Add `profile_id` column to `SearchHistory`. VERIFY: `cd iptv-backend && python -c \"print(1)\"`. (cat:python; multifile:no) " + feat
+    t3 = "- [ ] [T3] iptv-backend/app/routers/search.py — Update `search_history` endpoint to filter by `active_profile_id(active_profile)`. VERIFY: `cd iptv-backend && python -m pytest tests/test_x.py::test_a -v`. (cat:endpoint; multifile:no) " + feat
+    t4 = t3.replace("[T3]", "[T4]").replace("search_history", "search_suggestions")
+    prog = os.path.join(TMP, "schema_sib.md")
+    env = dict(os.environ)
+    env.pop("OVN_STAGE_ORDER", None)
+    env.update(extra)
+    def run(lines, text):
+        open(prog, "w").write("\n".join(lines) + "\n")
+        return subprocess.run([sys.executable, "-I", modpath, "item-filter", "--progress", prog, "--mode", "enforce"], input=text.encode(), capture_output=True, timeout=60, env=env).stdout.decode().strip()
+    cands = t3[6:] + "\n" + t4[6:]
+    open_out = run([t2, t3, t4], cands)
+    done_out = run([t2.replace("- [ ]", "- [x]", 1), t3, t4], cands)
+    return open_out == "" and len([l for l in done_out.split("\n") if l.strip()]) == 2
+
+
 def main():
     o = load(MOD)
     print("== U: contract on the real module")
@@ -222,6 +241,8 @@ def main():
     ok("CLI parked prerequisite: journaled + held by default, released with OVN_STAGE_ORDER_PARKED=release", cli_parked(MOD))
     ok("CLI group cap fails open (70-item group not analysed) + atomic journal truncation", cli_cap_and_trunc(MOD))
     ok("CLI journal dedupe: 3 scout cycles -> 3 rows, other repo adds its own", cli_dedupe(MOD))
+    ok("schema sibling: endpoint items wait for the open lower-tier model item (iptv search_history.profile_id)", schema_sibling(MOD, {}))
+    ok("schema sibling: kill switch OVN_STAGE_ORDER_SCHEMA_TIER=off restores the old (unblocked) behaviour", not schema_sibling(MOD, {"OVN_STAGE_ORDER_SCHEMA_TIER": "off"}))
     print("== M: mutants of the module must each be CAUGHT by the same contract")
     src = open(MOD).read()
     muts = {
@@ -242,6 +263,7 @@ def main():
         "M16 item-filter journal not deduplicated": ('"waiting_on": d["waiting_on"]}, dedupe=True)\n            if mode == "enforce":', '"waiting_on": d["waiting_on"]})\n            if mode == "enforce":'),
         "M17 group-size cap off": ("len(grp) < 2 or len(grp) > _max_group()", "len(grp) < 2"),
         "M18 journal truncation not atomic": ("os.replace(tmp, path)", "open(path, 'wb').write(open(tmp, 'rb').read())"),
+        "M19 schema-sibling rule off": ('if (os.environ.get("OVN_STAGE_ORDER_SCHEMA_TIER", "on") != "off" and b.get("tier")', 'if (False and b.get("tier")'),
         "M9 tier_stem rule off": ('if b.get("tier") and a.get("tier") and b["test_only"]', 'if False and b["test_only"]'),
     }
     for name, (old, new) in muts.items():
@@ -260,6 +282,8 @@ def main():
                 mb = mb + ["cli cap/trunc"]
             if not cli_dedupe(mp):
                 mb = mb + ["cli dedupe"]
+            if not schema_sibling(mp, {}):
+                mb = mb + ["schema sibling"]
         except Exception as ex:  # noqa: BLE001 - a mutant that crashes is also caught
             mb = ["crash:" + type(ex).__name__]
         ok(name + " is caught", bool(mb), "mutant survived")

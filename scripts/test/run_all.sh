@@ -494,6 +494,8 @@ echo; echo "===== spec rule R18 ====="; bash test_spec_rule_r18.sh || rc=1
 echo; echo "===== spec rule R19 ====="; bash test_spec_rule_r19.sh || rc=1
 echo; echo "===== spec rules R01x ====="; bash test_spec_rules_r01x.sh || rc=1
 echo; echo "===== stage empty file ====="; bash test_stage_empty_file.sh || rc=1
+echo; echo "===== 2026-10-20 stage delete handling (wants_delete step text, live-only QUALITY, pure delete) ====="; bash test_stage_delete_handling.sh || rc=1
+echo; echo "===== 2026-10-20 aider commit-crash rescue (BUILD-GATE fix-up) ====="; bash test_aider_commit_rescue.sh || rc=1
 echo; echo "===== stage file feed ====="; run_or_notrun test_stage_file_feed.sh
 echo; echo "===== stage retry signature ====="; run_or_notrun test_stage_retry_signature.sh
 echo; echo "===== stage scope learn ====="; bash test_stage_scope_learn.sh || rc=1
@@ -557,11 +559,15 @@ echo; echo "===== ovn dangling refs ====="; bash test_ovn_dangling_refs.sh || rc
 echo; echo "===== ovn landing quality ====="; bash test_ovn_landing_quality.sh || rc=1
 echo; echo "===== stage landing quality ====="; bash test_stage_landing_quality.sh || rc=1
 echo; echo "===== build break park ====="; bash test_build_break_park.sh || rc=1
-echo; echo "===== mac live sync ====="; bash test_mac_live_sync.sh || rc=1
-echo; echo "===== mac live commit push ====="; bash test_mac_live_commit_push.sh || rc=1
-echo; echo "===== mac jobs health ====="; bash test_mac_jobs_health.sh || rc=1
-echo; echo "===== mac jobs install ====="; bash test_mac_jobs_install.sh || rc=1
-echo; echo "===== mac bridge e2e ====="; bash test_mac_bridge_e2e.sh || rc=1
+if [[ "$(uname)" == "Darwin" ]]; then
+  echo; echo "===== mac live sync ====="; bash test_mac_live_sync.sh || rc=1
+  echo; echo "===== mac live commit push ====="; bash test_mac_live_commit_push.sh || rc=1
+  echo; echo "===== mac jobs health ====="; bash test_mac_jobs_health.sh || rc=1
+  echo; echo "===== mac jobs install ====="; bash test_mac_jobs_install.sh || rc=1
+  echo; echo "===== mac bridge e2e ====="; bash test_mac_bridge_e2e.sh || rc=1
+else
+  echo; echo "===== mac tests (skipped on non-macOS) ====="
+fi
 echo; echo "===== ovn gate governor ====="; bash test_ovn_gate_governor.sh || rc=1
 echo; echo "===== ovn fleet slo ====="; bash test_ovn_fleet_slo.sh || rc=1
 echo; echo "===== box autodeploy ====="; bash test_box_autodeploy.sh || rc=1
@@ -572,6 +578,11 @@ echo; echo "===== suite candidate ====="; run_or_notrun test_suite_candidate.sh
 echo; echo "===== auto research auth ====="; bash test_auto_research_auth.sh || rc=1
 echo; echo "===== research lane L2 guard ====="; bash test_research_lane_l2_guard.sh || rc=1
 echo; echo "===== pilot flags exported to children ====="; bash test_pilot_flags_exported.sh || rc=1
-echo; echo "===== mac review fixes ====="; bash test_mac_review_fixes.sh || rc=1
+echo; echo "===== manual notes support gate ====="; bash test_manual_notes_support_gate.sh || rc=1
+if [[ "$(uname)" == "Darwin" ]]; then
+  echo; echo "===== mac review fixes ====="; bash test_mac_review_fixes.sh || rc=1
+fi
+echo; echo "===== alembic autogen fk batch ====="; bash test_alembic_autogen_fk_batch.sh || rc=1
+echo; echo "===== supply patch target guard ====="; bash test_supply_patch_target_guard.sh || rc=1
 echo; finish || rc=1
 exit $rc

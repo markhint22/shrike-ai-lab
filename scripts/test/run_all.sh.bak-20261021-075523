@@ -1,0 +1,577 @@
+#!/usr/bin/env bash
+# Run the full overnight-queue regression suite. Exit 0 = all green.
+# resolve our own directory BEFORE cd: cron runs `bash scripts/test/run_all.sh` (relative path); computing it after the cd made
+# HERE_RA empty -> the guard below was never sourced under cron (tests failed and could reach the real ntfy.sh). 2026-10-01.
+HERE_RA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE_RA"
+# 2026-09-30: never let the suite reach the real ntfy.sh (shared per-IP quota; tests exhausted it and silenced all production alerts)
+. "$HERE_RA/ntfy_guard.sh"
+# 2026-10-14: a test subshell whose `cd` failed ran a bare `git add -A; git commit` in the LIVE repo (logs/ 133 MB -> GitHub push rejected 20 h); refuse git mutations there
+. "$HERE_RA/lib_live_repo_guard.sh"
+# 2026-10-14 (N4 tmp-isolation): single-flight (a 2nd concurrent run exits 75), a private disk-backed TMPDIR ($HOME/qtmp/run.<pid>, NOT the 1M-inode tmpfs /tmp) removed on EXIT/INT/TERM, a
+# tmp-leak report + alerts.log WARN, stale-root sweep. `&&` + 2>/dev/null: a sandbox without the lib (test_run_all_meta.sh copies this header) just skips it. OVN_TEST_ISOLATE=off disables.
+. "$HERE_RA/lib_tmp_isolation.sh" 2>/dev/null && ovn_tmp_isolate
+# 2026-10-14: a signal reaching run_all (whatever sent it) must end with a verdict line, never a silent exit (the box run died with no banner). EXIT
+# cleanup from lib_tmp_isolation still runs because `exit` fires the EXIT trap.
+trap 'echo; echo "❌ SOME QUEUE TESTS FAILED (run_all.sh was signalled mid-run; not green)"; exit 1' TERM INT
+# the suite must NEVER launch the real QA shadow gates (branch_hygiene.sh tests run the REAL script from the real tree; the hygiene hook would spawn
+# gates that write fake-repo rows into production state/qa_shadow) - 2026-10-01
+export OVN_QA_SHADOW=off
+# the device-lane suite must only ever use its stub emulator under the sweep: a real KVM emulator burns ~300% CPU next to the dev loop - 2026-10-02
+unset DL_REAL_EMULATOR_TEST
+rc=0
+NOTRUN=0
+# a suite exiting 77 could not run on this host (missing flock/bash 4/source file): it is NOT green - counted and reported at the end (2026-10-14)
+run_or_notrun(){ bash "$1"; _r=$?; if [ "$_r" -eq 77 ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN: $1 did not execute (prerequisites missing)"; elif [ "$_r" -ne 0 ]; then rc=1; fi; }
+# the single verdict: green only when every suite ran and passed. A NOT RUN suite is unverified, never green (2026-10-14 review).
+finish(){
+  if [ "$rc" -ne 0 ]; then echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
+  if [ "$NOTRUN" -gt 0 ]; then echo "⚠️  NOT VERIFIED: $NOTRUN suite(s) did not run on this host - this is NOT a green run (run the NOT RUN suites on the box)"; return 1; fi
+  # the verdict is re-checked here too: a suite that sets rc=1 must never be followed by the green banner (2026-10-15)
+  if [ "$rc" -ne 0 ]; then echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
+  echo "✅ ALL QUEUE TESTS PASS"; return 0
+}
+echo "===== Canonical GOOD/BAD/BENIGN outcome classifier (pass-rate metrics-integrity fix) ====="; python3 test_outcome_buckets.py || rc=1
+echo; echo "===== lib_item_select (real-item resolver — scout-file match over blind top-of-file) ====="; bash test_lib_item_select.sh || rc=1
+echo; echo "===== BUILD-GATE Variant-type grounding (Dictionary/Array runtime errors stay tests:FAIL) ====="; bash test_buildgate_variant_type_grounding.sh || rc=1
+echo; echo "===== Recover-parked lineage normalization (path-phrasing no longer bypasses RECOVERY_LINEAGE_CAP) ====="; bash test_recover_parked_lineage_normalization.sh || rc=1
+echo; echo "===== Recover-parked already-satisfied filter (decomposed sub-items no longer resurface checked-off work) ====="; bash test_recover_parked_already_satisfied_filter.sh || rc=1
+echo; echo "===== Queue-refill roadmap-aware dry check (backlog-drained-but-roadmap-has-fuel is not genuine dry) ====="; bash test_queue_refill_roadmap_aware_dry.sh || rc=1
+echo; echo "===== Implement-time ALREADY-DONE classification (no-change-needed mid-implement is benign, not a flail) ====="; bash test_implement_time_already_done.sh || rc=1
+echo; echo "===== Residue-guard salvage check (timeout-truncated but passing work is re-verified before discard) ====="; bash test_residue_guard_salvage.sh || rc=1
+echo; echo "===== Python helpers ====="; python3 test_helpers.py || rc=1
+echo; echo "===== Bash helpers ====="; bash test_bash_helpers.sh || rc=1
+echo; echo "===== Runner invariants ====="; bash test_runner_invariants.sh || rc=1
+echo; echo "===== Hygiene invariants ====="; bash test_hygiene_invariants.sh || rc=1
+echo; echo "===== Deploy self-heal ====="; bash test_deploy_watch.sh || rc=1
+echo; echo "===== TS ratchet gate ====="; bash test_tsc_gate.sh || rc=1
+echo; echo "===== Queue refill ====="; bash test_queue_refill.sh || rc=1
+echo; echo "===== Higher-tier pipeline (godot gate / refill routing / inline branch / auto-pick) ====="; bash test_higher_tier_pipeline.sh || rc=1
+echo; echo "===== Retire prefix-tolerance ====="; bash test_retire_prefix.sh || rc=1
+echo; echo "===== Branch reconcile guard ====="; bash test_reconcile_branches.sh || rc=1
+echo; echo "===== Context budget invariants (OVERNIGHT_PROGRESS.md context-overflow chain) ====="; bash test_context_budget_invariants.sh || rc=1
+echo; echo "===== Outcome classification (record_outcome status->class) ====="; bash test_outcome_classification.sh || rc=1
+echo; echo "===== Stage push-accounting (commits_pushed only on real push) ====="; bash test_stage_push_accounting.sh || rc=1
+echo; echo "===== Cron repo-coverage (branch_hygiene covers every fleet repo) ====="; bash test_cron_coverage.sh || rc=1
+echo; echo "===== Queue-health comment parsing ====="; bash test_queue_health_comments.sh || rc=1
+echo; echo "===== Stage untracked-file detection (no-edit false-negative) ====="; bash test_stage_untracked_file_detection.sh || rc=1
+echo; echo "===== Lock-guard holder identity (orphan detection under crash-loop) ====="; bash test_lock_guard_holder_identity.sh || rc=1
+echo; echo "===== Verify-timeout headroom (iptv_apps false-revert prevention) ====="; bash test_verify_timeout_headroom.sh || rc=1
+echo; echo "===== check_migrations.py (alembic safety gate) ====="; bash test_check_migrations.sh || rc=1
+echo; echo "===== Ntfy digest stats (tier/planning) ====="; bash test_ntfy_stats.sh || rc=1
+echo; echo "===== Ntfy landed-detail (per-item repo/tier/file lines for digests) ====="; bash test_ovn_landed_detail.sh || rc=1
+echo; echo "===== Ntfy no-op/reverted repeat-detail (grouped/deduped stuck-item lines) ====="; bash test_ovn_noop_detail.sh || rc=1
+echo; echo "===== Work summary (24h fleet digest: aggregate counts + landed detail) ====="; bash test_work_summary.sh || rc=1
+echo; echo "===== Queue-health dedup (no repeat deploy-failure alerts) ====="; bash test_queue_health_dedup.sh || rc=1
+echo; echo "===== Stage node_modules provisioning (per-step frontend gate fix) ====="; bash test_stage_node_modules.sh || rc=1
+echo; echo "===== Queue-refill dry dedup (no repeat out-of-items alerts) ====="; bash test_queue_refill_dry_dedup.sh || rc=1
+echo; echo "===== Park sweep (parked items relocated out of active flow) ====="; bash test_park_sweep.sh || rc=1
+echo; echo "===== Digest idle-message accuracy (no ambiguous idle-or-paused hedge) ====="; bash test_digest_idle_message.sh || rc=1
+echo; echo "===== Classify-fail model-api-error (no test-red mislabel) ====="; bash test_classify_fail.sh || rc=1
+echo; echo "===== Hygiene-stuck check (escalate persistent gate failures) ====="; bash test_hygiene_stuck_check.sh || rc=1
+echo; echo "===== Item-guard token cap (escalate on spend, not just cycle count) ====="; bash test_item_guard_token_cap.sh || rc=1
+echo; echo "===== Item-guard feat-tag churn (regeneration date-bump no longer resets the streak) ====="; bash test_item_guard_feattag_churn.sh || rc=1
+echo; echo "===== Item-guard streak isolation (per-(id,item_hash) state, not per-id) ====="; bash test_item_guard_streak_isolation.sh || rc=1
+echo; echo "===== Capstone escalation cap (stuck regression-check item no longer starves the T3-5 lane) ====="; bash test_capstone_escalation_cap.sh || rc=1
+echo; echo "===== Queue-refill pre-check (credit already-satisfied items) ====="; bash test_queue_refill_precheck.sh || rc=1
+echo; echo "===== Pipeline audit false-positive regressions (lock multi-PID, LiteLLM 401) ====="; bash test_pipeline_audit.sh || rc=1
+echo; echo "===== Pause-guard (stale deploy/stage-pause self-heal, manual-pause dedup) ====="; bash test_pause_guard.sh || rc=1
+echo; echo "===== GPU autoswap (contention guard, restart/health recovery) ====="; bash test_gpu_autoswap.sh || rc=1
+echo; echo "===== Fleet autofix (persistent-issue thresholds, dedup) ====="; bash test_fleet_autofix.sh || rc=1
+echo; echo "===== Lock-guard alert cooldown (fleet-autofix contention-alert dedup) ====="; bash test_lib_lock_cooldown.sh || rc=1
+echo; echo "===== Daily promote classification (promoted/blocked/no-change) ====="; bash test_daily_promote.sh || rc=1
+echo; echo "===== ovn_planner (backlog decomposition, malformed-response guard) ====="; bash test_ovn_planner.sh || rc=1
+echo; echo "===== ovn_prework (Claude briefing generation, no-clone/failure requeue) ====="; bash test_ovn_prework.sh || rc=1
+echo; echo "===== ovn_cycle_triage (per-cycle why-line, parked-item fallthrough) ====="; bash test_ovn_cycle_triage.sh || rc=1
+echo; echo "===== groom (backlog grooming proposals, stale-item detection) ====="; bash test_groom.sh || rc=1
+echo; echo "===== Park-sweep wrapper (hold/commit/push around the python sweep) ====="; bash test_park_sweep_wrapper.sh || rc=1
+echo; echo "===== Recover-parked (decompose retry, recovery-tag dedup) ====="; bash test_recover_parked.sh || rc=1
+echo; echo "===== T3 report (land-rate windows, fail-cause tally) ====="; bash test_t3_report.sh || rc=1
+echo; echo "===== Toks monitor: RETIRED 2026-09-26 (superseded by test_toks_monitor_regression.sh - the solo/contended design this tested never once fired a real solo sample in 3 weeks of production; see ovn_toks_monitor.sh header) ====="
+echo; echo "===== Legacy-log derivation (Phase 5 step 1: task_stats/cycle_summary derived FROM outcomes.jsonl, run alongside the real writers) ====="; bash test_derive_legacy_logs.sh || rc=1
+echo; echo "===== Test-watch emergency enqueue (dedup, lock respect) ====="; bash test_test_watch.sh || rc=1
+echo; echo "===== Cycle notify (digest bucketing, qualified-status fallthrough) ====="; bash test_cycle_notify.sh || rc=1
+echo; echo "===== Provision test envs (per-target status, real exit code) ====="; bash test_provision_test_envs.sh || rc=1
+echo; echo "===== Supervisor digest (findings routing, auto-recovery one-shot) ====="; bash test_supervisor.sh || rc=1
+echo; echo "===== run_all.sh meta-test (aggregation/exit-code correctness) ====="; bash test_run_all_meta.sh || rc=1
+echo; echo "===== Dedupe GD duplicate functions (annotation-safe removal) ====="; python3 test_dedupe_gd_duplicate_functions.py || rc=1
+echo; echo "===== Dedupe Python duplicate defs (decorator-safe removal) ====="; python3 test_dedupe_python_duplicate_defs.py || rc=1
+echo; echo "===== Dedupe progress headers (merge order, non-adjacent collapse) ====="; python3 test_dedupe_progress_headers.py || rc=1
+echo; echo "===== update_progress.py (DONE/NEW/DECISION trailer application) ====="; python3 test_update_progress.py || rc=1
+echo; echo "===== Git sync (auto-commit+push overnight-queue itself to shrike-ai-lab) ====="; bash test_git_sync.sh || rc=1
+echo; echo "===== Generate-items self-generation (T1 tagging) ====="; python3 test_generate_items.py || rc=1
+echo; echo "===== Queue health sweep (auto-recover starved repos, report dupes/already-done) ====="; bash test_queue_health_sweep.sh || rc=1
+echo; echo "===== Filesize retag (T1/T2 large-file items route to staged pipeline) ====="; python3 test_filesize_retag.py || rc=1
+echo; echo "===== Godot report (noise-filtered pass-rate windows) ====="; python3 test_godot_report.py || rc=1
+echo; echo "===== Redgreen net-new-file guard (no false [redgreen:SUSPECT] on new files) ====="; bash test_redgreen_net_new_file.sh || rc=1
+echo; echo "===== Stage scope guard (multifile:no rejects undeclared/junk files) ====="; bash test_stage_scope_guard.sh || rc=1
+echo; echo "===== Stage-routed task_stats.log write (ovn_stats.py stage-runner blind spot) ====="; bash test_stage_task_stats_write.sh || rc=1
+echo; echo "===== Feature groups (feat-tag + file-based approximate grouping, % complete) ====="; bash test_ovn_feature_groups.sh || rc=1
+echo; echo "===== Feature-complete watch (distinct completion push, no double-fire) ====="; bash test_ovn_feature_watch.sh || rc=1
+echo; echo "===== Hourly digest (lean 1h summary, silent when idle) ====="; bash test_hourly_notify.sh || rc=1
+echo; echo "===== Digest feature-progress section wiring ====="; bash test_digest_feature_section.sh || rc=1
+echo; echo "===== Digest no-op/reverted repeat-detail wiring ====="; bash test_digest_noop_detail.sh || rc=1
+echo; echo "===== Migration-safety gate bounded fix-up (zero-repair gap closed) ====="; bash test_migration_gate_fixup.sh || rc=1
+echo; echo "===== BUILD-GATE Kotlin diagnostic grounding (kotlinc file:line:col extraction) ====="; bash test_buildgate_kotlinc_grounding.sh || rc=1
+echo; echo "===== Android Gradle flavor-task disambiguation (ambiguous VERIFY command guard) ====="; bash test_gradle_flavor_guard.sh || rc=1
+echo; echo "===== Delete-hint prompt guidance (aider DELETE: trailer steering) ====="; bash test_delete_hint_prompt.sh || rc=1
+echo; echo "===== Research-batch scorecard (letter-grade distribution, D/F detail, no silent truncation) ====="; bash test_batch_scorecard.sh || rc=1
+echo; echo "===== Batch stragglers finder (chronically-F batch detection for open siblings) ====="; bash test_batch_stragglers.sh || rc=1
+echo; echo "===== Batch straggler parking (AUTO-SKIP low-grade handling, worktree-isolated) ====="; bash test_batch_park_stragglers.sh || rc=1
+echo; echo "===== Build-fix/Tier-2 fix-up file exclusion (no unbounded OVERNIGHT_PROGRESS.md context blowup) ====="; bash test_buildfix_exclude_progress_files.sh || rc=1
+echo; echo "===== Credit-verify shadow-check tool-path resolution (godot/pytest/venv self-heal) ====="; bash test_credit_verify_tool_paths.sh || rc=1
+echo; echo "===== Credit-verify enforce promotion (FAIL refuses credit, shadow-mode rollback preserved) ====="; bash test_credit_already_satisfied_enforce.sh || rc=1
+echo; echo "===== Credit-verify shadow-mode gate (pinned to shadow mode explicitly, was silently running in enforce) ====="; bash test_credit_verify_shadow.sh || rc=1
+echo; echo "===== Credit-already-satisfied recall fix (real missed already-done phrasings now credited) ====="; bash test_credit_already_satisfied_recall.sh || rc=1
+echo; echo "===== Backup-branch sweep (orphaned backup-diverged-* branch cleanup + escalating alert) ====="; bash test_backup_branch_sweep.sh || rc=1
+echo; echo "===== Multifile scope guard (multifile:no items never accumulate extra files, run_overnight.sh) ====="; bash test_multifile_scope_guard.sh || rc=1
+echo; echo "===== Toks-monitor rolling baseline (sustained-regression detection, not an unreachable solo gate) ====="; bash test_toks_monitor_regression.sh || rc=1
+echo; echo "===== Stale top item check (persisted first-seen clock, not git-blame-on-bulk-edit) ====="; bash test_stale_top_item_check.sh || rc=1
+echo; echo "===== Verify-skip guard (lock-contended .ovn-verify.sh no longer lands as an unverified pass) ====="; bash test_verify_skip_guard.sh || rc=1
+echo; echo "===== Scout file-fallback (empty FILE_ARGS resolves a named function to its real defining file) ====="; bash test_scout_file_fallback.sh || rc=1
+echo; echo "===== BUILD-GATE test-assertion exclusion (plain Gradle AssertionError no longer misclassified as a structural break) ====="; bash test_buildgate_test_assertion_exclusion.sh || rc=1
+echo; echo "===== Ongoing-lane deletion-hint fix (background lane top-item peek catches delete-shaped items the generic wrapper prompt hides) ====="; bash test_deletehint_ongoing_lane.sh || rc=1
+echo; echo "===== Alembic new-file stub (brand-new migration file no longer hits the silent unreliable-new-file-udiff no-op) ====="; bash test_alembic_new_file_stub.sh || rc=1
+echo; echo "===== Recover-parked alembic-migration-dropped guard (decomposition can't silently drop a schema item's migration step) ====="; bash test_alembic_migration_dropped_guard.sh || rc=1
+echo; echo "===== New-source-file stub (Alembic-only fix generalized: any brand-new gd/py/ts/tsx/vue/kt/swift file, not just Alembic migrations) ====="; bash test_new_source_file_stub.sh || rc=1
+echo; echo "===== Verify-direction existence-only check (cat:schema/cat:endpoint bare hasattr/is-not-None/import-only VERIFY, shadow-mode) ====="; bash test_verify_direction_existence_check.sh || rc=1
+echo; echo "===== Ungrounded-plan guard (PROCEED verdict with zero real file-shaped tokens skips implement instead of forcing a blind attempt) ====="; bash test_ungrounded_plan_guard.sh || rc=1
+echo; echo "===== Failure triage (cluster BAD outcomes by error signature; new-vs-fixed-then-regressed registry, --ack, --digest) ====="; python3 test_failure_triage.py || rc=1
+echo; echo "===== Failure triage: QA gate FAIL source (state/qa_shadow -> registry) ====="; python3 test_failure_triage_qa_gates.py || rc=1
+echo; echo "===== Planner decomposition grounding guard (drops Implement/Create of existing code, uncollected test dirs) ====="; python3 test_decomp_ground_guard.py || rc=1
+echo; echo "===== Failure-triage notifications (capped new-pattern digest section; exactly-once high-priority regression push; failed push kept pending) ====="; bash test_failure_triage_notify.sh || rc=1
+echo; echo "===== queue_refill dedup date-strip (regenerated [feat:] tag collapses onto its queued twin; siblings sharing a tag stay distinct) ====="; bash test_queue_refill_feattag_norm.sh || rc=1
+echo; echo "===== auto-research validator (format/dedupe/grounding gate before roadmap append) ====="; bash test_auto_research_validate.sh || rc=1
+echo; echo "===== planner single-instance lock (concurrent passes double-decomposed one feature) ====="; bash test_planner_single_instance.sh || rc=1
+echo; echo "===== supervisor recover-count grep never falls back to stdin (hung 35min under an open pipe) ====="; bash test_supervisor_no_stdin_hang.sh || rc=1
+echo; echo "===== credit target-path gate (no-VERIFY credits must have a sane target path) ====="; bash test_credit_path_gate.sh || rc=1
+echo; echo "===== reconcile post-merge sanity gate (clean merge that synthesizes a broken file is not pushed) ====="; bash test_reconcile_merge_sanity.sh || rc=1
+echo; echo "===== whitespace-only-line strip tool (semantics-preserving, python strings untouched) ====="; bash test_ws_strip.sh || rc=1
+echo; echo "===== delete executor (deterministic git rm for whole-file delete items) ====="; bash test_delete_executor.sh || rc=1
+echo; echo "===== alembic autogen hook (regenerates the missing migration for model drift) ====="; bash test_alembic_autogen.sh || rc=1
+echo; echo "===== record_outcome item_hash agrees with the shared ovn_item_hash (outcomes.jsonl hash joins the guard state-file key; date-bump regeneration keeps one identity) ====="; bash test_record_outcome_item_hash_agrees.sh || rc=1
+echo; echo "===== pytest-xdist guard (parallel flag only when repo allowlisted AND xdist importable; never breaks a venv without it) ====="; bash test_pytest_parallel_guard.sh || rc=1
+echo; echo "===== alembic_autogen_py ====="; bash test_alembic_autogen_py.sh || rc=1
+echo; echo "===== archive_done ====="; bash test_archive_done.sh || rc=1
+echo; echo "===== art_runner ====="; bash test_art_runner.sh || rc=1
+echo; echo "===== art_sh ====="; bash test_art_sh.sh || rc=1
+echo; echo "===== billwatch_summary_backfill ====="; bash test_billwatch_summary_backfill.sh || rc=1
+echo; echo "===== branch_hygiene_run ====="; bash test_branch_hygiene_run.sh || rc=1
+echo; echo "===== deploy_watch_run ====="; bash test_deploy_watch_run.sh || rc=1
+echo; echo "===== fix_backlog_paths ====="; bash test_fix_backlog_paths.sh || rc=1
+echo; echo "===== fleet_stats_py ====="; bash test_fleet_stats_py.sh || rc=1
+echo; echo "===== gitlark_control_consumer ====="; bash test_gitlark_control_consumer.sh || rc=1
+echo; echo "===== install_agents_md ====="; bash test_install_agents_md.sh || rc=1
+echo; echo "===== lib_worktree ====="; bash test_lib_worktree.sh || rc=1
+echo; echo "===== lib_worktree_paths ====="; bash test_lib_worktree_paths.sh || rc=1
+echo; echo "===== ovn_autotest_run ====="; bash test_ovn_autotest_run.sh || rc=1
+echo; echo "===== ovn_backlog_format_check ====="; bash test_ovn_backlog_format_check.sh || rc=1
+echo; echo "===== ovn_batch_scorecard ====="; bash test_ovn_batch_scorecard.sh || rc=1
+echo; echo "===== ovn_citation_check ====="; bash test_ovn_citation_check.sh || rc=1
+echo; echo "===== ovn_extract_failure ====="; bash test_ovn_extract_failure.sh || rc=1
+echo; echo "===== ovn_filesize_retag ====="; bash test_ovn_filesize_retag.sh || rc=1
+echo; echo "===== ovn_fleet_health_run ====="; bash test_ovn_fleet_health_run.sh || rc=1
+echo; echo "===== ovn_log_tokens ====="; bash test_ovn_log_tokens.sh || rc=1
+echo; echo "===== ovn_path_gate ====="; bash test_ovn_path_gate.sh || rc=1
+echo; echo "===== ovn_pipeline_audit_run ====="; bash test_ovn_pipeline_audit_run.sh || rc=1
+echo; echo "===== ovn_prioritize_tiers ====="; bash test_ovn_prioritize_tiers.sh || rc=1
+echo; echo "===== ovn_progress_slice ====="; bash test_ovn_progress_slice.sh || rc=1
+echo; echo "===== ovn_research_trigger_check ====="; bash test_ovn_research_trigger_check.sh || rc=1
+echo; echo "===== ovn_stage_runner_flow ====="; bash test_ovn_stage_runner_flow.sh || rc=1
+echo; echo "===== ovn_stage_runner_verify ====="; bash test_ovn_stage_runner_verify.sh || rc=1
+echo; echo "===== ovn_stage_stats ====="; bash test_ovn_stage_stats.sh || rc=1
+echo; echo "===== ovn_stage_sweep ====="; bash test_ovn_stage_sweep.sh || rc=1
+echo; echo "===== ovn_stale_top_item_check ====="; bash test_ovn_stale_top_item_check.sh || rc=1
+echo; echo "===== ovn_swift_retag ====="; bash test_ovn_swift_retag.sh || rc=1
+echo; echo "===== ovn_tag_items ====="; bash test_ovn_tag_items.sh || rc=1
+echo; echo "===== ovn_test_watch_run ====="; bash test_ovn_test_watch_run.sh || rc=1
+echo; echo "===== ovn_tier_stats_run ====="; bash test_ovn_tier_stats_run.sh || rc=1
+echo; echo "===== ovn_toks_monitor_run ====="; bash test_ovn_toks_monitor_run.sh || rc=1
+echo; echo "===== ovn_worktree_sweep ====="; bash test_ovn_worktree_sweep.sh || rc=1
+echo; echo "===== passrate_check ====="; bash test_passrate_check.sh || rc=1
+echo; echo "===== pipeline_lint ====="; bash test_pipeline_lint.sh || rc=1
+echo; echo "===== cron_scripts_executable ====="; bash test_cron_scripts_executable.sh || rc=1
+echo; echo "===== probe_tsc_cmd ====="; bash test_probe_tsc_cmd.sh || rc=1
+echo; echo "===== promote_to_prod_run ====="; bash test_promote_to_prod_run.sh || rc=1
+echo; echo "===== promote gate + release flow ====="; [ -f test_promote_gate.sh ] && { bash test_promote_gate.sh || rc=1; } || echo "  SKIP: test_promote_gate.sh missing"
+echo; echo "===== queue_health_full ====="; bash test_queue_health_full.sh || rc=1
+echo; echo "===== queue_refill_py_paths ====="; bash test_queue_refill_py_paths.sh || rc=1
+echo; echo "===== queue_sh_cli ====="; bash test_queue_sh_cli.sh || rc=1
+echo; echo "===== rebaseline_tsc ====="; bash test_rebaseline_tsc.sh || rc=1
+echo; echo "===== register_monitors ====="; bash test_register_monitors.sh || rc=1
+echo; echo "===== render_dashboard ====="; bash test_render_dashboard.sh || rc=1
+echo; echo "===== run_overnight_aider1_flow ====="; bash test_run_overnight_aider1_flow.sh || rc=1
+echo; echo "===== run_overnight_aider2_flow ====="; bash test_run_overnight_aider2_flow.sh || rc=1
+echo; echo "===== run_overnight_aider2_gates ====="; bash test_run_overnight_aider2_gates.sh || rc=1
+echo; echo "===== run_overnight_aider2_push ====="; bash test_run_overnight_aider2_push.sh || rc=1
+echo; echo "===== run_overnight_core_funcs ====="; bash test_run_overnight_core_funcs.sh || rc=1
+echo; echo "===== run_overnight_core_loop2 ====="; bash test_run_overnight_core_loop2.sh || rc=1
+echo; echo "===== run_overnight_core_main ====="; bash test_run_overnight_core_main.sh || rc=1
+echo; echo "===== paused restart storm (OVN_PAUSE_WAIT stays up, resumes on flag removal) ====="; bash test_pause_wait_restart_storm.sh || rc=1
+echo; echo "===== run_overnight_core_verify ====="; bash test_run_overnight_core_verify.sh || rc=1
+echo; echo "===== shrike_notify_lib ====="; bash test_shrike_notify_lib.sh || rc=1
+echo; echo "===== staging_smoke ====="; bash test_staging_smoke.sh || rc=1
+echo; echo "===== sync_branches ====="; bash test_sync_branches.sh || rc=1
+echo; echo "===== tree_guard ====="; bash test_tree_guard.sh || rc=1
+echo; echo "===== un_park ====="; bash test_un_park.sh || rc=1
+echo; echo "===== ovn coverage cron ====="; bash test_ovn_coverage_cron.sh || rc=1
+echo; echo "===== alembic autogen more w3d ====="; bash test_alembic_autogen_more_w3d.sh || rc=1
+echo; echo "===== art py more w3c ====="; bash test_art_py_more_w3c.sh || rc=1
+echo; echo "===== batch park stragglers more w3d ====="; bash test_batch_park_stragglers_more_w3d.sh || rc=1
+echo; echo "===== classify fail more w3b ====="; bash test_classify_fail_more_w3b.sh || rc=1
+echo; echo "===== credit tool paths real w3d ====="; bash test_credit_tool_paths_real_w3d.sh || rc=1
+echo; echo "===== cycle notify more paths ====="; bash test_cycle_notify_more_paths.sh || rc=1
+echo; echo "===== dedupe gd duplicate functions cov ====="; bash test_dedupe_gd_duplicate_functions_cov.sh || rc=1
+echo; echo "===== dedupe progress headers cov ====="; bash test_dedupe_progress_headers_cov.sh || rc=1
+echo; echo "===== dedupe python duplicate defs cov ====="; bash test_dedupe_python_duplicate_defs_cov.sh || rc=1
+echo; echo "===== digest notify more paths ====="; bash test_digest_notify_more_paths.sh || rc=1
+echo; echo "===== failure triage cov ====="; bash test_failure_triage_cov.sh || rc=1
+echo; echo "===== failure triage cron more w3d ====="; bash test_failure_triage_cron_more_w3d.sh || rc=1
+echo; echo "===== filesize retag cov ====="; bash test_filesize_retag_cov.sh || rc=1
+echo; echo "===== groom paused w3d ====="; bash test_groom_paused_w3d.sh || rc=1
+echo; echo "===== hourly notify more paths ====="; bash test_hourly_notify_more_paths.sh || rc=1
+echo; echo "===== item guard nolib w3d ====="; bash test_item_guard_nolib_w3d.sh || rc=1
+echo; echo "===== lib path normalize more w3d ====="; bash test_lib_path_normalize_more_w3d.sh || rc=1
+echo; echo "===== outcome buckets cov ====="; bash test_outcome_buckets_cov.sh || rc=1
+echo; echo "===== ovn alembic generate more w3c ====="; bash test_ovn_alembic_generate_more_w3c.sh || rc=1
+echo; echo "===== ovn failure triage more w3c ====="; bash test_ovn_failure_triage_more_w3c.sh || rc=1
+echo; echo "===== ovn feature groups more w3c ====="; bash test_ovn_feature_groups_more_w3c.sh || rc=1
+echo; echo "===== ovn misc py more w3c ====="; bash test_ovn_misc_py_more_w3c.sh || rc=1
+echo; echo "===== ovn planner more w3d ====="; bash test_ovn_planner_more_w3d.sh || rc=1
+echo; echo "===== ovn reports py more w3c ====="; bash test_ovn_reports_py_more_w3c.sh || rc=1
+echo; echo "===== ovn stats more w3c ====="; bash test_ovn_stats_more_w3c.sh || rc=1
+echo; echo "===== queue refill more w3b ====="; bash test_queue_refill_more_w3b.sh || rc=1
+echo; echo "===== reconcile branches more w3b ====="; bash test_reconcile_branches_more_w3b.sh || rc=1
+echo; echo "===== recover parked more w3b ====="; bash test_recover_parked_more_w3b.sh || rc=1
+echo; echo "===== small py more cov ====="; bash test_small_py_more_cov.sh || rc=1
+echo; echo "===== small py more w3c ====="; bash test_small_py_more_w3c.sh || rc=1
+echo; echo "===== small py more w3cb ====="; bash test_small_py_more_w3cb.sh || rc=1
+echo; echo "===== supervisor more w3b ====="; bash test_supervisor_more_w3b.sh || rc=1
+echo; echo "===== tsc gate more w3d ====="; bash test_tsc_gate_more_w3d.sh || rc=1
+echo; echo "===== update progress cov ====="; bash test_update_progress_cov.sh || rc=1
+echo; echo "===== verify direction check more w3b ====="; bash test_verify_direction_check_more_w3b.sh || rc=1
+echo; echo "===== work summary more cov ====="; bash test_work_summary_more_cov.sh || rc=1
+echo; echo "===== ntfy guard ====="; bash test_ntfy_guard.sh || rc=1
+echo; echo "===== verify fail closed ====="; bash test_verify_fail_closed.sh || rc=1
+echo; echo "===== ovn notify ====="; bash test_ovn_notify.sh || rc=1
+echo; echo "===== retired filter ====="; bash test_retired_filter.sh || rc=1
+echo; echo "===== park unworkable ====="; bash test_park_unworkable.sh || rc=1
+echo; echo "===== vercel state check ====="; bash test_vercel_state_check.sh || rc=1
+echo; echo "===== deploy_health runs ====="; bash test_deploy_health_runs.sh || rc=1
+echo; echo "===== GUT report green check (root failures) ====="; bash test_gut_xml.sh || rc=1
+echo; echo "===== autotest base-sha (in-loop test feedback) ====="; bash test_autotest_basesha.sh || rc=1
+echo; echo "===== stage scope guard lists new files (-uall) ====="; bash test_stage_scope_uall.sh || rc=1
+echo; echo "===== Tier-2 fix-up direction (own test vs source broke green) ====="; bash test_fixup_direction.sh || rc=1
+echo; echo "===== QA common library + replay ====="; python3 test_qa_common.py || rc=1
+echo; echo "===== QA shadow runner ====="; bash test_qa_run_shadow.sh || rc=1
+echo; echo "===== hygiene -> QA shadow hook ====="; bash test_hygiene_qa_hook.sh || rc=1
+echo; echo "===== git identity guard (fixture local identity t<t@t> removed) ====="; bash test_identity_guard.sh || rc=1
+echo; echo "===== QA enforcement plumbing (pre-push gate enforcement, flip file, deadlock-safe block) ====="; bash test_hygiene_enforce.sh || rc=1
+echo; echo "===== QA-blocked repos escalate via the hygiene-stuck check ====="; bash test_qa_blocked_stuck.sh || rc=1
+echo; echo "===== QA mode switch ====="; bash test_qa_mode.sh || rc=1
+echo; echo "===== QA gold set G9 (dep-removal replay) ====="; bash test_qa_gold_g9.sh || rc=1
+echo; echo "===== QA manual notes loop ====="; python3 test_qa_manual_notes.py || rc=1
+echo; echo "===== QA locator v2 (platform, agentic, hung-model budget) ====="; python3 test_qa_locator_v2.py || rc=1
+echo; echo "===== QA gate: acceptance card lint ====="; python3 test_qa_acceptance.py || rc=1
+echo; echo "===== QA gate: S0 card pilot (shadow run, caps, idle check, report, mutants) ====="; python3 test_qa_card_pilot.py || rc=1
+echo; echo "===== QA gate: S0 card pilot - S2 credit shadow hook ====="; bash test_qa_card_pilot.sh || rc=1
+echo; echo "===== QA gate: anti-gaming diff ====="; python3 test_qa_antigaming.py || rc=1
+echo; echo "===== QA gate: scanners ====="; python3 test_qa_scanners.py || rc=1
+echo; echo "===== QA gate: baseline-relative verify ====="; python3 test_qa_baseline.py || rc=1
+echo; echo "===== QA gate: baseline-relative verify - staged-runner SHADOW hook ====="; bash test_baseline_shadow_hook.sh || rc=1
+echo; echo "===== QA gate: baseline-relative verify - refresh cron ====="; bash test_baseline_refresh_cron.sh || rc=1
+echo; echo "===== QA gate: baseline refresh repo coverage + layouts ====="; python3 test_qa_baseline_refresh_repos.py || rc=1
+echo; echo "===== QA gate: release candidate + staging ====="; python3 test_qa_release.py || rc=1
+echo; echo "===== QA: escape ledger + scorecard ====="; bash test_qa_ledger.sh || rc=1
+echo; echo "===== QA: Phase 0 exit + precondition report (read-only) ====="; bash test_qa_phase0_report.sh || rc=1
+echo; echo "===== scout guard ====="; bash test_scout_guard.sh || rc=1
+echo; echo "===== schema budget ====="; bash test_schema_budget.sh || rc=1
+echo; echo "===== harness Y: schema-budget drift cap + repeat circuit-breaker, scout grounding, model/API-error classifier ====="; bash test_harness_y.sh || rc=1
+echo; echo "===== harness Y4: unverified staged run -> outcome row ====="; bash test_harness_y_stage.sh || rc=1
+echo; echo "===== Alembic autogen WIRING (hook runs after implement/before verify in run_overnight + staged runner, iptv_apps default-on, T2 sibling credit, revert drops generated migration) ====="; bash test_alembic_autogen_wiring.sh || rc=1
+echo; echo "===== Alembic autogen H6 follow-ups (deterministic drop/alter refusals, credit never covers data work, op names in commit+log, STEP B data-loss warning) ====="; bash test_alembic_autogen_h6b.sh || rc=1
+echo; echo "===== Alembic autogen inside the REAL staged runner, end to end (hermetic fixture: generate, verify+push together, credit, no duplicate, discard on red) ====="; bash test_ovn_stage_runner_alembic.sh || rc=1
+echo; echo "===== harness X: auto credit gate (exact path, VERIFY must pass, clean tree) ====="; if [ -f test_auto_credit_gate.sh ]; then bash test_auto_credit_gate.sh || rc=1; else echo "  skip (test_auto_credit_gate.sh not present)"; fi
+echo; echo "===== harness X: fixup prompt facts ====="; if [ -f test_fixup_prompt_facts.sh ]; then bash test_fixup_prompt_facts.sh || rc=1; else echo "  skip (test_fixup_prompt_facts.sh not present)"; fi
+echo; echo "===== harness X: redgreen restore ====="; if [ -f test_redgreen_restore.sh ]; then bash test_redgreen_restore.sh || rc=1; else echo "  skip (test_redgreen_restore.sh not present)"; fi
+echo; echo "===== harness X2: auto-credit VERIFY timeouts, stdin, tree-guard allowlist, item-guard indeterminate ====="; if [ -f test_auto_credit_indeterminate.sh ]; then bash test_auto_credit_indeterminate.sh || rc=1; else echo "  skip (test_auto_credit_indeterminate.sh not present)"; fi
+echo; echo "===== harness X3: CI-mode VERIFY, noglob benign matcher, bounded indeterminate landings, no output tail in alerts ====="; if [ -f test_auto_credit_h9x3.sh ]; then bash test_auto_credit_h9x3.sh || rc=1; else echo "  skip (test_auto_credit_h9x3.sh not present)"; fi
+echo; echo "===== harness X2 e2e: indeterminate VERIFY through the real runner + item guard ====="; if [ -f test_auto_credit_indeterminate_e2e.sh ]; then bash test_auto_credit_indeterminate_e2e.sh || rc=1; else echo "  skip (test_auto_credit_indeterminate_e2e.sh not present)"; fi
+echo; echo "===== QA gate: migrations + OpenAPI (S6; real postgres:16 where docker + a repo venv exist, SKIPs loudly otherwise) ====="; bash test_qa_migrations.sh || rc=1
+echo; echo "===== QA: S11 Android device lane (hermetic, stub emulator only) ====="; bash test_qa_devicelane.sh || rc=1
+echo; echo "===== QA gate: advisory Qwen reviewer + refuter (stub model) + label CLI ====="; if [ -f test_qa_reviewer.py ]; then python3 test_qa_reviewer.py || rc=1; else echo "  skip (test_qa_reviewer.py not present)"; fi
+echo; echo "===== Bugs-first (2026-10-02): selection order + lane focus + attempt cap/escalation (real guard) + staged-runner pick ====="; if [ -f test_bug_first_select.sh ]; then bash test_bug_first_select.sh || rc=1; else echo "  skip (test_bug_first_select.sh not present)"; fi
+echo; echo "===== Bugs-first (2026-10-02): run_overnight.sh wiring end to end (scout slice, best-of-N cap, guard attempts, escalation through the real loop) ====="; if [ -f test_bug_first_loop.sh ]; then bash test_bug_first_loop.sh || rc=1; else echo "  skip (test_bug_first_loop.sh not present)"; fi
+echo; echo "===== Bugs-first review fixes (2026-10-02): the real stage runner park blocks, guard 'bug-handled', sweep .gd exemption ====="; if [ -f test_bug_first_stage.sh ]; then bash test_bug_first_stage.sh || rc=1; else echo "  skip (test_bug_first_stage.sh not present)"; fi
+echo; echo "===== Bugs-first (2026-10-02): status vocabulary + retest loop (ingest retest, qa-retest, bridge, qa-status) ====="; if [ -f test_qa_retest.py ]; then python3 test_qa_retest.py || rc=1; else echo "  skip (test_qa_retest.py not present)"; fi
+echo; echo "===== QA: bug brief (research -> plan -> mechanical validation -> red proof -> test-first items; stub model, fake pytest, env -i) ====="; if [ -f test_qa_bug_brief.py ]; then python3 test_qa_bug_brief.py || rc=1; else echo "  skip (test_qa_bug_brief.py not present)"; fi
+echo; echo "===== landing gates ====="; bash test_landing_gates.sh || rc=1
+echo; echo "===== run integrity e2e ====="; bash test_run_integrity_e2e.sh || rc=1
+echo; echo "===== run integrity lib ====="; bash test_run_integrity_lib.sh || rc=1
+echo; echo "===== run integrity sweep ====="; bash test_run_integrity_sweep.sh || rc=1
+echo; echo "===== promote alerting ====="; bash test_promote_alerting.sh || rc=1
+echo; echo "===== Bug pipeline hygiene (2026-10-03): bridge harvests [bug-escalated] + same-file bug signatures (real bridge.sh, stub ssh) ====="; python3 test_bridge_bug_harvest.py || rc=1
+echo; echo "===== Bug pipeline hygiene (2026-10-03): 'fixed' needs evidence, close/reopen, Fixes-manual-bug trailer ====="; python3 test_manual_notes_h11.py || rc=1
+echo; echo "===== bug ground stage ====="; bash test_bug_ground_stage.sh || rc=1
+echo; echo "===== qa h11 gates ====="; bash test_qa_h11_gates.sh || rc=1
+echo; echo "===== observability ====="; bash test_observability.sh || rc=1
+echo; echo "===== gut skips note ====="; bash test_gut_skips_note.sh || rc=1
+echo; echo "===== auto research cooldown ====="; bash test_auto_research_cooldown.sh || rc=1
+echo; echo "===== new tests lib ====="; bash test_new_tests_lib.sh || rc=1
+echo; echo "===== stage runner new tests (e2e) ====="; bash test_stage_new_tests.sh || rc=1
+echo; echo "===== qa ag h13 ====="; bash test_qa_ag_h13.sh || rc=1
+echo; echo "===== test collect canary ====="; bash test_test_collect_canary.sh || rc=1
+echo; echo "===== h13 delete already gone ====="; bash test_h13_delete_already_gone.sh || rc=1
+echo; echo "===== h13 landing check ====="; bash test_h13_landing_check.sh || rc=1
+echo; echo "===== h13 park guards ====="; bash test_h13_park_guards.sh || rc=1
+echo; echo "===== h13 ungrounded classify ====="; bash test_h13_ungrounded_classify.sh || rc=1
+echo; echo "===== ovn churn guard ====="; bash test_ovn_churn_guard.sh || rc=1
+echo; echo "===== ovn local research ====="; bash test_ovn_local_research.sh || rc=1
+echo; echo "===== ovn work supply + spec check ====="; bash test_ovn_work_supply.sh || rc=1
+echo; echo "===== qa block watch (self-heal / loud stall) ====="; bash test_qa_block_watch.sh || rc=1
+echo; echo "===== queue_refill relocates uncollected new tests ====="; bash test_queue_refill_relocate_tests.sh || rc=1
+echo; echo "===== fix_router_limiters codemod ====="; python3 test_fix_router_limiters.py || rc=1
+echo; echo "===== stage zero retry ====="; bash test_stage_zero_retry.sh || rc=1
+echo; echo "===== aider attempt verdict ====="; bash test_aider_attempt_verdict.sh || rc=1
+echo; echo "===== auto research lock ====="; bash test_auto_research_lock.sh || rc=1
+echo; echo "===== auto research roundrobin ====="; bash test_auto_research_roundrobin.sh || rc=1
+echo; echo "===== autotest godot baseline ====="; bash test_autotest_godot_baseline.sh || rc=1
+echo; echo "===== autotest predicate ====="; bash test_autotest_predicate.sh || rc=1
+echo; echo "===== backlog eligibility ====="; bash test_backlog_eligibility.sh || rc=1
+echo; echo "===== churn remove restore ====="; bash test_churn_remove_restore.sh || rc=1
+echo; echo "===== coverage cron noise ====="; bash test_coverage_cron_noise.sh || rc=1
+echo; echo "===== credit refused park ====="; bash test_credit_refused_park.sh || rc=1
+echo; echo "===== delete intent ====="; bash test_delete_intent.sh || rc=1
+echo; echo "===== evidence freshness ====="; bash test_evidence_freshness.sh || rc=1
+echo; echo "===== executor hook ====="; bash test_executor_hook.sh || rc=1
+echo; echo "===== fixup gates e2e ====="; bash test_fixup_gates_e2e.sh || rc=1
+echo; echo "===== fixup own test placeholder ====="; bash test_fixup_own_test_placeholder.sh || rc=1
+echo; echo "===== fixup undid item ====="; bash test_fixup_undid_item.sh || rc=1
+echo; echo "===== fixup undo ws (shadow) ====="; bash test_fixup_undo_ws.sh || rc=1
+echo; echo "===== git sync failure ====="; bash test_git_sync_failure.sh || rc=1
+echo; echo "===== git sync size guard (no push of a >90 MB blob; GitHub rejects >100 MB) ====="; run_or_notrun test_git_sync_size_guard.sh
+echo; echo "===== live-repo guard (a test subshell that lost its cd must never commit into the live repo) ====="; bash test_live_repo_guard.sh || rc=1
+echo; echo "===== gut error ratchet ====="; bash test_gut_error_ratchet.sh || rc=1
+echo; echo "===== gut missing target ====="; bash test_gut_missing_target.sh || rc=1
+echo; echo "===== idle skip dedupe ====="; bash test_idle_skip_dedupe.sh || rc=1
+echo; echo "===== item guard stage billing ====="; bash test_item_guard_stage_billing.sh || rc=1
+echo; echo "===== landed uncredited ====="; bash test_landed_uncredited.sh || rc=1
+echo; echo "===== lint coverage delta ====="; bash test_lint_coverage_delta.sh || rc=1
+echo; echo "===== local research covered ====="; bash test_local_research_covered.sh || rc=1
+echo; echo "===== notify idle lane ====="; bash test_notify_idle_lane.sh || rc=1
+echo; echo "===== ovn doc executor ====="; bash test_ovn_doc_executor.sh || rc=1
+echo; echo "===== ovn ghost tests ====="; bash test_ovn_ghost_tests.sh || rc=1
+echo; echo "===== ovn mutation supply ====="; bash test_ovn_mutation_supply.sh || rc=1
+echo; echo "===== ovn spec classify ====="; bash test_ovn_spec_classify.sh || rc=1
+echo; echo "===== ovn spec gate scan ====="; bash test_ovn_spec_gate_scan.sh || rc=1
+echo; echo "===== ovn spec rules ====="; bash test_ovn_spec_rules.sh || rc=1
+echo; echo "===== parked pattern ====="; bash test_parked_pattern.sh || rc=1
+echo; echo "===== path normalize big list ====="; bash test_path_normalize_big_list.sh || rc=1
+echo; echo "===== pipeline audit restart gap ====="; bash test_pipeline_audit_restart_gap.sh || rc=1
+echo; echo "===== planner prompt golden ====="; bash test_planner_prompt_golden.sh || rc=1
+echo; echo "===== promote tree identical ====="; bash test_promote_tree_identical.sh || rc=1
+echo; echo "===== qa ledger uncredited ====="; bash test_qa_ledger_uncredited.sh || rc=1
+echo; echo "===== qa staging e2e ====="; bash test_qa_staging_e2e.sh || rc=1
+echo; echo "===== qa railway retry (2026-10-14: 120 s retry on timeout, cached link) ====="; python3 test_qa_railway_retry.py || rc=1
+echo; echo "===== queue refill gate ====="; bash test_queue_refill_gate.sh || rc=1
+echo; echo "===== research trigger monotonic ====="; bash test_research_trigger_monotonic.sh || rc=1
+echo; echo "===== retire vague uid ====="; bash test_retire_vague_uid.sh || rc=1
+echo; echo "===== stage godot seed ====="; bash test_stage_godot_seed.sh || rc=1
+echo; echo "===== r10: bare verify fallback ====="; bash test_bare_verify_fallback.sh || rc=1
+echo; echo "===== r10: boot notes ====="; bash test_boot_notes.sh || rc=1
+echo; echo "===== r10: box deadman ====="; bash test_box_deadman.sh || rc=1
+echo; echo "===== r10: buildgate godot runtime scope ====="; bash test_buildgate_godot_runtime_scope.sh || rc=1
+echo; echo "===== r10: contract fuzz auth ====="; python3 test_contract_fuzz_auth.py || rc=1
+echo; echo "===== r10: cov copy measure ====="; bash test_cov_copy_measure.sh || rc=1
+echo; echo "===== r10: cron r10 ====="; bash test_cron_r10.sh || rc=1
+echo; echo "===== r10: cron r10 edit safe ====="; bash test_cron_r10_edit_safe.sh || rc=1
+echo; echo "===== r10: docexec supply gate ====="; bash test_docexec_supply_gate.sh || rc=1
+echo; echo "===== r10: docexec wiring ====="; bash test_docexec_wiring.sh || rc=1
+echo; echo "===== r10: executor ctl ====="; bash test_executor_ctl.sh || rc=1
+echo; echo "===== r10: executor shadow log ====="; bash test_executor_shadow_log.sh || rc=1
+echo; echo "===== r10: fixup gutskip r10 ====="; bash test_fixup_gutskip_r10.sh || rc=1
+echo; echo "===== r10: gitignore live dir ====="; bash test_gitignore_live_dir.sh || rc=1
+echo; echo "===== r10: gut ignored scripts r10 ====="; bash test_gut_ignored_scripts_r10.sh || rc=1
+echo; echo "===== r10: hygiene gate cap ====="; bash test_hygiene_gate_cap.sh || rc=1
+echo; echo "===== r10: implement credit api error ====="; bash test_implement_credit_api_error.sh || rc=1
+echo; echo "===== r10: iptv daily verify patch ====="; bash test_iptv_daily_verify_patch.sh || rc=1
+echo; echo "===== r10: lint comm sort ====="; bash test_lint_comm_sort.sh || rc=1
+echo; echo "===== r10: netzero and supply recheck ====="; bash test_netzero_and_supply_recheck.sh || rc=1
+echo; echo "===== xlite review 10-17: comment-only landing guard ====="; bash test_comment_only_guard.sh || rc=1
+echo; echo "===== r10: outcome attribution strict ====="; bash test_outcome_attribution_strict.sh || rc=1
+echo; echo "===== r10: ovn doc postcheck ====="; bash test_ovn_doc_postcheck.sh || rc=1
+echo; echo "===== r10: ovn failure ack candidates ====="; bash test_ovn_failure_ack_candidates.sh || rc=1
+echo; echo "===== r10: ovn log cap ====="; bash test_ovn_log_cap.sh || rc=1
+echo; echo "===== r10: ovn mutation scan term ====="; bash test_ovn_mutation_scan_term.sh || rc=1
+echo; echo "===== r10: ovn supply r10 ====="; bash test_ovn_supply_r10.sh || rc=1
+echo; echo "===== relocate backend/tests layout (TAA ghost root tests, 2026-10-18) ====="; bash test_relocate_backend_tests.sh || rc=1
+echo; echo "===== r10: ovn work supply filter ====="; bash test_ovn_work_supply_filter.sh || rc=1
+echo; echo "===== r10: prod alembic snapshot ====="; bash test_prod_alembic_snapshot.sh || rc=1
+echo; echo "===== r10: qa antigaming r10 ====="; bash test_qa_antigaming_r10.sh || rc=1
+echo; echo "===== r10: qa baseline gut ====="; python3 test_qa_baseline_gut.py || rc=1
+echo; echo "===== r10: qa block watch r10 ====="; bash test_qa_block_watch_r10.sh || rc=1
+echo; echo "===== r10: qa enforce subkeys r10 ====="; bash test_qa_enforce_subkeys_r10.sh || rc=1
+echo; echo "===== r10: qa gate gdparse ====="; python3 test_qa_gate_gdparse.py || rc=1
+echo; echo "===== r10: qa label ====="; python3 test_qa_label.py || rc=1
+echo; echo "===== r10: queue refill log ratelimit ====="; bash test_queue_refill_log_ratelimit.sh || rc=1
+echo; echo "===== r10: skip visibility ====="; bash test_skip_visibility.sh || rc=1
+echo; echo "===== r10: spec r10 defaults ====="; bash test_spec_r10_defaults.sh || rc=1
+echo; echo "===== r10: ssh guard ====="; bash test_ssh_guard.sh || rc=1
+echo; echo "===== r10: stage helper hint r10 ====="; bash test_stage_helper_hint_r10.sh || rc=1
+echo; echo "===== r10: stage runner no edit ====="; bash test_stage_runner_no_edit.sh || rc=1
+echo; echo "===== r10: wait litellm dropin ====="; bash test_wait_litellm_dropin.sh || rc=1
+echo; echo "===== r11: credit only class ====="; bash test_credit_only_class.sh || rc=1
+echo; echo "===== r11: cron r11 doc ====="; bash test_cron_r11_doc.sh || rc=1
+echo; echo "===== r11: delplan ====="; bash test_delplan.sh || rc=1
+echo; echo "===== r11: delplan move hook ====="; bash test_delplan_move_hook.sh || rc=1
+echo; echo "===== r11: delplan planner ====="; bash test_delplan_planner.sh || rc=1
+echo; echo "===== r11: gutparity r11 hygiene ====="; bash test_gutparity_r11_hygiene.sh || rc=1
+echo; echo "===== r11: gutparity r11 lib ====="; bash test_gutparity_r11_lib.sh || rc=1
+echo; echo "===== r11: gutparity r11 verify ====="; bash test_gutparity_r11_verify.sh || rc=1
+echo; echo "===== r11: ovn daily fail digest ====="; python3 test_ovn_daily_fail_digest.py || rc=1
+echo; echo "===== r11: roadmap floor alert ====="; bash test_roadmap_floor_alert.sh || rc=1
+echo; echo "===== r11: state guard r11 ====="; bash test_state_guard_r11.sh || rc=1
+echo; echo "===== r11: stub guard ====="; bash test_stub_guard.sh || rc=1
+echo; echo "===== r11: stub guard e2e ====="; bash test_stub_guard_e2e.sh || rc=1
+echo; echo "===== r11: stub leak hygiene ====="; bash test_stub_leak_hygiene.sh || rc=1
+echo; echo "===== r11: walltime markers ====="; bash test_walltime_markers.sh || rc=1
+echo; echo "===== r11: walltime alert split (timeout share named apart from passing verify time) ====="; python3 test_walltime_alert_split.py || rc=1
+echo; echo "===== r16: classify fail noedit r14 ====="; bash test_classify_fail_noedit_r14.sh || rc=1
+echo; echo "===== classify fail: verify-timeout (rc=124 reverted-red) ====="; bash test_classify_verify_timeout.sh || rc=1
+echo; echo "===== verify: python without pytest is UNRUNNABLE, not FAIL ====="; bash test_verify_missing_pytest_unrunnable.sh || rc=1
+echo; echo "===== r16: gut clause r16 ====="; bash test_gut_clause_r16.sh || rc=1
+echo; echo "===== r16: progress merge ====="; python3 test_progress_merge.py || rc=1
+echo; echo "===== r16: progress merge git ====="; bash test_progress_merge_git.sh || rc=1
+echo; echo "===== r16: progress merge hygiene ====="; bash test_progress_merge_hygiene.sh || rc=1
+echo; echo "===== r16: progress merge reconcile ====="; bash test_progress_merge_reconcile.sh || rc=1
+echo; echo "===== r16: twin credit dedupe ====="; bash test_twin_credit_dedupe.sh || rc=1
+echo; echo "===== r16: uid sidecars ====="; bash test_uid_sidecars.sh || rc=1
+echo; echo "===== r16: uidcredit r12 guards ====="; bash test_uidcredit_r12_guards.sh || rc=1
+echo; echo "===== r16: verify audit ====="; bash test_verify_audit.sh || rc=1
+echo; echo "===== r16: verify polarity ====="; bash test_verify_polarity.sh || rc=1
+echo; echo "===== r16: verify polarity shadow ====="; bash test_verify_polarity_shadow.sh || rc=1
+echo; echo "===== r18: verify echo verdict ====="; bash test_verify_echo_verdict.sh || rc=1
+echo; echo "===== r16: verify safe ====="; bash test_verify_safe.sh || rc=1
+echo; echo "===== r17: chronic alert n2 ====="; bash test_chronic_alert_n2.sh || rc=1
+echo; echo "===== r17: create exists shortcircuit ====="; bash test_create_exists_shortcircuit.sh || rc=1
+echo; echo "===== r17: fleet review ops ====="; bash test_fleet_review_ops.sh || rc=1
+echo; echo "===== r17: gut cycle subdirs gate ====="; bash test_gut_cycle_subdirs_gate.sh || rc=1
+echo; echo "===== r17: hygiene gut keep n2 ====="; bash test_hygiene_gut_keep_n2.sh || rc=1
+echo; echo "===== r17: idle growth retention ====="; bash test_idle_growth_retention.sh || rc=1
+echo; echo "===== r17: intake digest ====="; bash test_intake_digest.sh || rc=1
+echo; echo "===== r17: intake lineage scope ====="; bash test_intake_lineage_scope.sh || rc=1
+echo; echo "===== r17: intake park scope ====="; bash test_intake_park_scope.sh || rc=1
+echo; echo "===== r17: intake recover parked ====="; bash test_intake_recover_parked.sh || rc=1
+echo; echo "===== r17: intake unpark ====="; bash test_intake_unpark.sh || rc=1
+echo; echo "===== r17: intake verify lint ====="; bash test_intake_verify_lint.sh || rc=1
+echo; echo "===== r17: intake verify shadow ====="; bash test_intake_verify_shadow.sh || rc=1
+echo; echo "===== r17: qa antigaming n2 ====="; bash test_qa_antigaming_n2.sh || rc=1
+echo; echo "===== r17: qa enforce subkeys n2 ====="; bash test_qa_enforce_subkeys_n2.sh || rc=1
+echo; echo "===== r17: qa replay merges n2 ====="; bash test_qa_replay_merges_n2.sh || rc=1
+echo; echo "===== r17: stage guards runner ====="; bash test_stage_guards_runner.sh || rc=1
+echo; echo "===== 2026-10-18 xlite audit: text-probe item VERIFY enforced + litellm context-overflow regex ====="; bash test_stage_item_verify_textonly.sh || rc=1; bash test_stage_ctx_exceeded.sh || rc=1
+echo; echo "===== stage layout + item-verify venv ====="; bash test_stage_layout_and_item_verify_venv.sh || rc=1
+echo; echo "===== r17: stub guard newdir n2 ====="; bash test_stub_guard_newdir_n2.sh || rc=1
+echo; echo "===== r17: stub leak alert n2 ====="; bash test_stub_leak_alert_n2.sh || rc=1
+echo; echo "===== r17: udiff unanchored ====="; bash test_udiff_unanchored.sh || rc=1
+echo; echo "===== udiff python docstring/re-declaration misplacement (any file size) ====="; bash test_udiff_py_misplacement.sh || rc=1
+echo; echo "===== r17: verify polarity compound shadow ====="; bash test_verify_polarity_compound_shadow.sh || rc=1
+echo; echo "===== r17: stage guards ====="; python3 test_stage_guards.py || rc=1
+echo; echo "===== r17: verify polarity compound ====="; python3 test_verify_polarity_compound.py || rc=1
+echo; echo "===== hygiene infra-skip (host-storage exhaustion is not a red gate) ====="; run_or_notrun test_hygiene_infra_skip.sh
+echo; echo "===== reconcile LLM resolve gate (LLM-assisted conflict resolve + real gate) ====="; bash test_reconcile_llm_resolve_gate.sh || rc=1
+echo; echo "===== reconcile unknown-rc alerts ====="; bash test_reconcile_unknown_rc_alerts.sh || rc=1
+echo; echo "===== auto-credit lockfile ====="; run_or_notrun test_auto_credit_lockfile.sh
+echo; echo "===== verify.py root ====="; bash test_verify_py_root.sh || rc=1
+echo; echo "===== auto-research escalate ====="; bash test_auto_research_escalate.sh || rc=1
+echo; echo "===== supply ledger ====="; bash test_supply_ledger.sh || rc=1
+echo; echo "===== supply ledger (py) ====="; python3 test_supply_ledger.py || rc=1
+echo; echo "===== qa mutation spike ====="; python3 test_qa_spike_mutation.py || rc=1
+echo; echo "===== S7 gate_mutation (per-range mutation advisory, daily-only, shadow; with failure-injection mutants) ====="; bash test_qa_gate_mutation.sh || rc=1
+echo; echo "===== S8 qa_gate_precision (reviewer label bar + monthly verdict-rule table; with mutants) ====="; bash test_qa_gate_precision.sh || rc=1
+echo; echo "===== spec gate repos ====="; bash test_spec_gate_repos.sh || rc=1
+echo; echo "===== spec rule R18 ====="; bash test_spec_rule_r18.sh || rc=1
+echo; echo "===== spec rule R19 ====="; bash test_spec_rule_r19.sh || rc=1
+echo; echo "===== spec rules R01x ====="; bash test_spec_rules_r01x.sh || rc=1
+echo; echo "===== stage empty file ====="; bash test_stage_empty_file.sh || rc=1
+echo; echo "===== stage file feed ====="; run_or_notrun test_stage_file_feed.sh
+echo; echo "===== stage retry signature ====="; run_or_notrun test_stage_retry_signature.sh
+echo; echo "===== stage scope learn ====="; bash test_stage_scope_learn.sh || rc=1
+echo; echo "===== stage verify-only shadow ====="; bash test_stage_verifyonly_shadow.sh || rc=1
+echo; echo "===== stage precredit (D2) ====="; bash test_stage_precredit.sh || rc=1
+echo; echo "===== qwen explore (explorer; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_explore.sh || rc=1
+echo; echo "===== qwen explore hook ====="; bash test_qwen_explore_hook.sh || rc=1
+echo; echo "===== qwen critic (second-opinion stage; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_critic.sh || rc=1
+echo; echo "===== NOT RUN exit codes (unrunnable suites are reported, never green) ====="; bash test_suite_notrun_exit.sh || rc=1
+echo; [ $NOTRUN -gt 0 ] && echo "⚠️  $NOTRUN suite(s) NOT RUN on this host (see ** NOT RUN lines above) - not verified"
+# 2026-10-15: these suites used to sit INSIDE finish() (after its rc check), so a failure among them printed ALL QUEUE TESTS PASS. They run here, before the verdict.
+echo; echo "===== ovn outcome gap ====="; bash test_ovn_outcome_gap.sh || rc=1
+echo; echo "===== queue pause idempotent ====="; bash test_queue_pause_idempotent.sh || rc=1
+echo; echo "===== stage credit claim ====="; bash test_stage_credit_claim.sh || rc=1
+echo; echo "===== verify malformed ====="; bash test_verify_malformed.sh || rc=1
+echo; echo "===== tmp leak attribution ====="; bash test_tmp_leak_attribution.sh || rc=1
+echo; echo "===== N4: tmp isolation (single-flight, private TMPDIR, cleanup, leak report, no leaking tests) ====="; bash test_tmp_isolation.sh || rc=1
+echo; echo "===== no unsafe rm (HOME-deletion incident lint + fail-closed sandbox helpers + mutant proof) ====="; bash test_no_unsafe_rm.sh || rc=1
+echo; echo "===== gut alias unrunnable r16b ====="; bash test_gut_alias_unrunnable_r16b.sh || rc=1
+echo; echo "===== box home backup (2026-10-16 wipe safeguard; hermetic, with mutants) ====="; bash test_box_home_backup.sh || rc=1
+echo; echo "===== box recover (2026-10-16 wipe; hermetic, dry-run + restore) ====="; bash test_box_recover.sh || rc=1
+echo; echo "===== Phase 5: QA WIP-cap observer (shadow; OVN_QA_WIP_CAP=off|shadow|soft|hard, soft/hard not wired; mutant: raised cap) ====="; bash test_qa_wip_cap.sh || rc=1
+echo; echo "===== Phase 5: GPU-seconds-per-stage ledger (shadow; reconciles to the raw logs within 1%; mutants) ====="; bash test_qa_gpu_ledger.sh || rc=1
+echo; echo "===== Phase 5: promote manifest + rollback drill (shadow; HOLD on FAIL, prior prod tag, byte-for-byte restore; mutants) ====="; bash test_qa_promote_manifest.sh || rc=1
+echo; echo "===== run all sandboxed ====="; bash test_run_all_sandboxed.sh || rc=1
+echo; echo "===== QA Phase 4: contract fuzz registry (billwatch/gitlark), tool installer, cron proposal ====="; bash test_qa_contract_fuzz_registry.sh || rc=1
+echo; echo "===== QA Phase 4: broken-deploy drill (fixtures; 4/4 classes would hold, CORS mutant) ====="; bash test_qa_deploy_drill.sh || rc=1
+echo; echo "===== QA Phase 4: soak probe + summary + shadow promote_gate read ====="; bash test_qa_soak_probe.sh || rc=1
+echo; echo "===== D1: VERIFY shape linter (shadow default; OVN_VERIFY_LINT=off|shadow|enforce; real box items, tree-confirmed rules, hooks, audit, mutants) ====="; bash test_verify_shape_lint.sh || rc=1
+echo; echo "===== D1 repair: ovn_planner.sh verify-lint hook (recount, [decomposed] marking, quarantine, fail-open fall-through + timeout; planner mutants) ====="; bash test_verify_lint_planner_hook.sh || rc=1
+echo; echo "===== qa tool health (P1 gate tool sentinel + installer; hermetic, with mutants) ====="; bash test_qa_tool_health.sh || rc=1
+echo; echo "===== check applied migration immutable ====="; bash test_check_applied_migration_immutable.sh || rc=1
+echo; echo "===== check ghost tests ====="; bash test_check_ghost_tests.sh || rc=1
+echo; echo "===== outcome acct ====="; bash test_outcome_acct.sh || rc=1
+echo; echo "===== verify venv fallback ====="; bash test_verify_venv_fallback.sh || rc=1
+echo; echo "===== stage order ====="; bash test_stage_order.sh || rc=1
+echo; echo "===== qa install tools cron ====="; bash test_qa_install_tools_cron.sh || rc=1
+echo; echo "===== auto research resilience ====="; bash test_auto_research_resilience.sh || rc=1
+echo; echo "===== ovn supply report ====="; bash test_ovn_supply_report.sh || rc=1
+echo; echo "===== ovn needs research promote ====="; bash test_ovn_needs_research_promote.sh || rc=1
+echo; echo "===== ovn supply extended ====="; bash test_ovn_supply_extended.sh || rc=1
+echo; echo "===== planner nrp ====="; bash test_planner_nrp.sh || rc=1
+echo; echo "===== supply cron installer ====="; bash test_supply_cron_installer.sh || rc=1
+echo; echo "===== L1 box drift detector (box_verify: healthy world = 0 drift, each ever-broken prerequisite flagged alone, alert de-dup, modes, mutants) ====="; bash test_box_verify.sh || rc=1
+echo; echo "===== L1 box bootstrap: full fake-HOME REBUILD DRILL (recover -> bootstrap -> box_verify acceptance), SHA256/licence/crontab gates, provision EXTRA, mutants ====="; bash test_box_bootstrap.sh || rc=1
+echo; echo "===== qwen verify normalize ====="; bash test_qwen_verify_normalize.sh || rc=1
+echo; echo "===== qwen explore dialect ====="; bash test_qwen_explore_dialect.sh || rc=1
+echo; echo "===== spec check links subdir venv ====="; bash test_spec_check_links_subdir_venv.sh || rc=1
+# 2026-10-18 SAFETY NET: a test file that never got a line above (concurrent agents all append at THIS spot, so a merge "keep both" resolution or a
+# forgotten line silently drops one; 7af72c2 shipped test_spec_check_links_subdir_venv.sh unregistered) is RUN here anyway, loudly, so an omission
+# can never mean "never runs in the gate". test_pipeline_lint.sh still FAILS on it so the registration gets added; this only closes the silent hole.
+for _t in test_*.sh; do
+  [ -e "$_t" ] || continue
+  grep -qE "(bash|run_or_notrun) $_t([^A-Za-z0-9_.-]|\$)" "$HERE_RA/run_all.sh" && continue
+  echo; echo "===== UNREGISTERED TEST (auto-run; add it to run_all.sh): $_t ====="; run_or_notrun "$_t"
+done
+echo; echo "===== run all autodiscover ====="; bash test_run_all_autodiscover.sh || rc=1
+echo; echo "===== buildgate fixup dedupe dangling e2e ====="; bash test_buildgate_fixup_dedupe_dangling_e2e.sh || rc=1
+echo; echo "===== fixup dedupe defs ====="; bash test_fixup_dedupe_defs.sh || rc=1
+echo; echo "===== ovn dangling refs ====="; bash test_ovn_dangling_refs.sh || rc=1
+echo; echo "===== ovn landing quality ====="; bash test_ovn_landing_quality.sh || rc=1
+echo; echo "===== stage landing quality ====="; bash test_stage_landing_quality.sh || rc=1
+echo; echo "===== build break park ====="; bash test_build_break_park.sh || rc=1
+echo; echo "===== mac live sync ====="; bash test_mac_live_sync.sh || rc=1
+echo; echo "===== mac live commit push ====="; bash test_mac_live_commit_push.sh || rc=1
+echo; echo "===== mac jobs health ====="; bash test_mac_jobs_health.sh || rc=1
+echo; echo "===== mac jobs install ====="; bash test_mac_jobs_install.sh || rc=1
+echo; echo "===== mac bridge e2e ====="; bash test_mac_bridge_e2e.sh || rc=1
+echo; echo "===== ovn gate governor ====="; bash test_ovn_gate_governor.sh || rc=1
+echo; echo "===== ovn fleet slo ====="; bash test_ovn_fleet_slo.sh || rc=1
+echo; echo "===== box autodeploy ====="; bash test_box_autodeploy.sh || rc=1
+echo; echo "===== box deploy ====="; bash test_box_deploy.sh || rc=1
+echo; echo "===== install autodeploy cron ====="; bash test_install_autodeploy_cron.sh || rc=1
+echo; echo "===== notify autodeploy ====="; bash test_notify_autodeploy.sh || rc=1
+echo; echo "===== suite candidate ====="; run_or_notrun test_suite_candidate.sh
+echo; echo "===== auto research auth ====="; bash test_auto_research_auth.sh || rc=1
+echo; echo "===== research lane L2 guard ====="; bash test_research_lane_l2_guard.sh || rc=1
+echo; echo "===== pilot flags exported to children ====="; bash test_pilot_flags_exported.sh || rc=1
+echo; echo "===== mac review fixes ====="; bash test_mac_review_fixes.sh || rc=1
+echo; finish || rc=1
+exit $rc

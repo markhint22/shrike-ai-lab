@@ -141,6 +141,7 @@ stage_item_verify_run(){
 # shrink-and-retry (map/2, drop architect+AGENTS.md) never ran and the same oversized prompt was resent (3 identical overflows per attempt pair, item escalated for the wrong reason).
 stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|context_length|prompt is too long|exceed_context|contextwindowexceeded|exceeds the available context size|exceeds the context (window|size)' "${1:-/dev/null}" 2>/dev/null; }
 
+# 2026-10-20: `test -f X && exit 1 || exit 0` (the absence assertion of every 'Delete the file' item) is a text probe too: TAA token_aggregator.py was re-added by the repair round (pre=FAIL post=FAIL) and still landed credited because this form was not recognised.
 # stage_item_verify_textonly <item> -> rc 0 when the item's FIRST backticked VERIFY command is a pure text/file probe (grep / test / [ / !-negated grep), with no runner, interpreter or build tool in it.
 # 2026-10-18 (xlite landing audit): such a probe is deterministic and environment-independent, so a RED verdict after the change is a real "the item was not done" - unlike a pytest/gradle/godot
 # VERIFY, whose FAIL can be an env gap. The xlite items 'delete generate_intent / intent_label' (a repair round re-added both), 'return "" for unknown directives' and 'if ... directive_label in
@@ -148,7 +149,7 @@ stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|c
 stage_item_verify_textonly(){
   local cmd
   cmd="$(printf '%s' "$1" | grep -oE 'VERIFY: `[^`]+`' | head -1 | sed -E 's/^VERIFY: `//; s/`$//')"
-  cmd="$(printf '%s' "$cmd" | sed -E 's/ *&& *echo +[A-Za-z0-9_"'"'"']+ *\|\| *echo +[A-Za-z0-9_"'"'"']+ *$//; s/ *&& *echo +[A-Za-z0-9_"]+ *$//')"   # `test ! -f x && echo PASS`: the echo only prints the verdict; 2026-10-18: also `X && echo FAIL || echo PASS` (lib_verify_clause.sh OVN_VERIFY_ECHO_VERDICT re-reads it by X's exit status)
+  cmd="$(printf '%s' "$cmd" | sed -E 's/ *&& *echo +[A-Za-z0-9_"'"'"']+ *\|\| *echo +[A-Za-z0-9_"'"'"']+ *$//; s/ *&& *echo +[A-Za-z0-9_"]+ *$//; s/ *&& *exit +1 *\|\| *exit +0 *$//')"   # `test ! -f x && echo PASS`: the echo only prints the verdict; 2026-10-18: also `X && echo FAIL || echo PASS` (lib_verify_clause.sh OVN_VERIFY_ECHO_VERDICT re-reads it by X's exit status)
   [ -n "$cmd" ] || return 1
   case "$cmd" in grep\ *|egrep\ *|test\ *|'['\ *|'! grep '*|'!grep '*) ;; *) return 1;; esac
   if printf '%s' "$cmd" | grep -qiE '(^|[^A-Za-z0-9_])(python3?|pytest|godot|gdparse|gradle|gradlew|npm|npx|node|vitest|jest|swift|swiftc|xcodebuild|docker|make|cargo|go|bash|sh|eval|exec|curl|ruby|php|java|kotlinc)([^A-Za-z0-9_]|$)'; then return 1; fi
@@ -277,4 +278,49 @@ stage_web_verify(){
     return 1
   fi
   return 0
+}
+
+# ---- 2026-10-20 stage-unverified review: delete-handling helpers (pure bash/git, testable on the Mac) ----
+# stage_changed_live_files <wt> [range]: files the run ADDED/COPIED/MODIFIED/RENAMED (never deleted ones). The QUALITY "changed test must exercise the changed source" check ran over
+# deleted paths too: a run that deleted an orphaned test + its dead source had srcs/tests non-empty, no symbol/route/module to grep in a file that no longer exists, hit=0 ->
+# '-- QUALITY FAIL: no changed test exercises the changed source' on a perfectly good deletion (TAA plan_snapshot, 2 runs 10-20; identical delete landed in a third). OVN_STAGE_QUALITY_LIVE_ONLY=off restores the old list.
+stage_changed_live_files(){
+  local wt="$1" range="${2:-origin/overnight/feature..HEAD}" filt="--diff-filter=ACMR"
+  [ "${OVN_STAGE_QUALITY_LIVE_ONLY:-on}" = off ] && filt=""
+  # shellcheck disable=SC2086
+  git -C "$wt" diff --name-only $filt "$range" 2>/dev/null
+}
+
+# stage_item_wants_delete <item text> <repo-relative path>: does the text state an intent to delete exactly file $2? Looks at VERIFY `test ! -f|-e <path>` / `test -f <path> && exit 1`,
+# "Delete|Remove the file|module [entirely|<path>]", "Delete <path>" and (2026-10-20) "Delete ... file <path>" (planner step descs such as "Delete the orphaned test file <path>").
+# The caller may pass item + step desc + step VERIFY joined by newlines.
+stage_item_wants_delete(){
+  local itm="$1" p="$2" head line
+  head="$(printf '%s' "$itm" | sed -E 's/VERIFY:.*$//')"
+  case "$itm" in *"test ! -f $p"*|*"test ! -e $p"*|*"[ ! -f $p ]"*|*"test -f $p && exit 1"*|*"test -e $p && exit 1"*) return 0;; esac
+  printf '%s' "$head" | grep -qiE "(delete|remove)[[:space:]]+(the[[:space:]]+)?(file|module)([[:space:]]+entirely)?([[:space:]]|\.|,|$)" && case "$head" in *"$p"*) return 0;; esac
+  printf '%s' "$head" | grep -qiF -- "delete $p" && return 0
+  while IFS= read -r line; do
+    case "$line" in *[Dd]elete*[[:space:]]file[[:space:]]*"$p"*|*[Rr]emove*[[:space:]]file[[:space:]]*"$p"*) return 0;; esac
+  done <<< "$head"
+  return 1
+}
+
+# stage_pure_delete_paths <wt> <step desc> <step files> <item> <step verify>: tracked paths a step must DELETE, one per line. aider cannot delete a file ("I can't directly delete files"):
+# a planner step 'Delete truncate.py and add a test asserting its absence' wrote only the test, was recorded verdict:pass, and died at the final verify (TAA 10-20, 5 stage-unverified rows).
+# Emitted only when ALL hold: the desc starts with Delete/Remove, it names the path (full path or basename), the path is tracked in HEAD, and the step/item VERIFY itself asserts absence
+# (`test ! -f p` / `test -f p && exit 1`) - so this can never delete a file the item did not ask to lose. OVN_STAGE_PURE_DELETE=off disables.
+stage_pure_delete_paths(){
+  [ "${OVN_STAGE_PURE_DELETE:-on}" = off ] && return 0
+  local wt="$1" desc="$2" files="$3" item="$4" verify="$5" p b be
+  printf '%s' "$desc" | grep -qiE '^[[:space:]]*(delete|remove)\b' || return 0
+  for p in $files; do
+    [ -n "$p" ] && git -C "$wt" cat-file -e "HEAD:$p" 2>/dev/null || continue
+    b="${p##*/}"
+    case "$desc" in *"$p"*|*"$b"*) : ;; *) continue;; esac
+    be="$(printf '%s' "$b" | sed -E 's/[][\.^$*+?(){}|\\/]/\\&/g')"
+    if printf '%s\n%s' "$verify" "$item" | grep -qE "test[[:space:]]+(![[:space:]]+)?-[fe][[:space:]]+[^[:space:]]*${be}([[:space:]]|\"|'|\`|;|&|$)"; then
+      printf '%s\n' "$p"
+    fi
+  done
 }

@@ -1133,3 +1133,22 @@ ovn_fixup_dedupe_defs() {
   fi
   return 0
 }
+
+# ovn_aider_commit_rescue <head sha before the aider call> <task_log> <log byte offset before the call> <commit message>
+# 2026-10-20 (xlite 20261020-181928): aider 0.86.2 crashes while COMMITTING some applied udiff hunks ("unsupported operand type(s) for +: 'NoneType' and 'str'" / "Unable to commit: unsupported
+# operand type(s) for /: 'PosixPath' and 'NoneType'"). The edit is already on disk, HEAD did not move, and the caller read that as '--- fix-up made no change ---', throwing away a correct
+# repair (6 task logs in 4 days; the xlite build-break revert). If - and only if - HEAD is unchanged, the log written since the offset carries that crash signature, and tracked files are modified, commit
+# the TRACKED changes (git commit -a: never untracked files, never `git add -A`) so the normal re-verify + integrity gates judge the repair. rc 0 = rescued (new HEAD committed), rc 1 = nothing to do.
+# Without the signature nothing happens, so an honest no-op fix-up is unchanged. OVN_AIDER_COMMIT_RESCUE=off disables.
+ovn_aider_commit_rescue() {
+  local before="$1" log="$2" off="${3:-0}" msg="${4:-fix: aider fix-up (commit rescued)}"
+  [ "${OVN_AIDER_COMMIT_RESCUE:-on}" = off ] && return 1
+  [ "$(git rev-parse HEAD 2>/dev/null)" = "$before" ] || return 1
+  [ -f "$log" ] || return 1
+  tail -c +"$((off + 1))" "$log" 2>/dev/null | grep -qE "Unable to commit: |unsupported operand type\(s\) for \+: 'NoneType' and 'str'" || return 1
+  git diff --quiet 2>/dev/null && return 1
+  git commit -a -q -m "$msg" >/dev/null 2>&1 || return 1
+  [ "$(git rev-parse HEAD 2>/dev/null)" != "$before" ] || return 1
+  echo "--- aider-crash: commit crashed after applying the edit; rescued the tracked changes as $(git rev-parse --short HEAD) ---" >> "$log"
+  return 0
+}

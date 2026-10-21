@@ -15,6 +15,8 @@ MF_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$MF_HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
 MF_REPO="$(cd "$MF_HERE/../../../.." && pwd)"          # <repo>/scripts/overnight-queue/scripts/test -> <repo>
 MF_SCRIPTS="$MF_REPO/scripts"
+# The Mac job scripts live in <repo>/scripts, outside the queue tree the GPU box mirrors; there is nothing to test there, so say so and stop (never a silent pass on the Mac, where mac_lib.sh exists).
+if [ ! -f "$MF_SCRIPTS/mac_lib.sh" ]; then echo "  SKIP: Mac job scripts not present ($MF_SCRIPTS/mac_lib.sh) - queue-only tree (GPU box mirror); Mac-job tests run from the full repo"; exit 0; fi
 
 mf_init() {
   T="$(safe_mktemp_dir macjobs)" || exit 1

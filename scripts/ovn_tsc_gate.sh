@@ -18,6 +18,10 @@
 set -uo pipefail
 root="${1:-.}"; baseline_dir="${2:?baseline_dir}"; repo="${3:?repo}"
 before="${4:-}"; after="${5:-HEAD}"
+# run_overnight.sh passes the repo PATH ("$repo" = /home/.../repos/iptv_apps), not a name: used as-is it made the baseline file
+# "$baseline_dir//home/.../iptv_apps__iptv-web.count" (nonexistent dir), so the ratchet never seeded and never gated anything
+# ("No such file or directory" in every iptv cycle log). Key the baseline on the repo's base name.
+repo="$(basename "$repo")"
 mkdir -p "$baseline_dir"
 cd "$root" 2>/dev/null || { echo "TSC-RATCHET-SKIP (bad root)"; exit 0; }
 

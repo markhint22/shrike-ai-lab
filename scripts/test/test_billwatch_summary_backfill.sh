@@ -181,4 +181,18 @@ run BILLWATCH_DB_URL=""
 ok "empty BILLWATCH_DB_URL -> ERROR line naming the state file, exit 1, no traceback, no DB connect" "$([ $rc = 1 ] && grep -q 'state/billwatch_db_url is missing' "$T/out" && ! grep -q Traceback "$T/err" && [ ! -s "$T/db.log" ] && echo 1 || echo 0)"
 env PYTHONPATH="" BILLWATCH_DB_URL="postgres://stub/db" _BWB_REEXEC=1 python3 -I "$SUT" > "$T/out" 2> "$T/err"; rc=$?
 ok "psycopg2 missing and no fallback -> clear ERROR, exit 1, no traceback" "$([ $rc = 1 ] && grep -q 'psycopg2 not importable' "$T/out" && ! grep -q Traceback "$T/err" && echo 1 || echo 0)"
+# 8. fallback re-exec into the billwatch venv must work even though that venv's python is a symlink to the SAME interpreter (2026-10-21: realpath guard disabled it)
+FB="$T/fb"; mkdir -p "$FB/repos/billwatch/billwatch-backend"; cp "$SUT" "$FB/billwatch_summary_backfill.py"
+python3 -m venv "$FB/repos/billwatch/billwatch-backend/.venv" >/dev/null 2>&1
+SP="$("$FB/repos/billwatch/billwatch-backend/.venv/bin/python" -c 'import sysconfig;print(sysconfig.get_paths()["purelib"])' 2>/dev/null)"
+if [ -n "$SP" ] && [ -d "$SP" ]; then
+  printf 'import sys\ndef connect(*a, **k):\n    print("FALLBACK_REEXEC_OK"); sys.exit(0)\n' > "$SP/psycopg2.py"
+  env PYTHONPATH="" BILLWATCH_DB_URL="postgres://stub/db" python3 -I "$FB/billwatch_summary_backfill.py" > "$T/out" 2> "$T/err"; rc=$?
+  ok "no psycopg2 in the caller's python -> re-execs under the billwatch venv (same underlying interpreter) and runs" "$([ $rc = 0 ] && grep -q FALLBACK_REEXEC_OK "$T/out" && echo 1 || echo 0)"
+  sed 's/os.path.abspath(_alt) != os.path.abspath(sys.executable)/os.path.realpath(_alt) != os.path.realpath(sys.executable)/' "$FB/billwatch_summary_backfill.py" > "$FB/mut.py"
+  env PYTHONPATH="" BILLWATCH_DB_URL="postgres://stub/db" python3 -I "$FB/mut.py" > "$T/out" 2> "$T/err"; rc=$?
+  ok "mutant: the old realpath guard does NOT reach the venv (test would catch a regression)" "$([ $rc = 1 ] && ! grep -q FALLBACK_REEXEC_OK "$T/out" && echo 1 || echo 0)"
+else
+  echo "  SKIP: python3 -m venv unavailable here"
+fi
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

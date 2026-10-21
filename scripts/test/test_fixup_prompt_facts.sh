@@ -62,6 +62,13 @@ mkdir -p backend/tests; cp tests/test_calc.py backend/tests/test_calc.py; git ad
 echo "FAILED tests/test_calc.py::test_x - e" > "$R/l2.log"; git rm -rqf tests
 ok "P3: pytest-relative path resolves to the repo path (backend/tests/...)" '[ "$(ovn_fixup_failing_test_files "$R/l2.log")" = "backend/tests/test_calc.py" ]'
 ok "P3: id naming a file that does not exist is ignored" '[ -z "$(echo "FAILED nope/test_ghost.py::t" > "$R/l3.log"; ovn_fixup_failing_test_files "$R/l3.log")" ]'
+# 2026-10-20 (xlite fix-up preload): GUT failures are '--- GUT-FAIL-ID: tests/x.gd::name'; the old patterns never matched them, so a Godot Tier-2 fix-up never saw the old broken test
+mkdir -p tests; printf 'extends GutTest\nfunc test_x():\n\tpass\n' > tests/test_old.gd
+{ for i in $(seq 1 50); do echo "gut noise $i"; done; echo "--- GUT-FAIL-ID: tests/test_old.gd::test_x"; echo "--- GUT-FAIL-IDS-COMPLETE ---"; } > "$R/gut.log"
+ok "P4: GUT-FAIL-ID names the failing .gd test file" '[ "$(ovn_fixup_failing_test_files "$R/gut.log")" = "tests/test_old.gd" ]'
+ok "P4: GUT failing file is offered as an extra when not already loaded" '[ "$(ovn_fixup_extra_files "$R/gut.log" scripts/x.gd)" = "tests/test_old.gd" ]'
+ok "P4 mutant: OVN_FIXUP_GUT_PRELOAD=off restores the old behaviour (nothing offered)" '[ -z "$(OVN_FIXUP_GUT_PRELOAD=off ovn_fixup_failing_test_files "$R/gut.log")" ]'
+ok "P4: a GUT id naming a missing file is ignored" '[ -z "$(echo "--- GUT-FAIL-ID: tests/ghost.gd::t" > "$R/gut2.log"; ovn_fixup_failing_test_files "$R/gut2.log")" ]'
 fi
 
 # ---------------- part 2: end to end, the message aider really receives ----------------

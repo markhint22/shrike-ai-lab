@@ -640,6 +640,23 @@ def _skip_py_path(path):
     return is_test_path(path) or "alembic" in parts or "migrations" in parts
 
 
+def _patch_target_names(root, path, bound):
+    """Subset of `bound` names that some test refers to as a dotted attribute of this module (`monkeypatch.setattr("app.routers.workspaces.GitHubClient", ..)`,
+    `patch("app.routers.workspaces.GitHubClient")`). Such an import is unused in the module body but is the seam the tests patch: deleting it turns every
+    patching test into an AttributeError error (2026-10-20 gitlark workspaces.py: 7 attempts, ~480k tokens, 40 test errors each time)."""
+    parts = path[:-3].split("/") if path.endswith(".py") else path.split("/")
+    cands = [".".join(parts[i:]) for i in range(len(parts))]
+    cands = [c for c in cands if c]
+    blob = "\n".join(read(f) for f in walk(root, (".py",)) if is_test_path(rel(root, f)))
+    hit = set()
+    for n in bound:
+        for c in cands:
+            if (c + "." + n) in blob:
+                hit.add(n)
+                break
+    return hit
+
+
 def c_unused_imports(root):
     """F401 unused imports (ruff, JSON output), per file, <= 6 per item. __init__.py (re-exports) and `# noqa` lines are never touched (ruff already honours noqa).
     Wording (2026-10-09): 'Delete the unused import(s) from the import statement(s) in <path>' - the old 'Remove the unused import(s) in this file' put 'remove ... file'
@@ -661,6 +678,14 @@ def c_unused_imports(root):
                 names.append(m.group(1))
         if not names or len(fs) > 6:
             continue
+        bound = [n.split(" as ")[-1].split(".")[-1] for n in names]
+        patched = _patch_target_names(root, path, bound)
+        if patched:
+            mode = os.environ.get("OVN_SUPPLY_PATCH_TARGET_GUARD", "shadow")  # off|shadow|on; flip to on after a shadow soak
+            if mode == "on":
+                continue  # the item's VERIFY (ruff F401 on the whole file) could only pass by deleting a name tests patch
+            if mode == "shadow":
+                print("%s: patch-target-guard (shadow) would skip unused-import item: %s patched by tests" % (path, sorted(patched)), file=sys.stderr)
         nm = ", ".join("`%s`" % n for n in names)
         text = ("Delete the unused import(s) from the import statement(s) in %s (ruff F401): %s. Delete only these names from their import lines "
                 "(drop a whole import statement when nothing is left in it); change nothing else." % (path, nm))

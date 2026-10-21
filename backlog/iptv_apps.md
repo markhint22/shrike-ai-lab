@@ -580,3 +580,18 @@
 # --- deterministic work supply 2026-10-20 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- deterministic work supply 2026-10-20 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: `Download` interface in `api.ts` missing `is_dvr` field — both `DownloadsView` and `Record (review + tweak) [feat:iptv_apps-20261021-download-interface-in-api-ts-missing-is-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Add `/recordings` route and backend DVR-list endpoint so the DVR feature is actually reach (review + tweak) [feat:iptv_apps-20261021-add-recordings-route-and-backend-dvr-lis] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: VodView.vue genre dropdown shows only genres from the first 20 items; wire it to the dedic (review + tweak) [feat:iptv_apps-20261021-vodview-vue-genre-dropdown-shows-only-ge] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: SeriesListView.vue is also orphaned — exists as a built view with no route or nav link — ` (review + tweak) [feat:iptv_apps-20261021-serieslistview-vue-is-also-orphaned-exis] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: `get_continue_watching` endpoint leaks mature-rated VOD entries to kid profiles — the `fil (review + tweak) [feat:iptv_apps-20261021-get-continue-watching-endpoint-leaks-mat] ---
+- [ ] [T1] iptv-backend/tests/test_watch_history_continue.py — Add a fixture that creates a user with a kid profile (rating_ceiling=PG) and a mature-rated VOD stream (rating=TV-MA) in the continue_watching table. VERIFY: pytest iptv-backend/tests/test_watch_history_continue.py::test_fixtures_create_kid_profile_and_mature_vod -v passes. (cat:test; multifile:no) [feat:iptv_apps-20261021-get-continue-watching-endpoint-leaks-mat]
+- [ ] [T2] iptv-backend/tests/test_watch_history_continue.py — Add a test case `test_get_continue_watching_filters_mature_for_kid` that calls the endpoint for the kid profile and asserts the response does not contain the mature VOD stream ID. VERIFY: pytest iptv-backend/tests/test_watch_history_continue.py::test_get_continue_watching_filters_mature_for_kid -v passes (currently fails). (cat:test; multifile:no) [feat:iptv_apps-20261021-get-continue-watching-endpoint-leaks-mat]
+- [ ] [T3] iptv-backend/app/routers/watch_history.py — Modify `get_continue_watching` to call `profile_rating_ceiling(db, current_user.id, active_profile)` and pass the resulting ceiling to `filter_by_rating_ceiling(items, ceiling)` before returning the response. VERIFY: pytest iptv-backend/tests/test_watch_history_continue.py::test_get_continue_watching_filters_mature_for_kid -v passes. (cat:endpoint; multifile:no) [feat:iptv_apps-20261021-get-continue-watching-endpoint-leaks-mat]
+- [ ] [T4] iptv-backend/tests/test_watch_history_continue.py — Add a test case `test_get_continue_watching_allows_allowed_ratings` that verifies a kid profile with ceiling PG sees a TV-PG stream in the response. VERIFY: pytest iptv-backend/tests/test_watch_history_continue.py::test_get_continue_watching_allows_allowed_ratings -v passes. (cat:test; multifile:no) [feat:iptv_apps-20261021-get-continue-watching-endpoint-leaks-mat]
+- [ ] [T5] iptv-backend/tests/test_watch_history_continue.py — Add a test case `test_get_continue_watching_adult_profile_sees_all` that verifies an adult profile with no ceiling restriction sees the mature VOD stream. VERIFY: pytest iptv-backend/tests/test_watch_history_continue.py::test_get_continue_watching_adult_profile_sees_all -v passes. (cat:test; multifile:no) [feat:iptv_apps-20261021-get-continue-watching-endpoint-leaks-mat]

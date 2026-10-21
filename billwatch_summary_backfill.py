@@ -30,8 +30,10 @@ if not os.environ.get("BILLWATCH_DB_URL", "").strip():
 try:
     import psycopg2
 except ImportError:
+    # abspath, NOT realpath: a venv python is a symlink to the same system interpreter as ~/aider-venv/bin/python, so realpath made the
+    # fallback a no-op (2026-10-18..21: the 03:10 run logged "no billwatch venv fallback" every night although the venv exists and has psycopg2).
     _alt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "repos", "billwatch", "billwatch-backend", ".venv", "bin", "python")
-    if os.path.exists(_alt) and os.path.realpath(_alt) != os.path.realpath(sys.executable) and not os.environ.get("_BWB_REEXEC"):
+    if os.path.exists(_alt) and os.path.abspath(_alt) != os.path.abspath(sys.executable) and not os.environ.get("_BWB_REEXEC"):
         os.environ["_BWB_REEXEC"] = "1"
         os.execv(_alt, [_alt] + sys.argv)
     print(f"{time.strftime('%F %T')} ERROR: psycopg2 not importable under {sys.executable} and no billwatch venv fallback ({_alt})", flush=True)

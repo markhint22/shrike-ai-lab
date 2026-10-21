@@ -284,3 +284,14 @@
 # --- 27B-decomposed from roadmap [2026-10-21]: Fix `_maybe_notify` else-branch silently resets `_last_status_change_at` on every no-chang (review + tweak) [feat:shrike-monitor-20261021-fix-maybe-notify-else-branch-silently-re] ---
 
 # --- 27B-decomposed from roadmap [2026-10-21]: Delete deprecated dead `app/version.py` module and its companion test — `backend/app/versi (review + tweak) [feat:shrike-monitor-20261021-delete-deprecated-dead-app-version-py-mo] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: `GET /monitors/{id}/incidents` classifies heartbeat "degraded" grace-window as "down" — `m (review + tweak) [feat:shrike-monitor-20261021-get-monitors-id-incidents-classifies-hea] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: `ALLOW_PRIVATE_URLS=true` server setting permits monitor creation but the runtime probe al (review + tweak) [feat:shrike-monitor-20261021-allow-private-urls-true-server-setting-p] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: `MonitorCreate.token` accepts an empty string for heartbeat monitors, creating a permanent (review + tweak) [feat:shrike-monitor-20261021-monitorcreate-token-accepts-an-empty-str] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: `compute_initial_status` is dead code still present in `status_streak.py` despite `OVERNIG (review + tweak) [feat:shrike-monitor-20261021-compute-initial-status-is-dead-code-stil] ---
+- [ ] [T2] backend/tests/test_status_streak.py — Remove the 4 test cases exercising `compute_initial_status` (lines 56-84) and update imports to exclude it. VERIFY: `grep -n "compute_initial_status" backend/tests/test_status_streak.py` returns nothing. (cat:test; multifile:no) [feat:shrike-monitor-20261021-compute-initial-status-is-dead-code-stil]
+- [ ] [T2] backend/tests/test_status_streak.py — Add a regression test function `test_compute_initial_status_removed` that asserts `not hasattr(status_streak_module, "compute_initial_status")`. VERIFY: `pytest backend/tests/test_status_streak.py::test_compute_initial_status_removed -v` passes. (cat:test; multifile:no) [feat:shrike-monitor-20261021-compute-initial-status-is-dead-code-stil]
+- [ ] [T4] backend/app/utils/status_streak.py — Delete the `compute_initial_status` function definition starting at line 46. VERIFY: `grep -n "def compute_initial_status" backend/app/utils/status_streak.py` returns nothing. (cat:refactor; multifile:no) [feat:shrike-monitor-20261021-compute-initial-status-is-dead-code-stil]

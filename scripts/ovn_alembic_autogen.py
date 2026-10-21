@@ -185,8 +185,36 @@ def hook(context, revision, directives):
     # hook would wrongly give up. Render ONLY those migrations in batch style (PostgreSQL emits the plain ALTER, SQLite
     # recreates the table). Pure add_column/create_table migrations keep the plain `op.add_column(...)` shape the credit
     # helper parses. The same AutogenContext.opts dict is read when the file is rendered, after this hook returns.
-    if any(isinstance(o, ops.AlterColumnOp) for o in flat):
+    # 2026-10-20 (iptv-reverts): a model column carrying ForeignKey(...) (or a new unique/check constraint) makes autogenerate emit
+    # op.create_foreign_key / create_unique_constraint, which SQLite cannot ALTER ("No support for ALTER of constraints in SQLite
+    # dialect"). The post-generate validation then failed on EVERY attempt and the hook gave up ("not auto-fixable"), leaving the
+    # 27B to hand-write a forked migration (iptv search_history.profile_id: 3x migration-fork, 8h of reverts). Batch style fixes
+    # both: PostgreSQL emits the plain ALTER, SQLite recreates the table. OVN_ALEMBIC_BATCH_CONSTRAINTS=off restores the old behaviour.
+    _need_batch = any(isinstance(o, ops.AlterColumnOp) for o in flat)
+    if os.environ.get("OVN_ALEMBIC_BATCH_CONSTRAINTS", "on") != "off":
+        _need_batch = _need_batch or any(isinstance(o, (ops.CreateForeignKeyOp, ops.CreateUniqueConstraintOp, ops.CreateCheckConstraintOp)) for o in flat)
+    if _need_batch:
         context.opts["render_as_batch"] = True
+        # batch_alter_table refuses unnamed constraints ("Constraint must have a name"); autogenerate leaves a ForeignKey()/unique
+        # without a naming convention unnamed. Name them deterministically (PostgreSQL accepts any explicit name).
+        for o in flat:
+            if isinstance(o, ops.CreateForeignKeyOp) and not o.constraint_name:
+                o.constraint_name = "fk_%s_%s_%s" % (o.source_table, "_".join(o.local_cols), o.referent_table)
+            elif isinstance(o, ops.CreateUniqueConstraintOp) and not o.constraint_name:
+                o.constraint_name = "uq_%s_%s" % (o.table_name, "_".join(o.columns))
+        # the downgrade's DropConstraintOp was built from the SAME unnamed constraint: name it identically or downgrade() would
+        # call drop_constraint(None, ...), which no dialect can execute. Match by (table, kind) in creation order.
+        _names = {}
+        for o in flat:
+            if isinstance(o, ops.CreateForeignKeyOp):
+                _names.setdefault((o.source_table, "foreignkey"), []).append(o.constraint_name)
+            elif isinstance(o, ops.CreateUniqueConstraintOp):
+                _names.setdefault((o.table_name, "unique"), []).append(o.constraint_name)
+        for d in _walk(scr.downgrade_ops.ops):
+            if isinstance(d, ops.DropConstraintOp) and not d.constraint_name:
+                q = _names.get((d.table_name, d.constraint_type))
+                if q:
+                    d.constraint_name = q.pop(0)
     for o in flat:
         # destructive / lossy schema removals: every flavour, not just tables+columns. A dropped index or
         # constraint replays fine on SQLite but is a production behaviour change (uniqueness / FK guarantees

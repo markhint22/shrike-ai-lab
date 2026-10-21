@@ -92,8 +92,12 @@ NOTE: ${bn} other test(s) were ALREADY failing before this change was committed.
 ovn_fixup_failing_test_files() {
   local log="$1" cand p real seen=""
   [ -f "$log" ] || return 0
-  cand="$(tail -n 700 "$log" 2>/dev/null | _fp_drop_baseline | grep -aoE '^(FAILED|ERROR) [^: ]+\.py|❯ [^ ]+\.(test|spec)\.[jt]sx?|^ *(FAIL|✗|×) +[^ ]+\.(test|spec)\.[jt]sx?' \
-          | sed -E 's/^(FAILED|ERROR) //; s/^❯ //; s/^ *(FAIL|✗|×) +//' | awk '!s[$0]++' | head -n 8)"
+  # 2026-10-20: GUT (Godot/xlite) failures are logged as '--- GUT-FAIL-ID: tests/x.gd::test_name' (lib_gut_xml), which none of the pytest/vitest patterns matched, so a
+  # Godot Tier-2 fix-up never had the broken OLD test in the chat (log: 20261020-163802 'files=1', damage.gd only) and could only revert the item
+  # (no-op(fixup-undid-item), 7 of 11 xlite cycles in 12h). OVN_FIXUP_GUT_PRELOAD=off restores the old pattern set.
+  local gutpat=""; [ "${OVN_FIXUP_GUT_PRELOAD:-on}" != off ] && gutpat='|^--- GUT-FAIL-ID: [^: ]+\.gd'
+  cand="$(tail -n 700 "$log" 2>/dev/null | _fp_drop_baseline | grep -aoE "^(FAILED|ERROR) [^: ]+\.py|❯ [^ ]+\.(test|spec)\.[jt]sx?|^ *(FAIL|✗|×) +[^ ]+\.(test|spec)\.[jt]sx?${gutpat}" \
+          | sed -E 's/^(FAILED|ERROR) //; s/^❯ //; s/^ *(FAIL|✗|×) +//; s/^--- GUT-FAIL-ID: //' | awk '!s[$0]++' | head -n 8)"
   while IFS= read -r p; do
     [ -z "$p" ] && continue
     real="$p"; [ -f "$real" ] || real="$(ovn_normalize_path "$PWD" "$p")"

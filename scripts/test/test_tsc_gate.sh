@@ -64,5 +64,16 @@ echo "$OUT" | grep -q "TSC-RATCHET-IMPROVED" && ok "count down -> IMPROVED" || f
 echo 2 > "$FAKE_ERR_COUNT_FILE"; F=$(ts_commit); OUT="$(run "$E" "$F")"
 echo "$OUT" | grep -q "TSC-RATCHET-REGRESSION" && ok "above ratcheted baseline -> REGRESSION" || fail "expected REGRESSION vs ratchet: $OUT"
 
+# --- Case PATH-AS-NAME (2026-10-21): run_overnight passes the repo PATH as <repo_name>; baseline must still land in baseline_dir by base name ---
+PBL="$tmp/pbaselines"; mkdir -p "$PBL"
+echo 4 > "$FAKE_ERR_COUNT_FILE"; G=$(ts_commit)
+OUT="$(bash "$GATE" "$repo" "$PBL" "/abs/path/to/repos/pathrepo" "$F" "$G" 2>&1)"
+echo "$OUT" | grep -q "No such file" && fail "path-as-name must not produce No such file: $OUT" || ok "path-as-name: no 'No such file' error"
+[ "$(cat "$PBL/pathrepo__web.count" 2>/dev/null)" = 4 ] && ok "path-as-name: baseline seeded under the base name" || fail "path-as-name: baseline not written to baseline_dir/pathrepo__web.count"
+# mutant: the old code (no basename) must fail the check above
+sed 's/^repo="\$(basename "\$repo")"$/:/' "$GATE" > "$tmp/gate_old.sh"
+OUT="$(bash "$tmp/gate_old.sh" "$repo" "$PBL" "/abs/path/to/repos/otherrepo" "$F" "$G" 2>&1)"
+[ -f "$PBL/otherrepo__web.count" ] && fail "mutant (no basename) still wrote the baseline - test does not catch the bug" || ok "mutant (old behaviour) fails to seed -> test catches regression"
+
 [ $rc -eq 0 ] && echo "  test_tsc_gate: PASS" || echo "  test_tsc_gate: FAIL"
 exit $rc

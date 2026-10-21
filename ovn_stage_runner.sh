@@ -708,14 +708,7 @@ say "watchdog rearmed for ${_armed}s (NSTEPS=$NSTEPS, dynamic budget was ${_dyna
 #   undeclared empty NEW file (junk path) -> removed ('reaped empty undeclared file') and the step carries on; if that leaves the tree unchanged the step is a no-edit
 # `__init__.py` / `.gitkeep` / `.keep` / `py.typed` / `.gdignore` (marker files that are empty by design) are left alone (never reaped, never a failure here): behaviour for them is exactly what it was. OVN_STAGE_EMPTY_FILE=off disables.
 # 2026-10-18: does the item text state an intent to delete exactly file $2? (VERIFY `test ! -f|-e <path>`, or "Delete|Remove the file|module [entirely|<path>]", or "Delete <path>").
-stage_item_wants_delete(){   # $1=item text $2=repo-relative path
-  local itm="$1" p="$2" head
-  head="$(printf '%s' "$itm" | sed -E 's/VERIFY:.*$//')"
-  case "$itm" in *"test ! -f $p"*|*"test ! -e $p"*|*"[ ! -f $p ]"*) return 0;; esac
-  printf '%s' "$head" | grep -qiE "(delete|remove)[[:space:]]+(the[[:space:]]+)?(file|module)([[:space:]]+entirely)?([[:space:]]|\.|,|$)" && case "$head" in *"$p"*) return 0;; esac
-  printf '%s' "$head" | grep -qiF -- "delete $p" && return 0
-  return 1
-}
+declare -F stage_item_wants_delete >/dev/null 2>&1 || stage_item_wants_delete(){ return 1; }   # real definition: scripts/lib_stage_guards.sh (2026-10-20)
 STAGE_EF_DECLARED=""; STAGE_EF_NOEDIT=0
 stage_empty_files_scan(){   # $1=worktree $2=step files (space-sep) $3=item text. rc 0 = act on it (STAGE_EF_DECLARED non-empty -> empty-file; STAGE_EF_NOEDIT=1 -> tree emptied by the reap -> no-edit)
   local w="$1" files="$2" itm="$3" p cand decl="" t hit
@@ -1070,11 +1063,31 @@ ${_tgtctx}
     local _pfs; _pfs="state/item_fails/stage-${repo}.$(ovn_item_hash "$item" 2>/dev/null).priorfail"
     [ -s "$_pfs" ] && _fb_static=$'\n\n'"A PREVIOUS STAGED RUN AT THIS TASK FAILED - do not repeat it. $(head -c 900 "$_pfs")"
   fi
+  # 2026-10-20: aider cannot delete files, so a planner step "Delete X ..." whose own VERIFY asserts absence gets X removed deterministically (git rm) at the start of EVERY attempt
+  # (a failed attempt resets the tree to $base, which would resurrect it) and X is not handed to aider (it would just re-create it). OVN_STAGE_PURE_DELETE=off disables.
+  local _pdp=""
+  if declare -F stage_pure_delete_paths >/dev/null 2>&1; then
+    _pdp="$(stage_pure_delete_paths "$wt" "$desc" "$files" "$item" "$verify" | tr '\n' ' ')"
+    if [ -n "${_pdp// /}" ]; then
+      local _nf=() _fi=0
+      while [ "$_fi" -lt "${#fargs[@]}" ]; do
+        case " $_pdp " in *" ${fargs[$((_fi+1))]} "*) : ;; *) _nf+=("${fargs[$_fi]}" "${fargs[$((_fi+1))]}");; esac
+        _fi=$((_fi+2))
+      done
+      fargs=("${_nf[@]+"${_nf[@]}"}")
+    fi
+  fi
   local _fed_n=0   # N4 Part 4: files fed to this step's retries (max 3 per step)
   local _fb="" _fb_next=""   # N4: per-attempt retry feedback appended to the step prompt (reset each attempt; the failing branch sets _fb_next for the NEXT attempt)
   for att in $(seq 1 "$MAX_ATT"); do
     local base t0 atmp; base="$(git -C "$wt" rev-parse HEAD)"; t0=$(date +%s); atmp="$(mktemp "${TMPDIR:-/tmp}/ovn_stage_$$.XXXXXX")"
     _fb="${_fb_static}${_fb_next}"; _fb_next=""
+    local _pd1; for _pd1 in $_pdp; do
+      if git -C "$wt" rm -qf -- "$_pd1" >/dev/null 2>&1; then
+        say "  pure-delete: git rm $_pd1 (aider cannot delete files; the step's own VERIFY asserts absence)"
+        jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg f "$_pd1" '{run:$r,step:$i,event:"pure_delete",file:$f}')"
+      fi
+    done
     { echo "===== step $idx attempt $att @ $(date '+%F %T') (map=$mt arch=${#archargs[@]} read=${#rdargs[@]}) ====="; echo "DESC: $desc"; echo "FILES: $files"; echo "VERIFY: $verify"; } >> "$slog"
     local msg="Execute THIS one sub-step now and produce the diff. Do NOT do other steps.
 STEP: $desc
@@ -1133,7 +1146,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       # when the worktree is genuinely unchanged. ($base == HEAD always holds here since nothing is
       # committed mid-attempt, so the old "$base" HEAD comparison was also always a no-op.)
       fa="no-edit"; rc=1
-    elif [ "${OVN_STAGE_EMPTY_FILE:-on}" != off ] && stage_empty_files_scan "$wt" "$files" "$item"; then
+    elif [ "${OVN_STAGE_EMPTY_FILE:-on}" != off ] && stage_empty_files_scan "$wt" "$files" "$item"$'\n'"$desc"$'\n'"VERIFY: $verify"; then
       # 2026-10-13 (N4 Part 1): see stage_empty_files_scan. After an undeclared junk file was reaped the tree may be unchanged = a plain no-edit.
       if [ -n "$STAGE_EF_DECLARED" ]; then
         fa="empty-file"; rc=1
@@ -1469,8 +1482,10 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   # QUALITY: reject stub/placeholder implementations, and tests that never exercise the new code
   # (the gitlark PlanService "win" was a keyword stub whose test tested a DIFFERENT class — a fake pass).
   local changed; changed="$(git -C "$wt" diff --name-only origin/overnight/feature..HEAD 2>/dev/null)"
-  local srcs tests; srcs="$(printf '%s\n' "$changed" | grep -E '\.(py|gd|ts|tsx|vue)$' | grep -viE 'test|spec')"
-  tests="$(printf '%s\n' "$changed" | grep -iE 'test|spec' | grep -E '\.(py|gd|ts|tsx|vue)$')"
+  # 2026-10-20: srcs/tests (the 'changed test exercises the changed source' check) are built from files that still EXIST (ACMR): a deletion has nothing to exercise (stage_changed_live_files).
+  local _live; if declare -F stage_changed_live_files >/dev/null 2>&1; then _live="$(stage_changed_live_files "$wt")"; else _live="$changed"; fi
+  local srcs tests; srcs="$(printf '%s\n' "$_live" | grep -E '\.(py|gd|ts|tsx|vue)$' | grep -viE 'test|spec')"
+  tests="$(printf '%s\n' "$_live" | grep -iE 'test|spec' | grep -E '\.(py|gd|ts|tsx|vue)$')"
   # 2026-09-18: the srcs/tests-exercise guard below only runs when $srcs is non-empty, so a step
   # that touches ZERO real source files and only creates an EMPTY test/source file (0 bytes) sails
   # through completely unchecked - confirmed live twice tonight: billwatch's vote_sync_service.py +
