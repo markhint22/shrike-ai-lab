@@ -208,3 +208,7 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-21 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Add unit test for `get_settings_uncached` — `billwatch-backend/app/config.py:171` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that verifies it returns a fresh settings instance bypassing the LRU cache, ensuring config reloads work correctly {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-21 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Add router-level tests for `root` and `status_endpoint` — `billwatch-backend/app/main.py:151` and `billwatch-backend/app/main.py:181` are public functions referenced by no test; add tests in `billwatch-backend/tests/` verifying HTTP 200 responses and expected JSON payloads for the root health check and status endpoint {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [ready] Add unit test for `debug_env_vars` — `billwatch-backend/app/config.py:176` is a public function referenced by no test; add a test in `billwatch-backend/tests/` verifying it correctly identifies and returns debug-related environment variables {cat: test; size: S; multifile: no; research: none}
