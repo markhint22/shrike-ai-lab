@@ -246,3 +246,11 @@
 # --- 27B-decomposed from roadmap [2026-10-20]: Fix smoke-check SSE check: publish before subscribing — `backend/scripts/notify_smoke_chec (review + tweak) [feat:shrike-notify-20261020-fix-smoke-check-sse-check-publish-before] ---
 
 # --- 27B-decomposed from roadmap [2026-10-20]: Fix smoke-check auth_rejection check false-fails on no-auth servers — `backend/scripts/not (review + tweak) [feat:shrike-notify-20261020-fix-smoke-check-auth-rejection-check-fal] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Fix `_resolve_health_status()` logic bug — `backend/app/main.py:199-205`: `_resolve_health (review + tweak) [feat:shrike-notify-20261021-fix-resolve-health-status-logic-bug-back] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Wire `publish.startup_check()` into app startup — `backend/app/routers/publish.py:78-82` d (review + tweak) [feat:shrike-notify-20261021-wire-publish-startup-check-into-app-star] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Delete 3 dead `Settings` fields in `config.py` — `backend/app/config.py:112-122` defines ` (review + tweak) [feat:shrike-notify-20261021-delete-3-dead-settings-fields-in-config-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Fix normalize_topic to avoid trailing hyphens after truncation — `backend/app/utils/topic_ (review + tweak) [feat:shrike-notify-20261021-fix-normalize-topic-to-avoid-trailing-hy] ---

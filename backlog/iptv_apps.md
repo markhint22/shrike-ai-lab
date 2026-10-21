@@ -580,4 +580,3 @@
 # --- deterministic work supply 2026-10-20 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- deterministic work supply 2026-10-20 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
-- [ ] [T1] iptv-backend/app/routers/discover.py — Delete the unused import(s) from the import statement(s) in iptv-backend/app/routers/discover.py (ruff F401): `app.services.discover.get_recommendations_continue_watching`. Delete only these names from their import lines (drop a whole import statement when nothing is left in it); change nothing else. VERIFY: `python3 -m ruff check --select F401 --no-cache iptv-backend/app/routers/discover.py`. (cat:python; multifile:no; supply:unused-import) [feat:iptv_apps-20261020-supply-unused-import-iptv-backend-app-routers-discover-]

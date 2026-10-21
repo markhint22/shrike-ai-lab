@@ -345,8 +345,11 @@
 # --- 27B-decomposed from roadmap [2026-10-20]: Delete batch of post-round-5 zero-caller utils added since the 2026-09-22 audit — confirme (review + tweak) [feat:test-automation-agent-20261020-delete-batch-of-post-round-5-zero-caller] ---
 
 # --- 27B-decomposed from roadmap [2026-10-20]: Test `get_api_principal` resolution logic — Add unit tests for `backend/app/core/api_auth. (review + tweak) [feat:test-automation-agent-20261020-test-get-api-principal-resolution-logic-] ---
-- [ ] [T1] backend/tests/test_api_auth.py — Add test case verifying `get_api_principal` returns correct principal for a valid API key with active tenant VERIFY: `pytest backend/tests/test_api_auth.py::test_valid_key_returns_principal -v` (cat:test; multifile:no) [feat:test-automation-agent-20261020-test-get-api-principal-resolution-logic-]
-- [ ] [T2] backend/tests/test_api_auth.py — Add test case verifying `get_api_principal` raises 401 error for an invalid or expired API key VERIFY: `pytest backend/tests/test_api_auth.py::test_invalid_key_raises_401 -v` (cat:test; multifile:no) [feat:test-automation-agent-20261020-test-get-api-principal-resolution-logic-]
-- [ ] [T3] backend/tests/test_api_auth.py — Add test case verifying tenant scoping logic ensures principal is restricted to the correct tenant context VERIFY: `pytest backend/tests/test_api_auth.py::test_tenant_scoping_isolation -v` (cat:test; multifile:no) [feat:test-automation-agent-20261020-test-get-api-principal-resolution-logic-]
-- [ ] [T4] backend/tests/test_api_auth.py — Add test case verifying `get_api_principal` handles missing or malformed Authorization header gracefully VERIFY: `pytest backend/tests/test_api_auth.py::test_missing_header_handling -v` (cat:test; multifile:no) [feat:test-automation-agent-20261020-test-get-api-principal-resolution-logic-]
-- [ ] [T5] backend/tests/test_api_auth.py — Add test case verifying rate limiting integration prevents brute force attempts on API key resolution VERIFY: `pytest backend/tests/test_api_auth.py::test_rate_limit_integration -v` (cat:test; multifile:no) [feat:test-automation-agent-20261020-test-get-api-principal-resolution-logic-]
+
+# --- deterministic work supply 2026-10-21 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-21 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- deterministic work supply 2026-10-21 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Test `broadcast_update` and `notify_clients` WebSocket logic — Add unit tests for `backend (review + tweak) [feat:test-automation-agent-20261021-test-broadcast-update-and-notify-clients] ---

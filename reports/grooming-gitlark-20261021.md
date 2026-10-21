@@ -1,0 +1,16 @@
+# Grooming proposal — gitlark — 2026-10-21 04:00
+
+## Current Next Steps
+```
+- [ ] [EMERGENCY][T2] backend pytest suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing: FAILED tests/test_main_dispatch_error.py::test_handle_dispatch_write_error_returns_500_json;FAILED tests/test_plans_dispatch_endpoint.py::test_dispatch_502s_when_dispatcher_raises FAILED tests/test_plans_router.py::test_dispatch_plan_returns_502_on_write_failure;FAILED tests/test_plans_router_conflict.py::test_dispatch_still_502s_on_a_generic_dispatcher_error FAILED tests/test_scheduler_service.py::test_sync_all_workspaces_syncs_never_synced_workspace Files to read and fix: `backend/tests/test_main_dispatch_error.py` `backend/tests/test_plans_dispatch_endpoint.py` `backend/tests/test_plans_router_conflict.py`
+- [x] [EMERGENCY][T2] web vitest suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing: [41m[1m FAIL [22m[49m src/components/__tests__/TemporalNavigation.test.ts[2m [ src/components/__tests__/TemporalNavigation.test.ts ][22m
+- [x] (already-satisfied in code, implement-verified) [EMERGENCY][T2] backend pytest suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing: FAILED tests/test_conversation_analytics_summary.py::test_generate_summary_empty_messages;FAILED tests/test_conversation_analytics_summary.py::test_generate_summary_counts_user_and_ai_messages FAILED tests/test_conversation_analytics_summary.py::test_generate_summary_only_user_messages;FAILED tests/test_conversation_analytics_summary.py::test_generate_summary_only_ai_messages
+```
+
+## Proposed (LLM re-evaluation — review before applying)
+1. [EMERGENCY][T2] Fix `backend/tests/test_main_dispatch_error.py::test_handle_dispatch_write_error_returns_500_json` by verifying the error handler in `backend/main.py` or relevant router returns 500 JSON on write failure; update test if code is correct.
+2. [EMERGENCY][T2] Fix `backend/tests/test_plans_dispatch_endpoint.py::test_dispatch_502s_when_dispatcher_raises` and `backend/tests/test_plans_router_conflict.py::test_dispatch_still_502s_on_a_generic_dispatcher_error` by ensuring the dispatcher exception handling returns 502; align tests with actual behavior.
+3. [EMERGENCY][T2] Fix `backend/tests/test_scheduler_service.py::test_sync_all_workspaces_syncs_never_synced_workspace` by verifying `backend/services/scheduler_service.py` logic for syncing unsynced workspaces; update test or code as needed.
+4. [HIGH][T3] Add unit tests for `android/app/src/main/java/com/shrikelabs/gitlark/data/repository/AuthRepository.kt` covering successful and failed OAuth token exchange scenarios.
+5. [HIGH][T3] Implement error boundary handling in `android/app/src/main/java/com/shrikelabs/gitlark/ui/plans/PlanDetailScreen.kt` to gracefully display API failures from `GitLarkApi`.
+6. [MEDIUM][T4] Refactor `backend/tests/conftest.py` to centralize GitHubClient mocking logic, reducing duplication across test files and improving maintainability.
