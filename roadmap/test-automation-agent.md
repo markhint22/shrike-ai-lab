@@ -237,3 +237,6 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 
 ## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `login_user` and `revoke_token` auth flows — Add unit tests for `backend/app/routers/auth.py:113` (`login_user`) and `backend/app/routers/auth.py:138` (`revoke_token`) to verify token issuance, validation, and revocation logic; place in `backend/tests/test_auth_endpoints.py` {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `stripe_webhook` event processing — Add unit tests for `backend/app/routers/billing.py:128` (`stripe_webhook`) to verify correct handling of Stripe events and error cases, as this public function is currently untested {cat: backend; size: M; multifile: no; research: none}
