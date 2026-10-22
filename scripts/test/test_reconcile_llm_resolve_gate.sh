@@ -60,7 +60,7 @@ mk(){   # <name>: a repo whose develop and overnight/feature conflict in TWO fil
 }
 sha(){ git -C "$T/origin/$1.git" rev-parse --verify -q "$2" 2>/dev/null; true; }
 run(){ ( cd "$Q" && PATH="$BIN:$PATH" bash ./reconcile_branches.sh "$@" > "$T/out.log" 2>&1 ); echo $? > "$T/rc"; }
-reset(){ : > "$T/curl.log"; : > "$T/aider.log"; : > "$T/pytest.log"; rm -f "$T/tok.log" "$Q/state/alerts.log" "$Q/state/reconcile_llm_gate_alerted" "$Q/logs/reconcile_gate_last.log" "$Q/logs/reconcile_gate_preflight.log"; unset STUB_PYTEST_RC; }
+reset(){ : > "$T/curl.log"; : > "$T/aider.log"; : > "$T/pytest.log"; rm -f "$T/tok.log" "$Q/state/alerts.log" "$Q/state/reconcile_llm_gate_alerted" "$Q/state/reconcile_conflict_alert" "$Q/state/reconcile_conflict_alert.set" "$Q/logs/reconcile_gate_last.log" "$Q/logs/reconcile_gate_preflight.log"; unset STUB_PYTEST_RC; }
 leaks(){ ls -d /tmp/reconcile-*llmgate* 2>/dev/null | wc -l | tr -d ' '; }
 OUT="$T/out.log"
 

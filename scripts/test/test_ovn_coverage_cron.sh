@@ -31,6 +31,18 @@ ok "regression below the floor raises a warn alert naming bash" "$(grep -q 'warn
 ok "floor is NOT lowered by a regression" "$(python3 -c "import json;d=json.load(open('$T/q/base.json'));print(d['bash']==89)" | grep -q True && echo 1 || echo 0)"
 : > "$T/q/state/alerts.log"; mkrunner 95 90 "  FAIL something broke"; run
 ok "failing test lines in the suite log raise a warn alert" "$(grep -q 'failing test line' "$T/q/state/alerts.log" && echo 1 || echo 0)"
+# 2026-10-22 (PKG-A): the loose "N failed" regex counted summary lines such as "passed=6 failed=0" / "6 failed attempts" (3 false matches on the box). Only "  FAIL " lines and the banner count.
+: > "$T/q/state/alerts.log"; mkrunner 95 90 "  ok   x
+passed=6 failed=0
+  3 passed, 0 failed
+  summary: 6 failed attempts were retried
+  ok   cycle (1 failed attempt)
+  SKIP something (2 failed probes)"; run
+ok "PKG-A: loose 'N failed' summary text is NOT a failing test line (no alert)" "$(grep -q 'failing test line' "$T/q/state/alerts.log" && echo 0 || echo 1)"
+: > "$T/q/state/alerts.log"; mkrunner 95 90 "  FAIL: noise suite: something broke"; run
+ok "PKG-A: a '  FAIL:' line (colon form) still alerts" "$(grep -q '1 failing test line' "$T/q/state/alerts.log" && echo 1 || echo 0)"
+: > "$T/q/state/alerts.log"; mkrunner 95 90 "$(printf '\342\235\214 SOME QUEUE TESTS FAILED')"; run
+ok "PKG-A: the failure banner still alerts" "$(grep -q '1 failing test line' "$T/q/state/alerts.log" && echo 1 || echo 0)"
 : > "$T/q/state/alerts.log"; printf 'not json' > /dev/null; cat > "$T/q/scripts/cov/run_coverage.sh" <<'R'
 #!/usr/bin/env bash
 mkdir -p "$OVN_COV_DIR"; rm -f "$OVN_COV_DIR/report.json"; echo x > "$OVN_COV_DIR/run_all.log"

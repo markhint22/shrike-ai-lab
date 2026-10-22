@@ -212,7 +212,11 @@ SNIP_E2='printf "\n\ndef bounded():\n    return run_job()\n" >> backend/app/svc.
 PLAN_E2='[{"desc":"add bounded and its test","files":["backend/app/svc.py","backend/tests/test_bounded.py"],"verify":"pytest"}]'
 n2_new; osr_venv backend; osr_progress "- [ ] $ITEM_E2"; osr_plan default "$PLAN_E2"; osr_aider 1 "$SNIP_E2"
 osr_run "$OSR_REPO"
-t "E3 shadow: VERIFY already GREEN before any step -> the event says refuse, but the item is still ticked (nothing enforced)" bash -c "grep -q '\"pre\":\"PASS\",\"post\":\"PASS\"' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl && grep -q 'refuse:the item.s own VERIFY was already GREEN' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl && grep -q '^- \[x\]' <<< \"\$(git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md)\""
+t "E3 shadow: VERIFY already GREEN before any step -> the event says refuse (default unchanged), but the item is still ticked (nothing enforced)" bash -c "grep -q '\"pre\":\"PASS\",\"post\":\"PASS\"' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl && grep -q 'refuse:the item.s own VERIFY was already GREEN' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl && grep -q '^- \[x\]' <<< \"\$(git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md)\""
+osr_cleanup
+n2_new; osr_venv backend; osr_progress "- [ ] $ITEM_E2"; osr_plan default "$PLAN_E2"; osr_aider 1 "$SNIP_E2"
+OVN_STAGE_ITEM_VERIFY_ALREADY_GREEN=credit OVN_STAGE_ITEM_VERIFY=enforce osr_run "$OSR_REPO"
+t "E4a PKG-B enforce + already GREEN + ALREADY_GREEN=credit: credited as already-satisfied, ticked, not parked" bash -c "grep -q 'pushed 1 verified commit' '$T/out.txt' && grep -q '^- \[x\]' <<< \"\$(git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md)\""
 osr_cleanup
 n2_new; osr_venv backend; osr_progress "- [ ] $ITEM_E2"; osr_plan default "$PLAN_E2"; osr_aider 1 "$SNIP_E2"
 OVN_STAGE_ITEM_VERIFY=enforce osr_run "$OSR_REPO"

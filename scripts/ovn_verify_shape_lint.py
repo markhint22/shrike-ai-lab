@@ -9,6 +9,11 @@ cycles until the churn guard parks it. This module classifies one VERIFY clause 
   VACUOUS         always exits 0 (or never reflects the code) (V1 `| wc -l` / display-only tail stage, V2 `|| true|echo` tail, V3 `; echo`, V4 `&& echo A || echo B`)
   UNRUNNABLE      cannot execute as written                   (U1 `cd D && ... D/x` double prefix, U2 pytest path relative to the wrong root, U3 billwatch_backend.app import)
 
+P5 (2026-10-21) shapes, all SHADOW-measured like the rest (found in 24 h of verify_gate_shadow.log FAIL rows): S6 single-line grep chaining a decorator to the def below it, S7 inverted
+`raises` polarity (a python -c that calls the very thing the item says raises, with no try/except; a clause that is literally `pytest.raises(...)`), S8 conftest.py as a pytest target
+(collects nothing, rc 5), S9 `Model()` instantiated with no args while the class has required fields, U4 `backend.app...` import prefix when the backend's own modules import `app...`
+(ModuleNotFoundError at the clause itself); plus rewrites for `test ! -f X && echo .. || echo ..` (V4) and `| wc -l returns N` (V1 -> -eq N, never a presence -ge 1).
+
 with a REASON and, where it can be done mechanically, a REWRITE (a full replacement clause). The linter is PURE: it parses text (quote-aware) and, when given a repo tree,
 READS files to confirm a finding; it never executes a VERIFY. Every rule only fires on evidence; with no tree the tree-dependent rules (S2, U2, S5) stay silent.
 
@@ -283,8 +288,22 @@ def _time_budget(seconds):
             signal.signal(signal.SIGALRM, old_h if old_h is not None else signal.SIG_DFL)
 
 
-def _find(f, cls, code, reason, rewrite=None):
-    return {"class": cls, "code": code, "reason": reason, "rewrite": rewrite}
+def _find(f, cls, code, reason, rewrite=None, p5_rewrite=False):
+    r = {"class": cls, "code": code, "reason": reason, "rewrite": rewrite}
+    if p5_rewrite and rewrite:
+        r["p5_rewrite"] = True   # the rewrite exists only because of a P5 rule (V1 `wc returns N`, V4 `test` branch): withheld unless OVN_VERIFY_LINT_P5=enforce
+    return r
+
+
+# P5 new shapes + rewrites are gated by their OWN switch, independent of OVN_VERIFY_LINT (which the unproven P5 shapes would otherwise ride along on):
+#   OVN_VERIFY_LINT_P5 = off | shadow | enforce; default shadow.  off: P5 findings are not produced.  shadow: produced and logged but never enforced (no drop/rewrite because of them).
+#   enforce: P5 findings behave like every other finding (subject to OVN_VERIFY_LINT=enforce).
+P5_CODES = frozenset(("S6", "S7", "S8", "S9", "U4"))
+
+
+def p5_mode():
+    m = (os.environ.get("OVN_VERIFY_LINT_P5", "shadow") or "shadow").strip().lower()
+    return m if m in ("off", "shadow", "enforce") else "shadow"
 
 
 def _fn_name_shape(s):
@@ -337,6 +356,9 @@ def _wc_expectation(clause, item):
     return "-ge 1"
 
 
+_WC_WORDS = {"returns", "return", "is", "are", "equals", "equal", "gives", "should", "be", "==", "=", "exactly", "count", "outputs", "prints", "shows", "->", "yields"}
+
+
 def _rule_tail(clause, stages, pls, tree, item=None):
     out = []
     last = pls[-1]
@@ -356,11 +378,15 @@ def _rule_tail(clause, stages, pls, tree, item=None):
         body = clause[:cut].rstrip()
         pa, pb = _msg_polarity(" ".join(argvs[-2][1:])), _msg_polarity(" ".join(argvs[-1][1:]))
         rw = None   # polarity unclear -> no rewrite (a guessed rewrite can invert the check); enforce then quarantines the item
+        p5rw = False
         if body and pa == "bad" and pb == "good":
             rw = "! ( %s )" % body   # `cmd && echo FAIL || echo PASS` states an ABSENCE check: exit 0 must mean the command did NOT succeed
         elif body and pa == "good" and pb == "bad":
             rw = body
-        out.append(_find(clause, VACUOUS, "V4", "`cmd && echo A || echo B` always exits 0: the echo branch decides the status, not the check", rw))
+        elif body and _argv(body)[:1] in (["test"], ["["], ["[["]) and not (pb == "good" and pa != "good") and pa != "bad":
+            rw = body   # P5: `test ! -f X && echo gone || echo still` - the success branch of a `test` is the intended pass; the bare test is the real check
+            p5rw = True
+        out.append(_find(clause, VACUOUS, "V4", "`cmd && echo A || echo B` always exits 0: the echo branch decides the status, not the check", rw, p5_rewrite=p5rw))
         return out
     # V2: trailing `|| true|:|echo|printf`
     if len(stages) >= 2 and ops[-1] == "||" and (argvs[-1][:1] in (["true"], [":"], ["echo"], ["printf"], ["exit"]) and (argvs[-1][:1] != ["exit"] or argvs[-1][1:2] == ["0"])):
@@ -383,15 +409,23 @@ def _rule_tail(clause, stages, pls, tree, item=None):
             if base == "wc":
                 # trailing prose / extra args after wc (`| wc -l returns 2`) make a rewrite broken or a weaker (-ge 1) clause than intended: no rewrite then
                 rw = None
-                if not any(not a.startswith("-") for a in la[1:]):
+                p5rw = False
+                extra = [a for a in la[1:] if not a.startswith("-")]
+                if not extra:
                     op = _wc_expectation(clause, item)
                     if op:
                         rw = clause[:pipe_start] + 'test "$(%s | %s)" %s' % (body, " ".join(la), op) + clause[last[-1][3]:]
+                elif extra[-1].isdigit() and all(w.lower() in _WC_WORDS for w in extra[:-1]):
+                    # P5: `| wc -l returns N` states the expected count itself: the rewrite is that exact count (-eq N), never a presence test (-ge 1) - a delete-direction `returns 0` stays 0
+                    flags = " ".join(a for a in la if a.startswith("-") or a == la[0])
+                    rw = clause[:pipe_start] + 'test "$(%s | %s)" -eq %d' % (body, flags, int(extra[-1])) + clause[last[-1][3]:]
+                    p5rw = True
                 why = "`| wc` as the last stage always exits 0 (wc counts, it does not test)"
             else:
                 rw = clause[:pipe_start] + body + clause[last[-1][3]:]
+                p5rw = False
                 why = "the clause ends in `| %s`: the pipeline status is that of the display stage (always 0), so the check before it is ignored" % base
-            out.append(_find(clause, VACUOUS, "V1", why, rw))
+            out.append(_find(clause, VACUOUS, "V1", why, rw, p5_rewrite=p5rw))
     return out
 
 
@@ -683,13 +717,217 @@ def _rule_signature(clause, stages, pls, tree, item=None):
     return out
 
 
-_RULES = (_rule_tail, _rule_grepn_fn, _rule_window, _rule_double_prefix, _rule_pytest_root, _rule_import, _rule_signature)
+# ---------------------------------------------------------------- P5 shapes
+_SEP_TAIL = re.compile(r"(?:\.\*|\.\+|\\n|\\s[*+]|\s)+$")
 
 
-def lint_verify(clause, tree=None, item=None):
+def _rule_decorator_def(clause, stages, pls, tree, item=None):
+    """S6: ONE grep pattern that chains a decorator to the def under it (`@router.get.*def name`, `@x\\n def f`). grep matches line by line and a decorator and its def are always on different
+    lines, so the clause can never pass (unless grep -z / -P multi-line). Rewrite: a -A window anchored on the decorator, piped to a grep for the def."""
+    out = []
+    for st in stages:
+        g = _grep_parse(_argv(st[1]))
+        if not g or not g["files"] or (g["flags"] & set("zP")) or (g["long"] & {"--null-data", "--perl-regexp"}):
+            continue
+        pat = g["pattern"]
+        at = pat.find("@")
+        if at < 0:
+            continue
+        md = re.search(r"(?:(?<![A-Za-z0-9_])|(?<=\\n))(?:async\s+)?def\b", pat[at:])   # `\ndef`: the n of a literal \n is a word char, so a plain \b would miss it
+        if not md:
+            continue
+        cut = at + md.start()
+        dec, deff = _SEP_TAIL.sub("", pat[:cut]), pat[cut:]
+        dec = _SEP_TAIL.sub("", re.sub(r"\((?:\?:)?async(?:\s|\\s)*[*+]?\)\?$", "", dec))   # `(async )?def` / `(?:async\s+)?def`: the optional async belongs to the def part
+        if len(dec) < 2 or dec == "@":
+            continue
+        E = "E" in g["flags"] or "P" in g["flags"] or "--extended-regexp" in g["long"]
+        Fx = "F" in g["flags"] or "--fixed-strings" in g["long"]
+        rw = None
+        if len(g["files"]) == 1 and not _multi_path_grep(g, tree):
+            mode_f = "-F " if Fx else ("-E " if E else "")
+            qflag = "-q" + ("F" if Fx else ("E" if E else ""))
+            if E and "\\n" in dec:
+                dec = dec.replace("\\n", "")
+            rw = clause[:st[2]] + (" " if st[2] and clause[st[2] - 1] != " " else "") + "grep %s-A 6 %s %s | grep %s %s" % (mode_f, shlex.quote(dec), shlex.quote(g["files"][0]), qflag, shlex.quote(deff)) + clause[st[3]:]
+        out.append(_find(clause, UNSAT, "S6", "one grep pattern `%s` needs the decorator and the `def` on the SAME line, but a decorator always sits on the line above its def: it can never match" % pat[:80], rw))
+        break
+    return out
+
+
+def _norm_args(a):
+    return re.sub(r"\s+", "", (a or "").replace('"', "'"))
+
+
+_RAISES_ITEM = re.compile(r"`([A-Za-z_][\w.]*)\(([^`]*)\)`[^`\n]{0,60}?\b(?:raises?|throws?)\b", re.I)
+
+
+def _rule_raises_polarity(clause, stages, pls, tree, item=None):
+    """S7: the item says X raises, the clause treats the exception as failure. (i) the clause IS `pytest.raises(...): ...` prose - not a command (UNRUNNABLE); (ii) a python -c that calls the
+    function the item says raises, with no try/except/raises around it: when the work is right the call raises and the clause exits 1 (UNSATISFIABLE). No rewrite (what to assert is the author's call)."""
+    out = []
+    first = _argv(stages[0][1])[:1] if stages else []
+    if first and re.match(r"^(?:pytest|unittest\.TestCase\.assert|self\.assert)?\.?raises?\(|^pytest\.raises\(", first[0]):
+        out.append(_find(clause, UNRUN, "S7", "the clause starts with `%s`: that is a python context manager, not a shell command (rc 127)" % first[0][:40], None))
+        return out
+    if item is None or not re.search(r"\bpython[0-9.]*\s+(?:-\S+\s+)*-c\b|/python[0-9.]*\s+-c\b", clause):
+        return out
+    if re.search(r"\btry\s*:|\bexcept\b|\braises?\b|assertRaises|\bwith\s+\w+\.raises|suppress\(", clause):
+        return out
+    text = item.replace(clause, " ", 1)
+    for m in _RAISES_ITEM.finditer(text):
+        callee = m.group(1).split(".")[-1]
+        # the call must be on the FAILING input: the item has to name a literal failing argument list (`f("bogus")`, `f(-1)`) and the clause must call the callee with exactly that list.
+        # A symbolic item arg (`parse(x) raises on bad input`) cannot be matched, and a clause that calls with valid input (`parse('3')`) is a normal positive test: silent either way.
+        iargs = _norm_args(m.group(2))
+        if not iargs or re.fullmatch(r"[A-Za-z_][\w.]*(?:,[A-Za-z_][\w.]*)*", iargs):
+            continue
+        if len(callee) >= 4 and any(_norm_args(c) == iargs for c in re.findall(r"\b%s\s*\(([^()]*)\)" % re.escape(callee), clause)):
+            out.append(_find(clause, UNSAT, "S7", "the item says `%s(...)` raises, but this python -c calls it with no try/except: once the code is right it raises and the clause exits 1" % callee, None))
+            break
+    return out
+
+
+def _rule_conftest_target(clause, stages, pls, tree, item=None):
+    """S8: `pytest .../conftest.py` collects nothing (rc 5) however correct the fixtures are. Rewrite: run the directory that holds it."""
+    out = []
+    for st in stages:
+        a = _argv(st[1])
+        if not any(os.path.basename(t) == "pytest" or t == "pytest" for t in a) or not any(t.split("::")[0].endswith("conftest.py") and not t.startswith("-") for t in a):
+            continue
+        new = re.sub(r"(?<![\w./-])((?:[\w.-]+/)*)conftest\.py(?:::\S+)?", lambda m: (m.group(1).rstrip("/") or "."), st[1], count=1)
+        out.append(_find(clause, UNSAT, "S8", "pytest is pointed at conftest.py: it defines fixtures, collects no tests and exits 5 (no tests collected)",
+                         clause[:st[2]] + new + clause[st[3]:] if new != st[1] else None))
+        break
+    return out
+
+
+_IMP = re.compile(r"\bfrom\s+([\w.]+)\s+import\s+([\w\s,]+)")
+
+
+def _required_fields(tree_mod_lines, cls, depth=0):
+    """Names of required (no default) fields of a pydantic model / dataclass `cls` defined in the module source, or None when it cannot be told (own __init__, unparsable, unknown base)."""
+    import ast
+    try:
+        mod = ast.parse("\n".join(tree_mod_lines))
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+    classes = {n.name: n for n in mod.body if isinstance(n, ast.ClassDef)}
+
+    def walk(name, d):
+        node = classes.get(name)
+        if node is None or d > 3:
+            return None
+        bases = [b.id if isinstance(b, ast.Name) else b.attr if isinstance(b, ast.Attribute) else "" for b in node.bases]
+        deco = [(x.func if isinstance(x, ast.Call) else x) for x in node.decorator_list]
+        is_dc = any((isinstance(x, ast.Name) and x.id == "dataclass") or (isinstance(x, ast.Attribute) and x.attr == "dataclass") for x in deco)
+        if "BaseModel" not in bases and not is_dc and not any(b in classes for b in bases):
+            return None
+        if any(isinstance(n, ast.FunctionDef) and n.name == "__init__" for n in node.body):
+            return None
+        req = []
+        for b in bases:
+            if b in classes:
+                r = walk(b, d + 1)
+                if r is None:
+                    return None
+                req += r
+        for n in node.body:
+            if not isinstance(n, ast.AnnAssign) or not isinstance(n.target, ast.Name):
+                continue
+            if "ClassVar" in ast.dump(n.annotation):
+                continue
+            v = n.value
+            if v is None:
+                req.append(n.target.id)
+            elif isinstance(v, ast.Call) and ((isinstance(v.func, ast.Name) and v.func.id == "Field") or (isinstance(v.func, ast.Attribute) and v.func.attr == "Field")):
+                has_default = any(k.arg in ("default", "default_factory") for k in v.keywords) or (v.args and not (isinstance(v.args[0], ast.Constant) and v.args[0].value is Ellipsis))
+                if not has_default:
+                    req.append(n.target.id)
+        return req
+    return walk(cls, depth)
+
+
+def _rule_bare_instantiation(clause, stages, pls, tree, item=None):
+    """S9: `from m import Model; Model()` where Model (read from the tree) has required fields: the call raises a validation error before any assert runs. Tree-dependent (silent without one)."""
+    out = []
+    if not tree or not re.search(r"\bpython[0-9.]*\b.*-c\b", clause):
+        return out
+    for im in _IMP.finditer(clause):
+        mod, names = im.group(1), [n.strip() for n in im.group(2).split(",") if n.strip()]
+        for cls in names:
+            if not re.search(r"(?<![\w.])%s\(\s*\)" % re.escape(cls), clause):
+                continue
+            rel = mod.replace(".", "/")
+            for pre in ("", "backend/", "src/"):
+                for suf in (".py", "/__init__.py"):
+                    lines = _read(tree, pre + rel + suf)
+                    if lines is None:
+                        continue
+                    req = _required_fields(lines, cls)
+                    if req:
+                        out.append(_find(clause, UNSAT, "S9", "`%s()` is called with no arguments but %s has required field(s) %s: it raises before any assert runs" % (cls, cls, ", ".join(req[:4])), None))
+                        return out
+    return out
+
+
+def _rule_backend_prefix(clause, stages, pls, tree, item=None):
+    """U4: `from backend.app.x import Y` when backend/'s own modules import `from app.x ...` (the app is rooted AT backend/): from the repo root `app` is not found - ModuleNotFoundError at
+    the clause itself. Tree-dependent. Rewrite: cd backend and drop the prefix (only when the clause has no cd of its own)."""
+    out = []
+    m = re.search(r"\b(?:from|import)\s+backend\.(app|src)\b", clause)
+    if not m or not tree or re.search(r"\bcd\b", clause):
+        return out
+    base = os.path.join(tree, "backend", m.group(1))
+    if not os.path.isdir(base):
+        return out
+    own = pkg = 0
+    n_seen = 0
+    for root, dirs, files in os.walk(base):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "__pycache__", ".venv", "venv")]
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            n_seen += 1
+            if n_seen > 300:
+                break
+            lines = _read(tree, os.path.relpath(os.path.join(root, f), tree))
+            for l in lines or []:
+                if re.match(r"\s*(?:from|import)\s+%s(?:\.|\s)" % m.group(1), l):
+                    own += 1
+                elif re.match(r"\s*(?:from|import)\s+backend\.%s\b" % m.group(1), l):
+                    pkg += 1
+        if n_seen > 300:
+            break
+    if own and not pkg:
+        fixed = re.sub(r"\b(from|import)\s+backend\.(app|src)\b", r"\1 \2", clause)
+        out.append(_find(clause, UNRUN, "U4", "`backend.%s` is not importable from the repo root: backend/'s modules import `%s...` (the package root is backend/), so the import fails with ModuleNotFoundError" % (m.group(1), m.group(1)),
+                         "cd backend && " + fixed))
+    return out
+
+
+_RULES = (_rule_tail, _rule_grepn_fn, _rule_window, _rule_double_prefix, _rule_pytest_root, _rule_import, _rule_signature,
+          _rule_decorator_def, _rule_raises_polarity, _rule_conftest_target, _rule_bare_instantiation, _rule_backend_prefix)
+
+
+def _gate_p5(findings):
+    """Drop the P5-only findings and withhold P5-only rewrites (what OVN_VERIFY_LINT_P5 != enforce means for ENFORCEMENT; off also removes them from the log)."""
+    out = []
+    for f in findings:
+        if f["code"] in P5_CODES:
+            continue
+        if f.get("p5_rewrite"):
+            f = dict(f, rewrite=None)
+        out.append(f)
+    return out
+
+
+def lint_verify(clause, tree=None, item=None, gate=None):
     """-> {"class", "findings": [...], "clause"}; the class is the worst finding (UNSAT > UNRUN > VACUOUS > OK). `item` = the full item line (some rewrites depend on what the item
     says, e.g. a `| wc -l` that must be 0). Never raises and never runs longer than OVN_VERIFY_LINT_BUDGET_S (default 2s; a timeout fails open as OK)."""
     findings = []
+    if gate is None:
+        gate = p5_mode() == "off"
     try:
         with _time_budget(_budget_s()):
             stages = split_stages(clause)
@@ -698,22 +936,24 @@ def lint_verify(clause, tree=None, item=None):
                 findings.extend(rule(clause, stages, pls, tree, item))
     except Exception as e:   # a lint bug must never stop a refill
         return {"class": OK, "findings": [], "clause": clause, "error": "%s: %s" % (type(e).__name__, e)}
+    if gate:
+        findings = _gate_p5(findings)
     cls = max((f["class"] for f in findings), key=lambda c: _RANK[c], default=OK)
     return {"class": cls, "findings": findings, "clause": clause}
 
 
-def fix_clause(clause, tree=None, rounds=4, item=None):
+def fix_clause(clause, tree=None, rounds=4, item=None, gate=None):
     """Apply rewrites until the clause lints OK. -> (new_clause, remaining_findings). A finding without a rewrite stays."""
     cur = clause
     for _ in range(rounds):
-        r = lint_verify(cur, tree, item)
+        r = lint_verify(cur, tree, item, gate)
         if r["class"] == OK:
             return cur, []
         rw = next((f["rewrite"] for f in r["findings"] if f["class"] != OK and f.get("rewrite") and f["rewrite"] != cur), None)
         if not rw:
             return cur, [f for f in r["findings"] if f["class"] != OK]
         cur = rw
-    return cur, [f for f in lint_verify(cur, tree, item)["findings"] if f["class"] != OK]
+    return cur, [f for f in lint_verify(cur, tree, item, gate)["findings"] if f["class"] != OK]
 
 
 # ---------------------------------------------------------------- item hooks
@@ -752,7 +992,10 @@ def lint_item_line(line, tree=None, md=None):
         return "ok", line, res
     if md != "enforce":
         return "flagged", line, res
-    new, left = fix_clause(clause, tree, item=line)
+    gate = p5_mode() != "enforce"   # P5-only findings are logged (flagged) but never rewritten/dropped unless OVN_VERIFY_LINT_P5=enforce
+    if gate and lint_verify(clause, tree, line, True)["class"] == OK:
+        return "flagged", line, res
+    new, left = fix_clause(clause, tree, item=line, gate=gate)
     if left or new == clause:
         return "dropped", line, res
     return "rewritten", line[:s] + new + line[e:], res

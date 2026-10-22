@@ -471,6 +471,13 @@ ovn_credit_verify_gate() {
       [ -n "$tl" ] && echo "--- verify-gate: ${label} at line ${ln} would be REFUSED (VERIFY: clause FAILED) - OVN_VERIFY_GATE_MODE=${mode}, crediting anyway ---" >> "$tl"
       return 0 ;;
     TIMEOUT|UNRUNNABLE)
+      # 2026-10-22 (PKG-B review): a clause whose lint/type tool is not installed (mypy/tsc/ruff...) used to be FAIL and the gate REFUSED it (return 1). Reclassifying it UNRUNNABLE (so it is
+      # not counted toward the credit-refusal park) must not turn that refusal into a credit of an item whose VERIFY never ran, for EVERY gate caller (DONE-trailer, bookkeeping, scout).
+      # So: refuse and leave the item open, but do NOT count it toward the park (_ovn_scout_refusal is not called). OVN_MISSING_TOOL_CREDIT=credit restores crediting.
+      if [ -n "${_LAST_VERIFY_TOOLMISSING:-}" ] && [ "${OVN_MISSING_TOOL_CREDIT:-refuse}" != credit ]; then
+        [ -n "$tl" ] && echo "--- verify-gate: ${label} REFUSED at line ${ln} - VERIFY tool not installed (${_LAST_VERIFY_TOOLMISSING}); item left open, not counted toward the refusal park ---" >> "$tl"
+        return 1
+      fi
       # 2026-10-16 (overnight review, xlite): an UNRUNNABLE VERIFY (rc 127 - the clause's tool is absent) is not evidence that the item is done, and the scout ALREADY-DONE credit
       # ran on it anyway (50 rows in one night). OVN_UNRUNNABLE_CREDIT_GATE: shadow (default: log 'would be REFUSED' and credit as before) | enforce (refuse; the item stays open) | off.
       # New enforcement ships shadow-only; flip to enforce after a soak. TIMEOUT is unchanged.

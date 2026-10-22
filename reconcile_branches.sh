@@ -79,7 +79,7 @@ try_llm_resolve(){  # $1=worktree $2=main-repo $3=tgt-branch $4=src-branch -> 0=
   [ "$nfiles" -gt 3 ] && return 1
   llm_gate_preflight "$repo" || return 1   # harness broken -> no aider call, no token spend
   local fileargs=(); while IFS= read -r fl; do fileargs+=(--file "$fl"); done <<< "$files"
-  local _llm_out; _llm_out="$( cd "$wt" && timeout 400 "$HOME/aider-venv/bin/aider" --yes-always --no-check-update --no-auto-commits \
+  local _llm_out; _llm_out="$( cd "$wt" && timeout 400 "$HOME/aider-venv/bin/aider" --yes-always --no-check-update --no-detect-urls --no-auto-commits \
       --model openai/qwen-dflash-27B --openai-api-base http://localhost:4000/v1 --openai-api-key sk-shrike-local \
       "${fileargs[@]}" \
       --message "These files have UNRESOLVED git merge conflict markers (<<<<<<<, =======, >>>>>>>) from a real 'git merge' between two branches. Resolve every conflict by keeping BOTH sides' distinct real functionality wherever the two changes are compatible - never silently drop one side's real work. If one side is clearly a placeholder/stub (e.g. returns an empty value with a TODO) and the other is a complete, real implementation, keep the complete one. Remove ALL conflict markers from every file. Do not touch anything outside these exact files." \
@@ -280,13 +280,14 @@ sync_feature(){  # $1=repo $2=feat-branch — bring origin/<feat> up to origin/d
   echo pushfail
 }
 
+skipped=""   # repos NOT positively evaluated this pass (fetch failed, refs missing, push/wt error, deferred): recovery is never judged while any exist
 for repo in $repos; do
   [ -d "$repo/.git" ] || continue
   name="$(basename "$repo")"
-  timeout 30 git -C "$repo" fetch -q origin 2>/dev/null || { log "$name: fetch failed/timed out"; continue; }
+  timeout 30 git -C "$repo" fetch -q origin 2>/dev/null || { log "$name: fetch failed/timed out"; skipped="$skipped $name"; continue; }
   [ "$DRY" = 1 ] || { [ -f "$HOME/overnight-queue/scripts/ovn_progress_merge.py" ] && timeout 30 python3 "$HOME/overnight-queue/scripts/ovn_progress_merge.py" --setup-clone "$repo" >/dev/null 2>&1; true; }   # 2026-10-12: per-clone progress-file merge driver (never global config)
-  git -C "$repo" rev-parse --verify -q origin/main    >/dev/null 2>&1 || { continue; }
-  git -C "$repo" rev-parse --verify -q origin/develop >/dev/null 2>&1 || { continue; }
+  git -C "$repo" rev-parse --verify -q origin/main    >/dev/null 2>&1 || { skipped="$skipped $name"; continue; }
+  git -C "$repo" rev-parse --verify -q origin/develop >/dev/null 2>&1 || { skipped="$skipped $name"; continue; }
 
   # 1) main -> develop (back-merge). Flag a genuine DIRECT-to-main code commit (not a promote/merge commit).
   m_ahead=$(git -C "$repo" rev-list --count origin/develop..origin/main 2>/dev/null || echo 0)
@@ -329,13 +330,13 @@ for repo in $repos; do
       ff) log "$name: fast-forwarded $feat to develop (+$d_ahead)"; synced_any=1;;
       ok) log "$name: merged develop->$feat (+$d_ahead)"; synced_any=1;;
       llm_resolved) log "$name: 🤖 auto-resolved a develop->$feat CONFLICT (LLM-assisted, gate=tests-green)"; resolved="$resolved develop→$feat:${name}"; synced_any=1;;
-      pm_deferred) log "$name: develop->$feat conflicts ONLY on progress files - deferred to the hourly hygiene pass (gated deterministic merge; see state/progress_merge.log)"; synced_any=1;;
+      pm_deferred) skipped="$skipped $name"; log "$name: develop->$feat conflicts ONLY on progress files - deferred to the hourly hygiene pass (gated deterministic merge; see state/progress_merge.log)"; synced_any=1;;
       pm_stale) log "$name: 🔴 CONFLICT develop->$feat (progress files only; deferred to hygiene for over ${OVN_PM_DEFER_ALERT_H:-6}h and still not landed - check state/progress_merge.log, hygiene gate/QA hold/tree guard)"; conflicts="$conflicts develop→$feat(progress-deferred ${OVN_PM_DEFER_ALERT_H:-6}h+):${name}"; synced_any=1;;
       conflict) log "$name: 🔴 CONFLICT develop->$feat"; conflicts="$conflicts develop→$feat:${name}"; synced_any=1;;
       sanityfail) log "$name: 🔴 develop->$feat merge would have pushed a BROKEN file (see logs/reconcile_sanity.log) - NOT pushed"; conflicts="$conflicts develop→$feat(sanity):${name}"; synced_any=1;;
-      pushfail) log "$name: develop->$feat pushfail (fleet racing; next pass retries)"; synced_any=1;;
+      pushfail) skipped="$skipped $name"; log "$name: develop->$feat pushfail (fleet racing; next pass retries)"; synced_any=1;;
       nobranch|nochange) : ;;
-      wterror) log "$name: develop->$feat $rc";;
+      wterror) skipped="$skipped $name"; log "$name: develop->$feat $rc";;
       *) _rcs="$(printf '%s' "$rc" | tr '\n' ' ' | cut -c1-60)"; _rcs="${_rcs:-<empty>}"   # 2026-10-13: an EMPTY/unknown result (sync_feature/merge_into died: 7 blank lines on 10-13, no alert) now alerts like a conflict
          log "$name: 🔴 develop->$feat rc=${_rcs} (unknown/empty result - sync_feature/merge_into died before reporting; treated as a CONFLICT so it alerts)"; conflicts="$conflicts develop→$feat(rc=${_rcs}):${name}"; synced_any=1;;
     esac
@@ -344,10 +345,37 @@ for repo in $repos; do
 done
 
 # Alerts — only when action is needed or something noteworthy happened.
-if [ -n "$conflicts" ]; then
+# 2026-10-21: the CONFLICT alert used to fire on EVERY pass (8 high notes in 105 min for one conflict). Now keyed on a hash of the conflict SET (state/reconcile_conflict_alert = "<hash> <epoch>"):
+# re-alert only when the set changes or after OVN_RECONCILE_REALERT_H (6) hours; one "recovered" note when the set clears. The conflicts are still logged on every pass (log lines above).
+# Recovery is only judged on a full pass (no repo args): a one-repo run cannot say another repo's conflict cleared. OVN_RECONCILE_ALERT_DEDUPE=0 -> legacy alert-every-pass.
+CA_FILE="$HOME/overnight-queue/state/reconcile_conflict_alert"
+_ca_now="${OVN_RECONCILE_NOW:-$(date +%s)}"
+_ca_send=1; _ca_hash=""; _ca_keep=0
+if [ -n "$conflicts" ] && [ "${OVN_RECONCILE_ALERT_DEDUPE:-1}" != "0" ]; then
+  _ca_hash="$(printf '%s' "$conflicts" | tr ' ' '\n' | sort | cksum | cut -d' ' -f1)"
+  read -r _ca_ph _ca_pt < "$CA_FILE" 2>/dev/null || { _ca_ph=""; _ca_pt=0; }
+  case "${_ca_pt:-0}" in ''|*[!0-9]*) _ca_pt=0;; esac
+  if [ "$_ca_ph" = "$_ca_hash" ] && [ $(( _ca_now - _ca_pt )) -lt $(( ${OVN_RECONCILE_REALERT_H:-6} * 3600 )) ]; then _ca_send=0; fi
+  # Flap guard: a repo that was not evaluated this pass (skipped) drops its conflict out of the set; a strict SUBSET of the alerted set is not new information. Suppress inside the window and keep
+  # the stored hash/set untouched, so when the repo comes back the set hashes identically and stays suppressed.
+  if [ "$_ca_send" = 1 ] && [ -n "$skipped" ] && [ -n "$_ca_ph" ] && [ -s "$CA_FILE.set" ] && [ $(( _ca_now - _ca_pt )) -lt $(( ${OVN_RECONCILE_REALERT_H:-6} * 3600 )) ] \
+     && [ -z "$(printf '%s' "$conflicts" | tr ' ' '\n' | sed '/^$/d' | sort -u | comm -23 - <(sort -u "$CA_FILE.set"))" ]; then _ca_send=0; _ca_keep=1; fi
+fi
+if [ -n "$conflicts" ] && [ "$_ca_send" = 1 ]; then
   curl -fsS --max-time 8 -H "Title: 🔴 Branch reconcile CONFLICT" -H "Tags: rotating_light" -H "Priority: high" \
     -d "Branches diverged with CONFLICTING edits (auto-reconcile couldn't resolve, needs a human):$conflicts. Resolve the merge manually." \
+    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 && _ca_sent_ok=1   # persist dedupe state ONLY if the alert was actually delivered (a failed first alert must retry next pass)
+  [ "${_ca_sent_ok:-0}" = 1 ] && [ -n "$_ca_hash" ] && [ "$DRY" != 1 ] && { mkdir -p "$(dirname "$CA_FILE")" 2>/dev/null; printf '%s %s\n' "$_ca_hash" "$_ca_now" > "$CA_FILE" 2>/dev/null || true
+    printf '%s' "$conflicts" | tr ' ' '\n' | sed '/^$/d' | sort -u > "$CA_FILE.set" 2>/dev/null || true; }
+elif [ -n "$conflicts" ]; then
+  log "conflict alert suppressed (same conflict set, alerted <${OVN_RECONCILE_REALERT_H:-6}h ago): state/reconcile_conflict_alert"
+elif [ -n "$skipped" ] && [ -z "$*" ] && [ -f "$CA_FILE" ]; then
+  log "conflict recovery NOT judged (repo(s) not evaluated this pass:$skipped); keeping state/reconcile_conflict_alert"
+elif [ -z "$*" ] && [ "$DRY" != 1 ] && [ -f "$CA_FILE" ]; then
+  curl -fsS --max-time 8 -H "Title: ✅ Branch reconcile conflict cleared" -H "Tags: white_check_mark" -H "Priority: default" \
+    -d "The develop/feature reconcile conflict(s) alerted earlier have cleared: every repo is reconciled again." \
     "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
+  rm -f "$CA_FILE" "$CA_FILE.set" 2>/dev/null
 fi
 if [ -n "$directs" ]; then
   curl -fsS --max-time 8 -H "Title: Reconciled a direct-to-main commit" -H "Tags: information_source" -H "Priority: low" \

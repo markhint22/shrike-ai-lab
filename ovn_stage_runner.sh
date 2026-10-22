@@ -113,6 +113,7 @@ source scripts/lib_new_tests.sh 2>/dev/null || true
 # 2026-10-13 (package stage): deterministic guards (mis-targeted Verify steps / items, class_name conflicts, named tests, item-VERIFY red-before, web verify). Lib missing => every guard is a no-op.
 source scripts/lib_stage_guards.sh 2>/dev/null || true
 source scripts/lib_outcome_acct.sh 2>/dev/null || true   # 2026-10-18 (D4): ovn_oa_commits for the outcome row (absent => commits=[])
+source scripts/lib_p4_outcomes.sh 2>/dev/null || true   # 2026-10-21 (P4): ovn_stage_fail_tag (OVN_STAGE_FAILTAG=on)
 declare -F stage_step_mistarget >/dev/null 2>&1 || { stage_step_mistarget(){ return 1; }; stage_item_mistarget(){ return 1; }; stage_class_conflict(){ return 1; }
   stage_named_tests_check(){ return 0; }; stage_item_verify_run(){ printf 'NO_VERIFY_CLAUSE|lib missing'; }; stage_item_verify_decision(){ echo OK; }; stage_item_verify_textonly(){ return 1; }; stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|context_length|prompt is too long|exceed_context|contextwindowexceeded|exceeds the available context size' "${1:-/dev/null}" 2>/dev/null; }
   stage_red_before_check(){ return 0; }; stage_web_verify(){ return 0; }; stage_tree_restore(){ return 0; }; }
@@ -943,6 +944,81 @@ stage_scope_learn(){   # $1=worktree $2=undeclared files (space-sep) $3=step idx
 }
 # <<< n4-stage-waste helpers: scope-learn (Part 3)
 
+# >>> pkgC helpers: semantic candidates
+# 2026-10-22 (PKG-C): the SEMANTIC wire check took ONE symbol (the first bare backtick token, or the last call-syntax token) and demanded the target file reference it. For 'Refactor `get_webhook_deliveries`
+# to call `_filter_deliveries` and `_paginate_deliveries`' the first token is the function BEING EDITED, which structurally has one def and nothing else -> 'only defines (or never uses)' after a green
+# 2733-test suite (test-automation-agent 6cf21597b8, 27.6 min / 179k tokens, then a false Claude escalation; same shape on billwatch upvote_bill).
+# Candidates now = ALL backtick identifiers of the prose (VERIFY clause, file names, keywords/stoplist, <3 chars excluded); the leading edited symbol (the token right after Refactor/Modify/Update/Extend) is
+# dropped when others exist; tokens after call(s)/invoke(s)/register/wire/hook are tried first. The check passes when ANY candidate has refs>=2, or refs>=1 and no def. Nothing integrated => still FAIL.
+# OVN_STAGE_SEMANTIC_CANDIDATES=old restores the single-symbol behaviour (first bare token, then last call-syntax token).
+stage_semantic_candidates(){   # $1=item text -> candidate symbols, one per line, in the order they are tried
+  local item="$1"
+  if [ "${OVN_STAGE_SEMANTIC_CANDIDATES:-new}" = old ]; then
+    { printf '%s' "$item" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*`' | head -1 | tr -d '`' | sed 's/.*\.//'
+      printf '%s' "$item" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*\(' | tail -1 | tr -d '`(' | sed 's/.*\.//'; } | grep -v '^$'
+    return 0
+  fi
+  python3 -c '
+import re, sys
+t = re.sub(r"VERIFY:.*$", "", sys.argv[1], flags=re.S)
+STOP = {"None","True","False","self","cls","null","undefined","pytest","assert","return","commit","rollback","flush","append","get","add","len","print","str","int","dict","list"}
+EXT = (".py",".ts",".tsx",".js",".jsx",".gd",".vue",".md",".json",".sh",".yml",".yaml",".kt",".swift")
+toks = []
+for m in re.finditer(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(|`)", t):
+    raw = m.group(1)
+    if raw.lower().endswith(EXT): continue
+    name = raw.split(".")[-1]
+    if len(name) < 3 or name in STOP: continue
+    toks.append((name, m.start(), m.end()))
+if not toks: sys.exit(0)
+# 2026-10-22 review fix: the CONTAINER of an integration (the token right after into/in/inside/within, optionally one descriptor word) is where the wire lands, not the thing wired; it is defined once and called
+# elsewhere so it trivially has refs>=2 and would false-pass the gate ("Wire `X` into `Y`", "Add a call to `X` in `Y`"). Dropped when any other candidate remains.
+cont = {}
+prev_end = 0
+for n, st, en in toks:
+    is_c = bool(re.search(r"(?i)\b(into|inside|within|in)\s+(?:the\s+|a\s+)?(?:[A-Za-z_]+\s+)?$", t[prev_end:st]))
+    cont[n] = cont.get(n, True) and is_c
+    prev_end = en
+if any(not c for c in cont.values()):
+    toks = [x for x in toks if not cont[x[0]]]
+first = toks[0]
+lead = None
+if re.search(r"(?i)\b(refactor|modify|update|extend)\b[^`]{0,40}$", t[:first[1]]):
+    lead = first[0]
+names = []
+for n, _, _ in toks:
+    if n not in names: names.append(n)
+if lead is not None and len([n for n in names if n != lead]) >= 1:
+    names = [n for n in names if n != lead]
+pref, rest = [], []
+for n in names:
+    # preferred = the token follows call(s)/invoke(s)/register/wire/hook in the 60 chars of prose before it (any occurrence of that token)
+    ok = False
+    for nn, st, _ in toks:
+        if nn == n and re.search(r"(?i)\b(calls?|invokes?|registers?|wire[sd]?|hooks?)\b[^`]{0,60}$", t[:st]): ok = True
+    (pref if ok else rest).append(n)
+print("\n".join(pref + rest))
+' "$item"
+}
+# stage_semantic_check <worktree> <target file> <item text>: rc 0 = integrated (or nothing checkable), rc 1 = SEMANTIC FAIL; the evidence lines go to stdout (the caller appends them to the verify log)
+stage_semantic_check(){
+  local wt="$1" tgt="$2" item="$3" cands cand refs first=""
+  cands="$(stage_semantic_candidates "$item")"
+  [ -n "$cands" ] || return 0
+  [ "$(printf '%s\n' "$cands" | grep -c .)" -gt 1 ] && echo "-- semantic candidates: $(printf '%s' "$cands" | tr '\n' ' ')--"
+  while IFS= read -r cand; do
+    [ -n "$cand" ] || continue
+    [ -n "$first" ] || first="$cand"
+    refs="$(grep -c "$cand" "$wt/$tgt" 2>/dev/null)"; refs="${refs:-0}"   # NO `|| echo 0` (that yields "0\n0" -> integer errors)
+    if [ "$refs" -ge 2 ] || { [ "$refs" -ge 1 ] && ! grep -qE "(def|func|function|static func) +$cand" "$wt/$tgt" 2>/dev/null; }; then
+      echo "-- semantic OK: $tgt uses $cand ($refs refs) --"; return 0
+    fi
+  done <<< "$cands"
+  echo "-- SEMANTIC FAIL: $tgt only defines (or never uses) $first — the claimed integration never happened --"
+  return 1
+}
+# <<< pkgC helpers: semantic candidates
+
 # >>> n4-stage-waste helpers: file-feed (Part 4)
 # 2026-10-13 (N4 stage-runner-waste, Part 4) FILE-FEED for the staged path. 26 of 130 step attempts in 48h ended with NO edit because the architect answered 'Please add the following files to the chat'
 # (iptv_apps-20261013-082239-1305878-s0.log needs routers/subscription.py + conftest.py while the step FILES lists only tests/test_subscription.py). aider's single-shot --message mode never loops back
@@ -950,8 +1026,8 @@ stage_scope_learn(){   # $1=worktree $2=undeclared files (space-sep) $3=step idx
 # On a no-edit attempt whose architect reply asks for files, the repo paths it names are validated (tracked, text, not denylisted / hard-banned / vendored / native / .md, <= OVN_STAGE_FILE_FEED_MAX_BYTES
 # (default 60000) each, not already loaded) and at most 3 per step are added to the RETRY: `--read` for a multifile:no item (read-only context cannot trip the scope guard), `--file` otherwise.
 # OVN_STAGE_FILE_FEED=off disables. Needs stage_path_denied (scope-learn block); without it nothing is fed (fail closed).
-stage_feed_files(){   # $1=aider log of the attempt $2=worktree $3=files already loaded (space-sep, may include --file/--read words) $4=max -> up to $4 repo-relative paths, one per line
-  local log="$1" w="$2" loaded="$3" max="${4:-3}" tok r n=0 cap="${OVN_STAGE_FILE_FEED_MAX_BYTES:-60000}" lst
+stage_feed_filter(){   # $1=worktree $2=files already loaded $3=max; stdin = candidate path tokens -> validated repo-relative paths, one per line (2026-10-22 PKG-C: split out of stage_feed_files)
+  local w="$1" loaded="$2" max="${3:-3}" tok r n=0 cap="${OVN_STAGE_FILE_FEED_MAX_BYTES:-60000}" lst
   declare -F stage_path_denied >/dev/null 2>&1 || return 0
   case "$cap" in ''|*[!0-9]*) cap=60000;; esac
   lst="$(git -C "$w" ls-files 2>/dev/null)"
@@ -975,15 +1051,24 @@ stage_feed_files(){   # $1=aider log of the attempt $2=worktree $3=files already
     [ "$(wc -c < "$w/$r" 2>/dev/null | tr -d ' ')" -le "$cap" ] 2>/dev/null || continue
     grep -Iq . "$w/$r" 2>/dev/null || continue
     printf '%s\n' "$r"; n=$((n+1))
-  done < <(python3 - "$log" <<'PY'
-import sys, re
+  done
+  return 0
+}
+# the phrases an architect uses to ask for files (2026-10-22 PKG-C: also 'Please add these files', 'provide the following files', 'share these files')
+STAGE_FEED_ASK_RE='(add|provide|share) (these|the following) files?'
+stage_feed_asked(){ grep -qiE "$STAGE_FEED_ASK_RE" "${1:-/dev/null}" 2>/dev/null; }
+stage_feed_files(){   # $1=aider log of the attempt $2=worktree $3=files already loaded (space-sep, may include --file/--read words) $4=max -> up to $4 repo-relative paths, one per line
+  local log="$1" w="$2" loaded="$3" max="${4:-3}"
+  declare -F stage_path_denied >/dev/null 2>&1 || return 0
+  stage_feed_filter "$w" "$loaded" "$max" < <(STAGE_FEED_ASK_RE="$STAGE_FEED_ASK_RE" python3 - "$log" <<'PY'
+import sys, re, os
 try:
     lines = open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines()
 except OSError:
     lines = []
 out = []
 for i, ln in enumerate(lines):
-    if re.search(r"(?i)add the following files?\b", ln):
+    if re.search(os.environ.get("STAGE_FEED_ASK_RE") or r"(?i)add the following files?\b", ln, re.I):
         for nx in lines[i + 1:i + 25]:
             if nx.startswith("Tokens:"):
                 break
@@ -994,6 +1079,28 @@ for i, ln in enumerate(lines):
 print("\n".join(out))
 PY
 )
+  return 0
+}
+# 2026-10-22 (PKG-C, OVN_STAGE_SYMBOL_CONTEXT=off|shadow|on, default shadow): an empty-file / no-edit step whose model asked for files was fed ONLY what it literally named. billwatch-082054: the decomposer declared
+# bills.py but the function lives in bill_service.py -> 14 attempts, 1530s, 4 steps blocked. stage_symbol_files names the file that DEFINES each snake_case symbol the step/item mentions in backticks
+# (unique def among tracked non-test .py files) plus, for a declared test_<stem>.py, the unique tracked <stem>.py source. Candidates go through the same validation as the architect-named paths (stage_feed_filter).
+# shadow = the caller only LOGS what it would have fed. (run_step's AUTO-ADD SOURCE FILES already opens a backticked symbol's defining file before attempt 1, which is excluded here as 'already loaded';
+# the live addition is mainly the test-file-stem source and symbols the architect's retry names.)
+stage_symbol_files(){   # $1=worktree $2=text (item + step desc) $3=declared step files (space-sep) $4=loaded files $5=max -> repo-relative paths, one per line
+  local w="$1" text="$2" declared="$3" loaded="$4" max="${5:-3}" sym f stem hit lst
+  declare -F stage_path_denied >/dev/null 2>&1 || return 0
+  lst="$(git -C "$w" ls-files 2>/dev/null)"
+  {
+    for sym in $(printf '%s' "$text" | sed -E 's/VERIFY:.*$//' | grep -oE '`[a-z_][a-z0-9_]*(\(|`)' | tr -d '`(' | grep -E '^[a-z0-9]+(_[a-z0-9]+)+$|^_[a-z0-9_]+$' | awk '!s[$0]++' | head -6); do
+      hit="$(git -C "$w" grep -lE "^[[:space:]]*(async[[:space:]]+)?def[[:space:]]+${sym}[[:space:]]*\(" -- '*.py' 2>/dev/null | grep -vE '(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|_test\.py$|conftest\.py$')"
+      [ "$(printf '%s\n' "$hit" | grep -c .)" = 1 ] && printf '%s\n' "$hit"
+    done
+    for f in $declared; do
+      case "${f##*/}" in test_*.py) stem="${f##*/}"; stem="${stem#test_}"; stem="${stem%.py}";; *_test.py) stem="${f##*/}"; stem="${stem%_test.py}";; *) continue;; esac
+      hit="$(printf '%s\n' "$lst" | awk -F/ -v b="${stem}.py" '$NF==b' | grep -vE '(^|/)(tests?|__tests__)/')"
+      [ "$(printf '%s\n' "$hit" | grep -c .)" = 1 ] && printf '%s\n' "$hit"
+    done
+  } | awk '!s[$0]++' | stage_feed_filter "$w" "$loaded" "$max" || true
   return 0
 }
 # <<< n4-stage-waste helpers: file-feed (Part 4)
@@ -1103,7 +1210,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
     # ImportError slipped through). Keeping the change uncommitted lets the scoped gate actually run the
     # step's tests; we commit ONLY after it's green.
     ( cd "$wt" && timeout "$STEP_TIMEOUT" aider \
-        --yes-always --no-check-update --no-auto-commits --edit-format udiff \
+        --yes-always --no-check-update --no-detect-urls --no-auto-commits --edit-format udiff \
         --model "openai/$MODEL" --openai-api-base "$LITELLM/v1" --openai-api-key "$LKEY" \
         --model-metadata-file "$HOME/overnight-queue/model-metadata.json" --map-tokens "$mt" \
         ${archargs[@]+"${archargs[@]}"} \
@@ -1204,9 +1311,20 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       fi
     fi
     # 2026-10-13 (N4 Part 4): a no-edit attempt whose architect reply asked for files ('Please add the following files to the chat') - add the repo paths it named to the retry (see stage_feed_files)
-    if [ "$fa" = "no-edit" ] && [ "${OVN_STAGE_FILE_FEED:-on}" != off ] && [ "$att" -lt "$MAX_ATT" ] && [ "$_fed_n" -lt 3 ]; then
-      local _feed _fp _fl=""
+    # 2026-10-22 (PKG-C): also an EMPTY-FILE attempt (same stall, the declared file was left empty), a broader ask regex, and the symbol-context additions (OVN_STAGE_SYMBOL_CONTEXT, default shadow).
+    if { [ "$fa" = "no-edit" ] || [ "$fa" = "empty-file" ]; } && [ "${OVN_STAGE_FILE_FEED:-on}" != off ] && [ "$att" -lt "$MAX_ATT" ] && [ "$_fed_n" -lt 3 ]; then
+      local _feed _fp _fl="" _sc _sctxt _scmode="${OVN_STAGE_SYMBOL_CONTEXT:-shadow}"
       _feed="$(stage_feed_files "$atmp" "$wt" "$files ${fargs[*]}" $((3 - _fed_n)))"
+      if [ "$_scmode" != off ] && { [ "$fa" = "empty-file" ] || stage_feed_asked "$atmp"; }; then
+        _sctxt="$item"$'\n'"$desc"
+        _sc="$(stage_symbol_files "$wt" "$_sctxt" "$files" "$files ${fargs[*]} $_feed" $((3 - _fed_n - $(printf '%s' "$_feed" | grep -c .))) | tr '\n' ' ')"
+        _sc="${_sc% }"
+        if [ -n "$_sc" ]; then
+          jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg f "$_sc" --arg m "$_scmode" '{run:$r,step:$i,event:"symbol_context",mode:$m,files:$f}')"
+          if [ "$_scmode" = on ]; then _feed="$(printf '%s\n%s' "$_feed" "$(printf '%s' "$_sc" | tr ' ' '\n')" | grep .)"
+          else say "  step $idx symbol-context (shadow): would also feed ${_sc} (OVN_STAGE_SYMBOL_CONTEXT=on enables)"; fi
+        fi
+      fi
       if [ -n "$_feed" ]; then
         while IFS= read -r _fp; do
           [ -n "$_fp" ] || continue
@@ -1442,41 +1560,16 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     if printf '%s' "$_sem_text" | grep -qiE '^\[T[0-9]\] +[^ ]+ +(—|-) +(remove|delete|drop|retire)\b'; then _sem_text=""; fi
   fi
   if printf '%s' "$_sem_text" | grep -qiE '\b(wire|integrate|register|hook|call|invoke)\b'; then
-    local sym sym_alt tgt refs ok=0 cand
-    sym="$(printf '%s' "$item" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*`' | head -1 | tr -d '`' | sed 's/.*\.//')"
-    # 2026-09-19 FIX: the FIRST bare-identifier backtick token is frequently the function being
-    # EDITED, not the thing being integrated — e.g. "Wrap the `db.commit()` call in
-    # `add_to_watchlist()` ... that calls `handle_integrity_error(db, x)`" picks add_to_watchlist
-    # (its own `()` variant doesn't match the bare-identifier regex, so the LAST plain-identifier
-    # backtick token elsewhere in the item, e.g. inside its own VERIFY clause, wins by default).
-    # add_to_watchlist is the function whose body was modified, so it structurally has exactly one
-    # "def" reference and nothing else — the check then ALWAYS reports SEMANTIC FAIL for this class
-    # of item regardless of how correct the edit is. Confirmed live: iptv_apps spun on this exact
-    # false positive for 9 consecutive stage-runner cycles (~4.5h) across two near-identical items
-    # (favorites.py add_to_watchlist/add_favorite) — the aider diff each time correctly defined AND
-    # called handle_integrity_error, but the item was reverted anyway every single time.
-    # Fix: also compute the LAST backtick-quoted call-syntax token, "`name(", in the item (usually
-    # the real callee described by "...that calls `X(...)`") and try both candidates, original
-    # bare-identifier first. This is strictly additive — any item whose original extraction already
-    # passes is unaffected (the loop short-circuits on the first match), so nothing that already
-    # verifies correctly can regress; only previously-false-FAIL items get a fair second look.
-    sym_alt="$(printf '%s' "$item" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*\(' | tail -1 | tr -d '`(' | sed 's/.*\.//')"
+    local tgt _sem_out
     # target file: prefer a file named after "into/in <file>"; else the item's PRIMARY named file (the
     # one at the start, e.g. "checker.py — Integrate X into ..."). NOT the last path (that's often the test).
     tgt="$(printf '%s' "$item" | grep -oiE '\b(into|in) +`?[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue)' | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue)' | head -1)"
     [ -z "$tgt" ] && tgt="$(printf '%s' "$item" | grep -oE '[A-Za-z0-9_./-]+\.(gd|py|ts|tsx|vue)' | head -1)"
-    if [ -n "$tgt" ] && [ -f "$wt/$tgt" ] && { [ -n "$sym" ] || [ -n "$sym_alt" ]; }; then
-      for cand in "$sym" "$sym_alt"; do
-        [ -z "$cand" ] && continue
-        # count references OUTSIDE the symbol's own definition line: a real integration USES the symbol
-        refs="$(grep -c "$cand" "$wt/$tgt" 2>/dev/null)"; refs="${refs:-0}"   # NO `|| echo 0` (that yields "0\n0" -> integer errors)
-        if [ "$refs" -ge 2 ] || { [ "$refs" -ge 1 ] && ! grep -qE "(def|func|function|static func) +$cand" "$wt/$tgt" 2>/dev/null; }; then
-          echo "-- semantic OK: $tgt uses $cand ($refs refs) --" >> "$vlog"; ok=1; sym="$cand"; break
-        fi
-      done
-      if [ "$ok" = 0 ]; then
-        echo "-- SEMANTIC FAIL: $tgt only defines (or never uses) $sym — the claimed integration never happened --" >> "$vlog"; vok=0
-      fi
+    # 2026-09-19 / 2026-10-22: the symbol(s) come from stage_semantic_candidates (all backtick identifiers, minus the function being EDITED; see the pkgC block).
+    # The 09-19 fix (iptv favorites.py: 9 cycles / 4.5h lost to add_to_watchlist being picked as the integrated symbol) is subsumed: that token is now only tried when nothing else exists.
+    if [ -n "$tgt" ] && [ -f "$wt/$tgt" ]; then
+      _sem_out="$(stage_semantic_check "$wt" "$tgt" "$item")" || vok=0
+      [ -n "$_sem_out" ] && printf '%s\n' "$_sem_out" >> "$vlog"
     fi
   fi
   # QUALITY: reject stub/placeholder implementations, and tests that never exercise the new code
@@ -1785,7 +1878,7 @@ if [ "$passed" -gt 0 ]; then
       repair_fargs=(); for cf in $changed_files; do [ -f "$wt/$cf" ] && repair_fargs+=(--file "$cf"); done
       rmsg="Your change LANDED but FAILED final verification. Fix it so verification passes — edit the SOURCE and/or the TEST, whichever is actually wrong; do NOT revert the working parts, make the minimal fix. Likely causes: (a) your new test asserts a guessed/wrong value or a tz/precision a DB round-trip drops (SQLite naive datetimes) — assert real behavior/PROPERTIES instead; (b) the test never calls the code you changed — import and exercise the real symbol, or drive an endpoint via TestClient; (c) a stub/placeholder remains — implement it for real; (d) the change broke a sibling test — fix the source; (e) a test this change promised is missing or red — FIX it, NEVER delete, empty, skip or xfail the test the change added (a repair that removes it is rejected and the item is not credited). THE EXACT FAILURE:
 $reason"
-      ( cd "$wt" && timeout "$STEP_TIMEOUT" aider --yes-always --no-check-update --no-auto-commits --edit-format udiff \
+      ( cd "$wt" && timeout "$STEP_TIMEOUT" aider --yes-always --no-check-update --no-detect-urls --no-auto-commits --edit-format udiff \
           --model "openai/$MODEL" --openai-api-base "$LITELLM/v1" --openai-api-key "$LKEY" \
           --model-metadata-file "$HOME/overnight-queue/model-metadata.json" --map-tokens 2048 \
           --auto-test --test-cmd "bash $HOME/overnight-queue/scripts/ovn_autotest.sh $wt" \
@@ -2029,6 +2122,8 @@ emit_unverified_outcome(){
   cf="$vlog"; [ -f "$cf" ] || cf="$SLOG"
   fr="$(bash ovn_classify_fail.sh "$cf" "$ust" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
   [ -n "$fr" ] && [ "$fr" != unknown ] || fr="stage-unverified"
+  # 2026-10-21 (P4, OVN_STAGE_FAILTAG=on): the classifier short-circuits on the stage-unverified status text above, so fr was ALWAYS stage-unverified; use the cause tag
+  if [ "${OVN_STAGE_FAILTAG:-off}" = on ] && declare -F ovn_stage_fail_tag >/dev/null 2>&1; then _p4t="$(ovn_stage_fail_tag "$SLOG" "$vlog" 2>/dev/null)"; [ -n "$_p4t" ] && fr="$_p4t"; fi
   [ "${STAGE_NOEDIT:-0}" = 1 ] && fr="no-edit"   # 2026-10-10 (BX-09): the run produced no commit at all (bounded tag, same vocabulary as ovn_classify_fail.sh)
   detail="$(grep -m1 -iE 'FAILED |QUALITY FAIL|SEMANTIC FAIL|Error|error:|assert' "$vlog" 2>/dev/null | tr -d '"\\' | tr '\n\r\t' '   ' | tr -s ' ' | cut -c1-400)"
   [ -z "$detail" ] && detail="no step verified (${passed:-0}/${NSTEPS:-0} steps landed; no verify log)"

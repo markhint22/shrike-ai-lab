@@ -117,7 +117,7 @@ echo "❌ SOME QUEUE TESTS FAILED"
 EOS
   : > "$Q/state/alerts.log"; : > "$Q/state/coverage_history.log"
   cron "$2" PROBE=probe_ok_failed_words.sh
-  ok "genuine failure lines (FAIL line, 'N failed' summary, the red-X banner) are still counted: failing=3 and a failing-test alert" "[ \"\$(hist | grep -c 'failing=3')\" = 1 ] && [ \"\$(grep -c '3 failing test line' '$Q/state/alerts.log')\" = 1 ]"
+  ok "genuine failure lines (FAIL line, the red-X banner) are still counted: failing=2 (the '1 failed' summary line is deliberately NOT counted) and a failing-test alert" "[ \"\$(hist | grep -c 'failing=2')\" = 1 ] && [ \"\$(grep -c '2 failing test line' '$Q/state/alerts.log')\" = 1 ]"
 }
 
 run_suite "real" "$CRON"
@@ -157,10 +157,10 @@ mutate "filter export removed" "$EXPORT_LINE" '  :'
 mutate "filter does not match coverage's message" "$TRACER_MSG" "$TRACER_MSG_BAD"
 mutate "blanket ignore of every warning" "$FILTERS" 'ignore"'
 anchor OKFILTER <<'X'
-grep -av '^[[:space:]]*ok[[:space:]]' "$D/run_all.log" 2>/dev/null | grep -acE
+grep -acE '^  FAIL[ :]|❌ SOME QUEUE TESTS FAILED' "$D/run_all.log"
 X
 OKFILTER="${OKFILTER%$'\n'}"
-mutate "passing 'ok ... failed attempt' lines counted as failures (the failing=3 residue)" "$OKFILTER" "cat \"\$D/run_all.log\" 2>/dev/null | grep -acE"
+mutate "loose 'N failed' regex back (summary/passing lines counted as failures: the failing=3/18 residue)" "$OKFILTER" "grep -acE '^  FAIL |(^|[^0-9])[1-9][0-9]* failed' \"\$D/run_all.log\""
 mutate "kill switch ignored" "$KEEP_IF" 'if true; then'
 
 echo "coverage_cron_noise: $P passed, $F failed"

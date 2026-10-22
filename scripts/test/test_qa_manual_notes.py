@@ -173,7 +173,8 @@ class Fix:
 
     def env(self, **kw):
         e = {"PATH": MINPATH, "HOME": self.d, "OVN_DIR": self.ovn, "NTFY_SERVER": RELAY, "NTFY_TOPIC": "t-test",
-             "LITELLM_BASE": MODEL, "OVN_MANUAL_MODEL": "qwen-test"}
+             "LITELLM_BASE": MODEL, "OVN_MANUAL_MODEL": "qwen-test",
+             "OVN_MANUAL_STRICT_SUPPORT": "off"}   # 2026-10-22 (PKG-A): synthetic notes; the strict support gate (3998ba1) is covered by test_manual_notes_support_gate.sh
         e.update({k: v for k, v in kw.items() if v is not None})
         for k, v in kw.items():
             if v is None:

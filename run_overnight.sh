@@ -196,6 +196,15 @@ declare -F ovn_oa_head >/dev/null 2>&1 || ovn_oa_head(){ return 0; }
 declare -F ovn_vt_decide >/dev/null 2>&1 || ovn_vt_decide(){ OVN_VT_VERDICT=off; OVN_VT_COUNT=0; OVN_VT_BASE=""; OVN_VT_MSG=""; return 0; }
 declare -F ovn_vt_reset >/dev/null 2>&1 || ovn_vt_reset(){ return 0; }
 declare -F ovn_vt_revert_held >/dev/null 2>&1 || ovn_vt_revert_held(){ return 1; }
+# 2026-10-21 (package P4): stage-unverified fail tag (OVN_STAGE_FAILTAG, default off), head_before sidecar (the in-log marker was truncated by the scout's `> "$task_log"`),
+# NO-NEW-RED re-run-once (OVN_NNR_RERUN=off|shadow|on, default off) + its revert label. Missing lib => the old behaviour for each.
+# shellcheck source=scripts/lib_p4_outcomes.sh
+source "$SCRIPT_DIR/scripts/lib_p4_outcomes.sh" 2>/dev/null || true
+declare -F ovn_stage_fail_tag >/dev/null 2>&1 || ovn_stage_fail_tag(){ return 0; }
+declare -F ovn_hb_write >/dev/null 2>&1 || ovn_hb_write(){ return 0; }
+declare -F ovn_hb_read >/dev/null 2>&1 || ovn_hb_read(){ [ -f "${1:-}" ] && grep -a -m1 -oE '^--- ovn-head-before: [0-9a-f]{7,40} ---' "$1" 2>/dev/null | grep -oE '[0-9a-f]{7,40}' | head -1; return 0; }
+declare -F ovn_nnr_apply >/dev/null 2>&1 || ovn_nnr_apply(){ return 1; }
+declare -F ovn_nnr_redkind >/dev/null 2>&1 || ovn_nnr_redkind(){ if [ -n "${2:-}" ]; then printf 'a source change broke a previously-green test'; else printf 'the model added failing tests'; fi; }
 
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
@@ -229,7 +238,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # logic, same fallback to the old top-of-file behavior when there's no usable scout
   # signal — so this metric and ovn_item_guard.sh's cap-tracking stay in agreement AND
   # actually reflect the item that got worked on.
-  item_hash=""
+  item_hash=""; _line_hash=""
   if [ -n "$repo_dir" ] && [ -f "$repo_dir/OVERNIGHT_PROGRESS.md" ]; then
     local _top _text _featkey
     # 2026-10-10 (harness R10, BX-08 / IPTV-5): bill the item the cycle WORKED (the line it ticked, else the scout-named item) and bill NOBODY when that cannot be resolved - the old
@@ -272,6 +281,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
       else
         item_hash="$(printf '%s' "$_text" | md5sum 2>/dev/null | cut -d' ' -f1)"
       fi
+      _line_hash="$item_hash"   # the line-derived hash: what the stage-order journal rows carry (ovn_item_hash of the dependent line); the stage-billing override below must not leak into that join
       [ -n "$_stage_hash" ] && item_hash="$_stage_hash"
       if [ -n "$_featkey" ]; then
         # Research-batch scorecard (2026-09-23): keep the RAW [feat:...] tag too, not
@@ -382,6 +392,10 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   local fail_reason=""
   if [ "$cls" != "landed" ] && [ -n "$tl" ] && [ -x "$SCRIPT_DIR/ovn_classify_fail.sh" ]; then
     fail_reason="$("$SCRIPT_DIR/ovn_classify_fail.sh" "$tl" "$3" 2>/dev/null)"
+    # 2026-10-21 (P4): the stage caller's own cause tag for a stage-unverified row (only written when OVN_STAGE_FAILTAG=on)
+    if [ "${OVN_STAGE_FAILTAG:-off}" = on ] && [ -s "$tl.stagefr" ]; then
+      case "$3" in *"no-op(stage-unverified)"*) _sfr="$(head -1 "$tl.stagefr" 2>/dev/null | tr -cd 'a-z0-9-')"; [ -n "$_sfr" ] && fail_reason="$_sfr";; esac
+    fi
   fi
   # 2026-10-09 (harness-credit-integrity item 4): a green push whose item the auto-credit REFUSED to tick is not a landing - class landed-uncredited (neutral,
   # excluded from landed counts and the pass rate; readers show "N uncredited pushes"). Kill switch OVN_LANDED_UNCREDITED=off. See lib_auto_credit.sh.
@@ -413,7 +427,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   feat_tag="$(printf '%s' "${feat_tag:-}" | tr -d '"' | tr '\n\r\t' '   ')"
   # 2026-10-03 (integrity A12): every field goes through jq (--arg escapes quotes/backslashes/control bytes; numbers are digit-validated first), so a status
   # or fail_reason can never produce an invalid JSON row (one live row was malformed). jq missing/failing => the old printf (same key order).
-  local _n_attempt _n_sent _n_recv _n_dur _row
+  local _n_attempt _n_sent _n_recv _n_dur _row _so_to=""
   # 2026-10-18 (D4): commit accounting. head_after = the repo HEAD at record time, head_before = HEAD when the cycle's implement step started (passed by the caller from the
   # task log's ovn-head-before marker); commits = what the cycle added on top of it (empty for a revert/no-op). Additive fields: every legacy reader ignores them.
   local _hb _ha _commits
@@ -430,6 +444,13 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
       --argjson tokens_sent "$_n_sent" --argjson tokens_recv "$_n_recv" --argjson duration_s "$_n_dur" --arg item_hash "${item_hash:-}" --arg feat_tag "${feat_tag:-}" \
       --argjson commits "$_commits" --arg head_before "$_hb" --arg head_after "$_ha" \
       '{ts:$ts,repo:$repo,id:$id,type:$type,tier:$tier,category:$category,class:$class,severity:$severity,attempt:$attempt,attempts:$attempt,bestn_stop:$bestn_stop,fail_reason:$fail_reason,status:$status,tokens_sent:$tokens_sent,tokens_recv:$tokens_recv,duration_s:$duration_s,item_hash:$item_hash,feat_tag:$feat_tag,commits:$commits,head_before:$head_before,head_after:$head_after}' 2>/dev/null)"
+  # 2026-10-21 (P5, shadow evidence): join this outcome to the stage-order decisions journaled for the same item (state/stage_order_outcomes.jsonl) so the gate's precision is computable.
+  # Evidence only (never changes a decision), fail-open, and a no-op unless the item matched a journaled decision.
+  command -v timeout >/dev/null 2>&1 && _so_to="timeout 10"
+  if { [ -s "$STATE_DIR/stage_order_shadow.log" ] || [ -s "$STATE_DIR/stage_order_shadow.log.1" ]; } && [ -n "${_line_hash:-${item_hash:-}}" ] && [ -f "$SCRIPT_DIR/scripts/ovn_stage_order.py" ]; then
+    ${_so_to:-} python3 "$SCRIPT_DIR/scripts/ovn_stage_order.py" outcome --log "$STATE_DIR/stage_order_shadow.log" --out "$STATE_DIR/stage_order_outcomes.jsonl" --repo "${2:-}" --item-hash "${_line_hash:-$item_hash}" \
+      --item-text "${_text:-}" --class "$cls" --fail-reason "${fail_reason:-}" --duration-s "$_n_dur" >/dev/null 2>&1 || true
+  fi
   if [ -n "$_row" ]; then
     printf '%s\n' "$_row" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
     return 0
@@ -1614,6 +1635,8 @@ STUB
           | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED' | ovn_bug_first_order | grep -qE '\[T[345]\]|·T[345]·'; then   # 2026-10-02: lane focus - while a manual bug is open only ITS tier decides
       echo "--- higher-tier sub-flow (inline in fleet slot; no pause, no contention) ---" >> "$task_log"
       _STAGE_OUT="$(mktemp)"
+      # 2026-10-21 (P4): the inline stage path never wrote a head_before marker at all; record the base the stage run starts from (repo HEAD at launch).
+      ovn_hb_write "$task_log" "$(git -C "$repo" rev-parse -q --verify HEAD 2>/dev/null)"
       # 2026-09-16 FIX (round 2): this outer `timeout` used to be 1500s, SHORTER than
       # ovn_stage_runner.sh's own internal OVN_STAGE_HARD_TIMEOUT hard-watchdog. The two disagreeing
       # on who kills first is not academic — plain `timeout N cmd` only SIGTERMs the direct child
@@ -1744,6 +1767,12 @@ STUB
           # 2026-10-02 (bugs-first review fix): when the runner itself counted/escalated a manual bug this cycle (bug_attempt journal event), tag the
           # status 'bug-handled' (the 'no-op(stage-unverified)' text stays, so classification/stats are unchanged): ovn_item_guard.sh then neither
           # double-counts the attempt nor re-resolves 'top' and bills the failure to an unrelated roadmap item once the bug is parked.
+          # 2026-10-21 (P4, OVN_STAGE_FAILTAG=on, default off): one label hid 26 no-landing/no-verify runs and 28 failed-verify runs. The status text is unchanged; the
+          # cause goes to a sidecar record_outcome reads for fail_reason (dominant step reason, or the classified verify log).
+          if [ "${OVN_STAGE_FAILTAG:-off}" = on ] && [ -n "$_STAGE_JSONL" ]; then
+            _sft="$(ovn_stage_fail_tag "$_STAGE_JSONL" "${_STAGE_JSONL%.jsonl}.verify.log" 2>/dev/null)"
+            [ -n "$_sft" ] && printf '%s\n' "$_sft" > "$task_log.stagefr" 2>/dev/null
+          fi
           if [ -n "$_STAGE_JSONL" ] && grep -q '"event":"bug_attempt"' "$_STAGE_JSONL" 2>/dev/null; then
             echo "no-op(stage-unverified) stage(higher-tier) bug-handled"
           else
@@ -1762,6 +1791,8 @@ STUB
     BEFORE_SHA="$(git rev-parse HEAD)"
     # 2026-10-18 (D4): the cycle's own base sha, read back by the main loop to attribute commits to the outcome row (first attempt wins: best-of-N resets to the same base).
     echo "--- ovn-head-before: ${BEFORE_SHA} ---" >> "${task_log:-/dev/null}"
+    # 2026-10-21 (P4): the scout's `> "$task_log"` truncates the marker above (211/211 landed rows had head_before==""); the sidecar survives it.
+    ovn_hb_write "${task_log:-}" "$BEFORE_SHA"
 
     # >>> DELETE-EXECUTOR-BEGIN
     # 2026-09-30: "Delete/Remove <file>" items can NEVER succeed as an LLM udiff job here ("'/dev/null' is not in the
@@ -2078,7 +2109,7 @@ STUB
     # unified diffs — verified in the bake-off (a perfect SEARCH/REPLACE fix).
     # --edit-format udiff FORCES that format regardless of model-name recognition.
     AIDER_BASE_ARGS=(
-      --yes-always --no-check-update --edit-format "${OVN_EDIT_FORMAT:-udiff}"
+      --yes-always --no-check-update --no-detect-urls --edit-format "${OVN_EDIT_FORMAT:-udiff}"   # 2026-10-22 (PKG-C): URLs in failure text made aider try playwright installs (28 logs)
       --model "openai/${OVN_ACTIVE_MODEL:-$MODEL_NAME}"
       --openai-api-base "${LITELLM_BASE}/v1"
       --openai-api-key "${LITELLM_MASTER_KEY}"
@@ -3667,6 +3698,11 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
           echo "--- NO-NEW-RED BASELINE: status=${OVN_RI_STATUS} new=$(printf '%s' "${OVN_RI_NEW:-}" | grep -c .) baseline=${OVN_RI_BASE_N:-0} ---" >> "$task_log"
           OVN_FIXUP_BASELINE_FILE="${OVN_RI_BASE_FILE:-}"
           case "$OVN_RI_STATUS" in subtracted|baseline-green) OVN_FIXUP_BASELINE_VERIFIED=1;; *) OVN_FIXUP_BASELINE_VERIFIED=0;; esac
+          # RE-RUN-ONCE (2026-10-21, P4; OVN_NNR_RERUN=off|shadow|on, default off): two unrelated good iptv commits were reverted for one racy concurrent SQLite test
+          # (red once, green once). Re-run only the new failing ids; red twice = revert as before. shadow logs what it would have saved.
+          if [ "$OVN_FIXUP_BASELINE_VERIFIED" = 1 ] && ovn_nnr_apply "$PWD" "$task_log" "${OVN_RI_NEW:-}"; then
+            VERIFY_RESULT="pass"; OVN_FIXUP_BASELINE_VERIFIED=0
+          fi
         fi
       }
       _ovn_apply_baseline_subtraction
@@ -3799,7 +3835,7 @@ All files you need are already in the chat. You cannot run commands or call tool
       if [ "$VERIFY_RESULT" = "fail" ]; then
         OVN_CHANGED_ALL="$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" -- . | grep -v '^$' || true)"
         OVN_NONTEST="$(echo "$OVN_CHANGED_ALL" | grep -vE '(^|/)(tests?|__tests__)/|\.test\.[jt]sx?$|\.spec\.[jt]sx?$|(^|/)test_[^/]*\.py$|_test\.py$|Test\.kt$|Tests?\.swift$' | grep -v '^$' || true)"
-        if [ -n "$OVN_NONTEST" ]; then _redkind="a source change broke a previously-green test"; else _redkind="the model added failing tests"; fi
+        _redkind="$(ovn_nnr_redkind "$OVN_CHANGED_ALL" "$OVN_NONTEST" "${OVN_RI_NEW:-}")"
         echo "--- NO-NEW-RED GUARD: commit left the suite red (${_redkind}) — reverting so feature stays green and mergeable ---" >> "$task_log"
         # NEEDS-DECISION rule (2026-10-03, A5): the SAME item reverted twice for the SAME new failing ids of an OLDER test (baseline-verified: it passed at
         # BEFORE_SHA, and the commit is not what added it) asserts the opposite of what the item asks for (iptv vod.py case). More attempts only burn GPU:
@@ -4235,6 +4271,7 @@ coder_process_index() {
   TYPE="$(jq -r ".[$i].type // \"aider_fix\"" "$TASKS_FILE")"
   ENABLED="$(jq -r ".[$i].enabled | if . == null then true else . end" "$TASKS_FILE")"
   TASK_LOG="$LOG_RUN_DIR/${ID}.log"
+  : > "$TASK_LOG.headbefore" 2>/dev/null; : > "$TASK_LOG.stagefr" 2>/dev/null   # P4: per-cycle sidecars start empty
   [ "$ENABLED" = "true" ] || return 0
   [ "$TYPE" = "aider_fix" ] || return 0
   REPO="$(jq -r ".[$i].repo" "$TASKS_FILE")"
@@ -4321,6 +4358,7 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   TYPE="$(jq -r ".[$i].type // \"aider_fix\"" "$TASKS_FILE")"
   ENABLED="$(jq -r ".[$i].enabled | if . == null then true else . end" "$TASKS_FILE")"
   TASK_LOG="$LOG_RUN_DIR/${ID}.log"
+  : > "$TASK_LOG.headbefore" 2>/dev/null; : > "$TASK_LOG.stagefr" 2>/dev/null   # P4: per-cycle sidecars start empty
 
   if [ "$ENABLED" != "true" ]; then
     log "Task ${ID} (type=${TYPE}) is disabled — skipping"
@@ -4442,7 +4480,7 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   log "Task ${ID}: ${STATUS} (${_TASK_DURATION_S}s)"
   echo "| ${ID} | ${TYPE} | ${STATUS} | ${VERSION_OR_BRANCH} | ${TASK_LOG} | ${_TASK_DURATION_S}s |" >> "$REPORT_FILE"
   # 2026-10-18 (D4): head_before = the base sha the implement step logged (first attempt), head_after = the repo HEAD now; record_outcome derives commits=[...] from the pair.
-  _oa_hb=""; [ -n "${TASK_LOG:-}" ] && [ -f "${TASK_LOG:-}" ] && _oa_hb="$(grep -a -m1 -oE '^--- ovn-head-before: [0-9a-f]{7,40} ---' "$TASK_LOG" 2>/dev/null | grep -oE '[0-9a-f]{7,40}' | head -1)"
+  _oa_hb="$(ovn_hb_read "${TASK_LOG:-}")"
   _oa_ha=""; [ "$TYPE" != "train_job" ] && [ -n "${REPO:-}" ] && _oa_ha="$(ovn_oa_head "$REPO" 2>/dev/null)"
   record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}" "${REPO:-}" "${_bn_stop:-}" "$_oa_hb" "$_oa_ha"
   # reconcile held commits that reached origin since (additive landed-late rows), throttled + backgrounded; OVN_OUTCOME_RECONCILE=off disables

@@ -364,6 +364,11 @@ def item_head(line):
     return t
 
 
+class AmbiguousSet(set):
+    """Ambiguous basenames plus .tracked = every tracked path on the branch tip (lets names_file tell a path suffix from a distinct file)."""
+    tracked = None
+
+
 def names_file(line, relpath, ambiguous=None):
     """True when the item's HEAD names relpath: its full path, a '/'-bounded path suffix ('battle/x.gd'), or - only when no OTHER tracked file shares
     the basename (ambiguous = set of such basenames from the branch tree; None = unknown => treated as ambiguous) - the bare basename."""
@@ -376,9 +381,83 @@ def names_file(line, relpath, ambiguous=None):
             continue
         if tok == relpath or (("/" in tok) and relpath.endswith("/" + tok)):
             return True
+        # P3(b): the churn path is repo-relative ('src/x.test.ts') while the item names it with its subdirectory prefix ('iptv-web/src/x.test.ts')
+        # but NOT when the token is itself a tracked file ('admin/src/index.ts' while 'src/index.ts' is also tracked): that is a distinct file
+        if "/" in relpath and "/" in tok and tok.endswith("/" + relpath):
+            tracked = getattr(ambiguous, "tracked", None)
+            if tracked is None or tok not in tracked:
+                return True
+            continue
         if tok == base and ambiguous is not None and base not in ambiguous:
             return True
     return False
+
+
+STUB_SUBJECT = re.compile(r"\bstubs?\b", re.I)
+REVERTISH = re.compile(r"\b(revert\w*|drop(?:s|ped|ping)?|remov\w*|delet\w*)\b", re.I)
+PROTECTED_ESCALATE = os.environ.get("OVN_CHURN_PROTECTED_ESCALATE", "shadow")   # shadow (log only) | enforce | off
+ESCALATE_K = envi("OVN_CHURN_ESCALATE_K", 3)
+# PKG-E (PKG-G1 idea, SHADOW ONLY): open items naming auth / signature / secret code should go to Claude, not the 27B (TAA f5287552: a 27B refactor
+# dropped a guard in a signature helper and the gates only required tests:pass). off (default) | shadow (log only). There is no enforce mode.
+SECURITY_PATH_ESCALATE = os.environ.get("OVN_SECURITY_PATH_ESCALATE", "off")
+SECURITY_PATH = re.compile(r"(?<![A-Za-z0-9])[\w./-]*(auth|signature|secret|crypto|token|password|credential|webhook_verif)[\w./-]*\.(py|ts|tsx|js|kt|swift|go|gd)\b", re.I)
+
+
+def security_shadow_new(repo, path, today):
+    """Once-per-item-per-day dedupe for the shadow log. -> True when (repo, path, today) was not logged yet (and records it)."""
+    key = "%s|%s|%s" % (repo, path, today)
+    fp = os.path.join(STATE, "churn_security_shadow_seen.txt")
+    try:
+        with open(fp) as f:
+            seen = {ln.rstrip("\n") for ln in f if ln.rstrip("\n").endswith("|" + today)}
+    except OSError:
+        seen = set()
+    if key in seen:
+        return False
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(fp, "w") as f:
+            f.write("".join(k + "\n" for k in sorted(seen | {key})))
+    except OSError:
+        pass
+    return True
+
+
+def security_path_items(text):
+    """-> [(line_index, path)] for open '- [ ] ' items whose text names a security-sensitive source path and that are not already [CLAUDE]-tagged."""
+    out = []
+    for i, ln, _ in classify_lines(text):
+        if "[CLAUDE]" in ln:
+            continue
+        m = SECURITY_PATH.search(ln)
+        if m:
+            out.append((i, m.group(0)))
+    return out
+
+
+def revert_count(commits, ch, lo, hi):
+    """Commits in [lo, hi] touching the churner (file or aliases) whose subject reads as a revert/drop/remove (P3(b) K counter)."""
+    files = [ch["file"]] + list(ch.get("aliases", []))
+    # harness bookkeeping ('chore(...)') and stub cleanup ('chore: drop unfilled stub') are not reverts of model work
+    return sum(1 for c in commits if lo <= c["t"] <= hi and REVERTISH.search(c["s"]) and not BOOKKEEP_SUBJECT.match(c["s"])
+               and not STUB_SUBJECT.search(c["s"]) and any(f in c["f"] for f in files))
+
+
+def plan_escalation(text, churners, ambiguous, k):
+    """-> (new_text, [(file, line)]). PROTECTED (bug/EMERGENCY) open items naming a churner with revert_n >= k get '[CLAUDE] [churn-escalated ...] '
+    inserted after '- [ ] ' (needs-Claude: [CLAUDE] is in INELIGIBLE so no picker re-picks it). Never auto-parks; other lines untouched."""
+    lines = text.split("\n")
+    esc = []
+    for idx, ln, kind in classify_lines(text):
+        if kind != "protected":
+            continue
+        for ch in churners:
+            if ch.get("revert_n", 0) >= k and names_churner(ln, ch, ambiguous):
+                rel = re.sub(r"[\]\[\r\n]", "_", ch["file"])
+                lines[idx] = "- [ ] [CLAUDE] [churn-escalated: %s had %d revert-type fleet commits - needs Claude] " % (rel, ch["revert_n"]) + ln[len("- [ ] "):]
+                esc.append((ch["file"], ln))
+                break
+    return "\n".join(lines), esc
 
 
 def names_churner(line, ch, ambiguous=None):
@@ -486,10 +565,10 @@ def only_tags_added(old, new, n):
     if len(a) != len(b):
         return False
     diff = [(x, y) for x, y in zip(a, b) if x != y]
-    return len(diff) == n and all(y.startswith("- [ ] [AUTO-SKIP churn-loop: ") and y.endswith(x[len("- [ ] "):]) and x.startswith("- [ ] ") for x, y in diff)
+    return len(diff) == n and all((y.startswith("- [ ] [AUTO-SKIP churn-loop: ") or y.startswith("- [ ] [CLAUDE] [churn-escalated: ")) and y.endswith(x[len("- [ ] "):]) and x.startswith("- [ ] ") for x, y in diff)
 
 
-def apply_and_push(repo, clone, churners, budget, ambiguous):
+def apply_and_push(repo, clone, churners, budget, ambiguous, escalate=False):
     """Park matching open lines in a temp worktree of origin/overnight/feature and push NON-force. The edit is re-applied (not rebased) on a fresh tip
     after every rejected push, so a textual conflict cannot exist and no half-merged state is ever pushed. -> (ok, parked Counter); never raises."""
     wt = None
@@ -509,16 +588,20 @@ def apply_and_push(repo, clone, churners, budget, ambiguous):
                 log("%s: no OVERNIGHT_PROGRESS.md on %s - nothing to park" % (repo, REF))
                 return True, collections.Counter()
             new, parked, _prot = plan_parking(text, churners, WINDOW_H, budget, ambiguous)
-            if not parked:
+            n_esc = 0
+            if escalate:
+                new, esc = plan_escalation(new, churners, ambiguous, ESCALATE_K)
+                n_esc = len(esc)
+            if not parked and not n_esc:
                 return True, parked  # nothing (left) to park - e.g. someone parked it between ticks
-            if new == text or not only_tags_added(text, new, sum(parked.values())):
+            if new == text or not only_tags_added(text, new, sum(parked.values()) + n_esc):
                 log("%s: infra (post-check failed: edit is not exactly %d tag insertion(s)) - nothing pushed" % (repo, sum(parked.values())))
                 return False, collections.Counter()
             write_bytes_text(prog, new)
-            first = sorted(parked, key=lambda k: -parked[k])[0]
-            more = len(parked) - 1
-            msg = "chore(queue): park %d item(s) in a churn loop on %s%s - fleet churn-loop guard (%dh window)\n\n%s\n" % (
-                sum(parked.values()), first, (" (+%d more file%s)" % (more, "s" if more > 1 else "")) if more else "", WINDOW_H,
+            first = sorted(parked, key=lambda k: -parked[k])[0] if parked else ""
+            more = max(0, len(parked) - 1)
+            msg = "chore(queue): park %d item(s)%s in a churn loop on %s%s - fleet churn-loop guard (%dh window)\n\n%s\n" % (
+                sum(parked.values()), (" + escalate %d protected item(s) to Claude" % n_esc) if n_esc else "", first or "?", (" (+%d more file%s)" % (more, "s" if more > 1 else "")) if more else "", WINDOW_H,
                 "\n".join("- %s: %d item(s), %d fleet commits in %dh" % (c["file"], parked[c["file"]], c["n"], c.get("win", WINDOW_H))
                           for c in churners if parked[c["file"]]))
             rc, _, err = git(["add", "--", "OVERNIGHT_PROGRESS.md"], cwd=wt)
@@ -561,16 +644,20 @@ def add_tree_aliases(clone, churners):
     stems = {stem(c["file"]) for c in churners}
     bystem = collections.defaultdict(list)
     bases = collections.Counter()
+    tracked = set()
     for p in out.split("\n"):
         if not p:
             continue
+        tracked.add(p)
         bases[os.path.basename(p)] += 1
         if not BOOKKEEP_FILE.search(p) and stem(p) in stems:
             bystem[stem(p)].append(p)
     for c in churners:
         extra = [q for q in bystem[stem(c["file"])] if q != c["file"] and is_test_path(q) != is_test_path(c["file"])]
         c["aliases"] = sorted(set(c.get("aliases", [])) | set(extra))
-    return {b for b, k in bases.items() if k > 1}
+    amb = AmbiguousSet(b for b, k in bases.items() if k > 1)
+    amb.tracked = tracked
+    return amb
 
 
 def one_repo(repo, now, state):
@@ -600,10 +687,19 @@ def one_repo(repo, now, state):
         if not DRY:
             alert("warn", "churn-guard:%s" % repo, "WATCH %s: %d fleet commits in %dh with %d content revisits (slow oscillation) - NOT parked (alert only); a human/Claude should look" % (
                 w["file"], w["n"], WIDE_H, w["R"]), "%s|WATCH|%s|%s" % (repo, w["file"], today))
+    if SECURITY_PATH_ESCALATE == "shadow":
+        rc0, text0, _ = git(["show", "%s:OVERNIGHT_PROGRESS.md" % REF], cwd=clone)
+        if rc0 == 0:
+            for _i, path in security_path_items(text0):
+                if security_shadow_new(repo, path, today):
+                    log("%s: SECURITY-PATH-ESCALATE shadow: would route to Claude (auth/signature/secret code): %s" % (repo, path))
     if not churners:
         log("%s: no churning files (window %dh, min %d, %d commits scanned)" % (repo, WINDOW_H, MIN_N, len(commits)))
         return
     ambiguous = add_tree_aliases(clone, churners)
+    lo_w = now - WINDOW_H * 3600
+    for c in churners:
+        c["revert_n"] = revert_count(commits, c, lo_w, now)
     for c in churners:
         log("%s: CHURNING %s n=%d R=%d V=%d D=%d [%s]%s" % (repo, c["file"], c["n"], c["R"], c["V"], c["D"], c["kind"], (" win=%dh" % c["win"]) if c.get("win") else ""))
     rc, text, _ = git(["show", "%s:OVERNIGHT_PROGRESS.md" % REF], cwd=clone)
@@ -625,9 +721,14 @@ def one_repo(repo, now, state):
             log("%s: %s protected (bug/EMERGENCY, never parked) names %s: %s" % (repo, tag, f, ln[:100]))
         if DRY:
             return
+    # P3(b): protected (bug/EMERGENCY) items that keep churning after K revert-type commits: shadow = log only, enforce = tag [CLAUDE] (needs-Claude)
+    _, esc_would = plan_escalation(text, churners, ambiguous, ESCALATE_K)
+    do_esc = bool(esc_would) and PROTECTED_ESCALATE == "enforce" and PARK
+    for f, ln in esc_would:
+        log("%s: PROTECTED-ESCALATE %s (K=%d) %s: %s" % (repo, PROTECTED_ESCALATE, ESCALATE_K, "would tag needs-Claude" if not do_esc else "tagging needs-Claude", ln[:100]))
     parked = collections.Counter()
-    if would and PARK:
-        ok, parked = apply_and_push(repo, clone, churners, budget, ambiguous)
+    if (would or do_esc) and PARK:
+        ok, parked = apply_and_push(repo, clone, churners, budget, ambiguous, escalate=do_esc)
         if not ok:
             alert("warn", "churn-guard:%s" % repo, "could not push the churn-loop park to %s after %d attempts (will retry next tick); churning: %s" % (
                 BRANCH, PUSH_TRIES, ", ".join(c["file"] for c in churners[:3])), "%s|PUSHFAIL|%s" % (repo, today))

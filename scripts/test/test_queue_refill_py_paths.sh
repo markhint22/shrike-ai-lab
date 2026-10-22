@@ -13,6 +13,14 @@ P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
 T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 new(){ rm -rf "${T:?}/r"; mkdir -p "$T/r"; PF="$T/r/OVERNIGHT_PROGRESS.md"; BL="$T/r/backlog.md"; DONE="$T/r/OVERNIGHT_DONE.md"; : > "$PF"; : > "$BL"; }
+# 2026-10-21 (P1): the shape lint inside queue_refill.py appends to <queue>/state/verify_shape_lint.log + state/alerts.log. Under the unsandboxed coverage cron that is the LIVE
+# state dir (9 fixture rows + a false '[info] verify-lint | backlog' alert per night). Redirect both into the sandbox and prove the real state files stay byte-identical.
+REAL_STATE="$(cd "$(dirname "$QR")" && pwd)/state"   # ovn_verify_shape_lint._state_dir() = <queue root>/state (scripts/..)
+state_sig(){ for f in verify_shape_lint.log alerts.log; do if [ -e "$REAL_STATE/$f" ]; then cksum < "$REAL_STATE/$f"; else echo absent; fi; done; }
+STATE_SIG_BEFORE="$(state_sig)"
+if [ "${OVN_TEST_LEAK_MUTANT:-0}" != 1 ]; then   # mutation switch: =1 reproduces the old leaking behaviour so the sentinel assertion can be shown to FAIL
+  export OVN_VERIFY_SHAPE_LOG="$T/verify_shape_lint.log" OVN_VERIFY_ALERTS_LOG="$T/alerts.log"
+fi
 run(){ OUT="$(python3 "$QR" "$@" 2>"$T/err")"; RC=$?; }
 cnt(){ local c; c="$(grep -c -- "$1" "$2" 2>/dev/null)"; echo "${c:-0}"; }
 
@@ -89,6 +97,9 @@ ok "missing progress file: created with the pulled item" "$([ "$OUT" = "REFILL=1
 # relative progress path without a directory component -> repo_root falls back to "."
 new; ( cd "$T/r" && echo "- [ ] [T1] rel item (cat:py)" > backlog.md && python3 "$QR" OVERNIGHT_PROGRESS.md backlog.md 1 > "$T/rel.out" 2>&1 )
 ok "bare relative progress path works (repo_root='.')" "$(grep -q 'REFILL=1' "$T/rel.out" && echo 1 || echo 0)"
+
+ok "live state logs (verify_shape_lint.log, alerts.log) untouched by the run (no fixture rows / false verify-lint alert)" "$([ "$(state_sig)" = "$STATE_SIG_BEFORE" ] && echo 1 || echo 0)"
+ok "the redirected shape log actually received the lint rows (the redirect is live, not vacuous)" "$([ "${OVN_TEST_LEAK_MUTANT:-0}" = 1 ] || [ -s "$T/verify_shape_lint.log" ] && echo 1 || echo 0)"
 
 echo "queue_refill_py_paths: $P passed, $F failed"
 [ "$F" = 0 ]

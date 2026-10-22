@@ -16,6 +16,8 @@ file's udiff is unreliable on this model). 2026-10-11 showed four defects, all f
                                      deleted it on purpose, re-creating it made HEAD red (xlite scripts/battle/save_manager.gd, 6 cycles)
               out-of-scope:<dir>     the repo's AGENTS.md declares <dir>/ out of scope (iptv-android/, iptv-ios/ ...); an unparsable or
                                      missing AGENTS.md declares nothing
+              suffix-of-existing:<p> the path has directories and is a '/'-bounded suffix of a tracked file <p> (tests/t.py vs backend/tests/t.py;
+                                     OVN_STUB_SUFFIX_GUARD=off disables)
               bare-basename          the path has no directory ('in_range.gd' from prose) and a tracked file of that name exists in a subdirectory:
                                      stubbing would create a junk copy at the repo root (xlite in_range.gd / scatter.gd)
               new-dir-lookalike      (2026-10-13, SHADOW by default: OVN_STUB_NEWDIR_GUARD=enforce|shadow|off) the path's first directory that does not exist yet
@@ -123,6 +125,22 @@ def _bare_basename_elsewhere(repo, path):
     return ""
 
 
+def _suffix_of_existing(repo, path):
+    """P3(a) 2026-10-21: a path WITH directories ('tests/t.py') whose full relative path is a '/'-bounded suffix of a tracked file
+       ('backend/tests/t.py') names that existing file from a subdirectory-relative view, not a new one (gitlark/iptv: stub + drop loops).
+       Returns the existing path, '' when none / disabled (OVN_STUB_SUFFIX_GUARD=off) / git unavailable."""
+    if os.environ.get("OVN_STUB_SUFFIX_GUARD", "enforce") == "off":
+        return ""
+    if "/" not in path or not re.fullmatch(r"[A-Za-z0-9_./-]+", path):
+        return ""
+    rc, out = _git(repo, "ls-files", "--", ":(glob)**/" + path, timeout=30)
+    if rc != 0:
+        return ""
+    hits = [ln.strip() for ln in out.splitlines() if ln.strip() and ln.strip() != path and ln.strip().endswith("/" + path)]
+    # exactly one candidate: with several (monorepo with iptv-web/src/foo.ts AND admin/src/foo.ts) we cannot tell which one is meant
+    return hits[0] if len(hits) == 1 else ""
+
+
 def _load_ag_n2():
     """qa/ag_n2.py (the gate's lookalike logic) by file path; None when it is not deployed next to scripts/ (the guard is then simply skipped)."""
     try:
@@ -211,6 +229,16 @@ def out_of_scope_dirs(repo):
     return out
 
 
+_CREATES_RE = re.compile(r"\b(?:create[sd]?|creating|new\s+(?:file|module|top-level))\b", re.I)
+
+
+def _item_creates(text, s, e):
+    """True when the item line around the path explicitly asks to CREATE it ('create src/foo.ts', 'new file') - not a subdirectory-relative mention."""
+    a = text.rfind("\n", 0, s) + 1
+    b = text.find("\n", e)
+    return bool(_CREATES_RE.search(text[a: b if b != -1 else len(text)]))
+
+
 def pick(repo, text):
     cands = candidates(text)
     if not cands:
@@ -224,6 +252,9 @@ def pick(repo, text):
     elsewhere = _bare_basename_elsewhere(repo, norm0)
     if elsewhere:
         return "SKIP\tbare-basename:" + elsewhere + "\t" + path
+    suffix_of = "" if _item_creates(text, s, e) else _suffix_of_existing(repo, norm0)
+    if suffix_of:
+        return "SKIP\tsuffix-of-existing:" + suffix_of + "\t" + path
     sib = _sibling_longer(repo, path)
     if sib:
         return "SKIP\tsibling-longer-ext:" + sib + "\t" + path

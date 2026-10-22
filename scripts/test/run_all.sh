@@ -19,13 +19,20 @@ trap 'echo; echo "❌ SOME QUEUE TESTS FAILED (run_all.sh was signalled mid-run;
 export OVN_QA_SHADOW=off
 # the device-lane suite must only ever use its stub emulator under the sweep: a real KVM emulator burns ~300% CPU next to the dev loop - 2026-10-02
 unset DL_REAL_EMULATOR_TEST
+# 2026-10-22 (PKG-A): the failure verdict used to say only "SOME QUEUE TESTS FAILED" - the failing suite had to be dug out of a 600-line log (15 red stamps since 10-18).
+# bash/python3 are shadowed by these two functions for the whole run: every `bash test_x.sh` / `python3 test_x.py` is executed unchanged (command bash/python3), and a nonzero exit
+# other than 77 (NOT RUN, reported separately) records the suite name. finish() prints the list just before the banner. Functions are not exported, so nested shells are unaffected.
+FAILED_SUITES=""
+_ovn_note_fail(){ case "$1" in *.sh|*.py) [ "$2" -eq 0 ] || [ "$2" -eq 77 ] || FAILED_SUITES="${FAILED_SUITES:-} $1";; esac; }
+bash(){ command bash "$@"; local _r=$?; _ovn_note_fail "${1:-}" "$_r"; return $_r; }
+python3(){ command python3 "$@"; local _r=$?; _ovn_note_fail "${1:-}" "$_r"; return $_r; }
 rc=0
 NOTRUN=0
 # a suite exiting 77 could not run on this host (missing flock/bash 4/source file): it is NOT green - counted and reported at the end (2026-10-14)
 run_or_notrun(){ bash "$1"; _r=$?; if [ "$_r" -eq 77 ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN: $1 did not execute (prerequisites missing)"; elif [ "$_r" -ne 0 ]; then rc=1; fi; }
 # the single verdict: green only when every suite ran and passed. A NOT RUN suite is unverified, never green (2026-10-14 review).
 finish(){
-  if [ "$rc" -ne 0 ]; then echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
+  if [ "$rc" -ne 0 ]; then [ -n "${FAILED_SUITES:-}" ] && echo "FAILED SUITES:${FAILED_SUITES:-}"; echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
   if [ "$NOTRUN" -gt 0 ]; then echo "⚠️  NOT VERIFIED: $NOTRUN suite(s) did not run on this host - this is NOT a green run (run the NOT RUN suites on the box)"; return 1; fi
   # the verdict is re-checked here too: a suite that sets rc=1 must never be followed by the green banner (2026-10-15)
   if [ "$rc" -ne 0 ]; then echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
@@ -439,6 +446,8 @@ echo; echo "===== r11: walltime alert split (timeout share named apart from pass
 echo; echo "===== r16: classify fail noedit r14 ====="; bash test_classify_fail_noedit_r14.sh || rc=1
 echo; echo "===== classify fail: verify-timeout (rc=124 reverted-red) ====="; bash test_classify_verify_timeout.sh || rc=1
 echo; echo "===== verify: python without pytest is UNRUNNABLE, not FAIL ====="; bash test_verify_missing_pytest_unrunnable.sh || rc=1
+echo; echo "===== PKG-B: pytest node-id fallback accepts rootdir-relative ids ====="; bash test_verify_nodeid_rootdir.sh || rc=1
+echo; echo "===== PKG-B: missing lint/type tool is UNRUNNABLE; indeterminate never counts as a credit refusal; already-GREEN is credited ====="; bash test_verify_missing_tool_unrunnable.sh || rc=1
 echo; echo "===== r16: gut clause r16 ====="; bash test_gut_clause_r16.sh || rc=1
 echo; echo "===== r16: progress merge ====="; python3 test_progress_merge.py || rc=1
 echo; echo "===== r16: progress merge git ====="; bash test_progress_merge_git.sh || rc=1
@@ -584,5 +593,15 @@ if [[ "$(uname)" == "Darwin" ]]; then
 fi
 echo; echo "===== alembic autogen fk batch ====="; bash test_alembic_autogen_fk_batch.sh || rc=1
 echo; echo "===== supply patch target guard ====="; bash test_supply_patch_target_guard.sh || rc=1
+echo; echo "===== P4 stage fail tag + head_before sidecar + NNR re-run-once ====="; bash test_p4_stage_failtag_nnr_headbefore.sh || rc=1
+echo; echo "===== PKG-C stage semantic candidates ====="; run_or_notrun test_stage_semantic_candidates.sh
+echo; echo "===== PKG-C stage empty-file feed + symbol context ====="; run_or_notrun test_stage_empty_file_feed.sh
+echo; echo "===== PKG-C aider --no-detect-urls ====="; bash test_aider_no_detect_urls.sh || rc=1
+echo; echo "===== qa tool health note dedupe ====="; bash test_qa_tool_health_note_dedupe.sh || rc=1
+echo; echo "===== rc secret cli failure ====="; bash test_rc_secret_cli_failure.sh || rc=1
+echo; echo "===== reconcile conflict dedupe ====="; bash test_reconcile_conflict_dedupe.sh || rc=1
+echo; echo "===== churn suffix escalate ====="; bash test_churn_suffix_escalate.sh || rc=1
+echo; echo "===== stub suffix guard ====="; bash test_stub_suffix_guard.sh || rc=1
+echo; echo "===== P5 shadow evidence (stage-order journal ts/item_hash/decision_id/count/rotation/outcome join; verify-lint S6-S9,U4,V4,V1 shapes; UNRUNNABLE vs FAIL; record_outcome hook) ====="; bash test_p5_shadow_evidence.sh || rc=1
 echo; finish || rc=1
 exit $rc

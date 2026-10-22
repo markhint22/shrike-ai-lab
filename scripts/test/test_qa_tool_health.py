@@ -434,7 +434,7 @@ def main():
     run(w, now=1003600)
     run(w, now=1007200)
     notes = [json.loads(x) for x in open(np_).read().splitlines()]
-    ok("past the bar: a high-prio note for the hourly update on EVERY run (while it lasts)", len(notes) == 2 and notes[0]["prio"] == "high" and notes[0]["source"] == "qa_tool_health" and "tool:bandit" in notes[0]["text"], notes)
+    ok("past the bar: ONE high-prio note for the hourly update (2026-10-21: not one per run; see test_qa_tool_health_note_dedupe.sh)", len(notes) == 1 and notes[0]["prio"] == "high" and notes[0]["source"] == "qa_tool_health" and "tool:bandit" in notes[0]["text"], notes)
     w = build(fresh("notes-off"), skip_tools=("bandit",))
     for i in range(3):
         run(w, now=1000000 + i * 3600, env_extra={"OVN_QA_TOOL_HEALTH_NOTE": "0"})

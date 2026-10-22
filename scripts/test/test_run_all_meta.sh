@@ -36,6 +36,7 @@ export OVN_TEST_TMP_BASE="$tmp/tmpbase"; mkdir -p "$OVN_TEST_TMP_BASE"
 HEADER="$(sed -n '1,/^rc=0$/p' "$REAL")"
 # 2026-10-14: run_all's verdict is now finish() (a function defined before the test list) + `echo; finish || rc=1` / `exit $rc`; the sandbox carries both
 FINISH_FN="$(sed -n '/^finish(){/,/^}/p' "$REAL")"
+RUN_FN="$(grep '^run_or_notrun(){' "$REAL")"   # 2026-10-22: defined after rc=0 in the real script; the sandbox carries it too
 FOOTER="$(sed -n '/^echo; finish || rc=1$/,$p' "$REAL")"
 ok "extracted a non-empty header ending in rc=0 from the real script" "[ -n \"\$HEADER\" ] && echo \"\$HEADER\" | tail -1 | grep -qx 'rc=0'"
 ok "extracted a non-empty footer containing the finish verdict and the rc-gated exit line" "[ -n \"\$FOOTER\" ] && echo \"\$FOOTER\" | grep -qF 'finish || rc=1' && echo \"\$FOOTER\" | grep -qF 'exit \$rc' && [ -n \"\$FINISH_FN\" ]"
@@ -46,7 +47,7 @@ build_sandbox() {  # $1 = body (the fake test invocation lines)
   rm -rf "${tmp:?}/sandbox"; mkdir -p "$tmp/sandbox"
   # 2026-10-14: the real header sources its helpers from its own directory (ntfy_guard, lib_live_repo_guard, lib_tmp_isolation); the sandbox must have them
   for _h in ntfy_guard.sh lib_live_repo_guard.sh lib_tmp_isolation.sh; do cp "$(dirname "$REAL")/$_h" "$tmp/sandbox/" 2>/dev/null; done
-  { echo "$HEADER"; echo "NOTRUN=0"; echo "$FINISH_FN"; echo "$1"; echo "$FOOTER"; } > "$tmp/sandbox/run_all.sh"
+  { echo "$HEADER"; echo "NOTRUN=0"; echo "$FINISH_FN"; echo "$RUN_FN"; echo "$1"; echo "$FOOTER"; } > "$tmp/sandbox/run_all.sh"
   chmod +x "$tmp/sandbox/run_all.sh"
 }
 
@@ -108,6 +109,26 @@ mk_fail "$tmp/sandbox/test_fake_a.sh"
 mk_fail "$tmp/sandbox/test_fake_b.sh"
 OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
 ok "two-fail sandbox: exit code is exactly 1, not compounded" "[ $RC -eq 1 ]"
+
+# --- D2 (2026-10-22 PKG-A): the failure verdict names the failing suites (before the banner), only the failing ones; a missing file and a python suite count too; exit 77 (NOT RUN) is not "failed"
+build_sandbox 'echo; echo "===== P ====="; bash test_pass_ok.sh || rc=1
+echo; echo "===== F1 ====="; bash test_fake_a.sh || rc=1
+echo; echo "===== gone ====="; bash test_does_not_exist.sh || rc=1
+echo; echo "===== PY ====="; python3 test_fake_py.py || rc=1
+echo; echo "===== NR ====="; run_or_notrun test_fake_nr.sh'
+mk_pass "$tmp/sandbox/test_pass_ok.sh"; mk_fail "$tmp/sandbox/test_fake_a.sh"
+printf 'import sys\nsys.exit(1)\n' > "$tmp/sandbox/test_fake_py.py"
+printf '#!/usr/bin/env bash\nexit 77\n' > "$tmp/sandbox/test_fake_nr.sh"
+OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+LINE="$(printf '%s\n' "$OUT" | grep 'FAILED SUITES' | head -1)"
+ok "failed-suite list: exit 1 and the list line is present" "[ $RC -eq 1 ] && [ -n \"\$LINE\" ]"
+ok "failed-suite list: names the failing bash suite, the missing file and the python suite" "echo \"\$LINE\" | grep -q 'test_fake_a.sh' && echo \"\$LINE\" | grep -q 'test_does_not_exist.sh' && echo \"\$LINE\" | grep -q 'test_fake_py.py'"
+ok "failed-suite list: does NOT name the passing suite or the NOT RUN (77) suite" "! echo \"\$LINE\" | grep -q 'test_pass_ok.sh' && ! echo \"\$LINE\" | grep -q 'test_fake_nr.sh'"
+ok "failed-suite list is printed BEFORE the failure banner" "[ \"\$(printf '%s\n' \"\$OUT\" | grep -n 'FAILED SUITES' | head -1 | cut -d: -f1)\" -lt \"\$(printf '%s\n' \"\$OUT\" | grep -n 'SOME QUEUE TESTS FAILED' | tail -1 | cut -d: -f1)\" ]"
+build_sandbox 'echo; bash test_pass_ok.sh || rc=1'
+mk_pass "$tmp/sandbox/test_pass_ok.sh"
+OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+ok "failed-suite list: an all-pass run prints no list and exits 0" "[ $RC -eq 0 ] && ! echo \"\$OUT\" | grep -q 'FAILED SUITES'"
 
 # --- E: finish() must hold no test invocations: a suite placed inside it (after its rc check) let a failure print the green banner (2026-10-15)
 ok "finish() contains no bash test_ invocations (suites run before the verdict)" "[ \"\$(echo \"\$FINISH_FN\" | grep -c 'bash test_')\" -eq 0 ]"

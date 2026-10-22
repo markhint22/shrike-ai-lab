@@ -260,9 +260,9 @@ def main():
         "M13 merged verify invented empty": ('            if mv or "verify" in tgt:', "            if True:"),
         "M14 parked prerequisite not journaled": ('_journal(a.log, {"event": "stuck_on_parked_prereq"', '_journal(os.devnull, {"event": "stuck_on_parked_prereq"'),
         "M15 parked release always": ('parked_mode == "release":', 'parked_mode != "never":'),
-        "M16 item-filter journal not deduplicated": ('"waiting_on": d["waiting_on"]}, dedupe=True)\n            if mode == "enforce":', '"waiting_on": d["waiting_on"]})\n            if mode == "enforce":'),
+        "M16 item-filter journal not merged (repeat decisions duplicated)": ("if seen is not None and t_now - seen < _merge_window():", "if False:"),
         "M17 group-size cap off": ("len(grp) < 2 or len(grp) > _max_group()", "len(grp) < 2"),
-        "M18 journal truncation not atomic": ("os.replace(tmp, path)", "open(path, 'wb').write(open(tmp, 'rb').read())"),
+        "M18 journal rotation not atomic": ('os.replace(path, path + ".1")', "open(path + '.1', 'wb').write(open(path, 'rb').read()); open(path, 'wb').close()"),
         "M19 schema-sibling rule off": ('if (os.environ.get("OVN_STAGE_ORDER_SCHEMA_TIER", "on") != "off" and b.get("tier")', 'if (False and b.get("tier")'),
         "M9 tier_stem rule off": ('if b.get("tier") and a.get("tier") and b["test_only"]', 'if False and b["test_only"]'),
     }

@@ -189,7 +189,9 @@ ok("D1 verify_lint_filter: enforce rewrites the wc item, keeps the other", "-ge 
 
 # defect 6: wc with trailing prose / extra args -> no rewrite
 w1 = 'grep -n "logger.exception" a/push_sender.py | wc -l returns 2'
-ok("D1 `| wc -l returns 2` is flagged V1 but gets NO (broken) rewrite", L.lint_verify(w1)["findings"][0]["code"] == "V1" and L.lint_verify(w1)["findings"][0]["rewrite"] is None)
+# P5 (2026-10-21): `| wc -l returns N` states the count itself, so the rewrite is that exact count (-eq 2), never the presence assumption (-ge 1). Trailing PROSE that is not a count still gets none.
+ok("D1 `| wc -l returns 2` is flagged V1 and rewritten to the exact count (-eq 2)", L.lint_verify(w1)["findings"][0]["code"] == "V1" and L.lint_verify(w1)["findings"][0]["rewrite"] == 'test "$(grep -n "logger.exception" a/push_sender.py | wc -l)" -eq 2')
+ok("D1 `| wc -l looks fine` (prose, no count) still gets NO rewrite", L.lint_verify('grep -n x a.py | wc -l looks fine')["findings"][0]["rewrite"] is None)
 ok("D1 plain `| wc -l` keeps its rewrite", L.lint_verify("grep -n x f | wc -l")["findings"][0]["rewrite"] is not None)
 
 # defect 7: window scan is not quadratic and absent target bails early
@@ -514,7 +516,7 @@ MUT = [
     ("D1 leading verdict ignored", "if words[0] in _GOOD_V:", "if False:"),
     ("D1 S1 fires on grep -v", 'if (g2["flags"] & set("vcLl"))', 'if False and (g2["flags"] & set("vcLl"))'),
     ("D1 U1 ignores cd ..", 'if _argv(s2[1])[:1] == ["cd"]:\n                break', 'if False:\n                break'),
-    ("D1 wc extra args rewritten", 'if not any(not a.startswith("-") for a in la[1:]):', 'if True:'),
+    ("D1 wc extra args rewritten", 'elif extra[-1].isdigit() and all(w.lower() in _WC_WORDS for w in extra[:-1]):', 'elif True:'),
 
     ("S1 rule disabled", "if not (_is_literal(p2) and _fn_name_shape(p2)) or p2 in p1", "if True or p2 in p1"),
     ("enforce acts as shadow", 'if md != "enforce":\n        return "flagged", line, res', 'if True:\n        return "flagged", line, res'),

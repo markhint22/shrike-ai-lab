@@ -36,6 +36,7 @@ omit = $OMIT
 RC
 printf 'pass\n' > "$D/noop.py"
 SHIM="$Q/scripts/cov/shim"
+export OVN_COV_RUN=1   # 2026-10-21 (P1): tests whose sections only fail under the BASH_ENV xtrace instrumentation SKIP loudly when this is set (test_no_unsafe_rm A4/A5, test_run_all_sandboxed Part B)
 export OVN_COV_DIR="$D" BASH_ENV="$Q/scripts/cov/cov_env.sh" COVERAGE_PROCESS_START="$D/covrc" PYTHONPATH="$Q/scripts/cov/pysite${PYTHONPATH:+:$PYTHONPATH}"
 # the REAL env is looked up on a fixed system PATH: `command -v env` on the live PATH would return an OUTER run's shim when this harness runs nested (the shim then exec'ed itself forever: a 30 min hang)
 [ "${OVN_COV_QA:-0}" = "1" ] && [ -x "$SHIM/env" ] && export PATH="$SHIM:$PATH" OVN_COV_REAL_ENV="$(PATH=/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin command -v env || echo /usr/bin/env)"
@@ -44,7 +45,7 @@ cd "$Q/scripts/test" || exit 1
 . "$Q/scripts/test/ntfy_guard.sh"   # 2026-09-30: never reach the real ntfy.sh from a test run
 if [ "$#" -gt 0 ]; then for t in "$@"; do bash "$t" < /dev/null > "$D/out.$(basename "$t").log" 2>&1; echo "$t rc=$?"; done
 else bash run_all.sh < /dev/null > "$D/run_all.log" 2>&1; echo "run_all rc=$?"; fi
-unset BASH_ENV COVERAGE_PROCESS_START OVN_COV_REAL_ENV
+unset OVN_COV_RUN BASH_ENV COVERAGE_PROCESS_START OVN_COV_REAL_ENV
 # the one no-op run under the `source` rc: records every never-imported python file under $Q as 0% (see above); failure is harmless (those files just are not listed)
 ( cd "$D" && python3 -m coverage run --rcfile="$D/covrc_src" "$D/noop.py" ) >/dev/null 2>&1
 LIVE=""; [ -f "$Q/scripts/cov/live_scripts.txt" ] && LIVE="--only-live $Q/scripts/cov/live_scripts.txt"

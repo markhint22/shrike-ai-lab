@@ -143,6 +143,9 @@ def test_pipeline_marker_extractor(m):
     ok("the LAST verdict in the log wins (build-gate last)", later.startswith("pipeline:build-gate:"), later)
     ok("the LAST verdict in the log wins (verify-failed last)", earlier.startswith("pipeline:verify:"), earlier)
 
+    nn = m.extract_signature("--- NO-NEW-RED GUARD: commit left the suite red (a test this commit did not touch failed (flaky or pre-existing, not the model's new test)) \u2014 reverting ---\n")
+    ok("untouched-test NNR label gets its own marker, not the generic tests-red bucket", nn.startswith("pipeline:tests-red:") and "did not touch" in nn, nn)
+
     dc = m.extract_signature("2026-09-21 03:07:21 [xlite] decompose produced no steps \u2014 abort\nTokens: 0 sent, 0 received\n")
     ok("decompose-no-steps marker", dc.startswith("pipeline:decompose:"), dc)
     cap = m.extract_signature("2026-09-28 07:59:41 [xlite] regression-check FAILED \u2014 a real regression, NOT auto-retrying (see /tmp/x.log)\n")

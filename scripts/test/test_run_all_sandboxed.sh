@@ -185,8 +185,12 @@ ok "MUTANT E (no canonicalisation: a symlink to HOME inside qtmp passes) is CAUG
 
 # ---------------- Part B: real bubblewrap (Linux only)
 REAL_BW="$(command -v bwrap || true)"
-if [ "$(uname -s)" != "Linux" ] || [ -z "$REAL_BW" ] || ! "$REAL_BW" --ro-bind / / true >/dev/null 2>&1; then
-  if [ "${OVN_SANDBOXED:-}" = 1 ] && [ "$(uname -s)" = "Linux" ] && [ -n "$REAL_BW" ]; then
+# 2026-10-21 (P1): the nightly coverage run (scripts/cov/run_coverage.sh, OVN_COV_RUN=1) executes this file under BASH_ENV xtrace instrumentation, and the real-bwrap cases
+# (4b, 5b, B1a, B1c, B2-control) then fail only because of the instrumentation. Under that flag Part B SKIPs loudly (counted in the NOT VERIFIED summary); the plain/sandboxed run is unchanged.
+if [ "${OVN_COV_RUN:-0}" = 1 ] || [ "$(uname -s)" != "Linux" ] || [ -z "$REAL_BW" ] || ! "$REAL_BW" --ro-bind / / true >/dev/null 2>&1; then
+  if [ "${OVN_COV_RUN:-0}" = 1 ]; then
+    skip "4-5,B1-B6 real-bwrap cases: OVN_COV_RUN=1 (coverage xtrace instrumentation perturbs them; they run in the plain / sandboxed suite). NOT VERIFIED in this coverage run"
+  elif [ "${OVN_SANDBOXED:-}" = 1 ] && [ "$(uname -s)" = "Linux" ] && [ -n "$REAL_BW" ]; then
     # We are INSIDE the real sandbox (bwrap cannot nest). Verify that enclosing sandbox LIVE instead of skipping: these are the same properties cases 4, 5 and B1 prove with a
     # nested bwrap, checked against the sandbox that is actually running this suite. Forging OVN_SANDBOXED=1 outside a sandbox makes these FAIL (HOME would be writable).
     echo "== L: nested bwrap impossible here (OVN_SANDBOXED=1): the enclosing sandbox is verified live"
@@ -272,6 +276,8 @@ else
   ok "B5a extra bind = HOME refused (78) before bwrap starts, target did not run" "$([ $rc -eq 78 ] && ! grep -q STUB-RAN "$SB/b5.out" && echo 1 || echo 0)"
 fi
 
+# the coverage-run skip fires ONLY under the flag: no OVN_COV_RUN -> the skip list never mentions it; OVN_COV_RUN=1 -> it does
+ok "9z the OVN_COV_RUN skip fires only under OVN_COV_RUN=1" "$([ "${OVN_COV_RUN:-0}" = 1 ] && { case "$SKIPS" in *OVN_COV_RUN=1*) echo 1;; *) echo 0;; esac; } || { case "$SKIPS" in *OVN_COV_RUN=1*) echo 0;; *) echo 1;; esac; })"
 echo
 echo "run_all_sandboxed: $P passed, $F failed, $S skipped, $NS skipped(nested)"
 if [ "$S" -gt 0 ]; then

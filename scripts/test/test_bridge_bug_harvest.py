@@ -80,6 +80,12 @@ try:
     os.makedirs(os.path.join(shared, "scripts", "overnight-queue", "state"))
     for f in ("claude_queue_bridge.py", "claude_queue_bridge.sh", "archive_claude_queue_done.py"):
         shutil.copy(os.path.join(OVNQ, f), os.path.join(shared, "scripts", "overnight-queue", f))
+    # Pass E (commit+push) needs <shared>/scripts/mac_live_commit_push.sh, which the queue-only box mirror does not carry (the bridge then exits rc=4, which made
+    # 'bridge ran clean' and 'idempotent' fail there). The commit helper has its own tests; this file tests harvest/retire, so the fixture ALWAYS installs a minimal
+    # stand-in that commits the named paths locally (same on the Mac and the box -> no dependence on the real helper, no pushes, no alerts).
+    helper_dst = os.path.join(shared, "scripts", "mac_live_commit_push.sh")
+    open(helper_dst, "w").write('#!/usr/bin/env bash\nrepo="$1"; msg="$2"; shift 2\ngit -C "$repo" add -- "$@" 2>/dev/null\n'
+                                'git -C "$repo" diff --cached --quiet || git -C "$repo" commit -q -m "$msg"\nexit 0\n')
     shutil.copy(os.path.join(OVNQ, "scripts", "lib_lock.sh"), os.path.join(shared, "scripts", "overnight-queue", "scripts", "lib_lock.sh"))
     # 4bf44b4/d394694 (L2-mac-jobs): the bridge exits 1 when <repo>/scripts/mac_live_commit_push.sh is missing ("queue docs NOT committed"). This test is about the harvest/retire
     # logic, not committing, so give the synthetic tree a no-op helper (the real one is covered by test_mac_live_commit_push.sh).
@@ -113,7 +119,7 @@ try:
     subprocess.run(["git", "-C", shared, "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", shared, "config", "user.name", "t"], check=True)
     env = {"PATH": stubs + ":" + os.environ["PATH"], "HOME": home, "SHARED_DIR": shared, "OVN_SSH": "stub", "OVN_REMOTE_DIR": "overnight-queue",
-           "NTFY_SERVER": "http://127.0.0.1:1"}
+           "NTFY_SERVER": "http://127.0.0.1:1", "OVN_MAC_STATE": os.path.join(tmp, "macstate")}
 
     def bridge():
         p = subprocess.run(["bash", os.path.join(shared, "scripts", "overnight-queue", "claude_queue_bridge.sh")], env=env, capture_output=True, timeout=120)
@@ -122,7 +128,7 @@ try:
     rc, out = bridge()
     q = open(queue).read()
     items = [l for l in q.split("\n") if l.startswith("- [ ] [CLAUDE] iptv_apps/")]
-    ok("bridge ran clean", rc == 0, out)
+    ok("bridge ran clean", rc == 0, "rc=%s %s" % (rc, out[-500:]))
     ok("harvest appended the escalated countries bug (was never harvested)", "flow countries-filter" in q, q)
     ok("harvest appended the AUTO-SKIP download bug (was dropped: same signature as its siblings)", "flow download-button" in q, q)
     ok("harvest appended the escalated record bug", "flow record-button" in q, q)
@@ -130,6 +136,10 @@ try:
     ok("the 'sibling step' line is NOT a second queue item", "step two" not in q)
     ok("the escalation tag is stripped from the queue text", "bug-escalated" not in q and "AUTO-SKIP" not in q, q)
     ok("the ordinary open item is never harvested", "ordinary open item" not in q)
+    os.rename(helper_dst, helper_dst + ".off")
+    rc_nohelper, _ = bridge()
+    os.rename(helper_dst + ".off", helper_dst)
+    ok("root-cause control: WITHOUT the commit helper the bridge exits non-zero (why the fixture must provide one)", rc_nohelper != 0, rc_nohelper)
     ok("harvest says it appended 4", "appended 4 new items" in out, out)
     rc, out = bridge()
     ok("idempotent: a second pass appends nothing", rc == 0 and "nothing new to add" in out and open(queue).read() == q, out)

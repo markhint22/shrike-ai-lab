@@ -460,7 +460,7 @@ PLB="$tmp/plumb_block.sh"
 "$PY" - "$R" "$PLB" <<'EOF' || { F=$((F+1)); echo "  FAIL: could not extract the head plumbing block"; }
 import sys
 s = open(sys.argv[1]).read()
-a = s.index('  _oa_hb=""; [ -n "${TASK_LOG:-}" ]')
+a = s.index('  _oa_hb="$(ovn_hb_read "${TASK_LOG:-}")"')
 b = s.index('\n', s.index('  record_outcome "$ID" "${REPO_BASENAME:-}"', a)) + 1
 open(sys.argv[2], "w").write(s[a:b])
 EOF
@@ -469,7 +469,7 @@ MARK="$tmp/marker_line.sh"; grep -m1 -- 'ovn-head-before: ${BEFORE_SHA}' "$R" | 
 plumb(){ # <block> <marker line file|none> -> "<hb>|<ha>" as received by record_outcome
   local blk="$1" mk="$2" d="$tmp/pl.$RANDOM"; mkdir -p "$d"
   ( cd "$rd" && TASK_LOG="$d/task.log"; : > "$TASK_LOG"; BEFORE_SHA="$c0"; task_log="$TASK_LOG"; ID=x; TYPE=aider_fix; REPO="$rd"; REPO_BASENAME=repoA; STATUS=ok; PROMPT=""; _TASK_DURATION_S=1; _btry=1
-    source "$LIB"
+    source "$LIB"; source "$ROOT/scripts/lib_p4_outcomes.sh"   # P4: ovn_hb_read (sidecar first, in-log marker as the legacy fallback)
     [ "$mk" = none ] || source "$mk"
     record_outcome(){ printf '%s|%s' "${11:-}" "${12:-}" > "$d/args"; }
     source "$blk" ) >/dev/null 2>&1

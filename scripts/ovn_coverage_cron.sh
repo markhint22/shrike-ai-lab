@@ -30,7 +30,7 @@ alert(){ echo "$(date '+%F %T') warn | coverage | $*" >> "$ALERTS"; }
 if [ "${OVN_COV_KEEP_WARNINGS:-0}" != "1" ]; then
   export PYTHONWARNINGS="${PYTHONWARNINGS:+$PYTHONWARNINGS,}ignore:Couldn't import C tracer,ignore:Couldn't parse Python file,ignore:No data was collected"
 fi
-OVN_COV_DIR="$D" bash "$RUNNER" > "$STATE/coverage_latest.txt" 2>&1
+OVN_COV_RUN=1 OVN_COV_DIR="$D" bash "$RUNNER" > "$STATE/coverage_latest.txt" 2>&1
 cp "$D/report.json" "$STATE/coverage_latest.json" 2>/dev/null
 
 read -r bash_pct py_pct min_b min_p < <(python3 - "$D/report.json" "$BASE" <<'PY'
@@ -55,7 +55,9 @@ fi
 # 2026-10-02: was `failed, [1-9]`, which also matched "0 failed, 2 known-bug warning(s)" (a passing summary) - 34 false alerts on 10-01. Now only a NONZERO failed count.
 # 2026-10-09: passing lines are dropped first - "  ok   cycle 1 (1 failed attempt)" / "2 failed attempts" / "after 2 failed (verify red) attempts" are PASSING tests that
 # merely talk about failed attempts; they kept failing=3 on the nightly even with the warning noise gone.
-failed="$(grep -av '^[[:space:]]*ok[[:space:]]' "$D/run_all.log" 2>/dev/null | grep -acE '❌|^  FAIL |(^|[^0-9])[1-9][0-9]* failed')"; failed="${failed:-0}"
+# 2026-10-22 (PKG-A): the loose "(^|[^0-9])[1-9][0-9]* failed" alternative is gone - it matched "passed=6 failed=0" / "6 failed attempts" (3 false matches on the box, failing=18 nightly).
+# Only the suites' own FAIL lines ("  FAIL x" / "  FAIL: x") and the run_all banner count.
+failed="$(grep -acE '^  FAIL[ :]|❌ SOME QUEUE TESTS FAILED' "$D/run_all.log" 2>/dev/null)"; failed="${failed:-0}"
 [ "$failed" -gt 0 ] && alert "$failed failing test line(s) in the instrumented suite run (see $D/run_all.log)"
 below=""
 python3 -c "import sys; sys.exit(0 if float('$bash_pct') >= float('$min_b') else 1)" || below="$below bash ${bash_pct}% < floor ${min_b}%"

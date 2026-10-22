@@ -106,7 +106,7 @@ ok "no bare '*) cls=landed' catch-all remains in record_outcome" \
 
 # ---- 7b. 2026-09-15: the inline higher-tier caller must check ITS OWN invocation's output for
 # the early-exit phrases (not the stale cross-cycle summary file) before deriving a status.
-INLINE_SRC="$(sed -n '/HIGHER-TIER SUB-FLOW/,/^    fi$/p' "$R" | head -60)"
+INLINE_SRC="$(sed -n '/HIGHER-TIER SUB-FLOW/,/^    fi$/p' "$R" | head -140)"
 ok "inline higher-tier flow checks its own output for early-exit phrases" \
    "printf '%s' \"\$INLINE_SRC\" | grep -q 'no doable T3' && printf '%s' \"\$INLINE_SRC\" | grep -q 'another stage runner holds the lock'"
 ok "inline higher-tier flow captures stage-runner output to a fresh temp file (not blind >> task_log)" \

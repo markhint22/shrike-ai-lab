@@ -351,3 +351,11 @@
 # --- 27B-decomposed from roadmap [2026-10-22]: Fix N+1 query in _hydrate_bill_details for action deduplication — `billwatch-backend/app/s (review + tweak) [feat:billwatch-20261022-fix-n-1-query-in-hydrate-bill-details-fo] ---
 
 # --- deterministic work supply 2026-10-22 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-22]: Fix upvote_bill to persist the vote instead of returning success without action — `billwat (review + tweak) [feat:billwatch-20261022-fix-upvote-bill-to-persist-the-vote-inst] ---
+
+# --- deterministic work supply 2026-10-22 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-22]: Test `metrics_endpoint` response contract — `billwatch-backend/app/main.py:194` is a publi (review + tweak) [feat:billwatch-20261022-test-metrics-endpoint-response-contract-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-22]: Fix set_cached to use per-entry TTL instead of mutating global cache_ttl — `billwatch-back (review + tweak) [feat:billwatch-20261022-fix-set-cached-to-use-per-entry-ttl-inst] ---

@@ -36,6 +36,7 @@ This sentinel DETECTS only. Restoring state (staging_url_*, qa_creds, fuzz basel
 Flag: OVN_QA_TOOL_HEALTH=off|shadow|enforce (default shadow; env > state/qa_gate_modes.json > shadow, like every QA gate). off = prints NA, records and alerts nothing.
 Other env: OVN_QA_TOOL_HEALTH_SKIP="docker,flock" (tool names to ignore), OVN_QA_TOOL_HEALTH_NOW (epoch, tests), OVN_QA_CRONTAB_FILE.
 """
+import hashlib
 import json
 import os
 import re
@@ -353,10 +354,11 @@ def load_state():
         with open(state_file()) as f:
             s = json.load(f)
         if isinstance(s, dict):
-            return {"streak": dict(s.get("streak") or {}), "alerted": dict(s.get("alerted") or {})}
+            note = s.get("note")
+            return {"streak": dict(s.get("streak") or {}), "alerted": dict(s.get("alerted") or {}), "note": dict(note) if isinstance(note, dict) else {}}
     except (OSError, ValueError, AttributeError, TypeError):
         pass
-    return {"streak": {}, "alerted": {}}
+    return {"streak": {}, "alerted": {}, "note": {}}
 
 
 def _mk_tmp():
@@ -425,17 +427,26 @@ def bounded_keys(keys, cap=300):
     return out
 
 
-def write_note(crossed, min_passes):
-    """High-priority note for the ONE hourly update (scripts/ovn_notify.py reads state/notify_notes.jsonl). Written on every run while a finding is past the bar."""
+def write_note(crossed, min_passes, now=None, last=None):
+    """High-priority note for the ONE hourly update (scripts/ovn_notify.py reads state/notify_notes.jsonl).
+    2026-10-21: written only when the finding SET changed or OVN_QA_TOOL_HEALTH_NOTE_REPEAT_H (default 24 h) passed since the last note (it was every run = 24 high notes/day
+    for the same 5 findings). `last` = the previous {"hash","ts"} record. Returns the record to persist (the findings themselves stay in tool_health.jsonl)."""
     if os.environ.get("OVN_QA_TOOL_HEALTH_NOTE", "1") == "0" or not crossed:
-        return
+        return {}   # nothing past the bar: forget the hash so a recurrence notes at once
+    now = time.time() if now is None else now
+    h = hashlib.sha256("\n".join(sorted(f["key"] for f in crossed)).encode()).hexdigest()[:16]
+    last = last or {}
+    repeat_s = _num("OVN_QA_TOOL_HEALTH_NOTE_REPEAT_H", 24) * 3600
+    if last.get("hash") == h and isinstance(last.get("ts"), (int, float)) and (repeat_s <= 0 or now - last["ts"] < repeat_s):
+        return last
     title = "QA gate tools unverified: %d finding(s)" % len(crossed)
     text = bounded_keys([f["key"] for f in crossed], 150)
     try:
         with open(os.path.join(qc.state_dir(), "notify_notes.jsonl"), "a") as f:
             f.write(json.dumps({"ts": time.time(), "title": title, "text": text, "prio": "high", "source": "qa_tool_health"}, ensure_ascii=False) + "\n")
     except OSError:
-        pass
+        return last     # not written: retry next run
+    return {"hash": h, "ts": now}
 
 
 def trim_rows():
@@ -485,8 +496,8 @@ def _update_and_alert(findings, now):
             fh.write(line)
         for f in due:               # only after the line is on disk
             alerted[f["key"]] = now
-    save_state({"streak": streak, "alerted": alerted})
-    write_note([f for f in findings if streak[f["key"]] >= min_passes], min_passes)
+    note = write_note([f for f in findings if streak[f["key"]] >= min_passes], min_passes, now, st.get("note"))
+    save_state({"streak": streak, "alerted": alerted, "note": note})
     return streak, [f["key"] for f in due]
 
 

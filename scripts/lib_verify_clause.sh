@@ -221,6 +221,21 @@ _verify_normalize_gut(){
 }
 _verify_is_narrow_gut(){ _verify_is_gut "$1" || return 1; case "$1" in *-gtest*|*-gselect*|*-gunit_test_name*) return 0;; esac; return 1; }
 _verify_is_pytest(){ case "$1" in *pytest*) return 0;; esac; return 1; }
+# P5 (2026-10-21, shadow evidence): which non-0 outcomes are UNRUNNABLE (the command never produced a verdict about the item) rather than a real FAIL. Prints a kind or nothing.
+#   rc126/rc127 (not executable / not found), npx-tsc-missing (npx prints "To get access to the TypeScript compiler" and exits 1 when typescript is not installed),
+#   module-not-found-clause (a `python -c` clause whose OWN traceback, File "<string>", ends in ModuleNotFoundError: an import root that does not exist from this cwd).
+# LOG-ONLY: shadow_check logs these rows as result=UNRUNNABLE why=<kind> so FAIL counts stop including them, but _LAST_VERIFY_RESULT stays FAIL (no decision changes).
+# OVN_VERIFY_UNRUNNABLE_SHAPES=off restores the old FAIL rows.
+_verify_unrunnable_kind(){  # $1=rc $2=cmd $3=output
+  local _rc="$1" _cmd="$2" _o="$3"
+  [ "$_rc" -eq 0 ] 2>/dev/null && return 0
+  case "$_rc" in 126|127) printf 'rc%s' "$_rc"; return 0;; esac
+  if grep -aq 'To get access to the TypeScript compiler' <<< "$_o"; then printf 'npx-tsc-missing'; return 0; fi
+  if [[ "$_cmd" =~ (^|[[:space:]/])python[0-9.]*[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-c([[:space:]]|$) ]] && grep -aq 'ModuleNotFoundError' <<< "$_o" && grep -aEq 'File "<string>", line [0-9]+' <<< "$_o"; then
+    printf 'module-not-found-clause'; return 0
+  fi
+  return 0
+}
 # B2: replace the first occurrence of the literal $2 in the command $1 by $3 (sed with `|` delimiter; bash 3.2 safe: no ${var/pat/rep} with quoted patterns). $2 is a node-id token
 # ([A-Za-z0-9_./:-]), $3 is a space separated list of such tokens, so neither can contain `|`, `&` or `\`.
 _verify_replace_first(){
@@ -233,7 +248,7 @@ _verify_replace_first(){
 # a match (`-k test_foo` selects test_foo_bar, which would credit an unimplemented "add test_foo" item). On a match it prints the command with the node id replaced by the
 # fully qualified collected id(s) (so only those tests run); it prints nothing when there is no exact match or the command has no node id. $2 = timeout seconds.
 _verify_nodeid_fallback_cmd(){
-  local c="$1" tmo="${2:-60}" tok path name ccmd cout line first id idrest ids="" rep
+  local c="$1" tmo="${2:-60}" tok path name ccmd cout line first cfile id idrest ids="" rep
   _verify_is_pytest "$c" || return 0
   tok="$(printf '%s' "$c" | grep -oE '[A-Za-z0-9_./-]+\.py::[A-Za-z0-9_:.-]+' | head -1)"
   [ -n "$tok" ] || return 0
@@ -245,10 +260,18 @@ _verify_nodeid_fallback_cmd(){
   while IFS= read -r line; do
     first="${line%% *}"
     case "$first" in
-      "$path"::*) ;;
+      *::*) ;;
       *) continue ;;
     esac
-    id="${first%%\[*}"; idrest="${id#*::}"
+    # 2026-10-22 (PKG-B): with a rootdir/pytest.ini below the cwd (test-automation-agent + gitlark: backend/pytest.ini) pytest prints ids RELATIVE TO THE ROOTDIR (`tests/t.py::T::m` for the
+    # clause path `backend/tests/t.py`). Accept a collected file part that equals the clause path or is a path-component suffix of it, and rebuild the retry id from the ORIGINAL path.
+    # OVN_VERIFY_NODEID_FALLBACK=off (the existing kill switch) still disables the whole fallback; OVN_VERIFY_NODEID_ROOTDIR=off restores the exact-path-only match.
+    cfile="${first%%::*}"
+    if [ "$cfile" != "$path" ]; then
+      [ "${OVN_VERIFY_NODEID_ROOTDIR:-on}" = off ] && continue
+      case "$path" in */"$cfile") ;; *) continue ;; esac
+    fi
+    id="${first%%\[*}"; idrest="${id#*::}"; id="$path::$idrest"
     if [ "$idrest" = "$name" ] || case "$idrest" in *"::$name") true ;; *) false ;; esac; then
       case "
 $ids
@@ -382,7 +405,7 @@ _verify_k_fallback_cmd(){
 
 _VC_MEMO=""; _VC_MEMO_ON=0   # per-call memo of identical VERIFY commands (newline separated, fields split by \037: key RESULT RC TMO WHY ADOPT_ROOT ADOPT_ORIG_RC)
 _LAST_VERIFY_RESULT=""
-_LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""; _LAST_VERIFY_BARE=""
+_LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""; _LAST_VERIFY_BARE=""; _LAST_VERIFY_TOOLMISSING=""
 # _verify_echo_verdict <vcmd> -> prints `neg|<probe>` / `pos|<probe>` when the clause is `PROBE && echo <FAIL-word> || echo <PASS-word>` (neg), `PROBE && echo <PASS-word> || echo <FAIL-word>` (pos)
 # or `PROBE || echo <FAIL-word>` (pos); prints nothing otherwise (incl. a probe that itself contains && / || / ; / $( / backticks: not safely re-readable).
 _verify_echo_verdict() {
@@ -403,7 +426,7 @@ _verify_echo_verdict() {
 shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_VERIFY_RESULT.
   local ln="$1" line vcmd rc out tail_out ts tmo
   ts="$(date -u +%FT%TZ)"
-  _LAST_VERIFY_RESULT=""; _LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""
+  _LAST_VERIFY_RESULT=""; _LAST_VERIFY_RC=""; _LAST_VERIFY_TIMEOUT=""; _LAST_VERIFY_WHY=""; _LAST_VERIFY_TOOLMISSING=""
   line="$(sed -n "${ln}p" "$PROG" 2>/dev/null)"
   # VERIFY clause convention across this fleet: VERIFY: `<cmd>`. (backtick-delimited)
   vcmd="$(printf '%s' "$line" | grep -oE 'VERIFY:[[:space:]]*`[^`]+`' | head -1 | sed -E 's/^VERIFY:[[:space:]]*`//; s/`$//')"
@@ -579,6 +602,21 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
      && grep -aEq "No module named ['\"]?pytest([^A-Za-z_-]|$)" <<< "$out"; then
     rc=127; tail_out="pytest-not-installed $tail_out"
   fi
+  # 2026-10-22 (PKG-B): the same holds for a lint/type tool the interpreter does not have: `python -m mypy app/` in a venv without mypy exits 1 with "No module named mypy" (TAA billing item: AUTO-SKIPped
+  # after 2 credit refusals), and `npx tsc` in a checkout without typescript prints npm's "To get access to the TypeScript compiler" banner and exits 1 (gitlark: 4 cycles). Neither produced a verdict
+  # about the item: UNRUNNABLE (rc 127, tagged tool-not-installed), so it is never counted as a credit refusal. The tool must be named by the clause itself (a test run whose OUTPUT merely mentions
+  # a missing module stays FAIL). OVN_VERIFY_MISSING_TOOL=off restores the old FAIL.
+  if [ "${OVN_VERIFY_MISSING_TOOL:-on}" != off ] && [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ]; then
+    local _mt
+    for _mt in mypy ruff flake8 pylint black pyright; do
+      if grep -aEq "No module named ['\"]?${_mt}([^A-Za-z_-]|$)" <<< "$out" && grep -aEq "(^|[^A-Za-z_./-])${_mt}([^A-Za-z_-]|$)" <<< "$vcmd"; then
+        rc=127; _LAST_VERIFY_TOOLMISSING="$_mt"; tail_out="tool-not-installed:${_mt} $tail_out"; break
+      fi
+    done
+    if [ "$rc" -ne 127 ] && grep -aq 'To get access to the TypeScript compiler' <<< "$out" && grep -aEq '(^|[^A-Za-z_-])(npx|tsc)([^A-Za-z_-]|$)' <<< "$vcmd"; then
+      rc=127; _LAST_VERIFY_TOOLMISSING=tsc; tail_out="tool-not-installed:tsc $tail_out"
+    fi
+  fi
   # B2: nothing collected is not a pass (and not "no signal" either): rc=5, or rc=0 with pytest's "no tests ran"
   if _verify_is_pytest "$vcmd"; then
     if [ "$rc" -eq 5 ]; then _LAST_VERIFY_WHY="no tests collected"
@@ -640,7 +678,13 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     echo "$ts repo=$_REPO_LABEL line=$ln result=UNRUNNABLE rc=$rc cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
     _LAST_VERIFY_RESULT="UNRUNNABLE"
   else
-    echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc${_polmark}${_whymark} cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
+    local _unrk=""
+    [ "${OVN_VERIFY_UNRUNNABLE_SHAPES:-shadow}" != off ] && _unrk="$(_verify_unrunnable_kind "$rc" "$vcmd" "$out")"
+    if [ -n "$_unrk" ]; then
+      echo "$ts repo=$_REPO_LABEL line=$ln result=UNRUNNABLE rc=$rc why=$_unrk mode=shadow${_polmark} cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
+    else
+      echo "$ts repo=$_REPO_LABEL line=$ln result=FAIL rc=$rc${_polmark}${_whymark} cmd=$(printf '%s' "$vcmd" | head -c 200) tail=$tail_out" >> "$SHADOW_LOG"
+    fi
     _LAST_VERIFY_RESULT="FAIL"
   fi
   [ -n "$_vckey" ] && _VC_MEMO="${_VC_MEMO}${_vckey}"$'\037'"${_LAST_VERIFY_RESULT}"$'\037'"${_LAST_VERIFY_RC}"$'\037'"${_LAST_VERIFY_TIMEOUT}"$'\037'"${_LAST_VERIFY_WHY}"$'\037'"${_VADOPT_ROOT}"$'\037'"${_VADOPT_ORIG}"$'\n'

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the Phase 4 contract-fuzz extension: the repo registry (qa/contract_fuzz_repos.json: billwatch, gitlark), form-body logins, the per-repo auth_loss_max, the pinned
 tool installer (qa/fuzz_tool_install.sh) and the cron proposal. Hermetic: no schemathesis, no repo venv and no network are needed."""
-import http.server, json, os, re, subprocess, sys, tempfile, threading
+import http.server, json, os, re, shutil, subprocess, sys, tempfile, threading
 import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); import tmp_track; tmp_track.install()   # 2026-10-17: every mkdtemp() below is removed at exit (the suite leaked these dirs)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -132,7 +132,15 @@ p = subprocess.run(["bash", inst], env=dict(e, OVN_DIR=os.path.join(T, "empty"))
 ok("a missing P1 installer is refused loudly (exit 2), no fallback installer exists", p.returncode == 2 and "P1 installer not found" in p.stderr)
 src = open(inst).read()
 ok("the wrapper contains no pip / venv / rm of its own (one installer, one set of safety checks)", not re.search(r"\bpip\b.*install|-m venv|\brm\s", src.replace("pip-audit", "")), "pip/venv/rm found")
-p = subprocess.run(["bash", inst], env={"PATH": os.environ["PATH"], "HOME": T, "OVN_DIR": os.path.abspath(os.path.join(QA, ".."))}, capture_output=True, text=True, timeout=60)
+# P1 2026-10-21: run the REAL installer from a private COPY of ops/ with NO .git. The real tree is a git checkout (the live box dir has a .git), and the installer refuses any OVN_DIR
+# containing one, so using the tree itself made this test fail there (and anywhere the suite runs from a checkout of the queue dir).
+real_ovn = os.path.join(T, "real_ovn")
+os.makedirs(real_ovn)
+shutil.copytree(os.path.join(QA, "..", "ops"), os.path.join(real_ovn, "ops"))
+if os.environ.get("OVN_TEST_GIT_MUTANT") == "1":   # mutation switch: restore the in-tree .git condition -> the assertion below must FAIL
+    os.makedirs(os.path.join(real_ovn, ".git"))
+ok("precondition: the private installer dir has no .git (the installer refuses one)", not os.path.exists(os.path.join(real_ovn, ".git")))
+p = subprocess.run(["bash", inst], env={"PATH": os.environ["PATH"], "HOME": T, "OVN_DIR": real_ovn}, capture_output=True, text=True, timeout=60)
 ok("against the REAL P1 installer in this tree: dry-run works and installs nothing", p.returncode == 0 and "DRY RUN" in p.stdout and not os.path.exists(os.path.join(QA, "..", "qa-tools")), (p.stdout[-300:], p.stderr[-200:]))
 
 print("== cron proposal + wrapper")

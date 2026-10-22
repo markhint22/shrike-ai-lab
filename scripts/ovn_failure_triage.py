@@ -287,6 +287,8 @@ PIPELINE_MARKERS = [
      "build-gate: the commit broke the build (code would not load/compile)"),
     (r'NO-NEW-RED GUARD: commit left the suite red \(a source change broke a previously-green test\)',
      "tests-red: the change broke a test that used to pass"),
+    (r'NO-NEW-RED GUARD: commit left the suite red \(a test this commit did not touch failed',
+     "tests-red: a test this commit did not touch failed (flaky or pre-existing)"),
     (r'NO-NEW-RED GUARD: commit left the suite red \(the model added failing tests\)',
      "tests-red: the new tests the model wrote fail"),
     (r'NO-NEW-RED GUARD: commit left the suite red',

@@ -193,7 +193,12 @@ stage_tree_restore(){
 stage_item_verify_decision(){
   local pre="${1%%|*}" post="${2%%|*}"
   case "$post" in FAIL) echo "refuse:the item's own VERIFY is RED after the change"; return 0;; esac
-  case "$pre" in PASS) [ "$post" = PASS ] && { echo "refuse:the item's own VERIFY was already GREEN before any step ran (nothing was red, nothing was fixed)"; return 0; };; esac
+  # 2026-10-22 (PKG-B): "already GREEN before any step" could be credited as already satisfied (43 refusals in 7d looped items through retries). It loosens credit (a clause like
+  # `PROBE && echo FAIL || echo PASS` is PASS before and after), so it is OPT-IN: OVN_STAGE_ITEM_VERIFY_ALREADY_GREEN=credit enables it (caller treats anything not starting `refuse` as credit); default = old refusal.
+  case "$pre" in PASS) [ "$post" = PASS ] && {
+    if [ "${OVN_STAGE_ITEM_VERIFY_ALREADY_GREEN:-refuse}" != credit ]; then echo "refuse:the item's own VERIFY was already GREEN before any step ran (nothing was red, nothing was fixed)"
+    else echo "OK:already-satisfied: the item's own VERIFY was already GREEN before any step ran"; fi
+    return 0; };; esac
   echo OK
 }
 

@@ -24,12 +24,24 @@ THREE ACTIONS (mode OVN_STAGE_ORDER = off | shadow | enforce, default shadow):
                prerequisite lands), journaled only in shadow.
 OVN_STAGE_ORDER_PARKED=hold|release (default hold): in enforce, a dependent whose open prerequisites are ALL parked is held (and journaled as stuck_on_parked_prereq); release lets it through.
 Everything is fail-safe: any internal error prints the input unchanged and exits 0.
+
+SHADOW EVIDENCE (P5, 2026-10-21). The journal (state/stage_order_shadow.log, JSON lines) is what the gate governor reads to decide enforcement, so every row carries:
+  ts / last_ts (UTC ISO; the gate_registry ts_field), run, item_hash (ovn_item_hash of the dependent, the key outcomes.jsonl uses), text_hash (exact line), prereq_hashes +
+  prereq_states (state of each prerequisite AT DECISION TIME: open|parked for items, planned_later for steps), step_hash / needs_step_hash for plan decisions,
+  decision_id (stable sha1 prefix of the decision's identity) and count (an identical decision inside OVN_STAGE_ORDER_MERGE_WINDOW_S, default 6h, is merged into its row: count+1, last_ts
+  moves; frequency is kept, rows are not duplicated). The file rotates to <log>.1 at OVN_STAGE_ORDER_LOG_CAP bytes (default 262144) instead of being cut to 500 lines.
+  `outcome` (called from run_overnight.sh record_outcome) appends one row per finished item that matched >=1 decision to state/stage_order_outcomes.jsonl:
+  {ts, repo, item_hash, decision_ids, class, verified, credited, fail_reason, duration_s} - precision (flagged items vs outcomes) is computable by joining decision_id.
+No decision is changed by any of this: shadow stays shadow.
 """
 import argparse
+import calendar
+import hashlib
 import json
 import os
 import re
 import sys
+import time
 
 STOP = set("""
 add adds added create creates created implement implements update updates modify modifies change changes make makes ensure verify check test tests file files
@@ -294,7 +306,8 @@ def plan_steps(steps, mode, max_files=None):
         union = sorted(set(files_of(nb)) | set(files_of(na)))
         action = "merge" if (nb["test_only"] != na["test_only"] and len(union) <= max_files) else "reorder"
         decisions.append({"event": "would_reorder" if mode != "enforce" else "reordered", "step": b, "needs": a, "kind": k,
-                          "red_by_design": bool(red), "action": action, "desc": nb["desc"][:100], "needs_desc": na["desc"][:100]})
+                          "red_by_design": bool(red), "action": action, "desc": nb["desc"][:100], "needs_desc": na["desc"][:100],
+                          "step_hash": md5(nb["desc"]), "needs_step_hash": md5(na["desc"]), "needs_state": "planned_later"})
     out_steps = [dict(s) for s in steps]
     for i, s in enumerate(out_steps):
         s.setdefault("id", i)
@@ -433,19 +446,73 @@ def item_decisions(candidates, progress_text):
         for b, a, k in gedges[g]:
             if b == n["id"] and not byid[a]["it"]["done"]:
                 an = byid[a]
-                wait.append({"line": a + 1, "kind": k, "state": "parked" if an["it"]["parked"] else "open", "tier_text": an["it"]["text"][:110],
+                wait.append({"line": a + 1, "kind": k, "state": "parked" if an["it"]["parked"] else "open", "tier_text": an["it"]["text"][:110], "item_hash": item_hash(an["it"]["text"]),
                              "red_by_design": bool(n["test_only"] and not an["test_only"])})
-        res.append({"text": c, "blocked": bool(wait), "waiting_on": wait, "feat": g, "stuck_parked": bool(wait) and all(w["state"] == "parked" for w in wait)})
+        res.append({"text": c, "blocked": bool(wait), "waiting_on": wait, "feat": g, "item_hash": item_hash(n["it"]["text"]), "text_hash": md5(re.sub(r"^- \[[ xX]\] ", "", n["it"]["text"])), "stuck_parked": bool(wait) and all(w["state"] == "parked" for w in wait)})
     return res
 
 
 # ---------------------------------------------------------------------------------------------- journaling / cli
-def _journal(path, rec, cap=262144, dedupe=False):
-    """Append one JSON row. Serialised with flock on <path>.lock (scout, picker and several repos share the file); truncation is an atomic
-    tmp+replace; dedupe=True skips a row byte-identical to one in the newest 64KB (a scout cycle re-journals the same decision every time)."""
+def _utc_now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _epoch(ts):
+    try:
+        return float(calendar.timegm(time.strptime(str(ts), "%Y-%m-%dT%H:%M:%SZ")))
+    except (ValueError, OverflowError):
+        return None
+
+
+def md5(text):
+    return hashlib.md5((text or "").encode("utf-8", "replace")).hexdigest()
+
+
+def item_hash(text):
+    """Mirror of lib_item_select.sh ovn_item_hash (the key outcomes.jsonl uses): md5 of the [feat:..] tag with its date stamp stripped, else of the line text (checkbox removed)."""
+    t = re.sub(r"^- \[[ xX]\] ", "", text or "")
+    m = re.search(r"\[feat:[^\]]+\]", t)
+    if m:
+        k = re.sub(r"-[0-9]{8}-", "-", m.group(0), count=1)
+        k = re.sub(r"-[0-9]{6}-", "-", k, count=1)
+        return md5(k)
+    return md5(t)
+
+
+def _decision_id(rec):
+    """Stable identity of one decision: the same decision (same run, item, prerequisites) always gets the same id, so repeats merge and outcomes join."""
+    key = json.dumps([rec.get("repo", ""), rec.get("event", ""), rec.get("run", ""), rec.get("item_hash", ""), rec.get("text_hash", ""), rec.get("step_hash", ""),
+                      rec.get("needs_step_hash", ""), rec.get("prereq_hashes", []), rec.get("action", "")], sort_keys=True)
+    return hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:20]
+
+
+def _merge_window():
+    try:
+        return float(os.environ.get("OVN_STAGE_ORDER_MERGE_WINDOW_S", "21600"))
+    except ValueError:
+        return 21600.0
+
+
+def _log_cap():
+    try:
+        return max(4096, int(os.environ.get("OVN_STAGE_ORDER_LOG_CAP", "262144")))
+    except ValueError:
+        return 262144
+
+
+def _journal(path, rec, cap=None, dedupe=False):
+    """Append one JSON row. Serialised with flock on <path>.lock (scout, picker and several repos share the file).
+    Every row is stamped (ts, run, decision_id). An identical decision (same decision_id) already in the live file inside the merge window is NOT dropped: its row's count is
+    incremented and last_ts moved (atomic tmp+replace), so repeat frequency survives. Over the cap the live file ROTATES to <path>.1 (one older generation kept), it is not truncated.
+    `dedupe` is accepted for old callers and ignored (every row merges)."""
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        line = json.dumps(rec, ensure_ascii=False)
+        now = _utc_now()
+        rec = dict(rec)
+        rec.setdefault("ts", now)
+        rec.setdefault("run", os.environ.get("OVN_RUN_ID") or os.environ.get("RUNID") or "")
+        rec["decision_id"] = rec.get("decision_id") or _decision_id(rec)
+        rec.setdefault("ref", rec["decision_id"])   # the governor keys rows by (journal, repo, ref, ts): unique per decision
         lk = None
         try:
             import fcntl
@@ -456,25 +523,94 @@ def _journal(path, rec, cap=262144, dedupe=False):
         try:
             if os.path.exists(path):
                 size = os.path.getsize(path)
-                if dedupe:
+                if size > _log_cap():
+                    os.replace(path, path + ".1")
+                else:
                     with open(path, "rb") as fh:
-                        fh.seek(max(0, size - 65536))
-                        if line in fh.read().decode("utf-8", "replace").split("\n"):
+                        lines = fh.read().decode("utf-8", "replace").split("\n")
+                    t_now = _epoch(now) or time.time()
+                    for i in range(len(lines) - 1, -1, -1):
+                        if rec["decision_id"] not in lines[i]:
+                            continue
+                        try:
+                            row = json.loads(lines[i])
+                        except ValueError:
+                            continue
+                        if row.get("decision_id") != rec["decision_id"]:
+                            continue
+                        seen = _epoch(row.get("last_ts") or row.get("ts"))
+                        if seen is not None and t_now - seen < _merge_window():
+                            row["count"] = int(row.get("count", 1)) + 1
+                            row["last_ts"] = now
+                            lines[i] = json.dumps(row, ensure_ascii=False)
+                            tmp = "%s.tmp.%d" % (path, os.getpid())
+                            with open(tmp, "wb") as fh:
+                                fh.write("\n".join(lines).encode("utf-8"))
+                            os.replace(tmp, path)
                             return
-                if size > cap:
-                    with open(path, "rb") as fh:
-                        tail = fh.read().split(b"\n")[-500:]
-                    tmp = "%s.tmp.%d" % (path, os.getpid())
-                    with open(tmp, "wb") as fh:
-                        fh.write(b"\n".join(tail))
-                    os.replace(tmp, path)
+                        break
+            rec.setdefault("count", 1)
+            rec.setdefault("last_ts", rec["ts"])
             with open(path, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         finally:
             if lk is not None:
                 lk.close()
     except OSError:
         pass
+
+
+def _read_rows(path):
+    out = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                try:
+                    r = json.loads(ln)
+                except ValueError:
+                    continue
+                if isinstance(r, dict):
+                    out.append(r)
+    except OSError:
+        pass
+    return out
+
+
+OUTCOME_VERIFIED = ("landed", "landed-uncredited")
+
+
+def join_decisions(rows, repo, ihash, text_hash="", since=0.0):
+    """Journal rows (decisions) this finished item can be blamed on: same repo + item_hash, seen at/after `since`. When the exact line hash is known and matches some rows, only those."""
+    hit = [r for r in rows if r.get("repo") == repo and r.get("item_hash") == ihash and r.get("decision_id")
+           and (_epoch(r.get("last_ts") or r.get("ts")) or 0) >= since]
+    exact = [r for r in hit if text_hash and r.get("text_hash") == text_hash]
+    return exact or hit
+
+
+def cmd_outcome(a):
+    """Append the outcome row for one finished item, only when it matched >=1 journaled decision (an unflagged item adds nothing: outcomes.jsonl already has it)."""
+    try:
+        if not a.log or not a.item_hash or not os.path.exists(a.log) and not os.path.exists(a.log + ".1"):
+            return 0
+        try:
+            win = float(os.environ.get("OVN_STAGE_ORDER_OUTCOME_WINDOW_S", "86400"))
+        except ValueError:
+            win = 86400.0
+        rows = _read_rows(a.log + ".1") + _read_rows(a.log)
+        hit = join_decisions(rows, a.repo, a.item_hash, md5(a.item_text) if a.item_text else "", time.time() - win)
+        if not hit:
+            return 0
+        cls = (a.cls or "").strip()
+        row = {"ts": _utc_now(), "repo": a.repo, "item_hash": a.item_hash, "decision_ids": sorted({r["decision_id"] for r in hit}),
+               "runs": sorted({str(r.get("run", "")) for r in hit if r.get("run")}), "events": sorted({str(r.get("event", "")) for r in hit}),
+               "class": cls, "verified": cls in OUTCOME_VERIFIED, "credited": cls == "landed", "fail_reason": a.fail_reason or "", "duration_s": a.duration_s}
+        out = a.out or os.path.join(os.path.dirname(a.log) or ".", "stage_order_outcomes.jsonl")
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception as ex:  # noqa: BLE001 - evidence only, never break the outcome path
+        sys.stderr.write("ovn_stage_order outcome: %s: %s\n" % (type(ex).__name__, ex))
+    return 0
 
 
 def _read_stdin():
@@ -499,7 +635,8 @@ def cmd_plan(a):
         return 0
     if a.log and res["decisions"]:
         for d in res["decisions"]:
-            _journal(a.log, dict(d, mode=mode, repo=a.repo, run=a.run, item=(a.item or "")[:160]))
+            _journal(a.log, dict(d, mode=mode, repo=a.repo, run=a.run or os.environ.get("OVN_RUN_ID") or os.environ.get("RUNID") or "", item=(a.item or "")[:160],
+                                 item_hash=item_hash(a.item) if a.item else "", text_hash=md5(a.item) if a.item else ""))
     sys.stdout.write(json.dumps(res))
     return 0
 
@@ -511,6 +648,12 @@ def cmd_unmet(a):
     except Exception as ex:  # noqa: BLE001
         sys.stderr.write("ovn_stage_order unmet: %s: %s\n" % (type(ex).__name__, ex))
     return 0
+
+
+def _evidence(d):
+    """The join/measurement fields of one item decision: the dependent's hashes and every prerequisite's hash + state at decision time."""
+    w = d.get("waiting_on") or []
+    return {"item_hash": d.get("item_hash", ""), "text_hash": d.get("text_hash", ""), "prereq_hashes": [x.get("item_hash", "") for x in w], "prereq_states": [x.get("state", "") for x in w]}
 
 
 def cmd_item_filter(a):
@@ -534,14 +677,14 @@ def cmd_item_filter(a):
         if d["blocked"] and d.get("stuck_parked") and a.log:
             # escalation signal: every open prerequisite is parked (AUTO-SKIP/[CLAUDE]/BLOCKED/HUMAN-ONLY), only a human can unpark it, so the dependent would wait forever
             _journal(a.log, {"event": "stuck_on_parked_prereq", "mode": mode, "parked_mode": parked_mode, "repo": a.repo, "feat": d.get("feat"),
-                             "item": d["text"][:160], "waiting_on": d["waiting_on"]}, dedupe=True)
+                             "item": d["text"][:160], "waiting_on": d["waiting_on"], "run": a.run or os.environ.get("OVN_RUN_ID") or os.environ.get("RUNID") or "", **_evidence(d)}, dedupe=True)
         if d["blocked"] and d.get("stuck_parked") and mode == "enforce" and parked_mode == "release":
             keep.append(ln)
             continue
         if d["blocked"]:
             if a.log:
                 _journal(a.log, {"event": "would_skip_item" if mode != "enforce" else "skipped_item", "mode": mode, "repo": a.repo, "feat": d.get("feat"),
-                                 "item": d["text"][:160], "waiting_on": d["waiting_on"]}, dedupe=True)
+                                 "item": d["text"][:160], "waiting_on": d["waiting_on"], "run": a.run or os.environ.get("OVN_RUN_ID") or os.environ.get("RUNID") or "", **_evidence(d)}, dedupe=True)
             if mode == "enforce":
                 continue
         keep.append(ln)
@@ -566,8 +709,18 @@ def main(argv=None):
     f.add_argument("--mode", default="")
     f.add_argument("--repo", default="")
     f.add_argument("--log", default="")
+    f.add_argument("--run", default="")
+    o = sub.add_parser("outcome")
+    o.add_argument("--log", default="")
+    o.add_argument("--out", default="")
+    o.add_argument("--repo", default="")
+    o.add_argument("--item-hash", dest="item_hash", default="")
+    o.add_argument("--item-text", dest="item_text", default="")
+    o.add_argument("--class", dest="cls", default="")
+    o.add_argument("--fail-reason", dest="fail_reason", default="")
+    o.add_argument("--duration-s", dest="duration_s", type=int, default=0)
     a = ap.parse_args(argv)
-    return {"plan": cmd_plan, "unmet": cmd_unmet, "item-filter": cmd_item_filter}[a.cmd](a)
+    return {"plan": cmd_plan, "unmet": cmd_unmet, "item-filter": cmd_item_filter, "outcome": cmd_outcome}[a.cmd](a)
 
 
 if __name__ == "__main__":
