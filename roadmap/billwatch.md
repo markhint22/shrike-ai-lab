@@ -233,3 +233,6 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `get_request_context` dependency injection — `billwatch-backend/app/core/dependencies.py:29` is a public function referenced by no test; add unit tests in `billwatch-backend/tests/` verifying it correctly extracts and returns request context data from the FastAPI Request object {cat: backend; size: S; multifile: no; research: none}
+
+## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_share_image` and `get_share_card` endpoints — `billwatch-backend/app/routers/bills.py:629` and `billwatch-backend/app/routers/bills.py:646` are public functions referenced by no test; add router-level tests verifying HTTP 200, correct content-type headers, and non-empty image/card payloads for valid bill IDs {cat: test; size: S; multifile: no; research: none}
