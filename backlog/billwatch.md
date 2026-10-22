@@ -347,3 +347,7 @@
 # --- 27B-decomposed from roadmap [2026-10-21]: Add unit test for `debug_env_vars` — `billwatch-backend/app/config.py:176` is a public fun (review + tweak) [feat:billwatch-20261021-add-unit-test-for-debug-env-vars-billwat] ---
 
 # --- 27B-decomposed from roadmap [2026-10-21]: Add router-level tests for `get_feedback_types` — `billwatch-backend/app/routers/feedback. (review + tweak) [feat:billwatch-20261021-add-router-level-tests-for-get-feedback-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-22]: Fix N+1 query in _hydrate_bill_details for action deduplication — `billwatch-backend/app/s (review + tweak) [feat:billwatch-20261022-fix-n-1-query-in-hydrate-bill-details-fo] ---
+
+# --- deterministic work supply 2026-10-22 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
