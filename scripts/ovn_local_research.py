@@ -314,6 +314,62 @@ def make_covered(mode, roadmap_text, backlog_text="", progress_text="", now=None
     return covered
 
 
+# ---------------------------------------------------------------- duplicate-rejection memory (2026-10-22)
+# The covered rule above deliberately ignores [x]/[decomposed] lines (a gap that still exists must be re-researchable), but ovn_auto_research_validate.py
+# rejects any proposal whose title or file+words match ANY roadmap line, done or not. Result: the same top evidence (e.g. `status_endpoint` untested)
+# was proposed, rejected as a duplicate, and re-proposed every pass; 3 proposed / 0 validated on every repo, the cooldown was set, and the queue stayed empty
+# (observed 2026-10-22 on all 7 repos). Evidence a pass had rejected as a duplicate is remembered for OVN_LR_DUP_TTL_H hours (default 72) and skipped
+# before the MAX_EVIDENCE cap, so the next pass reaches evidence that has not been tried. OVN_LR_DUP_MEMORY=off disables.
+DUP_TTL_S = int(os.environ.get("OVN_LR_DUP_TTL_H", "72")) * 3600
+_BT = re.compile(r"`([^`]+)`")
+
+
+def evidence_key(e):
+    syms = [x for x in _BT.findall(e.get("text", "")) if not PATHISH.fullmatch("`" + x + "`")]
+    return "%s|%s" % (e["file"], syms[0] if syms else e.get("kind", ""))
+
+
+def dup_rejected_evidence(proposed, validator_stderr, evidence):
+    """Evidence the validator rejected as a duplicate: a proposal whose 'reject: ... duplicate ...' line names its title and whose text names the
+    evidence file (and its symbol, when the evidence has one)."""
+    dup_titles = []
+    for l in (validator_stderr or "").split("\n"):
+        if l.startswith("reject:") and "duplicate" in l:
+            dup_titles.append(l.rsplit(":", 1)[-1].strip())
+    keys = []
+    for pl in proposed:
+        if not any(t and t in pl for t in dup_titles):
+            continue
+        for e in evidence:
+            k = evidence_key(e)
+            sym = k.split("|", 1)[1]
+            if e["file"] in pl and (sym in pl or sym == e.get("kind", "")):
+                keys.append(k)
+    return keys
+
+
+def load_dup_seen(path, now=None):
+    now = time.time() if now is None else now
+    seen = {}
+    try:
+        for l in open(path):
+            ts, _, k = l.rstrip("\n").partition(" ")
+            try:
+                if now - float(ts) < DUP_TTL_S:
+                    seen[k] = float(ts)
+            except ValueError:
+                pass
+    except OSError:
+        pass
+    return seen
+
+
+def save_dup_seen(path, seen):
+    with open(path, "w") as f:
+        for k, ts in sorted(seen.items(), key=lambda kv: kv[1]):
+            f.write("%d %s\n" % (ts, k))
+
+
 # ---------------------------------------------------------------- model + gates
 def existing_titles(roadmap_text):
     titles = []
@@ -443,7 +499,9 @@ def main(argv):
     stats = {}
     covered = make_covered(mode, roadmap_text, read(os.path.join(OVN_DIR, "backlog", repo + ".md")),
                            read(os.path.join(root, "OVERNIGHT_PROGRESS.md")), stats=stats)
-    evidence = collect(root, skip=covered)
+    dup_path = os.path.join(state, "local_research_dupseen_%s" % repo)
+    dup_seen = load_dup_seen(dup_path) if os.environ.get("OVN_LR_DUP_MEMORY", "on") != "off" else {}
+    evidence = collect(root, skip=(lambda e: covered(e) or evidence_key(e) in dup_seen))
     if "--evidence-only" in flags:
         for e in evidence:
             print("[%s] %s:%d %s" % (e["kind"], e["file"], e["line"], e["text"]))
@@ -464,6 +522,16 @@ def main(argv):
         pass
     proposed = [l.strip() for l in reply.split("\n") if l.strip().startswith("- [ ]")]
     accepted, err = validate(proposed, rm)
+    _dups = []
+    if accepted is not None and os.environ.get("OVN_LR_DUP_MEMORY", "on") != "off" and "--dry-run" not in flags:
+        _now = time.time()
+        _dups = dup_rejected_evidence(proposed, err, evidence)
+        for k in _dups:
+            dup_seen[k] = _now
+        try:
+            save_dup_seen(dup_path, dup_seen)
+        except OSError:
+            pass
     if accepted is None:
         print("%s: %s - aborting" % (repo, err))
         return 0
@@ -479,6 +547,14 @@ def main(argv):
         for l in kept:
             print("  " + l[:160])
         return 0
+    # 2026-10-22: a pass whose proposals were ALL rejected as duplicates learned which evidence is stale; retry at once on the next evidence (bounded by
+    # OVN_LR_DUP_RETRIES, default 3 extra passes) instead of sleeping for the cooldown with an empty queue.
+    if not kept and _dups:
+        _left = int(os.environ.get("OVN_LR_DUP_RETRY_LEFT", os.environ.get("OVN_LR_DUP_RETRIES", "3")))
+        if _left > 0:
+            os.environ["OVN_LR_DUP_RETRY_LEFT"] = str(_left - 1)
+            print("%s: every proposal was a duplicate of an existing roadmap line (%d evidence item(s) remembered) - retrying on fresh evidence (%d retry left)" % (repo, len(_dups), _left - 1))
+            return main(argv)
     open(marker, "w").write(str(time.time()))
     open(cnt, "w").write(str(int(read(cnt) or 0) + 1))
     if not kept:

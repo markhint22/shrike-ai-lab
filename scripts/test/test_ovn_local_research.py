@@ -131,7 +131,7 @@ open(os.path.join(d2, "roadmap", "demo.md"), "w").write(txt)
 h = HITS["n"]
 out = run(d2)
 ok("cooldown: second pass within the cooldown is skipped without a model call", "cooldown" in out and HITS["n"] == h, out)
-out = run(d2, "--force")
+out = run(d2, "--force", env_extra={"OVN_LR_DUP_RETRIES": "0"})   # retries on all-duplicate passes are covered by test_local_research_dupseen.py
 ok("--force bypasses cooldown", HITS["n"] == h + 1, out)
 open(os.path.join(d2, "roadmap", "demo.md"), "w").write(open(os.path.join(d2, "roadmap", "demo.md")).read().replace("[ready]", "[decomposed]"))
 out = run(d2, env_extra={"OVN_LR_MAX_PER_DAY": "1", "OVN_LR_COOLDOWN_H": "0"})

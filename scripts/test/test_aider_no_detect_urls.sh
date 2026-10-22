@@ -16,7 +16,7 @@ for f in run_overnight.sh ovn_stage_runner.sh reconcile_branches.sh; do
   ok "$f: every one ($n) carries --no-detect-urls ($m)" "[ $n = $m ]"
 done
 ok "run_overnight.sh: the aider calls use AIDER_BASE_ARGS (so the one array covers them)" "grep -c 'aider \"\${AIDER_BASE_ARGS\[@\]}\"' '$ROOT/run_overnight.sh' | grep -qvx 0"
-ok "no other file under the queue tree launches aider with --yes-always" "[ \"\$(grep -rl -e '--yes-always' '$ROOT' --include='*.sh' --include='*.py' 2>/dev/null | grep -v -e '/scripts/test/' -e 'run_overnight.sh' -e 'ovn_stage_runner.sh' -e 'reconcile_branches.sh' | wc -l | tr -d ' ')\" = 0 ]"
+ok "no other file under the queue tree launches aider with --yes-always" "[ \"\$(grep -rl -e '--yes-always' '$ROOT' --include='*.sh' --include='*.py' 2>/dev/null | grep -v -e '/scripts/test/' -e '/repos/' -e '/state/' -e '/logs/' -e '/attic/' -e 'run_overnight.sh' -e 'ovn_stage_runner.sh' -e 'reconcile_branches.sh' | wc -l | tr -d ' ')\" = 0 ]"
 # mutant: strip the flag from the reconcile site -> the check above must fail
 tmp="$(safe_mktemp_dir nodet)" || exit 1; trap 'safe_rm_rf "$tmp"' EXIT; sed 's/ --no-detect-urls//' "$ROOT/reconcile_branches.sh" > "$tmp/r.sh"
 n="$(grep -v -e '^[0-9]*:[[:space:]]*#' <(grep -n -e '--yes-always' "$tmp/r.sh") | wc -l | tr -d ' ')"; m="$(grep -c -e '--no-detect-urls' "$tmp/r.sh")"

@@ -365,6 +365,7 @@ echo; echo "===== item guard stage billing ====="; bash test_item_guard_stage_bi
 echo; echo "===== landed uncredited ====="; bash test_landed_uncredited.sh || rc=1
 echo; echo "===== lint coverage delta ====="; bash test_lint_coverage_delta.sh || rc=1
 echo; echo "===== local research covered ====="; bash test_local_research_covered.sh || rc=1
+echo; echo "===== local research duplicate-rejection memory (evidence the validator rejected as a duplicate is skipped for 72h) ====="; bash test_local_research_dupseen.sh || rc=1
 echo; echo "===== notify idle lane ====="; bash test_notify_idle_lane.sh || rc=1
 echo; echo "===== ovn doc executor ====="; bash test_ovn_doc_executor.sh || rc=1
 echo; echo "===== ovn ghost tests ====="; bash test_ovn_ghost_tests.sh || rc=1
