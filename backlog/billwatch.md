@@ -341,3 +341,9 @@
 # --- 27B-decomposed from roadmap [2026-10-21]: Add unit test for `get_settings_uncached` — `billwatch-backend/app/config.py:171` is a pub (review + tweak) [feat:billwatch-20261021-add-unit-test-for-get-settings-uncached-] ---
 
 # --- deterministic work supply 2026-10-21 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Add router-level tests for `root` and `status_endpoint` — `billwatch-backend/app/main.py:1 (review + tweak) [feat:billwatch-20261021-add-router-level-tests-for-root-and-stat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Add unit test for `debug_env_vars` — `billwatch-backend/app/config.py:176` is a public fun (review + tweak) [feat:billwatch-20261021-add-unit-test-for-debug-env-vars-billwat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-21]: Add router-level tests for `get_feedback_types` — `billwatch-backend/app/routers/feedback. (review + tweak) [feat:billwatch-20261021-add-router-level-tests-for-get-feedback-] ---

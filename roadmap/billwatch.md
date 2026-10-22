@@ -214,4 +214,4 @@ All research is grounded in the live repo.
 - [ ] [P3] [decomposed] Add unit test for `debug_env_vars` — `billwatch-backend/app/config.py:176` is a public function referenced by no test; add a test in `billwatch-backend/tests/` verifying it correctly identifies and returns debug-related environment variables {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-21 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Add router-level tests for `get_feedback_types` — `billwatch-backend/app/routers/feedback.py:116` is a public endpoint with zero test coverage; add tests in `billwatch-backend/tests/` verifying static list response {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Add router-level tests for `get_feedback_types` — `billwatch-backend/app/routers/feedback.py:116` is a public endpoint with zero test coverage; add tests in `billwatch-backend/tests/` verifying static list response {cat: test; size: S; multifile: no; research: none}

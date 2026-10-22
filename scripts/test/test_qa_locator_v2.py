@@ -318,7 +318,7 @@ class H(http.server.BaseHTTPRequestHandler):
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
 srv.hits = []
 threading.Thread(target=srv.serve_forever, daemon=True).start()
-env = {"PATH": MINPATH, "HOME": ROOT, "OVN_DIR": os.path.join(ROOT, "ovn"), "NTFY_SERVER": "http://127.0.0.1:9", "NTFY_TOPIC": "t", "LITELLM_BASE": "http://127.0.0.1:%d" % srv.server_address[1],
+env = {"OVN_MANUAL_STRICT_SUPPORT": "off", "PATH": MINPATH, "HOME": ROOT, "OVN_DIR": os.path.join(ROOT, "ovn"), "NTFY_SERVER": "http://127.0.0.1:9", "NTFY_TOPIC": "t", "LITELLM_BASE": "http://127.0.0.1:%d" % srv.server_address[1],
        "OVN_MANUAL_MODEL": "qwen-test"}
 
 
