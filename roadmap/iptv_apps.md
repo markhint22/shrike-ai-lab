@@ -437,3 +437,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `vod_visible_query` — Add unit tests for the untested public function `vod_visible_query` in `iptv-backend/app/routers/content.py:544` to verify VOD visibility logic and parental rating filters are correctly applied. {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `exclude_mature_streams` — Add unit tests for the untested public function `exclude_mature_streams` in `iptv-backend/app/routers/content.py:579` to verify it correctly filters mature-rated streams based on profile settings, ensuring parental controls are enforced at the content listing level {cat: test; size: S; multifile: no; research: none}
