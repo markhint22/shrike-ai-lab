@@ -365,3 +365,7 @@
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `get_request_context` dependency injection — `billwatch-backend/app/core/dependencies (review + tweak) [feat:billwatch-20261022-test-get-request-context-dependency-inje] ---
 
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `get_share_image` and `get_share_card` endpoints — `billwatch-backend/app/routers/bil (review + tweak) [feat:billwatch-20261022-test-get-share-image-and-get-share-card-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Remove deprecated ProPublica reference from CAREER_HISTORY doc — `docs/features/CAREER_HIS (review + tweak) [feat:billwatch-20261023-remove-deprecated-propublica-reference-f] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_similar_bills` endpoint — `billwatch-backend/app/routers/bills.py:666` is a publ (review + tweak) [feat:billwatch-20261023-test-get-similar-bills-endpoint-billwatc] ---

@@ -256,4 +256,4 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 - [ ] [P2] [decomposed] Test `create_invite` and `accept_invite` — Add unit tests for `backend/app/routers/orgs.py:275` (`create_invite`) and `backend/app/routers/orgs.py:311` (`accept_invite`) to verify invite creation, token generation, and acceptance flow including role validation and org membership updates {cat: test; size: M; multifile: no; research: none}
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_usage` billing endpoint — Add unit tests for `backend/app/routers/billing.py:63` (`get_usage`) to verify usage data retrieval logic and response structure {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_usage` billing endpoint — Add unit tests for `backend/app/routers/billing.py:63` (`get_usage`) to verify usage data retrieval logic and response structure {cat: test; size: S; multifile: no; research: none}

@@ -598,3 +598,11 @@
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `get_now_playing_all` and `get_now_playing_for_stream` — Add unit tests for the untes (review + tweak) [feat:iptv_apps-20261022-test-get-now-playing-all-and-get-now-pla] ---
 
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `auto_map_streams` — Add unit tests for the untested public function `auto_map_stream (review + tweak) [feat:iptv_apps-20261022-test-auto-map-streams-add-unit-tests-for] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Fix open redirect vulnerability in LoginView — `iptv-web/src/views/LoginView.vue:25` (`han (review + tweak) [feat:iptv_apps-20261023-fix-open-redirect-vulnerability-in-login] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `update_continue_watching` endpoint — Add unit tests for the untested public function (review + tweak) [feat:iptv_apps-20261023-test-update-continue-watching-endpoint-a] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: LinkTvView onInput shifts digits into the letter slot when 5+ letters are typed — `iptv-we (review + tweak) [feat:iptv_apps-20261023-linktvview-oninput-shifts-digits-into-th] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `create_mapping` endpoint — Add unit tests for the untested public function `create_m (review + tweak) [feat:iptv_apps-20261023-test-create-mapping-endpoint-add-unit-te] ---
