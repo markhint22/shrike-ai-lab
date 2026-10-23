@@ -409,4 +409,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `get_epg_import_status` and `list_epg_channels` — Add unit tests for the untested public functions `get_epg_import_status` in `iptv-backend/app/routers/epg.py:852` and `list_epg_channels` in `iptv-backend/app/routers/epg.py:888` to verify EPG source status reporting and channel listing logic {cat: test; size: M; multifile: no; research: none}
 
 ## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_now_playing_all` and `get_now_playing_for_stream` — Add unit tests for the untested public functions in `iptv-backend/app/routers/epg.py:1046` and `iptv-backend/app/routers/epg.py:1137` to verify EPG now-playing logic and error handling {cat: test; size: M; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_now_playing_all` and `get_now_playing_for_stream` — Add unit tests for the untested public functions in `iptv-backend/app/routers/epg.py:1046` and `iptv-backend/app/routers/epg.py:1137` to verify EPG now-playing logic and error handling {cat: test; size: M; multifile: no; research: none}
+
+## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `auto_map_streams` — Add unit tests for the untested public function `auto_map_streams` in `iptv-backend/app/routers/epg.py:1450` to verify correct mapping logic and error handling {cat: test; size: M; multifile: no; research: none}
