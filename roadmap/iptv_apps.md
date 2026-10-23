@@ -436,4 +436,4 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `vod_genre_expr` — Add unit tests for the untested public function `vod_genre_expr` in `iptv-backend/app/routers/content.py:539` to verify genre expression generation logic {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `vod_visible_query` — Add unit tests for the untested public function `vod_visible_query` in `iptv-backend/app/routers/content.py:544` to verify VOD visibility logic and parental rating filters are correctly applied. {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `vod_visible_query` — Add unit tests for the untested public function `vod_visible_query` in `iptv-backend/app/routers/content.py:544` to verify VOD visibility logic and parental rating filters are correctly applied. {cat: test; size: S; multifile: no; research: none}
