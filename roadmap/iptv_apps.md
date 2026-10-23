@@ -425,3 +425,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `create_mapping` endpoint — Add unit tests for the untested public function `create_mapping` in `iptv-backend/app/routers/content.py:174` to verify mapping creation logic and error handling {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_stream_content` endpoint — Add unit tests for the untested public function `get_stream_content` in `iptv-backend/app/routers/content.py:222`, verifying it returns correct stream metadata and handles missing streams with 404, placing tests in `iptv-backend/tests/` {cat: test; size: S; multifile: no; research: none}
