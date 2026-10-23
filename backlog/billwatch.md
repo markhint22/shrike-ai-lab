@@ -369,3 +369,9 @@
 # --- 27B-decomposed from roadmap [2026-10-23]: Remove deprecated ProPublica reference from CAREER_HISTORY doc — `docs/features/CAREER_HIS (review + tweak) [feat:billwatch-20261023-remove-deprecated-propublica-reference-f] ---
 
 # --- 27B-decomposed from roadmap [2026-10-23]: Test `get_similar_bills` endpoint — `billwatch-backend/app/routers/bills.py:666` is a publ (review + tweak) [feat:billwatch-20261023-test-get-similar-bills-endpoint-billwatc] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Fix relativeTime for future dates — `billwatch-web/src/utils/relativeTime.ts:9` (`relative (review + tweak) [feat:billwatch-20261023-fix-relativetime-for-future-dates-billwa] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_bills_requiring_action` priority logic — `billwatch-backend/app/routers/priority (review + tweak) [feat:billwatch-20261023-test-get-bills-requiring-action-priority] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_priority_recommendations` scoring — `billwatch-backend/app/routers/priority_api. (review + tweak) [feat:billwatch-20261023-test-get-priority-recommendations-scorin] ---

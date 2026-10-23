@@ -606,3 +606,7 @@
 # --- 27B-decomposed from roadmap [2026-10-23]: LinkTvView onInput shifts digits into the letter slot when 5+ letters are typed — `iptv-we (review + tweak) [feat:iptv_apps-20261023-linktvview-oninput-shifts-digits-into-th] ---
 
 # --- 27B-decomposed from roadmap [2026-10-23]: Test `create_mapping` endpoint — Add unit tests for the untested public function `create_m (review + tweak) [feat:iptv_apps-20261023-test-create-mapping-endpoint-add-unit-te] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_stream_content` endpoint — Add unit tests for the untested public function `get_ (review + tweak) [feat:iptv_apps-20261023-test-get-stream-content-endpoint-add-uni] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_resume_position` — Add unit tests for the untested public function `get_resume_p (review + tweak) [feat:iptv_apps-20261023-test-get-resume-position-add-unit-tests-] ---
