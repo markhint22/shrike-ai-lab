@@ -245,3 +245,6 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `connector_conflict_exception_handler` — `backend/app/main.py:99` is a public exception handler with zero test coverage; add unit tests in `backend/tests/` verifying it returns the correct status code and body for connector conflicts {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-22 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `record_use` snippet endpoint — `backend/app/routers/snippet.py:406` is a public function with zero test coverage; add integration tests in `backend/tests/` verifying that POSTing to the endpoint increments the usage count in the database and returns the updated stats, covering both valid snippet IDs and 404 for missing snippets {cat: test; size: S; multifile: no; research: none}
