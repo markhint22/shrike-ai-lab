@@ -363,3 +363,5 @@
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `get_bill_background` endpoint — `billwatch-backend/app/routers/bills.py:506` is a pu (review + tweak) [feat:billwatch-20261022-test-get-bill-background-endpoint-billwa] ---
 
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `get_request_context` dependency injection — `billwatch-backend/app/core/dependencies (review + tweak) [feat:billwatch-20261022-test-get-request-context-dependency-inje] ---
+
+# --- 27B-decomposed from roadmap [2026-10-22]: Test `get_share_image` and `get_share_card` endpoints — `billwatch-backend/app/routers/bil (review + tweak) [feat:billwatch-20261022-test-get-share-image-and-get-share-card-] ---

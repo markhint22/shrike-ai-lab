@@ -594,3 +594,7 @@
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `get_resume_state` and `delete_watch_history` — Add unit tests for the untested publi (review + tweak) [feat:iptv_apps-20261022-test-get-resume-state-and-delete-watch-h] ---
 
 # --- 27B-decomposed from roadmap [2026-10-22]: Test `get_epg_import_status` and `list_epg_channels` — Add unit tests for the untested pub (review + tweak) [feat:iptv_apps-20261022-test-get-epg-import-status-and-list-epg-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-22]: Test `get_now_playing_all` and `get_now_playing_for_stream` — Add unit tests for the untes (review + tweak) [feat:iptv_apps-20261022-test-get-now-playing-all-and-get-now-pla] ---
+
+# --- 27B-decomposed from roadmap [2026-10-22]: Test `auto_map_streams` — Add unit tests for the untested public function `auto_map_stream (review + tweak) [feat:iptv_apps-20261022-test-auto-map-streams-add-unit-tests-for] ---
