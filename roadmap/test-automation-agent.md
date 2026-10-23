@@ -257,3 +257,6 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `get_usage` billing endpoint — Add unit tests for `backend/app/routers/billing.py:63` (`get_usage`) to verify usage data retrieval logic and response structure {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_artifact` endpoint — Add unit tests for `backend/app/routers/artifacts.py:74` (`get_artifact`) to verify artifact retrieval logic and error handling {cat: test; size: S; multifile: no; research: none}
