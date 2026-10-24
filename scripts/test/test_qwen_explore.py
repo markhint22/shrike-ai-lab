@@ -301,6 +301,7 @@ def env_for(d, extra=None):
             e.pop(k)
     e.pop("DRY_RUN", None)
     e.pop("OVN_QWEN_EXPLORE", None)
+    e["OVN_QE_FEATURE_LENS"] = "off"                  # the feature-ideation lens (default shadow in production) has its own suite (test_qwen_explore_feature.py); the fixture roadmap is empty = 'starving', here it must not take over the un-forced passes
     e["OVN_QWEN_CRITIC"] = "off"                      # the critic stage has its own suite (test_qwen_critic.py); here it must not consume the scripted replies
     e.update(extra or {})
     return e

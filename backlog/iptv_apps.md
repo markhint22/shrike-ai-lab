@@ -614,3 +614,11 @@
 # --- 27B-decomposed from roadmap [2026-10-23]: Test `vod_genre_expr` — Add unit tests for the untested public function `vod_genre_expr` i (review + tweak) [feat:iptv_apps-20261023-test-vod-genre-expr-add-unit-tests-for-t] ---
 
 # --- 27B-decomposed from roadmap [2026-10-23]: Test `vod_visible_query` — Add unit tests for the untested public function `vod_visible_qu (review + tweak) [feat:iptv_apps-20261023-test-vod-visible-query-add-unit-tests-fo] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `exclude_mature_streams` — Add unit tests for the untested public function `exclude_m (review + tweak) [feat:iptv_apps-20261023-test-exclude-mature-streams-add-unit-tes] ---
+
+# --- deterministic work supply 2026-10-23 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_vod_streams` endpoint — Add unit tests for the untested public function `get_vod (review + tweak) [feat:iptv_apps-20261023-test-get-vod-streams-endpoint-add-unit-t] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_watch_history` endpoint — Add unit tests for the untested public function `get_w (review + tweak) [feat:iptv_apps-20261023-test-get-watch-history-endpoint-add-unit] ---

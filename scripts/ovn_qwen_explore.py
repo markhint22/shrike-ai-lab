@@ -36,9 +36,18 @@ Self-throttle: items carry the tag; state/outcomes.jsonl tells how the backlog i
 itself (ONE alerts.log warn line) and resumes after 24 h or when the rate recovers. The same rule runs on the subset the critic APPROVED (accepted.jsonl records the verdict): if the critic approves but < 40% of
 those consumed items land (>= 20 consumed), the explorer pauses. The summary line carries the critic reject rate.
 
+feature-ideation lens (2026-10-23, scripts/ovn_qe_feature.py): when a repo is STARVING (no [ready] roadmap feature and the doable backlog is below OVN_QE_FEATURE_FUEL) the local Qwen is asked for 3-4 USER-VALUABLE
+features the product plausibly still lacks (missing edge-case behaviour / endpoint / screen / setting, UX or reliability gap, a README promise with no implementation). Inputs are deterministic: the vision (README /
+ROADMAP / AGENTS), an outline of the app surface (routes, models, screens, classes), the existing titles, recent commits and the recently proposed titles. Every item is anchored to an existing file + symbol with a verbatim
+quote from INSIDE that symbol and ONE test VERIFY that is red before, so ALL the mechanical gates, the skeptic and the critic apply unchanged; extra text rules reject helper-only items, outcomes that are not observable,
+auth / crypto / payment / schema work, multi-file changes and re-proposals. OVN_QE_FEATURE_LENS=off|shadow|on (DEFAULT shadow): shadow runs everything but appends NOTHING to the roadmap and does not chain the planner: every
+would-be item (verdicts, rejection reasons) goes to state/qwen_explore/feature_shadow.jsonl and ONE summary line to logs/qwen_explore.log; on appends [ready] lines tagged [src:qwen-explore-feature]. Its own cap is
+OVN_QE_FEATURE_MAX_PER_DAY (8 passes / repo / day) so it never consumes the bug-lens cap. A pass that made ZERO model calls is not counted toward OVN_QE_MAX_PER_DAY (default 72); a lens with fewer than 2 candidate files
+is retried with the repo's top-level modules (roots dropped, then the lens extension filter dropped).
+
 usage: ovn_qwen_explore.py <repo> [--dry-run] [--force] [--lens NAME] [--from-queue] [--no-chain] [--max-items N]
 env:   OVN_DIR (default ~/overnight-queue), LITELLM_BASE, LITELLM_MASTER_KEY, OVN_MODEL, DRY_RUN=1 (same as --dry-run: nothing is written, no chain), OVN_QWEN_EXPLORE=off (kill switch),
-       OVN_QE_MAX_PER_DAY (24 passes/repo), OVN_QE_COOLDOWN_PRODUCTIVE_MIN (45), OVN_QE_COOLDOWN_EMPTY_H (0.25 = 15 min), OVN_QE_LENS_TTL_H (4), OVN_QE_FILE_TTL_H (72), OVN_QE_READY_CAP (4),
+       OVN_QE_MAX_PER_DAY (72 passes/repo; zero-model-call passes are not counted), OVN_QE_FEATURE_LENS (off|shadow|on, default shadow) + the OVN_QE_FEATURE_* knobs of ovn_qe_feature.py, OVN_QE_COOLDOWN_PRODUCTIVE_MIN (45), OVN_QE_COOLDOWN_EMPTY_H (0.25 = 15 min), OVN_QE_LENS_TTL_H (4), OVN_QE_FILE_TTL_H (72), OVN_QE_READY_CAP (4),
        OVN_QE_THROTTLE_MIN_N (20) / OVN_QE_THROTTLE_MIN_RATE (0.4) / OVN_QE_THROTTLE_PAUSE_H (24), OVN_QE_FILE_TOKENS (20000), OVN_QE_MAX_CALLS (6), OVN_QE_GPU_BUSY_PCT (92),
        OVN_QE_CACHE_DIR (snapshot + scratch cache; default state/qwen_explore, a temp dir under --dry-run; a dry run WITH it also keeps its lens/file ledger there), OVN_QE_REF (default origin/overnight/feature),
        OVN_QE_SPEC_CHECK / OVN_QE_PLANNER / OVN_QE_REFILL (script overrides), OVN_QE_VERIFY_SECS (90), OVN_QE_DEBUG_DIR (keep every prompt + reply),
@@ -74,12 +83,14 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import ovn_qe_feature as QF
 
 OVN_DIR = os.path.abspath(os.environ.get("OVN_DIR") or os.path.expanduser("~/overnight-queue"))
 LITELLM = os.environ.get("LITELLM_BASE", "http://localhost:4000")
 LITELLM_KEY = os.environ.get("LITELLM_MASTER_KEY", "sk-shrike-local")
 MODEL = os.environ.get("OVN_MODEL", "qwen-dflash-27B")
 SRC_TAG = "[src:qwen-explore]"
+FEATURE_LENS = QF.FEATURE_LENS
 GUT_RUNNER = "addons/gut/gut_cmdln.gd"
 
 
@@ -90,7 +101,7 @@ def _env_num(name, default, cast=int):
         return cast(default)
 
 
-MAX_PER_DAY = _env_num("OVN_QE_MAX_PER_DAY", 24)
+MAX_PER_DAY = _env_num("OVN_QE_MAX_PER_DAY", 72)         # 2026-10-23: passes take 10-40 s and mostly end empty; 24/day was exhausted by ~10:00-12:00 for 5 of 7 repos. Zero-model-call passes are not counted at all.
 LANDABLE = os.environ.get("OVN_QE_LANDABLE", "on")             # off = the xlite landable-items path is disabled
 COOLDOWN_PRODUCTIVE_S = int(_env_num("OVN_QE_COOLDOWN_PRODUCTIVE_MIN", 45, float) * 60)
 COOLDOWN_EMPTY_S = int(_env_num("OVN_QE_COOLDOWN_EMPTY_H", 0.25, float) * 3600)      # an empty pass costs ~1 GPU-minute; lens + file rotation already prevent repeats (3 h was a hidden low cap)
@@ -218,6 +229,7 @@ LENSES = {
                      "Find places where the code is visibly incomplete: an enum value or key handled in one match/dict/switch but missing from its sibling, a branch that returns a placeholder (0 / null / empty / pass) "
                      "in a function whose name promises behaviour, a field/constant that is written but never read (or read but never written), a mechanic defined in data or a class and never connected to its "
                      "obvious caller. The fix WIRES or COMPLETES the existing piece (name the caller file and function); it never adds a new helper nothing calls.", None, None),
+    FEATURE_LENS: (QF.FEATURE_DESC, QF.FEATURE_GUIDE, None, None),   # only eligible through applicable_lenses(feature=True) (starving repo, OVN_QE_FEATURE_LENS != off)
     "docs-drift": ("documentation drift",
                    "Find documentation (README, docs/) that states an endpoint, command, env var, file path or behaviour the code no longer has. The fix is a doc edit; VERIFY greps for the stale text.",
                    (".md",), None),
@@ -491,6 +503,9 @@ def load_ledger(repo):
     L.setdefault("day_count", 0)
     L.setdefault("last_pass_ts", 0)
     L.setdefault("last_accepted", 0)
+    L.setdefault("ffiles", {})                      # files already shown to the feature-ideation lens (separate from the bug lenses' file ledger)
+    L.setdefault("feature_day", "")
+    L.setdefault("feature_day_count", 0)
     return L
 
 
@@ -790,25 +805,38 @@ def is_test_path(p):
 
 
 # ------------------------------------------------------------------------------------------------ lenses + candidate files
-def applicable_lenses(cfg):
+def applicable_lenses(cfg, feature=False):
     out = []
     for name, (_, _, exts, kinds) in LENSES.items():
+        if name == FEATURE_LENS and not feature:
+            continue
         if kinds is not None and not (kinds & set(cfg.get("kinds") or ())):
             continue
         out.append(name)
     return out
 
 
-def pick_lens(cfg, L, now, forced=None):
-    """-> (lens, wait_until). Least-recently-used applicable lens whose TTL has passed; wait_until = earliest expiry when none is available."""
-    names = applicable_lenses(cfg)
+def lens_ttl(name):
+    return QF.lens_ttl_s() if name == FEATURE_LENS else LENS_TTL_S
+
+
+def pick_lens(cfg, L, now, forced=None, feature=False, only_feature=False):
+    """-> (lens, wait_until). Least-recently-used applicable lens whose TTL has passed; wait_until = earliest expiry when none is available. `feature` makes the feature-ideation lens eligible (a starving repo; it is
+    then preferred whenever its own TTL has passed: the bug lenses have no evidence left); `only_feature` = the bug-lens daily cap is spent, only the feature lens may run."""
+    names = applicable_lenses(cfg, feature=feature)
     if forced:
         return (forced, 0) if forced in names else (None, 0)
-    ready = [(L["lenses"].get(n, 0), i, n) for i, n in enumerate(names) if now - L["lenses"].get(n, 0) >= LENS_TTL_S]
+    if only_feature:
+        names = [n for n in names if n == FEATURE_LENS]
+        if not names:
+            return None, 0
+    ready = [(L["lenses"].get(n, 0), i, n) for i, n in enumerate(names) if now - L["lenses"].get(n, 0) >= lens_ttl(n)]
     if ready:
+        if any(n == FEATURE_LENS for _, _, n in ready):
+            return FEATURE_LENS, 0
         ready.sort()
         return ready[0][2], 0
-    return None, min(L["lenses"].get(n, 0) for n in names) + LENS_TTL_S
+    return None, min(L["lenses"].get(n, 0) + lens_ttl(n) for n in names)
 
 
 def churn_counts(clone, sha):
@@ -836,13 +864,13 @@ def test_reference_counts(snap, files, prod_paths):
     return out
 
 
-def candidate_files(snap, files, scope, lens, L, churn, now, landable=False):
+def candidate_files(snap, files, scope, lens, L, churn, now, landable=False, relax=0):
     """[(path, lines, churn, covered_ts, tests_mentioning_it | None)] for the lens: in-scope production files (docs-drift: docs), not recently covered, files that fit the view budget first, then
     churn (test-gaps: the files no test mentions first)."""
-    exts = LENSES[lens][2] or SRC_EXTS
+    exts = (LENSES[lens][2] or SRC_EXTS) if relax < 2 else SRC_EXTS      # relax 1: the repo's top-level modules too (roots dropped); relax 2: and the lens extension filter dropped (small repos: <2 files for the lens)
     out = []
     for p in files:
-        if not p.endswith(exts) or scope.forbidden(p) or not scope.in_roots(p) and lens != "docs-drift":
+        if not p.endswith(exts) or scope.forbidden(p) or not scope.in_roots(p) and lens != "docs-drift" and not relax:
             continue
         if lens == "docs-drift":
             if not (p.startswith("docs/") or p.count("/") == 0 and p.lower().startswith("readme")):
@@ -879,9 +907,11 @@ def candidate_files(snap, files, scope, lens, L, churn, now, landable=False):
     return pool[:260]
 
 
-def select_files_prompt(repo, lens, cands, recent):
+def select_files_prompt(repo, lens, cands, recent, feature=None):
     desc, guide = LENSES[lens][0], LENSES[lens][1]
     tree = "\n".join("%s | %d lines | %d commits/120d%s%s" % (c[0], c[1], c[2], (" | %d test file(s) mention it" % c[4]) if c[4] is not None else "", " | pure logic" if len(c) > 5 and c[5] else "") for c in cands)
+    if feature:
+        return QF.feature_select_prompt(repo, feature[0], feature[1], tree, recent, MAX_TARGET_FILES, FULL_VIEW_LINES)
     rec = ", ".join(recent[:40]) or "(none)"
     return ("You are the research planner of an autonomous coding fleet working on the repo %s. Pick the files most likely to contain REAL, concrete defects for ONE research lens.\n\n"
             "LENS: %s - %s\n\nRULES: choose at most %d paths, copied EXACTLY from the FILES list below. Prefer files with non-trivial logic and recent churn; skip files that look trivial. Only the first ~300 lines of a file longer than %d lines can be shown to the reviewer, so prefer files of at most %d lines.\n\n"
@@ -972,7 +1002,7 @@ def has_word(sym, text):
     return bool(sym) and re.search(r"(?<![\w])%s(?![\w])" % re.escape(sym), text or "") is not None
 
 
-def duplicate_reason(it, corpus, subjects, accepted_claims):
+def duplicate_reason(it, corpus, subjects, accepted_claims, topical_open=False):
     """'' or a reason. Same normalised title (roadmap `[ready] <title> - ...` or backlog `[T2] <path> - <description>`); same file AND symbol named on any line (open or done);
     heavy word overlap on a line naming the same file; a recent commit about it; the same (file, symbol, quote) proposed before."""
     key, tw, f, sym = norm_title(it["title"]), words(it["title"]), it["file"], it["sym"]
@@ -990,6 +1020,11 @@ def duplicate_reason(it, corpus, subjects, accepted_claims):
         if f in t:
             if has_word(sym, t):
                 if not re.match(r"^\s*- \[[xX]\]", t):
+                    if topical_open:                        # feature lens: the symbol is only the insertion point (often a hot spot with open lines about other concerns): an open line counts only when its topic is the item's
+                        lw = words(re.split(r"\sVERIFY:", re.split(r"\s\u2014\s", t, maxsplit=1)[-1])[0])
+                        if lw and len(lw & item_bag) / float(len(lw)) >= 0.5:
+                            return "already-covered"
+                        continue
                     return "already-covered"                # an OPEN line (roadmap / backlog / progress, parked ones included) already targets this file + symbol
                 lw = words(re.split(r"\sVERIFY:", re.split(r"\s\u2014\s", t, maxsplit=1)[-1])[0])
                 if lw and len(lw & item_bag) / float(len(lw)) >= 0.5:
@@ -1121,6 +1156,25 @@ def build_item_prompt(repo, lens, cfg, snap, docs, corpus, subjects, scope=None)
             "Fill `review` FIRST (it is your scratch work: every function gets a line), then `items` from the suspects that survive the rules.") % (repo, lens, desc + ". " + guide, agents_excerpt(snap), off_note, files, titles or "(none)", subj or "(none)", MAX_ITEMS, MAX_ITEMS, dialect)
 
 
+def build_feature_item_prompt(repo, cfg, snap, docs, corpus, subjects, scope, vision, outline, seen, max_items):
+    files = "SHOWN FILES (anchor ONLY in these): %s\n" % ", ".join(d[0] for d in docs) + "\n".join("=== FILE %s (%d lines)%s ===\n%s\n=== END %s ===" % (p, n, " [showing only the first part]" if tr else "", txt, p) for p, txt, n, tr in docs)
+    off = ", ".join(sorted({p.pattern for p in scope.banned})[:24]) if scope is not None and scope.banned else ""
+    land_note = LANDABLE_NOTE if (cfg.get("landable") and LANDABLE != "off") else ""
+    off_note = land_note + (("OFF-LIMITS (hard-banned paths: never target, name or add tests for them): %s\n\n" % off) if off else "")
+    titles = "\n".join("- " + t for t in existing_titles(corpus))
+    seen_titles = "\n".join("- " + r["title"][:110] for r in seen[-30:])
+    return QF.build_feature_prompt(repo, agents_excerpt(snap), vision, outline, off_note, files, titles, seen_titles, subjects, cfg.get("dialect") or GENERIC_DIALECT, max_items, landable=bool(land_note), shapes=QF.shapes_for(cfg.get("kinds")))
+
+
+def parse_items_feature(reply):
+    """parse_items + salvage: a feature reply cut off mid-item (token limit) or whose first decodable JSON is not the item list still yields its complete items."""
+    items = parse_items(reply)
+    if items:
+        return items
+    salv = QF.salvage_items(strip_think(reply))
+    return salv or items
+
+
 def parse_items(reply):
     obj = extract_json(reply)
     if isinstance(obj, dict):
@@ -1221,7 +1275,8 @@ def normalise_item(raw, lens=None):
             file_ = file_[2:]
         sym = clean_text(raw.get("symbol")).strip().strip("`'\" ")
         quote = str(raw.get("evidence_quote") or raw.get("quote") or "").strip("\n")
-        wrong = fit(raw.get("what_is_wrong"), 420)
+        wrong = fit(raw.get("what_is_wrong") or raw.get("current_gap"), 420)
+        outcome = fit(raw.get("user_outcome"), 240)
         change = fit(raw.get("proposed_change"), 420)
         verify = clean_text(raw.get("verify")).strip().strip("`").strip()
         verify = VERIFY_LABEL_RE.sub("", verify, count=1).strip()   # the model echoes the dialect bullet's label ("test: cd backend && ...", "VERIFY: ...") in front of the command (live 2026-10-18: ~all verify-dialect rejects)
@@ -1242,7 +1297,15 @@ def normalise_item(raw, lens=None):
         return None, "hedged-claim"
     t = re.sub(r"[^0-9]", "", str(raw.get("tier") or "2")) or "2"
     tier = min(3, max(1, int(t[0])))
-    return {"title": title, "file": file_, "sym": sym, "quote": quote, "wrong": wrong, "change": change, "verify": verify, "size": size, "tier": tier}, ""
+    item = {"title": title, "file": file_, "sym": sym, "quote": quote, "wrong": wrong, "change": change, "verify": verify, "size": size, "tier": tier}
+    if lens == FEATURE_LENS:
+        if not outcome:
+            return None, "feature-no-outcome"                 # a feature must name the user-visible result
+        if has_hidden(str(raw.get("user_outcome") or "")):
+            return None, "hidden-chars"
+        item["outcome"] = defang(outcome)
+        item["tag"] = QF.FEATURE_TAG
+    return item, ""
 
 
 def symbol_ok(sym, text):
@@ -1707,7 +1770,10 @@ LIMIT_QUOTE_RE = re.compile(r"\.limit\(|\bLIMIT\b|\[\s*:\s*\d+\s*\]|\bpaginat\w+
 CONCURRENCY_RE = re.compile(r"\b(?:race(?:\s+conditions?)?|races|concurrent(?:ly)?|parallel\s+(?:requests?|calls?|callers?)|simultaneous(?:ly)?|double[- ](?:redeem|spend|submit|charge|click)\w*|under\s+load|at\s+the\s+same\s+time|thread[- ]?safe|two\s+(?:requests|callers))\b", re.I)
 
 
-def contradicted_by_quote(it):
+NONE_TOPIC_RE = re.compile(r"\b(?:none|null|undefined|empty|exist\w*|missing)\b", re.I)
+
+
+def contradicted_by_quote(it, lens=None):
     """A claim whose own evidence says the opposite ('returns all users' records' above `if r.user_id == user.id`, 'no auth' above `Depends(get_current_user)`, 'never commits' above `db.commit()`, 'no None check'
     above `if x is None`, 'no limit' above `.limit(`) is a misreading, whatever the skeptic says. -> '' or 'contradicted-by-quote'."""
     claim, q = clean_text(it["title"] + " " + it["wrong"]), it["quote"]
@@ -1717,8 +1783,8 @@ def contradicted_by_quote(it):
         return "contradicted-by-quote"
     if NEVER_COMMIT_RE.search(claim) and COMMIT_QUOTE_RE.search(q):
         return "contradicted-by-quote"
-    if NO_NONE_CHECK_RE.search(claim) and NONE_QUOTE_RE.search(q):
-        return "contradicted-by-quote"
+    if NO_NONE_CHECK_RE.search(claim) and NONE_QUOTE_RE.search(q) and (lens != FEATURE_LENS or NONE_TOPIC_RE.search(claim)):
+        return "contradicted-by-quote"                   # feature lens: 'does not check for duplicates' is a gap about duplicates, not a claim that a None check is missing (live dry run 2026-10-23: 2 of 3 TAA items)
     if UNBOUNDED_CLAIM_RE.search(claim) and LIMIT_QUOTE_RE.search(q):
         return "contradicted-by-quote"
     return ""
@@ -1817,10 +1883,12 @@ def roadmap_line(it, line_no):
     for p in new_test_paths(it["verify"], it.get("snap_files", ())):
         if p not in change:
             change += " Add %s." % p
-    body = "`%s:%d` (`%s`) %s Evidence: `%s`. Fix: %s VERIFY: `%s`. %s" % (it["file"], line_no, it["sym"], it["wrong"].rstrip(), q, change, it["verify"], SRC_TAG)
+    tag = it.get("tag") or SRC_TAG
+    outcome = (" Outcome: %s" % it["outcome"].rstrip()) if it.get("outcome") else ""
+    body = "`%s:%d` (`%s`) %s%s Evidence: `%s`. Fix: %s VERIFY: `%s`. %s" % (it["file"], line_no, it["sym"], it["wrong"].rstrip(), outcome, q, change, it["verify"], tag)
     body = norm_ws(body)
     if len(body) > 1300:
-        body = norm_ws("`%s:%d` (`%s`) %s Fix: %s VERIFY: `%s`. %s" % (it["file"], line_no, it["sym"], it["wrong"][:260], change[:300], it["verify"], SRC_TAG))
+        body = norm_ws("`%s:%d` (`%s`) %s%s Fix: %s VERIFY: `%s`. %s" % (it["file"], line_no, it["sym"], it["wrong"][:260], outcome[:200], change[:300], it["verify"], tag))
     meta = "{cat: %s; size: %s; multifile: %s; research: none}" % (cat_for_roadmap(it["file"]), it["size"], "yes" if multi else "no")
     return "- [ ] [P3] [ready] %s — %s %s" % (it["title"], body, meta)
 
@@ -2004,6 +2072,39 @@ def run_redcheck(repo, t_lines, work, row):
     return out
 
 
+def feature_reason(it, env):
+    """The feature-ideation text rules ('' or a reject reason); they run next to ALL the existing gates (symbol / quote-inside-symbol / VERIFY allow-list / duplicates / red-before / skeptic / critic)."""
+    if QF.helper_only(it["title"], it["change"], it["sym"]):
+        return "feature-helper-only"                       # rule (a): a standalone helper / predicate / constant is not a feature
+    why = QF.not_observable(it.get("outcome", ""))
+    if why:
+        return why
+    prose = " ".join([it["title"], it["wrong"], it["change"], it.get("outcome", "")])
+    if QF.sensitive_area(prose, it["file"]):
+        return "feature-sensitive-area"                    # auth / crypto / payment work is never the 27B's to design
+    others = {p for p in paths_in(prose) if p != it["file"] and not it["file"].endswith("/" + p) and not is_test_path(p)}      # the item's own file may be named by its bare basename
+    if others:
+        return "feature-multifile"
+    if not QF.verify_is_test_runner(it["verify"]):
+        return "feature-verify-not-test"                   # the red-before must come from a behavioural test, never an existence check
+    seen = QF.seen_reason(it["title"], it["file"], it["sym"], env.get("feature_seen") or [])
+    if seen:
+        return seen
+    return ""
+
+
+def feature_concept_dup(it, env):
+    """'feature-duplicate-concept' when an existing roadmap / backlog / progress / done title is the same feature reworded (any file): heavy title word overlap. Runs after duplicate_reason (which owns same-file / same-title)."""
+    tw = words(it["title"])
+    for ln in env.get("corpus") or []:
+        r = readable_title(ln)
+        lw = words(r[1].split(": ", 1)[-1]) if r else set()
+        inter = len(tw & lw)
+        if tw and lw and inter >= 3 and (inter / float(len(tw | lw)) >= 0.5 or inter / float(min(len(tw), len(lw))) >= 0.8):
+            return "feature-duplicate-concept"             # the same feature under another title, in any file (title word overlap; the item's file / symbol need not match)
+    return ""
+
+
 def verify_items(repo, raw_items, ctx_env, row):
     """The mechanical acceptance pipeline. -> [accepted item dicts]. Every drop records a reason in row['rejected']."""
     snap, snap_files, scope, cfg = ctx_env["snap"], ctx_env["files"], ctx_env["scope"], ctx_env["cfg"]
@@ -2020,10 +2121,10 @@ def verify_items(repo, raw_items, ctx_env, row):
             row.reject("path-missing")
             continue
         f_why = scope.forbidden(it["file"])
-        if f_why or not (scope.in_roots(it["file"]) or ctx_env["lens"] == "docs-drift"):
+        if f_why or not (scope.in_roots(it["file"]) or ctx_env["lens"] == "docs-drift" or ctx_env.get("relaxed")):
             row.reject("banned-path" if f_why in ("banned", "vendored", "protected") else "out-of-scope")
             continue
-        v_why = scope.text_violation(" ".join([it["title"], it["wrong"], it["change"], it["verify"].replace(GUT_RUNNER, "")]))      # the GUT runner is the ONE addons/ path a VERIFY must name (every xlite test VERIFY does)
+        v_why = scope.text_violation(" ".join([it["title"], it["wrong"], it["change"], it.get("outcome", ""), it["verify"].replace(GUT_RUNNER, "")]))      # the GUT runner is the ONE addons/ path a VERIFY must name (every xlite test VERIFY does)
         if v_why:
             row.reject("banned-path" if v_why.split(":")[0] in ("banned", "vendored", "protected") else "out-of-scope")
             continue
@@ -2038,8 +2139,8 @@ def verify_items(repo, raw_items, ctx_env, row):
         if it["file"] not in ctx_env["shown"]:
             row.reject("file-not-shown")                 # the quote must come from a file the model was actually shown (a quote from an unseen file is recalled, not read)
             continue
-        prose = " ".join([it["title"], it["wrong"], it["change"], it["verify"]])
-        if any(prose_denied(it[k]) for k in ("title", "wrong", "change")):
+        prose = " ".join([it["title"], it["wrong"], it["change"], it.get("outcome", ""), it["verify"]])
+        if any(prose_denied(it[k]) for k in ("title", "wrong", "change") + (("outcome",) if "outcome" in it else ())):
             row.reject("prose-denied")                   # non-ASCII, URL / markup / encoded blob, or a 'your new task' phrase in the text the planner will read
             continue
         if steering(prose) or steering(it["sym"]) or steering(it["quote"], code=True):
@@ -2065,10 +2166,15 @@ def verify_items(repo, raw_items, ctx_env, row):
             continue
         it["quote"], it["line"] = quote, line_no
         span_src = span_text(text, symbol_spans(it["file"], text, it["sym"])) or text
-        c_why = claim_reason(it, ctx_env["lens"], span_src, ctx_env) or contradicted_by_quote(it)
+        c_why = claim_reason(it, ctx_env["lens"], span_src, ctx_env) or contradicted_by_quote(it, ctx_env["lens"])
         if c_why:
             row.reject(c_why)
             continue
+        if ctx_env["lens"] == FEATURE_LENS:
+            fr = feature_reason(it, ctx_env)
+            if fr:
+                row.reject(fr)
+                continue
         if AUTH_CLAIM_RE.search(it["title"] + " " + it["wrong"]) and declared_public(it, text, ctx_env):
             row.reject("declared-public")                # the repo itself declares this route public / anonymous (a policy map, a test, the docs): 'missing auth' is the design
             continue
@@ -2083,7 +2189,12 @@ def verify_items(repo, raw_items, ctx_env, row):
         if verify_unanchored(it["verify"], it["change"], it["quote"]):
             row.reject("verify-unanchored")
             continue
-        dup = duplicate_reason(it, ctx_env["corpus"], ctx_env["subjects"], ctx_env["claims"])
+        dup = duplicate_reason(it, ctx_env["corpus"], ctx_env["subjects"], ctx_env["claims"], topical_open=ctx_env["lens"] == FEATURE_LENS)
+        if dup:
+            row.reject(dup)
+            continue
+        if dup == "" and ctx_env["lens"] == FEATURE_LENS:
+            dup = feature_concept_dup(it, ctx_env)
         if dup:
             row.reject(dup)
             continue
@@ -2160,6 +2271,11 @@ def verify_items(repo, raw_items, ctx_env, row):
 SKEPTIC_MARK = "SKEPTICAL AUDIT"
 
 
+SKEPTIC_FEATURE_NOTE = ("FEATURE REPORTS (lens feature-ideation): each report proposes NEW behaviour instead of a defect. Read `claim` as the stated GAP (what the code does not do today). real=true ONLY when the SOURCE shows the behaviour is "
+                        "really absent (not handled elsewhere in the source), a realistic user or client would value it, and the proposed change is small, self-contained and fits what the source does; real=false for a gap the product "
+                        "owner would reasonably not want, a rename or helper in disguise, or a change that needs another file, schema or authentication work.\n\n")
+
+
 def skeptic_prompt(repo, lens, items):
     blocks = []
     for i, it in enumerate(items, 1):
@@ -2172,8 +2288,9 @@ def skeptic_prompt(repo, lens, items):
             "For EACH report decide `real`: true ONLY when ALL hold: (1) the claim is literally true of the SOURCE shown; (2) the quoted lines are what the claim is about; (3) a realistic caller or user hits the problem "
             "(not a contrived input); (4) the proposed change fixes exactly that and would not break callers, tests, types or conventions; (5) it is not already handled elsewhere in the shown source; (6) the claim does NOT rest on outside knowledge of how a third-party API, SDK, library or engine behaves (field names, parameters, defaults, return values) that the SOURCE does not show: "
             "you cannot verify that from here, so answer real=false.\n\n%s\n\n"
+            "%s"
             "Do NOT think out loud: your whole reply is the JSON below, nothing before or after it, and each reason is at most 25 words.\n"
-            "{\"verdicts\": [{\"id\": 1, \"real\": true, \"reason\": \"<=25 words\"}, ...]} with one entry per report.") % (SKEPTIC_MARK, repo, lens, "\n\n".join(blocks))
+            "{\"verdicts\": [{\"id\": 1, \"real\": true, \"reason\": \"<=25 words\"}, ...]} with one entry per report.") % (SKEPTIC_MARK, repo, lens, "\n\n".join(blocks), SKEPTIC_FEATURE_NOTE if lens == FEATURE_LENS else "")
 
 
 def parse_verdicts(reply, n):
@@ -2214,6 +2331,7 @@ def skeptic_filter(repo, lens, items, stats, row):
             row.reject("skeptic-unparseable")
             continue
         real, why = verdicts.get(i, (False, "no verdict"))
+        row.cur = it["title"]
         notes.append("%s: %s - %s" % (it["title"][:60], "real" if real else "refuted", why))
         if real:
             keep.append(it)
@@ -2397,6 +2515,7 @@ def apply_critic(repo, lens, items, snap, row, mode, topn, dry, stats, budget=No
             c = it["critic"]
             c["outcome"] = "accepted" if id(it) in kept_ids else ("cut-top-n" if c["verdict"] == "approve" else "rejected-" + c["verdict"])
             if id(it) not in kept_ids:
+                row.cur = it["title"]
                 row.reject({"approve": "critic-cut", "reject": "critic-reject", "disagree": "critic-disagree", "error": "critic-error"}[c["verdict"]])
     row.d["critic"] = cd
     row.d["critic_verdicts"] = [{"title": it["title"][:70], "verdict": it["critic"]["verdict"], "outcome": it["critic"].get("outcome", ""), "score": it["critic"]["score"], "reasons": it["critic"]["reasons"][:3]} for it in items]
@@ -2426,6 +2545,66 @@ def shadow_critic(repo, lens, items, snap, row, stats, now):
     record_critic(repo, items, now)
 
 
+def feature_starving(repo, roadmap_text):
+    """The repo is starving: no [ready] roadmap feature AND the open doable backlog (T1-T3, not parked) is below the enough-fuel threshold (OVN_QE_FEATURE_FUEL, default 15 = queue_refill's MIN_DOABLE)."""
+    elig = load_module(os.path.join(HERE, "ovn_backlog_eligibility.py"), "qe_elig")
+    parked = elig.is_parked if elig is not None and hasattr(elig, "is_parked") else (lambda ln: bool(PARKED_RE.search(ln)))
+    return QF.is_starving(ready_count(roadmap_text), QF.doable_backlog(read_text(os.path.join(OVN_DIR, "backlog", repo + ".md")), parked))
+
+
+DUP_REASONS = {"duplicate-title", "already-covered", "near-duplicate", "recently-committed", "already-proposed", "duplicate-in-pass", "feature-already-proposed", "feature-duplicate-concept"}
+
+
+def feature_report(raw_items, accepted, row):
+    """One record per proposed item: {title, file, symbol, status accepted|rejected, reasons, raw}. Reasons come from the pass trace (every reject is recorded with the item title)."""
+    reasons = {}
+    for t in row.trace or []:
+        reasons.setdefault(t["title"], []).append(t["reason"])
+    acc = {it["title"] for it in accepted}
+    out = []
+    for r in raw_items or []:
+        if not isinstance(r, dict):
+            continue
+        title = one_line(r.get("title"), 110)
+        status = "accepted" if title in acc else "rejected"
+        keep = ("title", "file", "symbol", "evidence_quote", "current_gap", "what_is_wrong", "user_outcome", "proposed_change", "verify", "size", "tier")
+        out.append({"title": title, "file": str(r.get("file") or ""), "symbol": str(r.get("symbol") or ""), "status": status,
+                    "reasons": [] if status == "accepted" else (reasons.get(title) or ["cut-by-max-items"]), "raw": {k: r[k] for k in keep if k in r}})
+    return out
+
+
+def feature_seen_rows(report, accepted, row):
+    """What the next pass must not propose again: items that passed every gate, and items rejected as duplicates."""
+    acc = {it["title"] for it in accepted}
+    rows = []
+    for rec in report:
+        dup = rec["status"] == "rejected" and any(x in DUP_REASONS or (x.startswith("validator:") and "dup" in x) for x in rec["reasons"])
+        if rec["title"] in acc or dup:
+            rows.append({"title": rec["title"], "file": rec["file"], "symbol": rec["symbol"], "why": "accepted" if rec["title"] in acc else "duplicate"})
+    return rows
+
+
+def write_feature_shadow(repo, sha, picked, row, report, accepted, now):
+    """state/qwen_explore/feature_shadow.jsonl (rotated past 8 MB): one `item` line per proposed item (accepted ones carry the roadmap line, red-before result, skeptic notes and critic verdict) and one `pass` line with the
+    histogram. NOTHING is written to the roadmap or the backlog and the planner is not chained. -> number of would-be (accepted) items."""
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    pass_id = "%s-%s-%d" % (repo, ts, os.getpid())
+    by_title = {it["title"]: it for it in accepted}
+    recs = []
+    for rec in report:
+        r = {"type": "item", "pass": pass_id, "ts": ts, "repo": repo, "sha": sha[:10], "title": rec["title"], "file": rec["file"], "symbol": rec["symbol"], "status": rec["status"], "reasons": rec["reasons"], "raw": rec["raw"]}
+        it = by_title.get(rec["title"])
+        if it:
+            r["roadmap_line"] = it.get("roadmap_line", "")
+            r["red"] = it.get("red", "")
+            r["critic"] = {k: v for k, v in (it.get("critic") or {}).items() if k in ("verdict", "score", "outcome", "reasons")}
+        recs.append(r)
+    recs.append({"type": "pass", "pass": pass_id, "ts": ts, "repo": repo, "sha": sha[:10], "files": picked, "proposed": row.d["proposed"], "accepted": len(accepted), "rejected": row.d["rejected"],
+                 "skeptic": row.d.get("skeptic", []), "critic": row.d.get("critic"), "calls": row.d["calls"], "mode": "shadow"})
+    QF.append_jsonl_rotating(os.path.join(qdir(), "feature_shadow.jsonl"), recs)
+    return len(accepted)
+
+
 def ready_count(text):
     return len(re.findall(r"^- \[ \] \[P[1-4]\] \[ready\]", text, re.M))
 
@@ -2452,7 +2631,7 @@ def append_and_commit(repo, items, lens, sha):
         ident = ["-c", "user.name=shrike-fleet", "-c", "user.email=22970726+markhint22@users.noreply.github.com"]
         for attempt in range(2):
             subprocess.run(["git"] + ident + ["add", "roadmap/%s.md" % repo], cwd=OVN_DIR, capture_output=True, timeout=60)
-            r = subprocess.run(["git"] + ident + ["commit", "-q", "-m", "chore(roadmap): qwen-explore %s - %d verified item(s) for %s (src:qwen-explore)" % (lens, len(fresh), repo), "--", "roadmap/%s.md" % repo],
+            r = subprocess.run(["git"] + ident + ["commit", "-q", "-m", "chore(roadmap): qwen-explore %s - %d verified item(s) for %s (%s)" % (lens, len(fresh), repo, (QF.FEATURE_TAG if lens == FEATURE_LENS else SRC_TAG).strip("[]")), "--", "roadmap/%s.md" % repo],
                                cwd=OVN_DIR, capture_output=True, timeout=60)
             if r.returncode == 0:
                 break
@@ -2642,6 +2821,8 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
     today = today_str(now)
     if L["day"] != today:
         L["day"], L["day_count"] = today, 0
+    if L.get("feature_day") != today:
+        L["feature_day"], L["feature_day_count"] = today, 0
     # ---- gates
     paused, info = throttle_check(repo, now, dry)
     if paused and os.environ.get("OVN_QE_IGNORE_PAUSE") != "1":
@@ -2651,8 +2832,12 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
             write_next(repo, min(float(pf.get("until") or now + 3600), now + 3600))
         return finish(row, t0, dry)
     roadmap_text = read_text(rm)
+    fmode = QF.feature_mode()
+    feat_wanted = fmode != "off" and (forced_lens == FEATURE_LENS or (not forced_lens and feature_starving(repo, roadmap_text)))
+    feat_avail = feat_wanted and (force or int(L["feature_day_count"]) < QF.max_per_day())
+    bug_capped = (not force) and L["day_count"] >= MAX_PER_DAY
     if not force:
-        if L["day_count"] >= MAX_PER_DAY:
+        if bug_capped and not feat_avail:
             row.d["result"], row.d["note"] = "skip-cap", "%d passes today" % L["day_count"]
             if not dry:
                 write_next(repo, next_midnight(now))
@@ -2689,7 +2874,7 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
             sandbox_alert(repo)
             write_next(repo, now + 3600)
         return finish(row, t0, dry)
-    lens, wait_until = pick_lens(cfg, L, now, forced_lens)
+    lens, wait_until = pick_lens(cfg, L, now, forced_lens, feature=feat_avail, only_feature=bug_capped)
     if lens is None:
         row.d["result"], row.d["note"] = ("skip-bad-lens", forced_lens) if forced_lens else ("skip-lens-ttl", "all lenses covered within %dh" % (LENS_TTL_S // 3600))
         if not dry and not forced_lens:
@@ -2714,15 +2899,30 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
     scope = Scope(cfg, snap)
     churn = churn_counts(clone, sha)
     landable = bool(cfg.get("landable")) and LANDABLE != "off"
-    cands = candidate_files(snap, files, scope, lens, L, churn, now, landable)
+    ffeat = lens == FEATURE_LENS
+    Lc = dict(L, files=L["ffiles"]) if ffeat else L           # the feature lens keeps its own file ledger: a file shown to it is not 'covered' for the bug lenses
+    cands = candidate_files(snap, files, scope, lens, Lc, churn, now, landable)
+    relaxed = 0
+    for lvl in (1, 2):                                          # small repos: fewer than 2 files for the lens -> try the repo's top-level modules, then drop the lens extension filter
+        if len(cands) >= 2:
+            break
+        more = candidate_files(snap, files, scope, lens, Lc, churn, now, landable, relax=lvl)
+        if len(more) > len(cands):
+            cands, relaxed = more, lvl
+    if relaxed and len(cands) >= 2:
+        row.d["note"] = ("relaxed-files=%d" % relaxed)
     if len(cands) < 2:
         row.d["result"], row.d["note"] = "empty", "fewer than 2 candidate files for lens %s" % lens
         return _end_pass(repo, L, lens, [], row, t0, dry, now, 0, "")
-    recent = [p for p, ts in sorted(L["files"].items(), key=lambda kv: -kv[1]) if now - ts < FILE_TTL_S]
+    recent = [p for p, ts in sorted(Lc["files"].items(), key=lambda kv: -kv[1]) if now - ts < FILE_TTL_S]
     cand_paths = {c[0] for c in cands}
+    vision = outline = ""
+    if ffeat:
+        vision = QF.build_vision(lambda q: read_text(os.path.join(snap, q)), files)
+        outline = QF.build_outline(snap, [q for q in files if q.endswith(QF.OUTLINE_EXTS) and not scope.forbidden(q) and not is_test_path(q) and (scope.in_roots(q) or relaxed)])
     # ---- pass A: target files
     try:
-        reply = call_model([{"role": "user", "content": select_files_prompt(repo, lens, cands, recent)}], 500, 150, stats)
+        reply = call_model([{"role": "user", "content": select_files_prompt(repo, lens, cands, recent, (vision, outline) if ffeat else None)}], 500, 150, stats)
     except ModelDown as e:
         sync_stats()
         row.d["result"], row.d["note"] = "error", "model: %s" % e
@@ -2740,21 +2940,27 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
                 break
     row.d["files"] = picked
     if fallback:
-        row.d["note"] = "fallback-files=%d" % fallback
+        row.d["note"] = ("%s fallback-files=%d" % (row.d["note"], fallback)).strip()
     # ---- pass B: items
     corpus = corpus_lines(repo, clone, sha, roadmap_text)
     subjects = recent_subjects(clone, sha)
-    docs = load_budgeted(snap, picked, int(FILE_TOKENS * CHARS_PER_TOKEN))
-    prompt = build_item_prompt(repo, lens, cfg, snap, docs, corpus, subjects, scope)
+    seen_root = LEDGER_ROOT[0] or qdir()
+    fseen = QF.load_seen(seen_root, repo, now) if ffeat else []
+    if ffeat:
+        docs = load_budgeted(snap, picked, int(_env_num("OVN_QE_FEATURE_FILE_TOKENS", 14000) * CHARS_PER_TOKEN))
+        prompt = build_feature_item_prompt(repo, cfg, snap, docs, corpus, subjects, scope, vision, outline, fseen, max_items)
+    else:
+        docs = load_budgeted(snap, picked, int(FILE_TOKENS * CHARS_PER_TOKEN))
+        prompt = build_item_prompt(repo, lens, cfg, snap, docs, corpus, subjects, scope)
     msgs = [{"role": "user", "content": prompt}]
     raw_items = None
     try:
-        reply = call_model(msgs, 3200, 420, stats)
-        raw_items = parse_items(reply)
+        reply = call_model(msgs, 3200, 420, stats, temperature=0.4 if ffeat else 0.2)
+        raw_items = (parse_items_feature if ffeat else parse_items)(reply)
         if raw_items is None:                           # JSON repair retry (once)
             reply2 = call_model(msgs + [{"role": "assistant", "content": reply[:6000]},
                                         {"role": "user", "content": "That was not valid JSON of the required shape. Resend ONLY the JSON object {\"items\": [ ... ]} (double quotes, no comments, no trailing commas, no prose)."}], 3200, 420, stats)
-            raw_items = parse_items(reply2)
+            raw_items = (parse_items_feature if ffeat else parse_items)(reply2)
             row.d["note"] = (row.d["note"] + " json-repair-retry").strip()
     except ModelDown as e:
         sync_stats()
@@ -2785,7 +2991,7 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
     rules = load_module(os.path.join(HERE, "ovn_spec_rules.py"), "qe_rules")
     ctx = rules.Ctx(clone, sha, banned=scope.banned) if rules is not None else None
     env = {"snap": snap, "files": files, "shown": set(picked), "scope": scope, "cfg": cfg, "lens": lens, "corpus": corpus, "subjects": subjects, "claims": accepted_claim_sigs(repo, now), "work": work, "ctx": ctx,
-           "landable": landable, "parked": parked_lines(clone, sha, corpus) if landable else []}
+           "landable": landable, "parked": parked_lines(clone, sha, corpus) if landable else [], "relaxed": relaxed, "feature_seen": fseen}
     accepted = verify_items(repo, raw_items, env, row)[:max_items]
     if row.d.get("sandbox") == "unavailable" and not dry:
         sandbox_alert(repo)
@@ -2800,7 +3006,10 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
             return finish(row, t0, dry)
         sync_stats()
     mode = critic_mode()
-    if mode != "off" and accepted and (mode == "on" or dry):          # shadow (non-dry) runs AFTER the append: it must never delay or lose an accepted item
+    feat_shadow = ffeat and fmode == "shadow"
+    if feat_shadow and mode != "off" and not dry:
+        mode = "shadow"                                           # the feature shadow batch keeps EVERY mechanically accepted item with its critic verdict (observe only) and runs the critic BEFORE the audit record
+    if mode != "off" and accepted and (mode == "on" or dry or feat_shadow):          # shadow (non-dry) runs AFTER the append: it must never delay or lose an accepted item
         accepted = apply_critic(repo, lens, accepted, snap, row, mode, CRITIC_TOPN, dry, stats, budget=_env_num("OVN_QE_CRITIC_BUDGET_S", 600, float))
         sync_stats()
         cd = row.d["critic"]
@@ -2812,8 +3021,15 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
     accepted = accepted[:max_items]
     row.d["accepted"] = len(accepted)
     row.d["result"] = "accepted" if accepted else "empty"
+    freport = feature_report(raw_items, accepted, row) if ffeat else []
     if dry:
         print("%s lens=%s: proposed %d, accepted %d, rejected %s" % (repo, lens, row.d["proposed"], len(accepted), json.dumps(row.d["rejected"], sort_keys=True)))
+        if ffeat:
+            print("FEATURE files shown: %s%s" % (", ".join(picked), (" (relaxed=%d)" % relaxed) if relaxed else ""))
+            for rec in freport:
+                print("PROPOSED [%s] %s" % (rec["status"] if rec["status"] == "accepted" else "rejected: " + ",".join(rec["reasons"]), json.dumps(rec["raw"], sort_keys=True)))
+            if LEDGER_ROOT[0]:                              # an evidence dry run that keeps its ledger (OVN_QE_CACHE_DIR) keeps the dup memory there too: the next dry run does not repeat these ideas
+                QF.record_seen(seen_root, repo, feature_seen_rows(freport, accepted, row), now)
         for it in accepted:
             print("ACCEPTED [red=%s] %s" % (it["red"], it["roadmap_line"]))
         for note in row.d.get("skeptic", []):
@@ -2821,6 +3037,14 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
         for v in row.d.get("critic_verdicts", []):
             print("CRITIC %s (%s, score %s) %s | %s" % (v["verdict"], v["outcome"], v["score"], v["title"], " ; ".join(v["reasons"])))
         return _end_pass(repo, L, lens, picked, row, t0, dry, now, 0, "")
+    if feat_shadow:
+        n_shadow = write_feature_shadow(repo, sha, picked, row, freport, accepted, now)
+        QF.record_seen(seen_root, repo, feature_seen_rows(freport, accepted, row), now)
+        row.d["result"] = "shadow" if accepted else "empty"
+        row.d["note"] = (row.d["note"] + " feature-shadow:%d" % n_shadow).strip()
+        return _end_pass(repo, L, lens, picked, row, t0, dry, now, 0, " feature=shadow shadow_items=%d" % n_shadow)
+    if ffeat and accepted and not dry:
+        QF.record_seen(seen_root, repo, feature_seen_rows(freport, accepted, row), now)
     extra = ""
     written = 0
     if accepted:
@@ -2877,16 +3101,21 @@ def dialect_only_empty(row, written):
     return bool(DIALECT_RETRY and not written and int(d.get("proposed") or 0) > 0 and int(d.get("accepted") or 0) == 0 and set(d.get("rejected") or {}) == {"verify-dialect"})
 
 
-def _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=False):
+def _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=False, calls=None):
     if not dry or LEDGER_ROOT[0]:
         done = now_ts()                                # the cooldown runs from the END of the pass (a pass takes minutes: the model + the red-before runs)
         # 2026-10-18: a pass whose proposals ALL died on verify-dialect used to stamp the lens (4h TTL) and every shown file (72h TTL) as 'covered', so after ~9 such passes every lens was
         # 'skip-lens-ttl' and the candidate-file pool 'fewer than 2 files': the repo starved on a spelling problem. Such a pass now leaves the files unstamped and re-opens the lens after 1/4 TTL.
-        L["lenses"][lens] = (done - LENS_TTL_S * 3 // 4) if dialect_only else done
+        L["lenses"][lens] = (done - lens_ttl(lens) * 3 // 4) if dialect_only else done
+        fkey = "ffiles" if lens == FEATURE_LENS else "files"
         for p in ([] if dialect_only else files_shown):
-            L["files"][p] = done
-        L["files"] = {p: ts for p, ts in L["files"].items() if done - ts < 4 * FILE_TTL_S}
-        L["day_count"] = int(L["day_count"]) + 1
+            L[fkey][p] = done
+        L[fkey] = {p: ts for p, ts in L[fkey].items() if done - ts < 4 * FILE_TTL_S}
+        if calls is None or calls > 0:                 # a pass that made ZERO model calls (e.g. fewer than 2 candidate files) cost nothing: it does not eat the daily cap
+            if lens == FEATURE_LENS:
+                L["feature_day_count"] = int(L.get("feature_day_count") or 0) + 1
+            else:
+                L["day_count"] = int(L["day_count"]) + 1
         L["last_pass_ts"], L["last_accepted"], L["last_lens"] = done, written, lens
         atomic_write(ledger_path(repo), json.dumps(L, indent=1, sort_keys=True))
         if not dry:
@@ -2894,7 +3123,7 @@ def _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=Fal
 
 
 def _end_pass(repo, L, lens, files_shown, row, t0, dry, now, written, extra):
-    _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=dialect_only_empty(row, written))
+    _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=dialect_only_empty(row, written), calls=int(row.d.get("calls") or 0))
     return finish(row, t0, dry, extra)
 
 

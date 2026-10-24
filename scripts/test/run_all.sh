@@ -604,5 +604,6 @@ echo; echo "===== reconcile conflict dedupe ====="; bash test_reconcile_conflict
 echo; echo "===== churn suffix escalate ====="; bash test_churn_suffix_escalate.sh || rc=1
 echo; echo "===== stub suffix guard ====="; bash test_stub_suffix_guard.sh || rc=1
 echo; echo "===== P5 shadow evidence (stage-order journal ts/item_hash/decision_id/count/rotation/outcome join; verify-lint S6-S9,U4,V4,V1 shapes; UNRUNNABLE vs FAIL; record_outcome hook) ====="; bash test_p5_shadow_evidence.sh || rc=1
+echo; echo "===== qwen explore feature ====="; bash test_qwen_explore_feature.sh || rc=1
 echo; finish || rc=1
 exit $rc

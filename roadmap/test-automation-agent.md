@@ -275,4 +275,4 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 - [ ] [P2] [decomposed] Test `list_schedules` and `delete_schedule` — Add unit tests for `backend/app/routers/ci.py:423` (`list_schedules`) and `backend/app/routers/ci.py:445` (`delete_schedule`) to verify schedule management endpoints {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `run_due` CI scheduler logic — Add unit tests for `backend/app/routers/ci.py:459` (`run_due`) to verify due-date calculation and execution triggering, as it is currently untested {cat: test; size: M; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `run_due` CI scheduler logic — Add unit tests for `backend/app/routers/ci.py:459` (`run_due`) to verify due-date calculation and execution triggering, as it is currently untested {cat: test; size: M; multifile: no; research: none}

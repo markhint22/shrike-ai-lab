@@ -379,3 +379,9 @@
 # --- 27B-decomposed from roadmap [2026-10-23]: Test `get_priority_statistics` aggregation logic — `billwatch-backend/app/routers/priority (review + tweak) [feat:billwatch-20261023-test-get-priority-statistics-aggregation] ---
 
 # --- 27B-decomposed from roadmap [2026-10-23]: Test `get_saved_search` retrieval logic — `billwatch-backend/app/routers/saved_searches.py (review + tweak) [feat:billwatch-20261023-test-get-saved-search-retrieval-logic-bi] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `refresh_legislator_finance` endpoint — `billwatch-backend/app/routers/finance.py:271 (review + tweak) [feat:billwatch-20261023-test-refresh-legislator-finance-endpoint] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `get_legislator_voting_record` endpoint — `billwatch-backend/app/routers/legislator_s (review + tweak) [feat:billwatch-20261023-test-get-legislator-voting-record-endpoi] ---
+
+# --- 27B-decomposed from roadmap [2026-10-23]: Test `create_checkout` and `create_portal` billing endpoints — `billwatch-backend/app/rout (review + tweak) [feat:billwatch-20261023-test-create-checkout-and-create-portal-b] ---
