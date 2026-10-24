@@ -276,4 +276,7 @@ All research is grounded in the live repo.
 - [ ] [P2] [decomposed] Test `verify_password` hash validation logic — `billwatch-backend/app/routers/auth.py:45` is a public function referenced by no test; add unit tests in `billwatch-backend/tests/` verifying correct password match, mismatch rejection, and invalid hash handling {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_me` endpoint response contract — `billwatch-backend/app/routers/auth.py:291` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying it returns the authenticated user's profile data and 401 on invalid token {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_me` endpoint response contract — `billwatch-backend/app/routers/auth.py:291` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying it returns the authenticated user's profile data and 401 on invalid token {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `login_history` endpoint — `billwatch-backend/app/routers/auth.py:304` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying the response structure and authentication requirement {cat: test; size: S; multifile: no; research: none}
