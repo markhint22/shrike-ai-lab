@@ -397,3 +397,13 @@
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `get_me` endpoint response contract — `billwatch-backend/app/routers/auth.py:291` is  (review + tweak) [feat:billwatch-20261024-test-get-me-endpoint-response-contract-b] ---
 
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `login_history` endpoint — `billwatch-backend/app/routers/auth.py:304` is a public fu (review + tweak) [feat:billwatch-20261024-test-login-history-endpoint-billwatch-ba] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `update_notification_prefs` endpoint — `billwatch-backend/app/routers/auth.py:318` is (review + tweak) [feat:billwatch-20261024-test-update-notification-prefs-endpoint-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `update_user_address` endpoint — `billwatch-backend/app/routers/auth.py:339` is a pub (review + tweak) [feat:billwatch-20261024-test-update-user-address-endpoint-billwa] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Implement actual filtering logic in AdvancedFilterService.filter_bills — `billwatch-backen (review + tweak) [feat:billwatch-20261024-implement-actual-filtering-logic-in-adva] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `register_device_token` endpoint — `billwatch-backend/app/routers/auth.py:378` is a p (review + tweak) [feat:billwatch-20261024-test-register-device-token-endpoint-bill] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `forgot_password` endpoint — `billwatch-backend/app/routers/auth.py:421` is a public  (review + tweak) [feat:billwatch-20261024-test-forgot-password-endpoint-billwatch-] ---

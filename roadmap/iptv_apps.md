@@ -463,4 +463,4 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `favorite_show` endpoint — Add unit tests for the untested public function `favorite_show` in `iptv-backend/app/routers/streams.py:872` to verify favorite state persistence and response payload {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `get_cast_metadata` — Add unit tests for the untested public function `get_cast_metadata` in `iptv-backend/app/routers/streams.py:1023` to verify metadata retrieval logic and error handling {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `get_cast_metadata` — Add unit tests for the untested public function `get_cast_metadata` in `iptv-backend/app/routers/streams.py:1023` to verify metadata retrieval logic and error handling {cat: test; size: S; multifile: no; research: none}
