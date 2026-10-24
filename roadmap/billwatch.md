@@ -264,4 +264,7 @@ All research is grounded in the live repo.
 - [ ] [P3] [decomposed] Test `create_checkout` and `create_portal` billing endpoints — `billwatch-backend/app/routers/billing.py:42` and `billwatch-backend/app/routers/billing.py:57` are public functions with no test coverage; add router-level tests in `billwatch-backend/tests/` to verify Stripe integration mocks, response schemas, and error handling for invalid inputs {cat: test; size: M; multifile: no; research: none}
 
 ## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `get_feature_count` logic — `billwatch-backend/app/schemas/mobile_feature_map.py:72` is a public function with no test coverage; add unit tests in `billwatch-backend/tests/` verifying correct count aggregation for various feature map states {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `get_feature_count` logic — `billwatch-backend/app/schemas/mobile_feature_map.py:72` is a public function with no test coverage; add unit tests in `billwatch-backend/tests/` verifying correct count aggregation for various feature map states {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_feedback_types` endpoint — `billwatch-backend/app/routers/feedback.py:116` is a public function referenced by no test; add router-level tests in `billwatch-backend/tests/` verifying the response schema and status code {cat: test; size: S; multifile: no; research: none}
