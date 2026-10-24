@@ -280,3 +280,6 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `login_history` endpoint — `billwatch-backend/app/routers/auth.py:304` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying the response structure and authentication requirement {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `update_notification_prefs` endpoint — `billwatch-backend/app/routers/auth.py:318` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying that updating notification preferences persists changes and returns the correct response schema {cat: test; size: S; multifile: no; research: none}
