@@ -295,3 +295,6 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `forgot_password` endpoint — `billwatch-backend/app/routers/auth.py:421` is a public function referenced by no test; add a test in `billwatch-backend/tests/` verifying the endpoint returns 200 and does not leak user existence (same response for valid/invalid email) {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_user_preferences` endpoint — `billwatch-backend/app/routers/ranking.py:58` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying it returns the correct preference schema for an authenticated user and handles missing preferences gracefully {cat: test; size: S; multifile: no; research: none}
