@@ -446,3 +446,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `get_watch_history` endpoint — Add unit tests for the untested public function `get_watch_history` in `iptv-backend/app/routers/content.py:665` to verify correct filtering and response structure {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_letter_offset` — Add unit tests for the untested public function `get_letter_offset` in `iptv-backend/app/routers/streams.py:370` to verify correct offset calculation for A-Z pagination and edge cases (empty list, single item), ensuring the endpoint returns accurate stream subsets. {cat: test; size: S; multifile: no; research: none}
