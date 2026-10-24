@@ -255,3 +255,7 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `get_saved_search` retrieval logic — `billwatch-backend/app/routers/saved_searches.py:117` is a public function referenced by no test; add unit tests in `billwatch-backend/tests/` verifying correct search retrieval and 404 handling {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-23 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `refresh_legislator_finance` endpoint — `billwatch-backend/app/routers/finance.py:271` is a public function referenced by no test; add router-level test in `billwatch-backend/tests/` verifying the endpoint returns updated finance data and handles auth correctly {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [ready] Test `get_legislator_voting_record` endpoint — `billwatch-backend/app/routers/legislator_stats.py:38` is a public function referenced by no test; add router-level test in `billwatch-backend/tests/` verifying the endpoint returns correct voting record structure and handles missing legislator IDs {cat: test; size: S; multifile: no; research: none}
