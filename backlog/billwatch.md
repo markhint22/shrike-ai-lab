@@ -389,3 +389,11 @@
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `get_feature_count` logic — `billwatch-backend/app/schemas/mobile_feature_map.py:72`  (review + tweak) [feat:billwatch-20261024-test-get-feature-count-logic-billwatch-b] ---
 
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `get_feedback_types` endpoint — `billwatch-backend/app/routers/feedback.py:116` is a  (review + tweak) [feat:billwatch-20261024-test-get-feedback-types-endpoint-billwat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `stripe_webhook` signature verification and event handling — `billwatch-backend/app/r (review + tweak) [feat:billwatch-20261024-test-stripe-webhook-signature-verificati] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `verify_password` hash validation logic — `billwatch-backend/app/routers/auth.py:45`  (review + tweak) [feat:billwatch-20261024-test-verify-password-hash-validation-log] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `get_me` endpoint response contract — `billwatch-backend/app/routers/auth.py:291` is  (review + tweak) [feat:billwatch-20261024-test-get-me-endpoint-response-contract-b] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `login_history` endpoint — `billwatch-backend/app/routers/auth.py:304` is a public fu (review + tweak) [feat:billwatch-20261024-test-login-history-endpoint-billwatch-ba] ---

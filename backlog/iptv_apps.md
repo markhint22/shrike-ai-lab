@@ -624,3 +624,9 @@
 # --- 27B-decomposed from roadmap [2026-10-23]: Test `get_watch_history` endpoint — Add unit tests for the untested public function `get_w (review + tweak) [feat:iptv_apps-20261023-test-get-watch-history-endpoint-add-unit] ---
 
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `get_letter_offset` — Add unit tests for the untested public function `get_letter_off (review + tweak) [feat:iptv_apps-20261024-test-get-letter-offset-add-unit-tests-fo] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `reclassify_stream_types` — Add unit tests for the untested public function `reclassi (review + tweak) [feat:iptv_apps-20261024-test-reclassify-stream-types-add-unit-te] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `get_categories` endpoint — Add unit tests for the untested public function `get_cate (review + tweak) [feat:iptv_apps-20261024-test-get-categories-endpoint-add-unit-te] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `list_series_shows` endpoint — Add unit tests for the untested public function `list_ (review + tweak) [feat:iptv_apps-20261024-test-list-series-shows-endpoint-add-unit] ---
