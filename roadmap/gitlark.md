@@ -262,4 +262,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P2] [decomposed] Test `dispatch_action` control plane endpoint — `backend/app/routers/control_plane.py:95` is a public endpoint with zero test coverage; add integration tests in `backend/tests/` verifying action dispatch logic and error handling {cat: backend; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `pause_fleet_action` — `backend/app/routers/control_plane.py:179` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying pause logic and status updates {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `pause_fleet_action` — `backend/app/routers/control_plane.py:179` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying pause logic and status updates {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_fleet_status` — `backend/app/routers/fleet_status.py:84` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying status aggregation and response schema {cat: test; size: S; multifile: no; research: none}
