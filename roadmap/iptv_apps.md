@@ -454,4 +454,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `reclassify_stream_types` — Add unit tests for the untested public function `reclassify_stream_types` in `iptv-backend/app/routers/streams.py:497` to verify stream type reclassification logic and persistence {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_categories` endpoint — Add unit tests for the untested public function `get_categories` in `iptv-backend/app/routers/streams.py:519` to verify category listing logic and ensure no regression in stream categorization {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_categories` endpoint — Add unit tests for the untested public function `get_categories` in `iptv-backend/app/routers/streams.py:519` to verify category listing logic and ensure no regression in stream categorization {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `list_series_shows` endpoint — Add unit tests for the untested public function `list_series_shows` in `iptv-backend/app/routers/streams.py:771` to verify it correctly returns series shows and handles empty results, ensuring the series listing feature is stable {cat: test; size: S; multifile: no; research: none}
