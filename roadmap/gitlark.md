@@ -266,3 +266,6 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `get_fleet_status` — `backend/app/routers/fleet_status.py:84` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying status aggregation and response schema {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_review_comments` endpoint — `backend/app/routers/code_review.py:312` is a public function with zero test coverage; add unit tests in `backend/tests/` verifying it returns the correct list of comments for a given review ID and handles empty states {cat: test; size: S; multifile: no; research: none}
