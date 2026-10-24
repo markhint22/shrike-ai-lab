@@ -276,3 +276,6 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 
 ## Local research 2026-10-23 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `run_due` CI scheduler logic — Add unit tests for `backend/app/routers/ci.py:459` (`run_due`) to verify due-date calculation and execution triggering, as it is currently untested {cat: test; size: M; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_user_by_email` and `list_memberships_for_user` — Add unit tests for `backend/app/services/tenancy.py:42` (`get_user_by_email`) and `backend/app/services/tenancy.py:120` (`list_memberships_for_user`) to verify correct user retrieval and membership listing logic {cat: test; size: S; multifile: no; research: none}
