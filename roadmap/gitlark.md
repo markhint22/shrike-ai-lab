@@ -297,4 +297,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P3] [decomposed] Test `github_oauth_url` — `backend/app/routers/auth.py:21` is a public function with zero test coverage; add unit tests to verify it returns the correct GitHub OAuth authorization URL with expected parameters (client_id, redirect_uri, scope) and handles edge cases like missing config {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_me` auth endpoint — `backend/app/routers/auth.py:99` is a public function with zero test coverage; add unit tests in `backend/tests/` verifying authenticated user retrieval and 401 handling for invalid tokens {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_me` auth endpoint — `backend/app/routers/auth.py:99` is a public function with zero test coverage; add unit tests in `backend/tests/` verifying authenticated user retrieval and 401 handling for invalid tokens {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `refresh_token_endpoint` — `backend/app/routers/auth.py:139` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying token rotation and invalid token rejection {cat: test; size: S; multifile: no; research: none}
