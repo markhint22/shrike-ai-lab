@@ -490,4 +490,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `export_playlist` and `bulk_action` endpoints — Add unit tests for the untested public functions `export_playlist` in `iptv-backend/app/routers/streams.py:2339` and `bulk_action` in `iptv-backend/app/routers/streams.py:2386` to verify playlist generation logic and bulk update/delete operations, ensuring no regression in stream management features {cat: test; size: M; multifile: no; research: none}
 
 ## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `create_playback_token` — Add unit tests for the untested public function `create_playback_token` in `iptv-backend/app/routers/streams.py:2642` to verify token generation logic and expiration handling {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `create_playback_token` — Add unit tests for the untested public function `create_playback_token` in `iptv-backend/app/routers/streams.py:2642` to verify token generation logic and expiration handling {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `proxy_options` endpoint — Add unit tests for the untested public function `proxy_options` in `iptv-backend/app/routers/streams.py:2887` to verify CORS preflight handling and header propagation, ensuring no regression in cross-origin stream requests {cat: test; size: S; multifile: no; research: none}
