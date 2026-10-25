@@ -306,4 +306,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P3] [decomposed] Test `export_conversation_json` — `backend/app/routers/export.py:18` is a public endpoint with zero test coverage; add unit tests in `backend/tests/` verifying JSON structure and data integrity for exported conversations {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `archive_conversation` — `backend/app/routers/export.py:73` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying it returns 200 and archives the conversation state {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `archive_conversation` — `backend/app/routers/export.py:73` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying it returns 200 and archives the conversation state {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `export_workspace_conversations` — `backend/app/routers/export.py:88` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying it returns serialized workspace conversation data and handles empty workspaces correctly {cat: backend; size: S; multifile: no; research: none}
