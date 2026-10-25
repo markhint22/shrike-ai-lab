@@ -479,3 +479,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `update_stream_source` and `list_stream_source_runs` — Add unit tests for the untested public functions in `iptv-backend/app/routers/streams.py:1943` and `iptv-backend/app/routers/streams.py:1976` to verify source update logic and run listing behavior {cat: test; size: M; multifile: no; research: none}
+
+## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `refresh_stream_source` and `delete_stream_source` — Add unit tests for the untested public functions `refresh_stream_source` in `iptv-backend/app/routers/streams.py:1989` and `delete_stream_source` in `iptv-backend/app/routers/streams.py:2048` to verify source lifecycle management and cleanup logic {cat: test; size: M; multifile: no; research: none}
