@@ -638,3 +638,9 @@
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `create_stream` endpoint — Add unit tests for the untested public function `create_st (review + tweak) [feat:iptv_apps-20261024-test-create-stream-endpoint-add-unit-tes] ---
 
 # --- 27B-decomposed from roadmap [2026-10-24]: Add aria-labels to icon-only profile edit and delete buttons — `iptv-web/src/views/Profile (review + tweak) [feat:iptv_apps-20261024-add-aria-labels-to-icon-only-profile-edi] ---
+
+# --- 27B-decomposed from roadmap [2026-10-25]: Fix rate limit IP spoofing via X-Forwarded-For — `iptv-backend/app/core/limiter.py:31` (`g (review + tweak) [feat:iptv_apps-20261025-fix-rate-limit-ip-spoofing-via-x-forward] ---
+
+# --- 27B-decomposed from roadmap [2026-10-25]: Add keyboard navigation to OnboardingWalkthrough progress dots — `iptv-web/src/components/ (review + tweak) [feat:iptv_apps-20261025-add-keyboard-navigation-to-onboardingwal] ---
+
+# --- 27B-decomposed from roadmap [2026-10-25]: Test `update_stream_source` and `list_stream_source_runs` — Add unit tests for the unteste (review + tweak) [feat:iptv_apps-20261025-test-update-stream-source-and-list-strea] ---
