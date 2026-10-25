@@ -303,4 +303,4 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P2] [decomposed] Test `refresh_token_endpoint` — `backend/app/routers/auth.py:139` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying token rotation and invalid token rejection {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `export_conversation_json` — `backend/app/routers/export.py:18` is a public endpoint with zero test coverage; add unit tests in `backend/tests/` verifying JSON structure and data integrity for exported conversations {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `export_conversation_json` — `backend/app/routers/export.py:18` is a public endpoint with zero test coverage; add unit tests in `backend/tests/` verifying JSON structure and data integrity for exported conversations {cat: test; size: S; multifile: no; research: none}
