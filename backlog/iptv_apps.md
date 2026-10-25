@@ -650,3 +650,9 @@
 # --- 27B-decomposed from roadmap [2026-10-25]: Fix N+1 device token query in flush_pending — `iptv-backend/app/services/notifications.py: (review + tweak) [feat:iptv_apps-20261025-fix-n-1-device-token-query-in-flush-pend] ---
 
 # --- 27B-decomposed from roadmap [2026-10-25]: Test `export_playlist` and `bulk_action` endpoints — Add unit tests for the untested publi (review + tweak) [feat:iptv_apps-20261025-test-export-playlist-and-bulk-action-end] ---
+
+# --- 27B-decomposed from roadmap [2026-10-25]: Test `create_playback_token` — Add unit tests for the untested public function `create_pla (review + tweak) [feat:iptv_apps-20261025-test-create-playback-token-add-unit-test] ---
+
+# --- 27B-decomposed from roadmap [2026-10-25]: Test `proxy_options` endpoint — Add unit tests for the untested public function `proxy_opt (review + tweak) [feat:iptv_apps-20261025-test-proxy-options-endpoint-add-unit-tes] ---
+
+# --- 27B-decomposed from roadmap [2026-10-25]: Test `deactivate_epg_source` endpoint — Add unit tests for the untested public function `d (review + tweak) [feat:iptv_apps-20261025-test-deactivate-epg-source-endpoint-add-] ---
