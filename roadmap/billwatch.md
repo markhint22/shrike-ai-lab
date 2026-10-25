@@ -303,4 +303,7 @@ All research is grounded in the live repo.
 - [ ] [P2] [decomposed] Test `update_user_preferences` persistence — `billwatch-backend/app/routers/ranking.py:71` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying that POST updates persist to the database and return the updated preference object {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `get_ranked_bills` ranking logic — `billwatch-backend/app/routers/ranking.py:109` is a public function with no test coverage; add unit tests verifying the ranking algorithm returns bills in correct order based on user preferences and handles empty preference sets {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `get_ranked_bills` ranking logic — `billwatch-backend/app/routers/ranking.py:109` is a public function with no test coverage; add unit tests verifying the ranking algorithm returns bills in correct order based on user preferences and handles empty preference sets {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-24 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `upvote_bill` persistence and response — `billwatch-backend/app/routers/ranking.py:210` is untested; verify it persists the vote to DB and returns correct status, adding a test in `billwatch-backend/tests/` that mocks the DB layer and asserts the state change {cat: test; size: S; multifile: no; research: none}
