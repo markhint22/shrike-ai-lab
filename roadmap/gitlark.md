@@ -291,4 +291,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P2] [decomposed] Test `billing_usage` endpoint — `backend/app/routers/billing.py:71` is a public endpoint with zero test coverage; add tests in `backend/tests/` verifying it returns correct usage data for authenticated users and handles unauthorized access {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `stripe_webhook` endpoint — `backend/app/routers/billing.py:132` is a public function with zero test coverage; add tests in `backend/tests/` to verify webhook signature validation and event processing logic {cat: backend; size: M; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `stripe_webhook` endpoint — `backend/app/routers/billing.py:132` is a public function with zero test coverage; add tests in `backend/tests/` to verify webhook signature validation and event processing logic {cat: backend; size: M; multifile: no; research: none}
+
+## Local research 2026-10-25 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `github_oauth_url` — `backend/app/routers/auth.py:21` is a public function with zero test coverage; add unit tests to verify it returns the correct GitHub OAuth authorization URL with expected parameters (client_id, redirect_uri, scope) and handles edge cases like missing config {cat: test; size: S; multifile: no; research: none}
