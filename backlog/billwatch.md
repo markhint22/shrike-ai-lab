@@ -407,3 +407,11 @@
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `register_device_token` endpoint — `billwatch-backend/app/routers/auth.py:378` is a p (review + tweak) [feat:billwatch-20261024-test-register-device-token-endpoint-bill] ---
 
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `forgot_password` endpoint — `billwatch-backend/app/routers/auth.py:421` is a public  (review + tweak) [feat:billwatch-20261024-test-forgot-password-endpoint-billwatch-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `get_user_preferences` endpoint — `billwatch-backend/app/routers/ranking.py:58` is a  (review + tweak) [feat:billwatch-20261024-test-get-user-preferences-endpoint-billw] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `update_user_preferences` persistence — `billwatch-backend/app/routers/ranking.py:71` (review + tweak) [feat:billwatch-20261024-test-update-user-preferences-persistence] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `get_ranked_bills` ranking logic — `billwatch-backend/app/routers/ranking.py:109` is  (review + tweak) [feat:billwatch-20261024-test-get-ranked-bills-ranking-logic-bill] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `upvote_bill` persistence and response — `billwatch-backend/app/routers/ranking.py:21 (review + tweak) [feat:billwatch-20261024-test-upvote-bill-persistence-and-respons] ---

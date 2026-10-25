@@ -634,3 +634,7 @@
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `favorite_show` endpoint — Add unit tests for the untested public function `favorite_ (review + tweak) [feat:iptv_apps-20261024-test-favorite-show-endpoint-add-unit-tes] ---
 
 # --- 27B-decomposed from roadmap [2026-10-24]: Test `get_cast_metadata` — Add unit tests for the untested public function `get_cast_metad (review + tweak) [feat:iptv_apps-20261024-test-get-cast-metadata-add-unit-tests-fo] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Test `create_stream` endpoint — Add unit tests for the untested public function `create_st (review + tweak) [feat:iptv_apps-20261024-test-create-stream-endpoint-add-unit-tes] ---
+
+# --- 27B-decomposed from roadmap [2026-10-24]: Add aria-labels to icon-only profile edit and delete buttons — `iptv-web/src/views/Profile (review + tweak) [feat:iptv_apps-20261024-add-aria-labels-to-icon-only-profile-edi] ---
