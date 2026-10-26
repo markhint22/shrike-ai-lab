@@ -509,3 +509,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `get_current_user_info` — Add unit tests for the untested public function `get_current_user_info` in `iptv-backend/app/routers/auth.py:176` to verify it correctly returns user details and handles missing/invalid tokens; place tests in `iptv-backend/tests/` {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `forgot_password` endpoint — Add unit tests for the untested public function `forgot_password` in `iptv-backend/app/routers/auth.py:256`, verifying email dispatch logic and rate-limiting behavior {cat: test; size: S; multifile: no; research: none}
