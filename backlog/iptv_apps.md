@@ -664,3 +664,9 @@
 # --- 27B-decomposed from roadmap [2026-10-26]: Test `exchange_device_token` — Add unit tests for the untested public function `exchange_d (review + tweak) [feat:iptv_apps-20261026-test-exchange-device-token-add-unit-test] ---
 
 # --- 27B-decomposed from roadmap [2026-10-26]: Test `get_current_user_info` — Add unit tests for the untested public function `get_curren (review + tweak) [feat:iptv_apps-20261026-test-get-current-user-info-add-unit-test] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Test `forgot_password` endpoint — Add unit tests for the untested public function `forgot_ (review + tweak) [feat:iptv_apps-20261026-test-forgot-password-endpoint-add-unit-t] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Fix TTLCache.get_or_set to handle None cached values — `iptv-backend/app/services/cache.py (review + tweak) [feat:iptv_apps-20261026-fix-ttlcache-get-or-set-to-handle-none-c] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Test `verify_email` endpoint — Add unit tests for the untested public function `verify_ema (review + tweak) [feat:iptv_apps-20261026-test-verify-email-endpoint-add-unit-test] ---

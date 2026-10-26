@@ -419,3 +419,7 @@
 # --- 27B-decomposed from roadmap [2026-10-25]: Add loading and error states to Admin.vue data fetching — `billwatch-web/src/pages/Admin.v (review + tweak) [feat:billwatch-20261025-add-loading-and-error-states-to-admin-vu] ---
 
 # --- 27B-decomposed from roadmap [2026-10-25]: Add loading and error states to LegislatorSearch results — `billwatch-web/src/components/L (review + tweak) [feat:billwatch-20261025-add-loading-and-error-states-to-legislat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Add navigation to search results in SearchPage — `billwatch-web/src/pages/SearchPage.vue:1 (review + tweak) [feat:billwatch-20261026-add-navigation-to-search-results-in-sear] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Implement View Voting Record action in LegislatorSearch — `billwatch-web/src/components/Le (review + tweak) [feat:billwatch-20261026-implement-view-voting-record-action-in-l] ---
