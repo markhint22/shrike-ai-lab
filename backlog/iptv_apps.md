@@ -656,3 +656,5 @@
 # --- 27B-decomposed from roadmap [2026-10-25]: Test `proxy_options` endpoint — Add unit tests for the untested public function `proxy_opt (review + tweak) [feat:iptv_apps-20261025-test-proxy-options-endpoint-add-unit-tes] ---
 
 # --- 27B-decomposed from roadmap [2026-10-25]: Test `deactivate_epg_source` endpoint — Add unit tests for the untested public function `d (review + tweak) [feat:iptv_apps-20261025-test-deactivate-epg-source-endpoint-add-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-25]: Test `create_device_code` endpoint — Add unit tests for the untested public function `crea (review + tweak) [feat:iptv_apps-20261025-test-create-device-code-endpoint-add-uni] ---
