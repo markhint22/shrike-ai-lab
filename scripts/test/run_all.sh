@@ -388,6 +388,7 @@ echo; echo "===== stage godot seed ====="; bash test_stage_godot_seed.sh || rc=1
 echo; echo "===== r10: bare verify fallback ====="; bash test_bare_verify_fallback.sh || rc=1
 echo; echo "===== r10: boot notes ====="; bash test_boot_notes.sh || rc=1
 echo; echo "===== r10: box deadman ====="; bash test_box_deadman.sh || rc=1
+echo; echo "===== P5: box deadman live-attempt heartbeat ====="; bash test_box_deadman_live_heartbeat.sh || rc=1
 echo; echo "===== r10: buildgate godot runtime scope ====="; bash test_buildgate_godot_runtime_scope.sh || rc=1
 echo; echo "===== r10: contract fuzz auth ====="; python3 test_contract_fuzz_auth.py || rc=1
 echo; echo "===== r10: cov copy measure ====="; bash test_cov_copy_measure.sh || rc=1

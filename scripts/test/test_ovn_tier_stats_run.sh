@@ -11,7 +11,7 @@ for c in "$HERE/../ovn_tier_stats.py" "$HERE/../../scripts/ovn_tier_stats.py" "$
 [ -n "$TS" ] || { echo "  SKIP: ovn_tier_stats.py not found"; exit 0; }
 P=0; F=0
 ok(){ if [ "$2" = "1" ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
-has(){ printf '%s' "$OUT" | grep -qF -- "$1" && echo 1 || echo 0; }
+has(){ grep -qF -- "$1" <<<"$OUT" && echo 1 || echo 0; }   # here-string, not printf|grep -q: under pipefail grep -q can exit before the writer finishes -> SIGPIPE 141 -> false "no match" under load
 T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 
 python3 - "$T" <<'PY'
@@ -103,7 +103,7 @@ ok "T1 reverted / timeout / other / benign-excluded fragments" "$([ "$(has '1 re
 ok "T2 with only benign rows is summarised, not silently dropped" "$(has 'T2: 1 benign no-op(s) only (already-done/blocked), no good/bad attempts')"
 ok "T3 benign-only inside window (10h-old landed row excluded)" "$(has 'T3: 1 benign no-op(s) only')"
 ok "untagged + unknown tiers fold into 'Ongoing-lane'" "$(has 'Ongoing-lane: 2/2 (100%)')"
-ok "Ongoing-lane rows have no item_hash -> no per-item fragment on that line" "$(printf '%s' "$OUT" | grep 'Ongoing-lane' | grep -q 'per-item' && echo 0 || echo 1)"
+ok "Ongoing-lane rows have no item_hash -> no per-item fragment on that line" "$(grep -q 'per-item' <<<"$(grep 'Ongoing-lane' <<<"$OUT")" && echo 0 || echo 1)"
 ok "fleet-wide pass-rate line" "$(has '✅ pass-rate this window: 57% (4 good / 7 good+bad)')"
 ok "wasted-attempt line splits reverted/gate-reverted/flailed" "$(has '💥 3 wasted attempt(s) this window (1 reverted, 1 gate-reverted, 0 flailed/unverified)')"
 ok "benign no-op exclusion line" "$(has 'ℹ️ 3 benign no-op(s) excluded from the rate')"
@@ -114,7 +114,7 @@ ok "non-landed token spend line" "$(has '💸 On non-landed attempts: 3.6k sent 
 ok "ledger section: overhead totals and call count" "$(has '🔧 Pipeline overhead (planning/grooming/recovery/review): 2.5k sent / 900 received (4 calls)')"
 ok "ledger top sources ranked" "$(has 'planner 2.8k · groom 600')"
 ok "Σ overall line" "$(has 'Σ Overall (tasks + overhead): 9.1k sent / 4.5k received')"
-ok "out-of-window ledger row excluded" "$(printf '%s' "$OUT" | grep -q '999999\|1000.0k\|old ' && echo 0 || echo 1)"
+ok "out-of-window ledger row excluded" "$(grep -q '999999\|1000.0k\|old ' <<<"$OUT" && echo 0 || echo 1)"
 ts full 1
 ok "narrow 1h window still includes rows 10 minutes old" "$(has 'last 1h')"
 ts full --all-time

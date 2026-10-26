@@ -410,7 +410,7 @@ if os.path.isfile(PLIST):
 
 # ================================================================== mutation proofs: break each rule in a temp copy; the suite must then FAIL
 MUT = [
-    ("heartbeat ignores run reports (the live false positive)", '    beats = [b for b in (_iso_epoch(p.get("last", "")), _num(p.get("mtime")), _num(p.get("rep"))) if b]', '    beats = [b for b in (_iso_epoch(p.get("last", "")), _num(p.get("mtime"))) if b]'),
+    ("heartbeat ignores run reports (the live false positive)", '    beats = [b for b in (_iso_epoch(p.get("last", "")), _num(p.get("mtime")), _num(p.get("rep")), _num(p.get("act"))) if b]', '    beats = [b for b in (_iso_epoch(p.get("last", "")), _num(p.get("mtime")), _num(p.get("act"))) if b]'),
     ("no debounce (alert on the first miss)", 'need = int(env_f("DEADMAN_MISSES", 2))', 'need = 1'),
     ("alerts every run (no one-alert-per-episode memory)", '                if a is None or (remind and t - a.get("ts", 0) >= remind):', '                if True:'),
     ("recovery message never sent", '        else:\n            miss[k] = 0\n            if k in alerted:\n                to_recover.append(k)', '        else:\n            miss[k] = 0'),

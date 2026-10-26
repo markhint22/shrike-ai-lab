@@ -55,7 +55,7 @@ echo "== benign control: only the pre-existing red test fails (baseline has it)"
 scene "$OLD" "$OLD"
 osr_run "$OSR_REPO" "$ITEM_PY"
 T2 "runner behaviour UNCHANGED: still FAILED, NOT pushing" "grep -q 'independent full-verify: FAILED — NOT pushing' '$T/out.txt'"
-T2 "nothing pushed to origin (shadow never rescues)" "! git -C '$O' log --format=%s overnight/feature | grep -q 'staged step'"
+T2 "nothing pushed to origin (shadow never rescues)" "! test \$(git -C '$O' log --format=%s overnight/feature | grep -c 'staged step') -gt 0"
 T2 "journal still says verified:false" "osr_jsonl | grep '\"verified\":false' >/dev/null"
 t "exactly ONE row appended" test "$(NROWS)" = 1
 R="$(LASTROW)"
@@ -82,7 +82,7 @@ $NEW" "$OLD"
 osr_run "$OSR_REPO" "$ITEM_PY"
 R="$(LASTROW)"
 T2 "row: baseline verdict FAIL, not a rescue, the NEW id is named" "jq -e '.verdict==\"FAIL\" and .would_have_rescued==false and .real_rescue==false and (.new_failures|index(\"[backend] $NEW\")!=null) and .n_new==1 and .n_pre==1' <<<\"\$R\""
-T2 "runner still FAILED / nothing pushed" "grep -q 'independent full-verify: FAILED' '$T/out.txt' && ! git -C '$O' log --format=%s overnight/feature | grep -q 'staged step'"
+T2 "runner still FAILED / nothing pushed" "grep -q 'independent full-verify: FAILED' '$T/out.txt' && ! test \$(git -C '$O' log --format=%s overnight/feature | grep -c 'staged step') -gt 0"
 osr_cleanup
 
 echo "== no baseline for the repo: UNVERIFIED, never a guess"
@@ -106,7 +106,7 @@ echo "== green verify: no row, no baseline.json (the hook only fires on a RED ve
 scene "" "$OLD"
 : > "$T/scn/pytest.fails"
 osr_run "$OSR_REPO" "$ITEM_PY"
-T2 "green run: verified + pushed as before" "git -C '$O' log --format=%s overnight/feature | grep -q 'staged step'"
+T2 "green run: verified + pushed as before" "test \$(git -C '$O' log --format=%s overnight/feature | grep -c 'staged step') -gt 0"
 T2 "green run: zero rows, zero baseline.json" "[ \"\$(NROWS)\" = 0 ] && [ -z \"\$(BLJSON)\" ]"
 osr_cleanup
 

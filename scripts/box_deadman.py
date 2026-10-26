@@ -10,7 +10,7 @@ Read-only: one ssh to the box (key auth, BatchMode), nothing is written on the b
 What it checks (one ssh round trip):
   unreachable   ssh to the box fails on every address (Tailscale then LAN)
   stalled       overnight-queue.service is active (or activating) and the queue is not paused, but neither a state/outcomes.jsonl row nor a reports/*.md run report
-                (one per run_overnight pass, ~70 s even when idle) is newer than DEADMAN_STALE_S (default 1200 s = 20 min)
+                (one per run_overnight pass, ~70 s even when idle) nor a live attempt log (stage_runs/*.log, ongoing-*.log) is newer than DEADMAN_STALE_S (default 1200 s = 20 min)
   unit_down     overnight-queue.service is neither active nor activating, and the queue is not paused
   llm_down      LiteLLM http://localhost:4000/health/readiness on the box does not answer 200
 Alert only after DEADMAN_MISSES (default 2) CONSECUTIVE misses of the same kind (20 min of evidence at the 10-minute cadence), ONE alert per episode, a reminder only
@@ -63,6 +63,7 @@ echo "paused=$([ -e state/PAUSED ] && echo 1 || echo 0)"
 echo "mtime=$(stat -c %Y state/outcomes.jsonl 2>/dev/null)"
 echo "last=$(tail -n 1 state/outcomes.jsonl 2>/dev/null | grep -a -o '"ts":"[^"]*"' | head -1 | cut -d'"' -f4)"
 echo "rep=$(stat -c %Y "reports/$(ls -t reports 2>/dev/null | head -1)" 2>/dev/null)"
+echo "act=$(find state/stage_runs logs -maxdepth 2 -type f -mmin -180 \( -path 'state/stage_runs/*.log' -o -name 'ongoing-*.log' \) -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1 | cut -d. -f1)"
 echo "llm=$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://localhost:4000/health/readiness 2>/dev/null)"
 """
 
@@ -192,7 +193,9 @@ def evaluate(p):
     # liveness heartbeat = the newest of: the last outcomes row, the outcomes file mtime, the newest reports/*.md. An exhausted-idle fleet writes NO outcomes rows
     # (verified live 2026-10-10: 42 min without a row while both lanes idled correctly) but run_overnight.sh writes one report per pass (~every 70 s), so
     # outcomes alone would false-alarm; a long busy attempt writes no report but writes an outcomes row when it ends.
-    beats = [b for b in (_iso_epoch(p.get("last", "")), _num(p.get("mtime")), _num(p.get("rep"))) if b]
+    # 2026-10-26 (P5): + act = mtime of the newest state/stage_runs/*.log or logs/<run>/ongoing-*.log (3 h lookback). A staged attempt runs 30-54 min and writes neither an
+    # outcomes row nor a report, but its log grows throughout; without this beat "Fleet stalled: no outcomes" fired falsely twice on 10-25. No fresh log => unchanged semantics.
+    beats = [b for b in (_iso_epoch(p.get("last", "")), _num(p.get("mtime")), _num(p.get("rep")), _num(p.get("act"))) if b]
     last = max(beats) if beats else None
     if p.get("nodir"):
         bad["stalled"] = "the box has no ~/overnight-queue directory"

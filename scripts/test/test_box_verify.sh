@@ -18,7 +18,10 @@ H="$HOME"; O="$H/overnight-queue"; PY="$BVPY_REAL"
 mkdir -p "$W/bin" "$W/drive/box-backups" "$W/tmp"
 
 # ------------------------------------------------------------------ the healthy world
-cp -R "$OVN_REAL" "$O" 2>/dev/null; safe_rm_rf "$O/state" "$O/logs" "$O/repos" 2>/dev/null   # (a fresh copy: no leftovers of the source's own state)
+# copy_tree SRC DST: copy the queue tree WITHOUT any .git. The box's ~/overnight-queue is itself a git repo (the Mac tree is a subdir of one), so a bare cp -R drags in the box's REAL history
+# (its 'local research refuel' commits) and box_verify then never raises supply:refuel_stalled. Hermetic = the fixture owns its own history (git init below).
+copy_tree(){ cp -R "$1" "$2" 2>/dev/null; safe_rm_rf "$2/.git" 2>/dev/null; return 0; }
+copy_tree "$OVN_REAL" "$O"; safe_rm_rf "$O/state" "$O/logs" "$O/repos" 2>/dev/null   # (a fresh copy: no leftovers of the source's own state)
 mkdir -p "$O/state/qa_creds" "$O/state/qa_shadow" "$O/logs" "$O/repos"
 # stub crontab (file under W) for the real installers and for box_verify (BV_CRONTAB_FILE)
 printf '%s\n' '#!/bin/sh' "F=\"$W/crontab.stub\"" 'case "$1" in -l) [ -f "$F" ] || { echo "no crontab for u" >&2; exit 1; }; cat "$F";; *) cp "$1" "$F";; esac' > "$W/bin/crontab"; chmod 755 "$W/bin/crontab"
@@ -313,6 +316,12 @@ open(sys.argv[1], "w").write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ
 PYEOF
 
 # --- refuel clock: only a real refuel commit counts (a git repo in the fixture queue tree)
+# regression (box leak): a SOURCE tree that is itself a git repo with a fresh refuel commit must not leak that history into the fixture
+SRC_LEAK="$W/srcleak"; mkdir -p "$SRC_LEAK"; echo x > "$SRC_LEAK/f"
+( cd "$SRC_LEAK" && git init -q -b main . && git add f && GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git commit -q -m "chore(roadmap): local research refuel leak-probe" ) >/dev/null 2>&1
+copy_tree "$SRC_LEAK" "$W/dstleak"
+chk "copy_tree strips the source's .git (a real refuel commit must not leak into the fixture)" test ! -e "$W/dstleak/.git"
+chk "  and the file content was copied" test -f "$W/dstleak/f"
 export GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 ( cd "$O" && git init -q -b main . && git add -A >/dev/null 2>&1 && git commit -q -m "chore: fixture tree" ) >/dev/null 2>&1
 gcommit(){ ( cd "$O" && GIT_COMMITTER_DATE="$(( $(date +%s) - $1 * 3600 )) +0000" GIT_AUTHOR_DATE="$(( $(date +%s) - $1 * 3600 )) +0000" git commit -q --allow-empty -m "$2" ); }

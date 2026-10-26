@@ -125,6 +125,41 @@ runsh billwatch >/dev/null
 chk "garbage since-sha: no crash, no new suspect" test "$(grep -c SUSPECT "$LOG")" = 1
 eqv "garbage since-sha overwritten" "$(gi log -1 --format=%H -- backlog/billwatch.md)" "$(cat "$W/state/backlog_check_since_billwatch")"
 
+echo "== auto-sync snapshots (P5: planner payload added+consumed within the hour) =="
+bla(){ printf '%s\n' "$2" >> "$W/backlog/$1.md"; gi add backlog; gi commit -q -m "auto-sync 2026-10-26 06:00:0$((RANDOM%10))"; }
+HDR1='# --- 27B-decomposed from roadmap [2026-10-26]: Fix thing one (review + tweak) [feat:alpha-20261026-fix-thing-one] ---'
+HDR2='# --- 27B-decomposed from roadmap [2026-10-26]: Fix thing two (review + tweak) [feat:alpha-20261026-fix-thing-two] ---'
+setup
+bla alpha "$HDR1"
+printf '%s\n' '{"ts":"2026-10-26T07:05:27Z","repo":"alpha","class":"landed","feat_tag":"alpha-20261026-fix-thing-one-xyz"}' > "$W/state/outcomes.jsonl"
+NTFY_TOPIC=tt runsh alpha >/dev/null
+eqv "auto-sync header-only diff, tag consumed (in outcomes) -> no suspect" "0" "$(grep -c SUSPECT "$LOG")"
+chk "auto-sync consumed: no alert" bash -c "! test -s '$CURLLOG'"
+setup
+bla alpha "$HDR1"
+printf '%s\n' "- [x] [T1] a.py - done. [feat:alpha-20261026-fix-thing-one]" >> "$W/backlog/alpha.md"; gi add backlog; gi commit -q -m "wip"
+runsh alpha >/dev/null
+eqv "auto-sync header-only diff, tag has a [x] line -> no suspect" "0" "$(grep -c SUSPECT "$LOG")"
+setup
+bla alpha "$HDR1"
+runsh alpha >/dev/null
+eqv "auto-sync header-only diff, tag unknown anywhere -> still suspect" "1" "$(grep -c SUSPECT "$LOG")"
+setup
+bla alpha "$HDR1
+$HDR2"
+printf '%s\n' '{"ts":"2026-10-26T07:05:27Z","repo":"alpha","class":"landed","feat_tag":"alpha-20261026-fix-thing-one"}' > "$W/state/outcomes.jsonl"
+runsh alpha >/dev/null
+chk "two headers, only one explained -> suspect counts the 1 unexplained header" grep -q 'added 1 header(s) with ZERO' "$LOG"
+setup
+bl alpha "$HDR1"
+printf '%s\n' '{"ts":"2026-10-26T07:05:27Z","repo":"alpha","class":"landed","feat_tag":"alpha-20261026-fix-thing-one"}' > "$W/state/outcomes.jsonl"
+runsh alpha >/dev/null
+eqv "NON auto-sync header-only planner commit stays suspect even when the tag is known" "1" "$(grep -c SUSPECT "$LOG")"
+setup
+bla alpha '# --- header without a feat tag ---'
+runsh alpha >/dev/null
+eqv "auto-sync header without a feat tag -> still suspect" "1" "$(grep -c SUSPECT "$LOG")"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

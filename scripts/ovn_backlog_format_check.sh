@@ -24,6 +24,17 @@ PAYLOAD_RE='^\+- \[ \] \[T[1-5]\]'
 FOUND=0
 REPORT=""
 
+# 2026-10-26 (P5): the hourly "auto-sync <ts>" snapshot commit can see a planner header whose payload lines were added AND consumed (landed/closed) within that hour, so
+# the net diff is headers-only although the planner did its job (11 false "suspect commits" pushes). A header in an auto-sync commit is therefore EXPLAINED when its
+# [feat:<tag>] shows up in state/outcomes.jsonl (the item ran) or on a "- [x]" line of the backlog. Planner commits (any other subject), headers without a feat tag
+# and tags unknown everywhere stay suspect, so the real header-only bug is still caught.
+tag_known(){ # $1=tag $2=backlog file
+  [ -n "$1" ] || return 1
+  grep -aqF "\"feat_tag\":\"$1" "$STATE_DIR/outcomes.jsonl" 2>/dev/null && return 0
+  grep -aqE -- "^- \[x\].*\[feat:$1" "$2" 2>/dev/null && return 0   # no pipe: grep -q + pipefail = SIGPIPE trap
+  return 1
+}
+
 for r in $REPOS; do
   f="backlog/$r.md"
   [ -f "$f" ] || continue
@@ -31,15 +42,28 @@ for r in $REPOS; do
   since_sha="$(cat "$since_file" 2>/dev/null || true)"
 
   if [ -n "$since_sha" ]; then
-    commits="$(git log --format=%H "${since_sha}..HEAD" -- "$f" 2>/dev/null | tac)"
+    commits="$(git log --reverse --format=%H "${since_sha}..HEAD" -- "$f" 2>/dev/null)"
   else
-    commits="$(git log --format=%H -- "$f" 2>/dev/null | tac)"
+    commits="$(git log --reverse --format=%H -- "$f" 2>/dev/null)"
   fi
 
   for c in $commits; do
     diff="$(git show "$c" -- "$f" 2>/dev/null)"
     headers_added="$(printf '%s\n' "$diff" | grep -cE "$HEADER_RE" || true)"
     payload_added="$(printf '%s\n' "$diff" | grep -cE "$PAYLOAD_RE" || true)"
+    if [ "${headers_added:-0}" -gt 0 ] && [ "${payload_added:-0}" -eq 0 ]; then
+      case "$(git log -1 --format=%s "$c" 2>/dev/null)" in
+        auto-sync*)
+          unexplained=0
+          while IFS= read -r hl; do
+            tg="$(printf '%s\n' "$hl" | sed -n 's/.*\[feat:\([^]]*\)\].*/\1/p')"
+            tag_known "$tg" "$f" || unexplained=$((unexplained+1))
+          done <<EOF_HDRS
+$(printf '%s\n' "$diff" | grep -aE "$HEADER_RE" || true)
+EOF_HDRS
+          headers_added="$unexplained" ;;
+      esac
+    fi
     if [ "${headers_added:-0}" -gt 0 ] && [ "${payload_added:-0}" -eq 0 ]; then
       FOUND=$((FOUND+1))
       msg="$r backlog commit ${c:0:9} added $headers_added header(s) with ZERO real [T#] payload lines"

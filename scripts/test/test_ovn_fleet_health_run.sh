@@ -53,7 +53,8 @@ mkrepo(){ # $1=name $2=doable $3=burn(recent feat commits) [$4 extra recent non-
 }
 run(){ OUT="$(cd "$H" && HOME="$H" PATH="$BIN:$PATH" env "$@" bash "$FH" 2>&1)"; RC=$?; LOGF="$R/logs/ovn_fleet_health.log"; }
 logs(){ cat "$R/logs/ovn_fleet_health.log" 2>/dev/null; }
-has_log(){ logs | grep -qF -- "$1" && echo 1 || echo 0; }
+# grep reads the FILE directly: `logs | grep -q` under pipefail lets grep -q exit at the first hit, cat then dies of SIGPIPE (141) and the pipeline reads as "no match" - a load-dependent false FAIL (reproduced 4/6 and 5/12 under box load, 2026-10-26)
+has_log(){ grep -qF -- "$1" "$R/logs/ovn_fleet_health.log" 2>/dev/null && echo 1 || echo 0; }
 
 # =====================================================================================================
 # Scenario 1: mixed runways + landed parser + alert
@@ -88,7 +89,7 @@ ok "S1: r_lt1 '<1d' (2 doable / 4 burn)" "$(has_log 'r_lt1: doable=2 runway=<1d'
 ok "S1: r_2d '~2d' at threshold" "$(has_log 'r_2d: doable=4 runway=~2d')"
 ok "S1: r_3d '~3d' above threshold (healthy)" "$(has_log 'r_3d: doable=6 runway=~3d')"
 ok "S1: r_15d healthy" "$(has_log 'r_15d: doable=30 runway=~15d')"
-ok "S1: disabled repo excluded" "$(logs | grep -q 'r_off' && echo 0 || echo 1)"
+ok "S1: disabled repo excluded" "$([ "$(has_log 'r_off')" = 1 ] && echo 0 || echo 1)"
 ok "S1: landed_7d: ISO + epoch-seconds + case-insensitive class = 2, old/unparsable/no-ts/revert excluded" "$(has_log 'r_2d: doable=4 runway=~2d burn24h=2 landed_7d=2')"
 ok "S1: landed_7d counts epoch-ms ts" "$(has_log 'r_lt1: doable=2 runway=<1d burn24h=4 landed_7d=1')"
 ok "S1: landed_7d counts 'timestamp' key" "$(has_log 'r_3d: doable=6 runway=~3d burn24h=2 landed_7d=1')"
