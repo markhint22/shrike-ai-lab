@@ -505,4 +505,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `delete_epg_mapping` endpoint — Add unit tests for the untested public function `delete_epg_mapping` in `iptv-backend/app/routers/epg.py:1219` to verify mapping removal logic and error handling {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `exchange_device_token` — Add unit tests for the untested public function `exchange_device_token` in `iptv-backend/app/routers/device_auth.py:136` to verify token exchange logic and error handling {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `exchange_device_token` — Add unit tests for the untested public function `exchange_device_token` in `iptv-backend/app/routers/device_auth.py:136` to verify token exchange logic and error handling {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_current_user_info` — Add unit tests for the untested public function `get_current_user_info` in `iptv-backend/app/routers/auth.py:176` to verify it correctly returns user details and handles missing/invalid tokens; place tests in `iptv-backend/tests/` {cat: test; size: S; multifile: no; research: none}
