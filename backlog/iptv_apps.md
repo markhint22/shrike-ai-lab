@@ -658,3 +658,5 @@
 # --- 27B-decomposed from roadmap [2026-10-25]: Test `deactivate_epg_source` endpoint — Add unit tests for the untested public function `d (review + tweak) [feat:iptv_apps-20261025-test-deactivate-epg-source-endpoint-add-] ---
 
 # --- 27B-decomposed from roadmap [2026-10-25]: Test `create_device_code` endpoint — Add unit tests for the untested public function `crea (review + tweak) [feat:iptv_apps-20261025-test-create-device-code-endpoint-add-uni] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Test `delete_epg_mapping` endpoint — Add unit tests for the untested public function `dele (review + tweak) [feat:iptv_apps-20261026-test-delete-epg-mapping-endpoint-add-uni] ---

@@ -318,4 +318,4 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 - [ ] [P3] [decomposed] Test `get_current_user_endpoint` auth resolution — Add unit tests for `backend/app/routers/auth.py:32` (`get_current_user_endpoint`) to verify it correctly resolves the authenticated user from the request context and returns 401 for invalid/missing tokens, ensuring the principal extraction logic is verified. {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 5 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `list_org_members` endpoint — Add unit tests for `backend/app/routers/orgs.py:169` (`list_org_members`) to verify member listing logic and permission checks {cat: backend; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `list_org_members` endpoint — Add unit tests for `backend/app/routers/orgs.py:169` (`list_org_members`) to verify member listing logic and permission checks {cat: backend; size: S; multifile: no; research: none}

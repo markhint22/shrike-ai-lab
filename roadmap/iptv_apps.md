@@ -502,4 +502,4 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `create_device_code` endpoint — Add unit tests for the untested public function `create_device_code` in `iptv-backend/app/routers/device_auth.py:84` to verify device code generation, expiration logic, and single-use enforcement, preventing unauthorized device pairing {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `delete_epg_mapping` endpoint — Add unit tests for the untested public function `delete_epg_mapping` in `iptv-backend/app/routers/epg.py:1219` to verify mapping removal logic and error handling {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `delete_epg_mapping` endpoint — Add unit tests for the untested public function `delete_epg_mapping` in `iptv-backend/app/routers/epg.py:1219` to verify mapping removal logic and error handling {cat: test; size: S; multifile: no; research: none}
