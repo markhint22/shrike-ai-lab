@@ -391,4 +391,8 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P2] [decomposed] Test `get_conversation_stats` endpoint — `backend/app/routers/conversations.py:570` is a public function with zero test coverage; add tests in `backend/tests/` verifying accurate message counts and participant stats {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-27 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `post_fleet_events` — `backend/app/routers/conversations.py:628` is a public function with zero test coverage; add tests in `backend/tests/` to verify event ingestion and storage {cat: backend; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `post_fleet_events` — `backend/app/routers/conversations.py:628` is a public function with zero test coverage; add tests in `backend/tests/` to verify event ingestion and storage {cat: backend; size: S; multifile: no; research: none}
+
+## Local research 2026-10-27 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test conversation tag management endpoints — `backend/app/routers/conversations.py:290` (`add_tag_to_conversation`) and `backend/app/routers/conversations.py:310` (`remove_tag_from_conversation`) are untested; add tests verifying tag persistence and removal logic {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [ready] Test `get_aggregate_analytics` endpoint — `backend/app/routers/analytics.py:27` is a public function with zero test coverage; add tests verifying aggregate data calculation and response structure {cat: test; size: S; multifile: no; research: none}
