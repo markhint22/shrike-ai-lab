@@ -387,5 +387,8 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P2] [decomposed] Test `add_suggestion` endpoint — `backend/app/routers/code_review.py:369` is a public function with zero test coverage; add tests in `backend/tests/` verifying suggestion creation and persistence {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-27 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `search_messages` conversation endpoint — `backend/app/routers/conversations.py:517` is a public function with zero test coverage; add tests in `backend/tests/` verifying message filtering by query and workspace scope {cat: test; size: S; multifile: no; research: none}
-- [ ] [P2] [ready] Test `get_conversation_stats` endpoint — `backend/app/routers/conversations.py:570` is a public function with zero test coverage; add tests in `backend/tests/` verifying accurate message counts and participant stats {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `search_messages` conversation endpoint — `backend/app/routers/conversations.py:517` is a public function with zero test coverage; add tests in `backend/tests/` verifying message filtering by query and workspace scope {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_conversation_stats` endpoint — `backend/app/routers/conversations.py:570` is a public function with zero test coverage; add tests in `backend/tests/` verifying accurate message counts and participant stats {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-27 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `post_fleet_events` — `backend/app/routers/conversations.py:628` is a public function with zero test coverage; add tests in `backend/tests/` to verify event ingestion and storage {cat: backend; size: S; multifile: no; research: none}
