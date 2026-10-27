@@ -342,4 +342,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P3] [decomposed] Test `get_project_config` endpoint — `backend/app/routers/project_config.py:52` is a public function with zero test coverage; add tests in `backend/tests/` verifying it returns the correct configuration structure and handles missing project IDs gracefully {cat: backend; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `look_at_failure_action` — `backend/app/routers/control_plane.py:148` is a public endpoint with zero test coverage; add unit tests in `backend/tests/` verifying it correctly processes failure actions and returns expected status {cat: backend; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `look_at_failure_action` — `backend/app/routers/control_plane.py:148` is a public endpoint with zero test coverage; add unit tests in `backend/tests/` verifying it correctly processes failure actions and returns expected status {cat: backend; size: S; multifile: no; research: none}
+
+## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `initialize_agent` — `backend/app/routers/ai_agents.py:64` is a public function with zero test coverage; add tests in `backend/tests/` verifying agent initialization logic and response structure {cat: backend; size: S; multifile: no; research: none}
