@@ -352,3 +352,6 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `list_workspaces` — `backend/app/routers/workspaces.py:40` is a public function with zero test coverage; add a test in `backend/tests/` that mocks the workspace repository and verifies the endpoint returns 200 and a list of workspace objects {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-27 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `approve_plan` and `dispatch_plan` — `backend/app/routers/plans.py:244` (`approve_plan`) and `backend/app/routers/plans.py:279` (`dispatch_plan`) are public endpoints with zero test coverage; add tests in `backend/tests/` verifying state transitions and dispatch logic {cat: test; size: M; multifile: no; research: none}
