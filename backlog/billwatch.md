@@ -429,3 +429,15 @@
 # --- 27B-decomposed from roadmap [2026-10-26]: Test `get_committee` endpoint — `billwatch-backend/app/routers/committees.py:52` is a publ (review + tweak) [feat:billwatch-20261026-test-get-committee-endpoint-billwatch-ba] ---
 
 # --- 27B-decomposed from roadmap [2026-10-26]: Test `search_topics` endpoint — `billwatch-backend/app/routers/search.py:47` is a public f (review + tweak) [feat:billwatch-20261026-test-search-topics-endpoint-billwatch-ba] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `list_users` admin endpoint — `billwatch-backend/app/routers/admin.py:20` is a public (review + tweak) [feat:billwatch-20261027-test-list-users-admin-endpoint-billwatch] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Make downvote_bill persist state or return 501 like upvote — `billwatch-backend/app/router (review + tweak) [feat:billwatch-20261027-make-downvote-bill-persist-state-or-retu] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Replace blocking alert() with accessible inline error in AlertsView — `billwatch-web/src/v (review + tweak) [feat:billwatch-20261027-replace-blocking-alert-with-accessible-i] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Make career event cards keyboard accessible in LegislatorCareerHistoryPage — `billwatch-we (review + tweak) [feat:billwatch-20261027-make-career-event-cards-keyboard-accessi] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Replace blocking alert() with accessible inline error in BillChatPanel — `billwatch-web/sr (review + tweak) [feat:billwatch-20261027-replace-blocking-alert-with-accessible-i] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `unban_user` admin endpoint — `billwatch-backend/app/routers/admin.py:71` is a public (review + tweak) [feat:billwatch-20261027-test-unban-user-admin-endpoint-billwatch] ---
