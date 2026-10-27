@@ -520,4 +520,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `verify_email` endpoint — Add unit tests for the untested public function `verify_email` in `iptv-backend/app/routers/auth.py:314` to ensure email verification logic is validated; test file `iptv-backend/tests/test_auth.py` {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `resend_verification_email` — Add unit tests for the untested public function `resend_verification_email` in `iptv-backend/app/routers/auth.py:338`, verifying it sends an email and updates the user's verification status without raising exceptions {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `resend_verification_email` — Add unit tests for the untested public function `resend_verification_email` in `iptv-backend/app/routers/auth.py:338`, verifying it sends an email and updates the user's verification status without raising exceptions {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `add_channel_to_engine` — Add unit tests for the untested public function `add_channel_to_engine` in `iptv-backend/app/routers/discovery_api.py:268` to verify channel ingestion logic and error handling {cat: test; size: S; multifile: no; research: none}
