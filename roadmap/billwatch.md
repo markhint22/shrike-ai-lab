@@ -322,4 +322,7 @@ All research is grounded in the live repo.
 - [ ] [P3] [decomposed] Test `list_committees` endpoint — `billwatch-backend/app/routers/committees.py:32` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying it returns the expected list of committees and handles empty database state correctly {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `get_committee` endpoint — `billwatch-backend/app/routers/committees.py:52` is a public function with no test coverage; add a router-level test in `billwatch-backend/tests/` verifying it returns the correct committee data for a valid ID and raises 404 for a missing one {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `get_committee` endpoint — `billwatch-backend/app/routers/committees.py:52` is a public function with no test coverage; add a router-level test in `billwatch-backend/tests/` verifying it returns the correct committee data for a valid ID and raises 404 for a missing one {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `search_topics` endpoint — `billwatch-backend/app/routers/search.py:47` is a public function referenced by no test; add router-level tests in `billwatch-backend/tests/` verifying topic search results and empty state handling {cat: test; size: S; multifile: no; research: none}
