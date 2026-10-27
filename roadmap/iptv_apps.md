@@ -526,4 +526,4 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `add_channel_to_engine` — Add unit tests for the untested public function `add_channel_to_engine` in `iptv-backend/app/routers/discovery_api.py:268` to verify channel ingestion logic and error handling {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_available_genres` — Add unit tests for the untested public function `get_available_genres` in `iptv-backend/app/routers/discovery_api.py:307` to verify it returns the correct list of genres from the database without errors {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_available_genres` — Add unit tests for the untested public function `get_available_genres` in `iptv-backend/app/routers/discovery_api.py:307` to verify it returns the correct list of genres from the database without errors {cat: test; size: S; multifile: no; research: none}

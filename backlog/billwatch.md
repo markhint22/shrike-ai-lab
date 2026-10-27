@@ -423,3 +423,9 @@
 # --- 27B-decomposed from roadmap [2026-10-26]: Add navigation to search results in SearchPage — `billwatch-web/src/pages/SearchPage.vue:1 (review + tweak) [feat:billwatch-20261026-add-navigation-to-search-results-in-sear] ---
 
 # --- 27B-decomposed from roadmap [2026-10-26]: Implement View Voting Record action in LegislatorSearch — `billwatch-web/src/components/Le (review + tweak) [feat:billwatch-20261026-implement-view-voting-record-action-in-l] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Test `list_committees` endpoint — `billwatch-backend/app/routers/committees.py:32` is a pu (review + tweak) [feat:billwatch-20261026-test-list-committees-endpoint-billwatch-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Test `get_committee` endpoint — `billwatch-backend/app/routers/committees.py:52` is a publ (review + tweak) [feat:billwatch-20261026-test-get-committee-endpoint-billwatch-ba] ---
+
+# --- 27B-decomposed from roadmap [2026-10-26]: Test `search_topics` endpoint — `billwatch-backend/app/routers/search.py:47` is a public f (review + tweak) [feat:billwatch-20261026-test-search-topics-endpoint-billwatch-ba] ---
