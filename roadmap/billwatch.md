@@ -326,3 +326,6 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-26 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `search_topics` endpoint — `billwatch-backend/app/routers/search.py:47` is a public function referenced by no test; add router-level tests in `billwatch-backend/tests/` verifying topic search results and empty state handling {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-27 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `list_users` admin endpoint — `billwatch-backend/app/routers/admin.py:20` is a public function referenced by no test; add a router-level test in `billwatch-backend/tests/` verifying it returns the expected list of users and handles pagination/filtering correctly {cat: test; size: S; multifile: no; research: none}
