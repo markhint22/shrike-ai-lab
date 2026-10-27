@@ -52,6 +52,7 @@ echo; echo "===== Runner invariants ====="; bash test_runner_invariants.sh || rc
 echo; echo "===== Hygiene invariants ====="; bash test_hygiene_invariants.sh || rc=1
 echo; echo "===== Deploy self-heal ====="; bash test_deploy_watch.sh || rc=1
 echo; echo "===== TS ratchet gate ====="; bash test_tsc_gate.sh || rc=1
+echo; echo "===== TS ratchet syntax hard-fail + collected shadow (P5) ====="; bash test_tsc_gate_syntax_ratchet.sh || rc=1
 echo; echo "===== Queue refill ====="; bash test_queue_refill.sh || rc=1
 echo; echo "===== Higher-tier pipeline (godot gate / refill routing / inline branch / auto-pick) ====="; bash test_higher_tier_pipeline.sh || rc=1
 echo; echo "===== Retire prefix-tolerance ====="; bash test_retire_prefix.sh || rc=1
@@ -538,6 +539,9 @@ echo; echo "===== QA Phase 4: soak probe + summary + shadow promote_gate read ==
 echo; echo "===== D1: VERIFY shape linter (shadow default; OVN_VERIFY_LINT=off|shadow|enforce; real box items, tree-confirmed rules, hooks, audit, mutants) ====="; bash test_verify_shape_lint.sh || rc=1
 echo; echo "===== D1 repair: ovn_planner.sh verify-lint hook (recount, [decomposed] marking, quarantine, fail-open fall-through + timeout; planner mutants) ====="; bash test_verify_lint_planner_hook.sh || rc=1
 echo; echo "===== qa tool health (P1 gate tool sentinel + installer; hermetic, with mutants) ====="; bash test_qa_tool_health.sh || rc=1
+echo; echo "===== P6a: limiter-order lint (ast; limiter above route = never enforced; shadow hook; mutant) ====="; bash test_limiter_order_lint.sh || rc=1
+echo; echo "===== P6b: qa_tool_health reads #OFF# / '(off by default' cron lines as declared off (mutation proofs) ====="; bash test_tool_health_off_marker.sh || rc=1
+echo; echo "===== P6c: classifier plain 'verdict: no-edit' short-circuit ====="; bash test_classify_noedit_plain.sh || rc=1
 echo; echo "===== check applied migration immutable ====="; bash test_check_applied_migration_immutable.sh || rc=1
 echo; echo "===== check ghost tests ====="; bash test_check_ghost_tests.sh || rc=1
 echo; echo "===== outcome acct ====="; bash test_outcome_acct.sh || rc=1
@@ -606,5 +610,6 @@ echo; echo "===== churn suffix escalate ====="; bash test_churn_suffix_escalate.
 echo; echo "===== stub suffix guard ====="; bash test_stub_suffix_guard.sh || rc=1
 echo; echo "===== P5 shadow evidence (stage-order journal ts/item_hash/decision_id/count/rotation/outcome join; verify-lint S6-S9,U4,V4,V1 shapes; UNRUNNABLE vs FAIL; record_outcome hook) ====="; bash test_p5_shadow_evidence.sh || rc=1
 echo; echo "===== qwen explore feature ====="; bash test_qwen_explore_feature.sh || rc=1
+echo; echo "===== P8 VERIFY pre-flight + observability (verify-lint A1 async-AST / H1 hyphen-import under OVN_VERIFY_ASYNC_LINT, scout-guard out-of-repo abs path, item_line_hash + digest sibling split, stage item-verify rc 4/5 shadow) ====="; bash test_p8_verify_preflight.sh || rc=1
 echo; finish || rc=1
 exit $rc

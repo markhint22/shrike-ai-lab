@@ -129,6 +129,13 @@ stage_item_verify_run(){
       declare -F shadow_check >/dev/null 2>&1 || { printf 'NO_VERIFY_CLAUSE|shadow_check missing'; exit 0; }
       OVN_VERIFY_VENV_FALLBACK="${OVN_VERIFY_VENV_FALLBACK:-${HOME}/overnight-queue/repos/${OVN_STAGE_REPO:-}}"; export OVN_VERIFY_VENV_FALLBACK   # worktree has no .venv: see _resolve_tool_paths
       shadow_check 1 >/dev/null 2>&1
+      # P8 (2026-10-26): pytest rc 4/5 (no test collected / usage error: the test the item names does not exist, or the node id is wrong) is an ITEM-vs-SPEC problem, not a code failure, yet it was lumped in
+      # with rc 1 as FAIL. OVN_STAGE_IV_RC45=off|shadow|on (default SHADOW): shadow logs `note=rc45-spec-problem would=SPEC_PROBLEM` to the item-verify shadow log and leaves the verdict FAIL; on prints
+      # SPEC_PROBLEM (pre = red-expected, post = refused with a distinct reason). rc 1 (real red test) is never reclassified.
+      if [ "${OVN_STAGE_IV_RC45:-shadow}" != off ] && [ "${_LAST_VERIFY_RESULT:-}" = FAIL ] && { [ "${_LAST_VERIFY_RC:-}" = 4 ] || [ "${_LAST_VERIFY_RC:-}" = 5 ]; } && case "$item" in *pytest*) true;; *) false;; esac; then
+        echo "$(date -u +%FT%TZ) repo=$_REPO_LABEL note=rc45-spec-problem mode=${OVN_STAGE_IV_RC45:-shadow} would=SPEC_PROBLEM rc=${_LAST_VERIFY_RC} why=$(printf '%s' "${_LAST_VERIFY_WHY:-}" | tr -d '\n|' | head -c 80)" >> "$SHADOW_LOG" 2>/dev/null
+        if [ "${OVN_STAGE_IV_RC45:-shadow}" = on ]; then printf 'SPEC_PROBLEM|pytest rc=%s %s' "${_LAST_VERIFY_RC}" "$(printf '%s' "${_LAST_VERIFY_WHY:-}" | tr -d '\n|')"; exit 0; fi
+      fi
       printf '%s|%s' "${_LAST_VERIFY_RESULT:-NO_VERIFY_CLAUSE}" "${_LAST_VERIFY_WHY:-}"
     } )"
   rm -f "$tmp"
@@ -193,6 +200,9 @@ stage_tree_restore(){
 stage_item_verify_decision(){
   local pre="${1%%|*}" post="${2%%|*}"
   case "$post" in FAIL) echo "refuse:the item's own VERIFY is RED after the change"; return 0;; esac
+  # P8: OVN_STAGE_IV_RC45=on only. After the change the VERIFY still collects NO test (pytest rc 4/5): the item names a test that was not created / a node id that does not resolve. Still not credited, but the
+  # reason says it is an item-vs-spec problem. A SPEC_PROBLEM *before* the change is the expected red of a create-the-test item: it falls through to OK.
+  case "$post" in SPEC_PROBLEM) echo "refuse:the item's own VERIFY collects no test after the change (pytest rc 4/5): the test it names does not exist - item-vs-spec problem"; return 0;; esac
   # 2026-10-22 (PKG-B): "already GREEN before any step" could be credited as already satisfied (43 refusals in 7d looped items through retries). It loosens credit (a clause like
   # `PROBE && echo FAIL || echo PASS` is PASS before and after), so it is OPT-IN: OVN_STAGE_ITEM_VERIFY_ALREADY_GREEN=credit enables it (caller treats anything not starting `refuse` as credit); default = old refusal.
   case "$pre" in PASS) [ "$post" = PASS ] && {

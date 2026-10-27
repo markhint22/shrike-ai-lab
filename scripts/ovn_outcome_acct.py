@@ -262,6 +262,7 @@ def _reconcile_locked(state_dir, repos_dir, branches, window_h, fetch, dry_run, 
             "status": "landed-late(held-commit)",
             "tokens_sent": 0, "tokens_recv": 0, "duration_s": 0,
             "item_hash": r.get("item_hash", ""), "feat_tag": r.get("feat_tag", ""),
+            **({"item_line_hash": r["item_line_hash"]} if r.get("item_line_hash") else {}),
             "commits": shas, "head_before": r.get("head_before", ""), "head_after": r.get("head_after", ""),
             "late_of_ts": ts, "late_of_status": str(r.get("status", ""))[:80], "landed_branch": br,
         }

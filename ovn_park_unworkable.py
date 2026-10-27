@@ -71,16 +71,33 @@ def banned_list(root):
     return out
 
 
+def _rel(tok, root):
+    """Repo-relative form of a candidate path token, or None when it points OUTSIDE the repo (P8, 2026-10-26: the planner text names the aider venv's /Users/.../python3.12 and the
+    abs path joined to root stayed absolute, so a 400KB interpreter was dropped as an "oversize" planned file: 10 noise lines). Lexical (no symlink resolution of the token itself); the repo root
+    is compared in both its given and its real form so $PWD vs /private/... spellings agree."""
+    try:
+        full = os.path.normpath(tok if os.path.isabs(tok) else os.path.join(root, tok))
+        for r in dict.fromkeys((os.path.normpath(os.path.abspath(root)), os.path.realpath(root))):
+            if full != r and full.startswith(r + os.sep):
+                return os.path.relpath(full, r)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def _check(tok, root, banned, max_bytes):
-    path = os.path.join(root, tok)
-    if tok.endswith(".md") or not os.path.isfile(path):
+    rel = _rel(tok, root)
+    if rel is None:
+        return None
+    path = os.path.join(root, rel)
+    if rel.endswith(".md") or not os.path.isfile(path):
         return None
     for b in banned:
-        if tok == b or tok.startswith(b):
-            return "hard-banned file %s" % tok
+        if rel == b or rel.startswith(b):
+            return "hard-banned file %s" % rel
     size = os.path.getsize(path)
     if size > max_bytes:
-        return "%s is %dKB (~%dk tokens) - exceeds the model context" % (tok, size // 1024, size // 3500)
+        return "%s is %dKB (~%dk tokens) - exceeds the model context" % (rel, size // 1024, size // 3500)
     return None
 
 
@@ -118,6 +135,8 @@ def scout_guard(root, tokens, item_text, max_bytes):
         tok = tok.strip()
         if not tok or tok.endswith(".md"):
             continue
+        if _rel(tok, root) is None:
+            continue   # outside the repo (absolute interpreter/venv path, ../ escape): not a force-load target, never "dropped", never a surviving candidate
         why = _check(tok, root, banned, max_bytes)
         if why:
             dropped.append((tok, why))

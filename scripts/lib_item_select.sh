@@ -174,6 +174,12 @@ ovn_item_hash() {
   fi
 }
 
+# ovn_item_line_hash <line text> (P8, 2026-10-26): md5 of the WHOLE item line (checkbox stripped) - unlike ovn_item_hash it does NOT collapse to the [feat:] tag, so two sibling items of one feature
+# get different values. Used ONLY for observability (outcomes.jsonl item_line_hash, digest repeat counters); state/item_fails keys still depend on ovn_item_hash, which must not change.
+ovn_item_line_hash() {
+  printf '%s' "${1:-}" | sed -E 's/^- \[[ xX]\] //' | md5sum | cut -d' ' -f1
+}
+
 # ovn_is_schema_item / ovn_schema_budget - per-category attempt budget (2026-10-02).
 #
 # MEASURED on the box (state/outcomes.jsonl, 16.5k rows 2026-09-07..10-02, plus the repos' OVERNIGHT_PROGRESS.md AUTO-SKIP tags):

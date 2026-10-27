@@ -37,7 +37,7 @@ import ast, os, re, sys, warnings
 warnings.simplefilter("ignore")   # parsing arbitrary text as python must not spray SyntaxWarnings
 
 SKIP_DIRS = {".git", "__pycache__", "fixtures", "fixtures_qagate", "fixtures_qa_migrations", "assets", "node_modules", ".venv"}
-EXEMPT_SUFFIX = ("scripts/test/lib_safe_tmp.sh",)
+EXEMPT_SUFFIX = ("/lib_safe_tmp.sh", "scripts/test/lib_safe_tmp.sh")   # any path ending /lib_safe_tmp.sh, so linting from a sub-root (cd scripts/test; lint .) still exempts the helper itself
 ROOT_DATA_DIRS = {"repos", "state", "logs"}   # runtime data at the queue root (not source); top level only
 TEXT_SKIP_EXT = (".md", ".json", ".patch", ".txt", ".log", ".yaml", ".yml", ".plist", ".service", ".gd", ".kt", ".swift", ".diff", ".csv", ".toml", ".cfg", ".ini", ".html", ".js", ".ts")
 KEYWORDS = {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "}", "fi", "done", "esac", "time"}

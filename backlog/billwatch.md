@@ -441,3 +441,17 @@
 # --- 27B-decomposed from roadmap [2026-10-27]: Replace blocking alert() with accessible inline error in BillChatPanel — `billwatch-web/sr (review + tweak) [feat:billwatch-20261027-replace-blocking-alert-with-accessible-i] ---
 
 # --- 27B-decomposed from roadmap [2026-10-27]: Test `unban_user` admin endpoint — `billwatch-backend/app/routers/admin.py:71` is a public (review + tweak) [feat:billwatch-20261027-test-unban-user-admin-endpoint-billwatch] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: check_alerts_for_bill loads all active alerts into memory and iterates in Python — `billwa (review + tweak) [feat:billwatch-20261027-check-alerts-for-bill-loads-all-active-a] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_system_statistics` aggregation logic — `billwatch-backend/app/routers/admin.py:1 (review + tweak) [feat:billwatch-20261027-test-get-system-statistics-aggregation-l] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `find_similar_bills` similarity logic — `billwatch-backend/app/core/congress.py:138`  (review + tweak) [feat:billwatch-20261027-test-find-similar-bills-similarity-logic] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_mobile_gaps` admin endpoint response — `billwatch-backend/app/routers/admin.py:1 (review + tweak) [feat:billwatch-20261027-test-get-mobile-gaps-admin-endpoint-resp] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `post_bill_message` chat endpoint — `billwatch-backend/app/routers/bill_chat.py:31` i (review + tweak) [feat:billwatch-20261027-test-post-bill-message-chat-endpoint-bil] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_current_user_or_404` dependency — `billwatch-backend/app/routers/users.py:34` is (review + tweak) [feat:billwatch-20261027-test-get-current-user-or-404-dependency-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_followed_bills` endpoint — `billwatch-backend/app/routers/users.py:67` is a publ (review + tweak) [feat:billwatch-20261027-test-get-followed-bills-endpoint-billwat] ---

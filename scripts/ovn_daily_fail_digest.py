@@ -15,7 +15,7 @@ Sections (JSON keys)
   bad               the BAD rows (bucket_from_outcome_row == bad): total, by_class, by_repo, by_repo_class, and by_signature (the root-cause grouping, below)
   landing           landed / landed-uncredited / credit-only / net-zero counts and the uncredited share of pushes
   starvation        per repo: skip(exhausted) rows + their seconds in the window, and the trigger-check's starving hours when state/research_trigger_starving.json exists
-  gpu_sinks         items (feat_tag, else item_hash) with the most cycle seconds that LANDED NOTHING in the window (top N; a landed or landed-uncredited push counts as landing, a credit-only push does not), with their share of all busy seconds
+  gpu_sinks         items (feat_tag, else item_hash; plus ' #<item_line_hash[:8]>' when the row carries one, so sibling items of a feature are separate) with the most cycle seconds that LANDED NOTHING in the window (top N; a landed or landed-uncredited push counts as landing, a credit-only push does not), with their share of all busy seconds
   walltime          per repo busy / generation / verify / fix-up seconds from cycle_walltime.jsonl rows in the window (verify_s is measured only on rows whose verify_basis is
                     "markers", i.e. written after the runner logs '--- verify done in Ns ---'; the count of such rows is reported)
   verify_shadow     result counts of state/verify_gate_shadow.log rows of FLEET repos in the window. That log is every VERIFY EXECUTION (red-before runs, item rechecks, unwinnable clauses retried every
@@ -224,6 +224,11 @@ def build(state_dir, hours=24.0, now=None, top=10):
         k = r.get("feat_tag") or r.get("item_hash") or ""
         if not k:
             continue
+        # P8: feat_tag / item_hash are FEATURE-level, so sibling items of one feature merged here (a landed sibling hid its failing twin). item_line_hash (whole line) splits them; rows written before P8
+        # carry none and keep the old key. OVN_DIGEST_LINE_SPLIT=off restores the old merge.
+        lh = str(r.get("item_line_hash") or "") if os.environ.get("OVN_DIGEST_LINE_SPLIT", "on") != "off" else ""
+        if lh:
+            k = "%s #%s" % (k, lh[:8])
         d = items.setdefault(k, {"repo": r.get("repo"), "cycles": 0, "seconds": 0, "tokens": 0, "landed": 0})
         if r.get("class") == LATE_CLASS:
             d["landed"] += 1   # its held row's GPU time was NOT wasted: the commit reached origin. Not a cycle: cycles/seconds/tokens untouched

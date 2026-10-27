@@ -472,3 +472,22 @@
 # --- deterministic work supply 2026-10-27 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- 27B-decomposed from roadmap [2026-10-27]: Test `add_suggestion` endpoint — `backend/app/routers/code_review.py:369` is a public func (review + tweak) [feat:gitlark-20261027-test-add-suggestion-endpoint-backend-app] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `search_messages` conversation endpoint — `backend/app/routers/conversations.py:517`  (review + tweak) [feat:gitlark-20261027-test-search-messages-conversation-endpoi] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_conversation_stats` endpoint — `backend/app/routers/conversations.py:570` is a p (review + tweak) [feat:gitlark-20261027-test-get-conversation-stats-endpoint-bac] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `post_fleet_events` — `backend/app/routers/conversations.py:628` is a public function (review + tweak) [feat:gitlark-20261027-test-post-fleet-events-backend-app-route] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test conversation tag management endpoints — `backend/app/routers/conversations.py:290` (` (review + tweak) [feat:gitlark-20261027-test-conversation-tag-management-endpoin] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_aggregate_analytics` endpoint — `backend/app/routers/analytics.py:27` is a publi (review + tweak) [feat:gitlark-20261027-test-get-aggregate-analytics-endpoint-ba] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `queue_conversation_action` endpoint — `backend/app/routers/conversations.py:671` is  (review + tweak) [feat:gitlark-20261027-test-queue-conversation-action-endpoint-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `architecture_review` endpoint — `backend/app/routers/conversations.py:702` is a publ (review + tweak) [feat:gitlark-20261027-test-architecture-review-endpoint-backen] ---
+- [ ] [T1] backend/tests/test_architecture_review.py — Add a pytest fixture that mocks the AI service dependency to return a valid architecture review payload VERIFY: `pytest backend/tests/test_architecture_review.py::test_mock_ai_response -v` passes. (cat:test; multifile:no) [feat:gitlark-20261027-test-architecture-review-endpoint-backen]
+- [ ] [T2] backend/tests/test_architecture_review.py — Add a test case verifying that `architecture_review` returns 200 with a structured JSON body containing 'summary' and 'issues' keys when the AI service succeeds VERIFY: `pytest backend/tests/test_architecture_review.py::test_successful_review_response -v` passes. (cat:test; multifile:no) [feat:gitlark-20261027-test-architecture-review-endpoint-backen]
+- [ ] [T3] backend/app/routers/conversations.py — Modify the `architecture_review` endpoint to explicitly validate the incoming request schema and raise a 422 error if required fields are missing, ensuring consistent error handling VERIFY: `pytest backend/tests/test_architecture_review.py::test_invalid_request_returns_422 -v` passes. (cat:endpoint; multifile:no) [feat:gitlark-20261027-test-architecture-review-endpoint-backen]
+- [ ] [T4] backend/tests/test_architecture_review.py — Add a test case verifying that the endpoint returns 500 with a structured error message when the AI service raises an exception VERIFY: `pytest backend/tests/test_architecture_review.py::test_ai_service_failure_returns_500 -v` passes. (cat:test; multifile:no) [feat:gitlark-20261027-test-architecture-review-endpoint-backen]
+- [ ] [T5] backend/app/routers/conversations.py — Update the `architecture_review` endpoint to catch specific AI service exceptions and map them to a standardized error response format including a 'code' field VERIFY: `pytest backend/tests/test_architecture_review.py::test_error_response_structure -v` passes. (cat:endpoint; multifile:no) [feat:gitlark-20261027-test-architecture-review-endpoint-backen]

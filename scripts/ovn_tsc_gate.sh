@@ -55,10 +55,46 @@ while IFS= read -r tsconfig; do
     slug="${wd#./}"; slug="${slug//\//__}"; [ -z "$slug" ] && slug="root"
     bf="$baseline_dir/${repo}__${slug}.count"
     out="$( timeout 180 $cmd 2>&1 )"
+    # 2026-10-27 (P5): SHADOW collected-test check (OVN_TEST_COLLECTED_CHECK=shadow; default off). When this
+    # commit ADDED a *.test.* file, assert vitest lists it; log would-flag only, never changes the verdict.
+    if [ "${OVN_TEST_COLLECTED_CHECK:-off}" = shadow ]; then
+      added="$(git diff --name-only --diff-filter=A "${before:-$after~1}" "$after" 2>/dev/null | grep -E '\.test\.[A-Za-z]+$' || true)"
+      if [ -n "$added" ] && [ -x node_modules/.bin/vitest ]; then
+        listed="$(timeout 120 npx --no-install vitest list --filesOnly 2>/dev/null || true)"
+        while IFS= read -r tf; do
+          [ -z "$tf" ] && continue
+          case "$tf" in "${wd#./}"/*|"$wd"/*) ;; *) [ "$wd" = "." ] || continue;; esac
+          if ! grep -qF -- "$(basename "$tf")" <<< "$listed"; then   # here-string: no pipe, so no SIGPIPE-under-pipefail false negative
+            echo "TEST-COLLECTED-SHADOW would-flag $repo/$wd: added $tf is NOT listed by vitest"
+            echo "$(date -u +%FT%TZ) $repo/$wd $after $tf" >> "$baseline_dir/collected_shadow.log" 2>/dev/null || true
+          fi
+        done <<< "$added"
+      fi
+    fi
     cnt="$(echo "$out" | grep -cE 'error TS[0-9]')"
     base="$(cat "$bf" 2>/dev/null || echo -1)"
+    # 2026-10-27 (P5): syntax errors (TS1xxx). tsc/vue-tsc DROP all semantic errors once any syntax error
+    # exists, so a syntax-broken commit looks like a huge IMPROVEMENT (billwatch 67 -> 3, baseline ratcheted
+    # down, semantic checking blind afterwards). Track a sidecar syntax baseline (absent = 0): more syntax
+    # errors than baseline = hard REGRESSION regardless of the total; and never ratchet down while syntax
+    # errors are present. OVN_TSC_SYNTAX_HARDFAIL=0 disables (rollback switch).
+    # Only PARSER codes hide semantic errors. Checker codes in the TS1xxx range (TS1117 duplicate object
+    # property, TS1259, TS1192, TS1205, TS1484...) coexist with TS2xxx output, so they must NOT count
+    # (billwatch UnifiedBillCard.test.ts TS1117 sits next to TS2322/TS2339). Allowlist, overridable.
+    synre="error TS(${OVN_TSC_SYNTAX_CODES:-1002|1003|1005|1009|1109|1110|1128|1131|1134|1135|1136|1137|1138|1160|1161})([^0-9]|$)"
+    syn="$(echo "$out" | grep -cE "$synre")"
+    sbf="$bf.syn"; synbase="$(cat "$sbf" 2>/dev/null || echo 0)"
+    case "$synbase" in ''|*[!0-9]*) synbase=0;; esac
+    if [ "${OVN_TSC_SYNTAX_HARDFAIL:-1}" != 0 ] && [ "$base" -ge 0 ] && [ "$syn" -gt "$synbase" ]; then
+      echo "TSC-RATCHET-REGRESSION $repo/$wd: SYNTAX errors $synbase -> $syn (TS1xxx; semantic errors are hidden while syntax errors exist, count $base -> $cnt is not trustworthy; baseline NOT touched; via: $cmd)."
+      echo "$out" | grep -E "$synre" | head -12
+      exit 1
+    fi
     if [ "$base" -lt 0 ]; then
-      echo "$cnt" > "$bf"; echo "TSC-RATCHET-SEED $repo/$wd: baseline=$cnt (via: $cmd)"
+      echo "$cnt" > "$bf"; [ "$syn" -gt 0 ] && echo "$syn" > "$sbf"
+      echo "TSC-RATCHET-SEED $repo/$wd: baseline=$cnt (via: $cmd)"
+    elif [ "${OVN_TSC_SYNTAX_HARDFAIL:-1}" != 0 ] && [ "$syn" -gt 0 ] && [ "$cnt" -lt "$base" ]; then
+      echo "TSC-RATCHET-OK $repo/$wd: $syn pre-existing syntax error(s) present; count $base -> $cnt NOT ratcheted (semantic errors hidden)."
     elif [ "$cnt" -gt "$base" ]; then
       echo "TSC-RATCHET-REGRESSION $repo/$wd: type errors $base -> $cnt (this commit added $((cnt-base)); via: $cmd)."
       echo "$out" | grep -E 'error TS[0-9]' | head -12

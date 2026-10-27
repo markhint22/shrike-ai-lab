@@ -80,6 +80,7 @@ has(){ printf '%s' "$buf" | grep -qiE "$1"; }
 # 2026-10-12 (uidcredit X7): the aider attempt ended with verdict no-edit-unfenced, or the model tried to udiff-delete a file ("'/dev/null' is not in the subpath of ..."), and NO
 # verification ever ran: the transcript's own deliberation text ("assert", "expected to equal") matched the test-red regex below (xlite 2026-10-12: a udiff-delete attempt was
 # recorded fail_reason=test-red with no GUT run in the log). A verification marker in the log ('--- verify', GUT-FAIL-ID) keeps the old scan. OVN_CLASSIFY_NOEDIT_FIRST=off restores it.
+# 2026-10-27 (P6c): the plain 'verdict: no-edit' line (an attempt that produced nothing) takes the same short-circuit, same verification-marker guard and same switch (4 rows in the 10-26 window were test-red).
 # 2026-10-15 (A2, reworked by P2 after review): a VERIFY that can never run (npx tsc with no local compiler, `from app.x` run from the wrong cwd, pytest node not found)
 # is verify-malformed, not a code failure. Default is OFF: the old chain below runs unchanged and fail_reason is never changed by this block.
 #   OVN_CLASSIFY_MALFORMED=on      print verify-malformed for a matching signature (explicit opt-in)
@@ -105,7 +106,7 @@ elif has 'attributeerror|importerror|modulenotfounderror|has no attribute|is not
   echo "api-mismatch"                      # guessed a wrong path / method / import that does not exist
 elif has 'syntaxerror|indentationerror|parse error|unexpected (token|indent|eof|character)|invalid syntax|SCRIPT ERROR'; then
   echo "syntax-error"                      # produced code that does not parse (auto-reverted)
-elif [ "${OVN_CLASSIFY_NOEDIT_FIRST:-on}" != off ] && has 'verdict: no-edit-unfenced|/dev/null.{0,6} is not in the subpath' && ! has '^--- verify|GUT-FAIL-ID|verify-suite-red'; then
+elif [ "${OVN_CLASSIFY_NOEDIT_FIRST:-on}" != off ] && has 'verdict: no-edit(-unfenced)?([^a-z-]|$)|/dev/null.{0,6} is not in the subpath' && ! has '^--- verify|GUT-FAIL-ID|verify-suite-red'; then
   echo "no-edit"                           # uidcredit X7 (see the comment above the chain): after the context/diff/timeout/api/syntax signatures, before test-red
 elif has '[0-9]+ failed|assertionerror|assert |test.*failed|FAILED tests/|✗|failing|<failure message|expected to equal|expected \[.*\] to|to equal \[|assert_eq|assert_almost|assert_true|assert_null'; then
   echo "test-red"                          # code applied + parses, but a test failed (logic wrong OR test stale). incl. GUT/godot <failure> XML + "expected X to equal Y"

@@ -676,3 +676,5 @@
 # --- 27B-decomposed from roadmap [2026-10-26]: Test `add_channel_to_engine` — Add unit tests for the untested public function `add_channe (review + tweak) [feat:iptv_apps-20261026-test-add-channel-to-engine-add-unit-test] ---
 
 # --- 27B-decomposed from roadmap [2026-10-26]: Test `get_available_genres` — Add unit tests for the untested public function `get_availab (review + tweak) [feat:iptv_apps-20261026-test-get-available-genres-add-unit-tests] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Polling loop in SourcesView makes redundant full-source fetches — `iptv-web/src/views/Sour (review + tweak) [feat:iptv_apps-20261027-polling-loop-in-sourcesview-makes-redund] ---

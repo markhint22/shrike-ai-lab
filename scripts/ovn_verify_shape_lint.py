@@ -14,6 +14,10 @@ P5 (2026-10-21) shapes, all SHADOW-measured like the rest (found in 24 h of veri
 (collects nothing, rc 5), S9 `Model()` instantiated with no args while the class has required fields, U4 `backend.app...` import prefix when the backend's own modules import `app...`
 (ModuleNotFoundError at the clause itself); plus rewrites for `test ! -f X && echo .. || echo ..` (V4) and `| wc -l returns N` (V1 -> -eq N, never a presence -ge 1).
 
+P8 (2026-10-26) shapes, own switch OVN_VERIFY_ASYNC_LINT=off|shadow|enforce (default shadow; independent of OVN_VERIFY_LINT_P5): A1 `ast.FunctionDef` searched for a function that is `async def`
+in the tree/item (IndexError on every run: gitlark 8, billwatch 4, iptv 14, TAA 8 items all-time), H1 `python -c 'from iptv-backend.app... import x'` (a hyphen in a module path is a SyntaxError
+at the clause itself: iptv 16, billwatch 8).
+
 with a REASON and, where it can be done mechanically, a REWRITE (a full replacement clause). The linter is PURE: it parses text (quote-aware) and, when given a repo tree,
 READS files to confirm a finding; it never executes a VERIFY. Every rule only fires on evidence; with no tree the tree-dependent rules (S2, U2, S5) stay silent.
 
@@ -33,6 +37,7 @@ CLI
 """
 import bisect
 import contextlib
+import io
 import json
 import os
 import re
@@ -41,6 +46,7 @@ import signal
 import sys
 import threading
 import time
+import tokenize
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OK, UNSAT, VACUOUS, UNRUN = "OK", "UNSATISFIABLE", "VACUOUS", "UNRUNNABLE"
@@ -303,6 +309,16 @@ P5_CODES = frozenset(("S6", "S7", "S8", "S9", "U4"))
 
 def p5_mode():
     m = (os.environ.get("OVN_VERIFY_LINT_P5", "shadow") or "shadow").strip().lower()
+    return m if m in ("off", "shadow", "enforce") else "shadow"
+
+
+# P8 shapes (A1 async-blind AST search, H1 hyphenated import) have their OWN switch: OVN_VERIFY_ASYNC_LINT = off | shadow | enforce; default shadow.
+#   off: not produced.  shadow: produced + logged, never rewritten/dropped.  enforce: behave like every other finding (subject to OVN_VERIFY_LINT=enforce).
+P8_CODES = frozenset(("A1", "H1"))
+
+
+def p8_mode():
+    m = (os.environ.get("OVN_VERIFY_ASYNC_LINT", "shadow") or "shadow").strip().lower()
     return m if m in ("off", "shadow", "enforce") else "shadow"
 
 
@@ -906,17 +922,123 @@ def _rule_backend_prefix(clause, stages, pls, tree, item=None):
     return out
 
 
+_PY_C = re.compile(r"(?:^|[\s;&|(])(?:\S*/)?python[0-9.]*\s+(?:-\S+\s+)*-c\b")
+
+
+# `type(n).__name__ == 'FunctionDef'` / `n.__class__.__name__ in ('FunctionDef',)`: the same blind spot spelled by name (flagged, never mechanically rewritten)
+_FD_NAME = re.compile(r"""__name__\s*(?:==|!=|in)\s*[(\[]?\s*['"]FunctionDef['"]|['"]FunctionDef['"]\s*==\s*\S*__name__""")
+
+
+def _rule_async_ast(clause, stages, pls, tree, item=None):
+    """A1: a python -c that walks the AST for `ast.FunctionDef` (and never `AsyncFunctionDef`) to find a function that is `async def`: ast.walk never yields it, the list is empty and the clause dies
+    with IndexError / prints nothing on EVERY run, however correct the code is. Evidence required: the item says `async def NAME`, or a .py file named in the clause (read from the tree) defines
+    `async def NAME` and no plain `def NAME`. Rewrite (only when every occurrence is the 2nd argument of isinstance): widen it to (ast.FunctionDef, ast.AsyncFunctionDef)."""
+    out = []
+    if ("ast.FunctionDef" not in clause and not _FD_NAME.search(clause)) or "AsyncFunctionDef" in clause or not _PY_C.search(clause):
+        return out
+    names = [n for n in dict.fromkeys(re.findall(r"""['"]([A-Za-z_][A-Za-z0-9_]+)['"]""", clause)) if n not in ("utf-8", "utf8", "__main__")]
+    files = [f for f in re.findall(r"[A-Za-z0-9_./-]+\.py\b", clause)]
+    hit = None
+    for n in names:
+        if item and re.search(r"\basync\s+def\s+%s\b" % re.escape(n), item):
+            hit = n
+            break
+        if tree:
+            for f in files:
+                lines = _read(tree, f)
+                if lines and any(re.match(r"\s*async\s+def\s+%s\b" % re.escape(n), l) for l in lines) and not any(re.match(r"\s*def\s+%s\b" % re.escape(n), l) for l in lines):
+                    hit = n
+                    break
+            if hit:
+                break
+    if not hit:
+        return out
+    total = len(re.findall(r"\bast\.FunctionDef\b", clause))
+    pat = re.compile(r"isinstance\(\s*([\w.\[\]]+)\s*,\s*ast\.FunctionDef\s*\)")
+    rw = pat.sub(r"isinstance(\1, (ast.FunctionDef, ast.AsyncFunctionDef))", clause) if (total and not _FD_NAME.search(clause) and len(pat.findall(clause)) == total) else None
+    out.append(_find(clause, UNSAT, "A1", "`%s` is `async def`, but the clause only matches `ast.FunctionDef`: ast.walk never yields it (empty list -> IndexError / no output on every run). Match (ast.FunctionDef, ast.AsyncFunctionDef)" % hit, rw))
+    return out
+
+
+_HY_RE = r"([A-Za-z_]\w*(?:-\w+)+)((?:\.\w+)*)"
+
+
+def _hyphen_import_stmt(stage):
+    """(hyphenated_module, dotted_rest) when the python -c SOURCE of this stage has a real import statement (at statement start, outside any string literal) naming a hyphenated module; else None.
+    Prose such as print('removed from user-facing text') is a STRING token, so it never matches. Falls back to a statement-anchored regex when the source cannot be extracted/tokenized."""
+    src = None
+    try:
+        parts = shlex.split(stage)
+        for i, a in enumerate(parts):
+            if a == "-c" and i + 1 < len(parts):
+                src = parts[i + 1]
+                break
+    except ValueError:
+        pass
+    if src is None:
+        mm = re.search(r"""(?:^|[;\n'"])\s*(?:from|import)\s+""" + _HY_RE, stage)
+        return (mm.group(1), mm.group(2)) if mm else None
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        toks = None
+    if toks is None:
+        mm = re.search(r"(?:^|[;\n])[ \t]*(?:from|import)\s+" + _HY_RE, src)
+        return (mm.group(1), mm.group(2)) if mm else None
+    sig = [t for t in toks if t.type not in (tokenize.COMMENT, tokenize.ENCODING)]
+    start = True
+    for i, t in enumerate(sig):
+        if t.type in (tokenize.NEWLINE, tokenize.NL, tokenize.INDENT, tokenize.DEDENT) or (t.type == tokenize.OP and t.string == ";"):
+            start = True
+            continue
+        if start and t.type == tokenize.NAME and t.string in ("from", "import"):
+            line = ""
+            j = i + 1
+            while j < len(sig) and sig[j].type not in (tokenize.NEWLINE, tokenize.NL, tokenize.ENDMARKER) and not (sig[j].type == tokenize.OP and sig[j].string == ";"):
+                tj = sig[j]
+                line += (" " if tj.type == tokenize.NAME and line and not line.endswith((".", "-")) else "") + tj.string
+                j += 1
+            mm = re.match(r"\s*" + _HY_RE, line)
+            if mm:
+                return mm.group(1), mm.group(2)
+        start = False
+    return None
+
+
+def _rule_hyphen_import(clause, stages, pls, tree, item=None):
+    """H1: `python -c 'from iptv-backend.app.x import y'` / `import foo-bar`: a hyphen cannot appear in a Python module path, so the clause is a SyntaxError before it tests anything. Only python -c
+    stages are inspected (a grep pattern may legitimately contain `from a-b import`). Rewrite: `cd <dir> && <clause with the dir prefix dropped>` when the dir exists in the tree (or ends in -backend
+    with no tree) and the clause has no cd of its own."""
+    out = []
+    for st in stages:
+        if not _PY_C.search(st[1]):
+            continue
+        m = _hyphen_import_stmt(st[1])
+        if not m:
+            continue
+        hy, rest = m
+        rw = None
+        if rest and not re.search(r"\bcd\b", clause) and re.match(r"\s*(?:\S*/)?python[0-9.]*\b", clause) and (os.path.isdir(os.path.join(tree, hy)) if tree else hy.endswith("-backend")):
+            rw = "cd %s && %s" % (hy, re.sub(r"\b(from|import)\s+%s\." % re.escape(hy), r"\1 ", clause))
+        out.append(_find(clause, UNRUN, "H1", "`%s%s` has a hyphen in a module path: a SyntaxError at the clause itself (the project directory is `%s/`; its modules import from inside it)" % (hy, rest, hy), rw))
+        break
+    return out
+
+
 _RULES = (_rule_tail, _rule_grepn_fn, _rule_window, _rule_double_prefix, _rule_pytest_root, _rule_import, _rule_signature,
           _rule_decorator_def, _rule_raises_polarity, _rule_conftest_target, _rule_bare_instantiation, _rule_backend_prefix)
+_RULES = _RULES + (_rule_async_ast, _rule_hyphen_import)   # P8 (own switch OVN_VERIFY_ASYNC_LINT)
 
 
-def _gate_p5(findings):
-    """Drop the P5-only findings and withhold P5-only rewrites (what OVN_VERIFY_LINT_P5 != enforce means for ENFORCEMENT; off also removes them from the log)."""
+def _gate_p5(findings, codes=None):
+    """Drop the gated findings and withhold P5-only rewrites (what OVN_VERIFY_LINT_P5 / OVN_VERIFY_ASYNC_LINT != enforce means for ENFORCEMENT). `codes` = the codes to drop (default P5_CODES);
+    P5-only rewrites are withheld only when the P5 codes are part of the gate."""
+    drop = P5_CODES if codes is None else frozenset(codes)
     out = []
     for f in findings:
-        if f["code"] in P5_CODES:
+        if f["code"] in drop:
             continue
-        if f.get("p5_rewrite"):
+        if f.get("p5_rewrite") and (drop & P5_CODES):
             f = dict(f, rewrite=None)
         out.append(f)
     return out
@@ -936,8 +1058,10 @@ def lint_verify(clause, tree=None, item=None, gate=None):
                 findings.extend(rule(clause, stages, pls, tree, item))
     except Exception as e:   # a lint bug must never stop a refill
         return {"class": OK, "findings": [], "clause": clause, "error": "%s: %s" % (type(e).__name__, e)}
+    if p8_mode() == "off":
+        findings = [f for f in findings if f["code"] not in P8_CODES]
     if gate:
-        findings = _gate_p5(findings)
+        findings = _gate_p5(findings, None if gate is True else gate)
     cls = max((f["class"] for f in findings), key=lambda c: _RANK[c], default=OK)
     return {"class": cls, "findings": findings, "clause": clause}
 
@@ -992,8 +1116,10 @@ def lint_item_line(line, tree=None, md=None):
         return "ok", line, res
     if md != "enforce":
         return "flagged", line, res
-    gate = p5_mode() != "enforce"   # P5-only findings are logged (flagged) but never rewritten/dropped unless OVN_VERIFY_LINT_P5=enforce
-    if gate and lint_verify(clause, tree, line, True)["class"] == OK:
+    # P5-only findings are logged (flagged) but never rewritten/dropped unless OVN_VERIFY_LINT_P5=enforce; P8 (A1/H1) likewise unless OVN_VERIFY_ASYNC_LINT=enforce
+    gate = p5_mode() != "enforce"
+    gate = frozenset((P5_CODES if gate else frozenset()) | (P8_CODES if p8_mode() != "enforce" else frozenset())) or False
+    if gate and lint_verify(clause, tree, line, gate)["class"] == OK:
         return "flagged", line, res
     new, left = fix_clause(clause, tree, item=line, gate=gate)
     if left or new == clause:

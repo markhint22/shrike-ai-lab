@@ -1900,7 +1900,7 @@ fi
 STAGE_NOCREDIT=0; STAGE_NOCREDIT_WHY=""
 if [ "$VERIFIED" = 1 ] && [ "${_iv_mode:-off}" != off ] && [ "${STAGE_MISTARGET_ITEM:-0}" = 0 ]; then
   case "${STAGE_IV_PRE%%|*}" in
-    PASS|FAIL)
+    PASS|FAIL|SPEC_PROBLEM)
       _ivpost="$(OVN_STAGE_REPO="$repo" OVN_STAGE_REPO_DIR="$rd" stage_item_verify_run "$wt" "$item")"
       _ivdec="$(stage_item_verify_decision "$STAGE_IV_PRE" "$_ivpost")"
       say "item VERIFY (${_iv_mode}): pre=${STAGE_IV_PRE%%|*} post=${_ivpost%%|*} -> ${_ivdec}"
@@ -2129,6 +2129,7 @@ emit_unverified_outcome(){
   [ -z "$detail" ] && detail="no step verified (${passed:-0}/${NSTEPS:-0} steps landed; no verify log)"
   detail="$(printf '%s' "$detail" | ovn_scrub_text | cut -c1-160)"
   ih=""; command -v ovn_item_hash >/dev/null 2>&1 && ih="$(ovn_item_hash "$item")"
+  ilh=""; command -v ovn_item_line_hash >/dev/null 2>&1 && ilh="$(ovn_item_line_hash "$item")"   # P8: whole-line hash (item_hash is feature-level); empty = field omitted
   ft="$(printf '%s' "$item" | grep -oE '\[feat:[^]]+\]' | head -1 | tr -d '[]' | sed 's/^feat://' | tr -d '"' )"
   first_path="$(printf '%s' "$item" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | grep -vE '\.md$' | head -1)"
   case "$first_path" in *.gd) cat=godot;; *.vue) cat=vue;; *.ts|*.tsx) cat=typescript;; *.py) cat=python;; *) cat=other;; esac
@@ -2140,10 +2141,10 @@ emit_unverified_outcome(){
   hb="$(printf '%s' "${_ST_H0:-}" | tr -cd '0-9a-fA-F')"; ha=""; [ -n "${wt:-}" ] && [ -d "$wt" ] && ha="$(git -C "$wt" rev-parse -q --verify HEAD 2>/dev/null)"
   cm='[]'; if declare -F ovn_oa_commits >/dev/null 2>&1 && [ -n "$hb" ] && [ -n "$ha" ]; then cm="$(ovn_oa_commits "$wt" "$hb" "$ha" 2>/dev/null)"; [ -n "$cm" ] || cm='[]'; fi
   jq -nc --arg ts "$(date -u +%FT%TZ)" --arg repo "$repo" --arg id "ongoing-${repo//_/-}" --argjson tier "${tier:-3}" --arg cat "$cat" \
-    --argjson att "$nat" --arg fr "$fr" --arg detail "$detail" --argjson ts_ "${tsent:-0}" --argjson tr_ "${trecv:-0}" --argjson dur "$dur" --arg ih "$ih" --arg ft "$ft" --arg run "$RUNID" --arg ust "$ust" \
+    --argjson att "$nat" --arg fr "$fr" --arg detail "$detail" --argjson ts_ "${tsent:-0}" --argjson tr_ "${trecv:-0}" --argjson dur "$dur" --arg ih "$ih" --arg ft "$ft" --arg run "$RUNID" --arg ust "$ust" --arg ilh "$ilh" \
     --argjson cm "$cm" --arg hb "$hb" --arg ha "$ha" \
     '{ts:$ts,repo:$repo,id:$id,type:"aider_fix",tier:($tier|tostring),category:$cat,class:"noop",severity:"bad",attempt:$att,attempts:$att,bestn_stop:"",
-      fail_reason:$fr,detail:$detail,status:$ust,tokens_sent:$ts_,tokens_recv:$tr_,duration_s:$dur,item_hash:$ih,feat_tag:$ft,stage_run:$run,commits:$cm,head_before:$hb,head_after:$ha}' \
+      fail_reason:$fr,detail:$detail,status:$ust,tokens_sent:$ts_,tokens_recv:$tr_,duration_s:$dur,item_hash:$ih,feat_tag:$ft,stage_run:$run,commits:$cm,head_before:$hb,head_after:$ha} + (if $ilh != "" then {item_line_hash:$ilh} else {} end)' \
     >> state/outcomes.jsonl 2>/dev/null || true
   return 0
 }

@@ -239,8 +239,9 @@ def fuzz_dark_item():
             "problem": "the last %d nightly contract fuzz runs were all SKIPPED on box load (logs/contract_fuzz.log: %s); the gate has produced no row. Raise OVN_FUZZ_LOAD_MAX or move the cron slot" % (n, last[-1][:160])}
 
 
-def check_state():
-    """-> list of {key, gate, problem, path} (empty list = all present and sane)."""
+def check_state(declared_off=()):
+    """-> list of {key, gate, problem, path} (empty list = all present and sane). declared_off = crontab script basenames declared off (cron_declared_off): the contract-fuzz
+    baseline is not demanded while its cron is declared off (nothing writes or reads it)."""
     sd = qc.state_dir()
     items = []
     conf = smoke_conf()
@@ -288,9 +289,10 @@ def check_state():
         pass    # missing = every gate in its default shadow mode (qc.mode falls back): legitimate until a gate is first flipped, never an alert
     except ValueError:
         items.append({"key": "state:qa_gate_modes", "gate": "all gates", "problem": "state/qa_gate_modes.json is not a valid JSON object (ignored: every gate falls back to shadow)"})
+    fuzz_off = "contract_fuzz_cron.sh" in set(declared_off)
     for repo in fuzz_repos():
         bp = os.path.join(sd, "qa_shadow", "contract_fuzz_baseline_%s.json" % repo)
-        if not os.path.isfile(bp):
+        if not os.path.isfile(bp) and not fuzz_off:
             items.append({"key": "state:contract_fuzz_baseline_" + repo, "gate": "contract_fuzz",
                           "problem": "state/qa_shadow/contract_fuzz_baseline_%s.json missing (written only by contract_fuzz.py --accept-baseline)" % repo})
     dark = fuzz_dark_item()
@@ -323,16 +325,63 @@ def read_crontab():
     return None, "crontab-error"
 
 
+_OFF_LINE = re.compile(r"^\s*#OFF#\s+(.*\S)")
+_OFF_HDR = re.compile(r"^\s*#\s*id:\s*([A-Za-z0-9_.-]+)\s*\(off by default")
+
+
+def _live_lines(text):
+    return [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _runs(script, line):
+    return re.search(r"(^|[\s/])" + re.escape(script) + r"(\s|$|[;&|'\"])", line) is not None
+
+
+def cron_declared_off(text):
+    """2026-10-27 (P6b): the box writes a disabled job as `# id: <name> (off by default; ...)` + `#OFF# <schedule> <cmd>`. -> sorted CRON_JOBS script basenames that are declared
+    off AND have no live line (a live line wins over a stale marker; the header text is static, it stays after --enable). A `#OFF#` that is not at the start of the line is not a marker."""
+    live = _live_lines(text)
+    off_ids, off_cmds = set(), []
+    for ln in text.splitlines():
+        m = _OFF_LINE.match(ln)
+        if m:
+            off_cmds.append(m.group(1))
+            continue
+        h = _OFF_HDR.match(ln)
+        if h:
+            off_ids.add(h.group(1))
+    out = []
+    for script in CRON_JOBS:
+        if any(_runs(script, ln) for ln in live):
+            continue
+        stem = script.rsplit(".", 1)[0]
+        if any(_runs(script, c) for c in off_cmds) or any(stem == i or stem.startswith(i + "_") for i in off_ids):
+            out.append(script)
+    return sorted(out)
+
+
 def check_cron():
+    """-> (items, source). Back-compatible two-tuple; run() uses cron_status() to also get the declared-off list."""
+    items, _off, src = cron_status()
+    return items, src
+
+
+def cron_status():
+    """-> (items, declared_off, source). declared_off = [{key, gate, note}] reported as INFO (never a finding)."""
     text, src = read_crontab()
     if text is None:
-        return [], src
-    live = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
-    items = []
+        return [], [], src
+    live = _live_lines(text)
+    off = set(cron_declared_off(text))
+    items, info = [], []
     for script, what in CRON_JOBS.items():
-        if not any(re.search(r"(^|[\s/])" + re.escape(script) + r"(\s|$|[;&|'\"])", ln) for ln in live):
-            items.append({"key": "cron:" + script, "gate": what, "problem": "no live crontab line runs %s (%s)" % (script, what)})
-    return items, src
+        if any(_runs(script, ln) for ln in live):
+            continue
+        if script in off:
+            info.append({"key": "cron:" + script, "gate": what, "note": "declared off in the crontab (#OFF# / '# id: ... (off by default'): not a finding"})
+            continue
+        items.append({"key": "cron:" + script, "gate": what, "problem": "no live crontab line runs %s (%s)" % (script, what)})
+    return items, info, src
 
 
 # ---------------------------------------------------------------- findings, streaks, alert
@@ -508,8 +557,8 @@ def run(argv):
         return qc.verdict("NA", GATE, "all", "-", "tool health disabled (OVN_QA_TOOL_HEALTH=off)")
     skip = set(x.strip() for x in os.environ.get("OVN_QA_TOOL_HEALTH_SKIP", "").split(",") if x.strip())
     tools = check_tools(skip)
-    state_items = check_state()
-    cron_items, cron_src = check_cron()
+    cron_items, declared_off, cron_src = cron_status()
+    state_items = check_state([i["key"][5:] for i in declared_off])
     findings = findings_of(tools, state_items, cron_items)
     streak, alerted = ({}, [])
     try:
@@ -530,7 +579,9 @@ def run(argv):
         summary = "%d finding(s); %s" % (len(findings), "; ".join(parts))
     else:
         v, summary = "PASS", "all gate tools, state files and QA cron lines present"
-    details = {"tools": tools, "state": state_items, "cron": cron_items, "cron_source": cron_src, "findings": [f["key"] for f in findings],
+    if declared_off:
+        summary += " (INFO: %d cron job(s) declared off: %s)" % (len(declared_off), ",".join(i["key"][5:] for i in declared_off))
+    details = {"tools": tools, "state": state_items, "cron": cron_items, "declared_off": declared_off, "cron_source": cron_src, "findings": [f["key"] for f in findings],
                "streak": streak, "alerted_now": alerted, "missing_tools": missing_tools}
     return qc.verdict(v, GATE, "all", "-", summary, details)
 

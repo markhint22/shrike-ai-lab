@@ -170,6 +170,8 @@ declare -F gut_load_failure_line >/dev/null 2>&1 || gut_load_failure_line(){ gre
 # 2026-10-01: per-repo switch so aider's --auto-test sees the model's auto-COMMITTED edits (state/autotest_basesha_repos.txt; default: nobody listed = unchanged behaviour).
 source "$SCRIPT_DIR/scripts/lib_autotest_base.sh" 2>/dev/null || ovn_autotest_base_export(){ unset OVN_BASE_SHA; }
 declare -F ovn_repo_has_autotest >/dev/null 2>&1 || ovn_repo_has_autotest(){ { find "${1:-.}" -maxdepth 4 -type f -path '*/.venv/bin/pytest' 2>/dev/null | grep -q . || find "${1:-.}" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null | grep -q .; }; }   # lib missing: the old predicate
+# shellcheck source=scripts/lib_limiter_lint.sh
+source "$SCRIPT_DIR/scripts/lib_limiter_lint.sh" 2>/dev/null || limiter_lint_gate(){ return 0; }   # P6a 2026-10-27: lib absent = no lint
 # shellcheck source=scripts/lib_fixup.sh
 source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ echo "own-test"; }; ovn_fixup_direction(){ echo "Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug."; }; }
 declare -F ovn_aider_commit_rescue >/dev/null 2>&1 || ovn_aider_commit_rescue(){ return 1; }   # lib_fixup.sh missing/old: no commit rescue (2026-10-20)
@@ -209,7 +211,7 @@ declare -F ovn_nnr_redkind >/dev/null 2>&1 || ovn_nnr_redkind(){ if [ -n "${2:-}
 # Per-item outcome log (2026-09-06): one JSONL line per finished item so no-op / flail /
 # land / oversized rates are actually measurable (feeds the dashboard + any A/B). Never fatal.
 record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=task_log $8=duration_s $9=repo_dir $10=bestn_stop $11=head_before $12=head_after (11/12 optional, D4)
-  local tier cat cls sev st attempt tl src dur repo_dir item_hash feat_tag bn_stop
+  local tier cat cls sev st attempt tl src dur repo_dir item_hash feat_tag bn_stop _item_line_hash
   attempt="${6:-1}"; tl="${7:-}"; dur="${8:-0}"; repo_dir="${9:-}"; feat_tag=""; bn_stop="$(printf '%s' "${10:-}" | tr -cd 'a-z0-9_-')"
   case "$attempt" in ''|*[!0-9]*) attempt=1;; esac
   # Per-item identity (2026-09-23): outcomes.jsonl's `id` field is always the generic
@@ -238,7 +240,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # logic, same fallback to the old top-of-file behavior when there's no usable scout
   # signal — so this metric and ovn_item_guard.sh's cap-tracking stay in agreement AND
   # actually reflect the item that got worked on.
-  item_hash=""; _line_hash=""
+  item_hash=""; _line_hash=""; _item_line_hash=""
   if [ -n "$repo_dir" ] && [ -f "$repo_dir/OVERNIGHT_PROGRESS.md" ]; then
     local _top _text _featkey
     # 2026-10-10 (harness R10, BX-08 / IPTV-5): bill the item the cycle WORKED (the line it ticked, else the scout-named item) and bill NOBODY when that cannot be resolved - the old
@@ -281,6 +283,8 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
       else
         item_hash="$(printf '%s' "$_text" | md5sum 2>/dev/null | cut -d' ' -f1)"
       fi
+      # P8 (2026-10-26): item_hash is FEATURE-level ([feat:] tag), so sibling items of one feature share it; item_line_hash (the whole line) tells them apart (digest repeat counters). Observability only.
+      command -v ovn_item_line_hash >/dev/null 2>&1 && _item_line_hash="$(ovn_item_line_hash "$_text")"
       _line_hash="$item_hash"   # the line-derived hash: what the stage-order journal rows carry (ovn_item_hash of the dependent line); the stage-billing override below must not leak into that join
       [ -n "$_stage_hash" ] && item_hash="$_stage_hash"
       if [ -n "$_featkey" ]; then
@@ -441,9 +445,9 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   case "${dur:-0}" in ''|*[!0-9]*) _n_dur=0;; *) _n_dur="$dur";; esac
   _row="$(jq -nc --arg ts "$(date -u +%FT%TZ)" --arg repo "${2:-}" --arg id "${1:-}" --arg type "${5:-}" --arg tier "${tier:-?}" --arg category "$cat" --arg class "$cls" --arg severity "$sev" \
       --argjson attempt "$_n_attempt" --arg bestn_stop "${bn_stop:-}" --arg fail_reason "${fail_reason:-}" --arg status "$st" \
-      --argjson tokens_sent "$_n_sent" --argjson tokens_recv "$_n_recv" --argjson duration_s "$_n_dur" --arg item_hash "${item_hash:-}" --arg feat_tag "${feat_tag:-}" \
+      --argjson tokens_sent "$_n_sent" --argjson tokens_recv "$_n_recv" --argjson duration_s "$_n_dur" --arg item_hash "${item_hash:-}" --arg feat_tag "${feat_tag:-}" --arg item_line_hash "${_item_line_hash:-}" \
       --argjson commits "$_commits" --arg head_before "$_hb" --arg head_after "$_ha" \
-      '{ts:$ts,repo:$repo,id:$id,type:$type,tier:$tier,category:$category,class:$class,severity:$severity,attempt:$attempt,attempts:$attempt,bestn_stop:$bestn_stop,fail_reason:$fail_reason,status:$status,tokens_sent:$tokens_sent,tokens_recv:$tokens_recv,duration_s:$duration_s,item_hash:$item_hash,feat_tag:$feat_tag,commits:$commits,head_before:$head_before,head_after:$head_after}' 2>/dev/null)"
+      '{ts:$ts,repo:$repo,id:$id,type:$type,tier:$tier,category:$category,class:$class,severity:$severity,attempt:$attempt,attempts:$attempt,bestn_stop:$bestn_stop,fail_reason:$fail_reason,status:$status,tokens_sent:$tokens_sent,tokens_recv:$tokens_recv,duration_s:$duration_s,item_hash:$item_hash,feat_tag:$feat_tag,commits:$commits,head_before:$head_before,head_after:$head_after} + (if $item_line_hash != "" then {item_line_hash:$item_line_hash} else {} end)' 2>/dev/null)"
   # 2026-10-21 (P5, shadow evidence): join this outcome to the stage-order decisions journaled for the same item (state/stage_order_outcomes.jsonl) so the gate's precision is computable.
   # Evidence only (never changes a decision), fail-open, and a no-op unless the item matched a journaled decision.
   command -v timeout >/dev/null 2>&1 && _so_to="timeout 10"
@@ -455,7 +459,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
     printf '%s\n' "$_row" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
     return 0
   fi
-  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"attempts":%s,"bestn_stop":"%s","fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s","commits":%s,"head_before":"%s","head_after":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${attempt:-1}" "${bn_stop:-}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" "$_commits" "$_hb" "$_ha" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
+  printf '{"ts":"%s","repo":"%s","id":"%s","type":"%s","tier":"%s","category":"%s","class":"%s","severity":"%s","attempt":%s,"attempts":%s,"bestn_stop":"%s","fail_reason":"%s","status":"%s","tokens_sent":%s,"tokens_recv":%s,"duration_s":%s,"item_hash":"%s","feat_tag":"%s",%s"commits":%s,"head_before":"%s","head_after":"%s"}\n' "$(date -u +%FT%TZ)" "${2:-}" "${1:-}" "${5:-}" "${tier:-?}" "$cat" "$cls" "$sev" "${attempt:-1}" "${attempt:-1}" "${bn_stop:-}" "${fail_reason:-}" "$st" "${toks_sent:-0}" "${toks_recv:-0}" "${dur:-0}" "${item_hash:-}" "${feat_tag:-}" "${_item_line_hash:+\"item_line_hash\":\"$_item_line_hash\",}" "$_commits" "$_hb" "$_ha" >> "$STATE_DIR/outcomes.jsonl" 2>/dev/null || true
 }
 FAIL_DIR="$STATE_DIR/failures"
 NOOP_DIR="$STATE_DIR/noops"
@@ -3452,6 +3456,21 @@ $(ovn_udiff_nudge_text)"
             return
           fi
           emit_alert warn "$id" "ghost-test gate (shadow): $(printf '%s' "$_ghost_out" | head -1 | cut -c1-160)"
+        fi
+      fi
+
+      # LIMITER-ORDER LINT (P6a, 2026-10-27): a limiter decorator ABOVE a route decorator means the limit is never enforced (iptv auth.py shipped login/register/reset unlimited). Lints only
+      # the .py files this cycle touched. OVN_LIMITER_LINT=off|shadow|enforce (default shadow: log + one alert, never a revert). Fail-open: lib/lint absent or crashing = no effect.
+      if [ "${OVN_LIMITER_LINT:-shadow}" != "off" ]; then
+        _lim_out="$(limiter_lint_gate "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" "$id" 2>/dev/null)"
+        _lim_rc=$?
+        [ -n "$_lim_out" ] && printf '%s\n' "$_lim_out" >> "$task_log"
+        if [ "$_lim_rc" -ne 0 ]; then
+          echo "--- LIMITER-ORDER LINT: commit put a limiter decorator above a route decorator - reverting to ${BEFORE_SHA} ---" >> "$task_log"
+          git reset --hard "$BEFORE_SHA" --quiet
+          git clean -fd --quiet 2>/dev/null
+          echo "reverted(limiter-order)"
+          return
         fi
       fi
 
