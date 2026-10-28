@@ -684,3 +684,5 @@
 # --- 27B-decomposed from roadmap [2026-10-27]: Test `update_stream` and `delete_stream` endpoints — Add unit tests for the untested publi (review + tweak) [feat:iptv_apps-20261027-test-update-stream-and-delete-stream-end] ---
 
 # --- 27B-decomposed from roadmap [2026-10-27]: Test `get_import_status` and `list_stream_sources` — Add unit tests for the untested publi (review + tweak) [feat:iptv_apps-20261027-test-get-import-status-and-list-stream-s] ---
+
+# --- 27B-decomposed from roadmap [2026-10-28]: Test `update_settings` endpoint — Add unit tests for the untested public function `update_ (review + tweak) [feat:iptv_apps-20261028-test-update-settings-endpoint-add-unit-t] ---
