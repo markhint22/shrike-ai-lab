@@ -611,5 +611,6 @@ echo; echo "===== stub suffix guard ====="; bash test_stub_suffix_guard.sh || rc
 echo; echo "===== P5 shadow evidence (stage-order journal ts/item_hash/decision_id/count/rotation/outcome join; verify-lint S6-S9,U4,V4,V1 shapes; UNRUNNABLE vs FAIL; record_outcome hook) ====="; bash test_p5_shadow_evidence.sh || rc=1
 echo; echo "===== qwen explore feature ====="; bash test_qwen_explore_feature.sh || rc=1
 echo; echo "===== P8 VERIFY pre-flight + observability (verify-lint A1 async-AST / H1 hyphen-import under OVN_VERIFY_ASYNC_LINT, scout-guard out-of-repo abs path, item_line_hash + digest sibling split, stage item-verify rc 4/5 shadow) ====="; bash test_p8_verify_preflight.sh || rc=1
+echo; echo "===== qa antigaming noact ====="; bash test_qa_antigaming_noact.sh || rc=1
 echo; finish || rc=1
 exit $rc

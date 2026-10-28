@@ -1191,6 +1191,32 @@ def _is_pass_test_only(units):
     return all(u[2].startswith("pass_test") for u in units)
 
 
+MOCK_SETUP_CALLS = frozenset({"MagicMock", "AsyncMock", "Mock", "NonCallableMock", "PropertyMock", "datetime", "now", "dict", "list", "set", "tuple", "str", "int",
+                              "uuid4", "UUID", "timedelta", "patch", "object", "SimpleNamespace", "Decimal", "date"})
+
+
+def _only_mock_setup_body(stmts):
+    """True when a python test body (statements, docstring dropped) has NO assertion and every call in it is a mock/value constructor: it only prepares objects
+    and ends - a ghost test. Nested defs (override helpers) are treated as setup, never executed. Any `await`, `with`, `for`, or call of anything else (the code
+    under test, a client, `app.dependency_overrides.__setitem__` via subscript is not a call) => False, so a smoke test that exercises code is never judged."""
+    if not stmts:
+        return False
+    for st in stmts:
+        if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(st, (ast.With, ast.AsyncWith, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.Return, ast.Raise, ast.Assert)):
+            return False
+        for n in ast.walk(st):
+            if isinstance(n, (ast.Await, ast.Yield, ast.YieldFrom, ast.Lambda)):
+                return False
+            if isinstance(n, ast.Call):
+                f = n.func
+                name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else "")
+                if name not in MOCK_SETUP_CALLS:
+                    return False
+    return True
+
+
 def vacuous_new_test(lang, t):
     """Reason string when a NEWLY ADDED test `t` (FuncInfo/TInfo: .units .eff .src) cannot fail, else ''.
       * it has assertions and EVERY one is a tautology (`assert True`, `assert 1 == 1`, `assert x or True`, `assert_true(true)`, `assert(true)`), or
@@ -1212,6 +1238,8 @@ def vacuous_new_test(lang, t):
             stmts = [x for x in fn.body if not (isinstance(x, ast.Expr) and isinstance(x.value, ast.Constant) and isinstance(x.value.value, str))]
             if all(isinstance(x, ast.Pass) or (isinstance(x, ast.Expr) and isinstance(x.value, ast.Constant)) for x in stmts):
                 return "no assertion and the body is empty (pass / ... / docstring only)"
+            if os.environ.get("QA_ANTIGAMING_NOACT", "on") != "off" and _only_mock_setup_body(stmts):
+                return "no assertion and the body only builds mocks / fixtures data - it never calls the code under test (2026-10-28: gitlark test_sync_analysis_persists_data)"
         except (SyntaxError, IndexError, ValueError, AttributeError):
             return ""
         return ""

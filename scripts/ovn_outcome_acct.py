@@ -132,6 +132,26 @@ def _own_patch_id(repo_dir, sha):
         return None, None
 
 
+BOOKKEEPING_FILES = frozenset({"OVERNIGHT_PROGRESS.md"})
+
+
+def is_bookkeeping_commit(repo_dir, sha):
+    """True for a commit the queue's OWN scripts make inside a cycle (escalate-to-Claude, recover-parked-item, recovery-attempted marks): subject `chore(queue)`/`feat(queue)`
+    and touching ONLY OVERNIGHT_PROGRESS.md. 2026-10-28 review: all 10 landed-late(held-commit) rows in 26 h were these - they are queue admin, not the item's code, so counting
+    them as landings inflated 'landed-uncredited' to 11% of pushes. Unknown / git failure => False (keep the old behaviour)."""
+    r = _git(repo_dir, "show", "-s", "--format=%s", sha)
+    if r is None or r.returncode != 0:
+        return False
+    subj = r.stdout.strip()
+    if not (subj.startswith("chore(queue)") or subj.startswith("feat(queue)")):
+        return False
+    r = _git(repo_dir, "show", "--no-renames", "--name-only", "--format=", sha)
+    if r is None or r.returncode != 0:
+        return False
+    files = [x for x in r.stdout.split() if x]
+    return bool(files) and all(f in BOOKKEEPING_FILES for f in files)
+
+
 def cycle_commits(repo_dir, before, after, since=None, cap=20):
     """Python twin of lib_outcome_acct.sh ovn_oa_commits. Without since: after --not before. With since (the cycle start epoch): only NON-MERGE commits whose AUTHOR date is
     >= since (author date survives a rebase), newest <cap> kept, oldest first - the upstream commits that arrived with a mid-cycle `pull --rebase` / merge sit between
@@ -250,6 +270,10 @@ def _reconcile_locked(state_dir, repos_dir, branches, window_h, fetch, dry_run, 
             fetched.add(rd)
             _git(rd, "fetch", "-q", "origin", timeout=60)
         shas = row_commits(r)
+        if os.environ.get("OVN_OUTCOME_BOOKKEEPING", "skip") == "skip":
+            shas = [x for x in shas if not is_bookkeeping_commit(rd, x)]
+            if not shas:
+                continue
         br = landed_branch(rd, shas, branches, cache, now - window_h * 3600)
         if br is None:
             continue

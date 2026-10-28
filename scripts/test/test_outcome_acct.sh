@@ -615,6 +615,38 @@ f8run(){ cp "$tmp/f8.in" "$F8/state/outcomes.jsonl"; "$PY" "${1:-$ACCT}" reconci
 ok "F8a stage-unverified noop row with its commits on origin: ONE landed-late row (the plain no-op(reverted-red) row gets none)" "[ \"\$(f8run)\" = 1 ] && grep -q 'late_of_status\":\"no-op(stage-unverified)' '$F8/state/outcomes.jsonl'"
 mutate "$ACCT" 'str(row.get("status", "")).startswith("no-op(stage-unverified)")' 'False' "$tmp/mut_acct_s.py" && nok "MUTANT stage-unverified rows not candidates is caught by F8a" "[ \"\$(f8run '$tmp/mut_acct_s.py')\" = 1 ]"
 
+# ============================== G. queue-bookkeeping commits are not landings (2026-10-28) ==============================
+G="$tmp/G"; mkdir -p "$G/state" "$G/repos"
+git init -q --bare -b overnight/feature "$G/origin.git"
+git clone -q "$G/origin.git" "$G/repos/r1" 2>/dev/null; gg="$G/repos/r1"; git -C "$gg" checkout -q -b overnight/feature 2>/dev/null
+echo 0 > "$gg/f"; echo p > "$gg/OVERNIGHT_PROGRESS.md"; git -C "$gg" add -A; git -C "$gg" commit -q -m base; g0="$(git -C "$gg" rev-parse HEAD)"
+echo q >> "$gg/OVERNIGHT_PROGRESS.md"; git -C "$gg" commit -q -am "chore(queue): escalate staged T3 item to Claude (27B couldn't land it)"; gb="$(git -C "$gg" rev-parse HEAD)"
+echo code >> "$gg/f"; echo q2 >> "$gg/OVERNIGHT_PROGRESS.md"; git -C "$gg" commit -q -am "chore(queue): sneaky mixed"; gm="$(git -C "$gg" rev-parse HEAD)"
+echo code2 >> "$gg/f"; git -C "$gg" commit -q -am "feat(x): real code"; gc="$(git -C "$gg" rev-parse HEAD)"
+git -C "$gg" push -q origin overnight/feature 2>/dev/null
+TSG="$(iso 300)"
+"$PY" - "$G/state/outcomes.jsonl" "$TSG" "$g0" "$gb" "$gm" "$gc" <<'EOF2'
+import json, sys
+out, ts, g0, gb, gm, gc = sys.argv[1:]
+def row(i, commits):
+    return {"ts": ts[:-3] + "%02dZ" % i, "repo": "r1", "id": "ongoing-r1", "type": "aider_fix", "tier": "3", "category": "python", "class": "noop", "severity": "neutral",
+            "attempt": 1, "attempts": 1, "bestn_stop": "", "fail_reason": "stage-unverified", "status": "no-op(stage-unverified) stage(higher-tier)", "tokens_sent": 0,
+            "tokens_recv": 0, "duration_s": 60, "item_hash": "h%d" % i, "feat_tag": "f", "commits": commits, "head_before": g0, "head_after": commits[-1]}
+with open(out, "w") as f:
+    for i, c in enumerate([[gb], [gm], [gb, gc]]): f.write(json.dumps(row(i, c)) + "\n")
+EOF2
+"$PY" "$ACCT" reconcile --state-dir "$G/state" --repos-dir "$G/repos" >/dev/null 2>&1
+ng(){ grep -c '"class":"landed-late"' "$G/state/outcomes.jsonl" 2>/dev/null || true; }
+ok "G1 bookkeeping-only commit row (OVERNIGHT_PROGRESS.md only) -> no landed-late row; mixed-file chore(queue) commit and real code still count (2 rows)" "[ \"\$(ng)\" = 2 ]"
+ok "G2 the landed-late row of the [bookkeeping + real] row names only the real sha" "grep '\"late_of_ts\"' '$G/state/outcomes.jsonl' | grep -c '$gc' | grep -qx 1 && ! grep '\"landed-late\"' '$G/state/outcomes.jsonl' | grep -q '$gb'"
+mutate "$ACCT" 'os.environ.get("OVN_OUTCOME_BOOKKEEPING", "skip") == "skip"' 'False' "$tmp/acct_g_mut.py"
+cp "$G/state/outcomes.jsonl" "$G/orig"; grep -v landed-late "$G/orig" > "$G/state/outcomes.jsonl"
+"$PY" "$tmp/acct_g_mut.py" reconcile --state-dir "$G/state" --repos-dir "$G/repos" >/dev/null 2>&1
+nok "G3 MUTANT (filter off) is caught: the bookkeeping commit becomes a landed-late row again" "[ \"\$(ng)\" = 2 ]"
+grep -v landed-late "$G/orig" > "$G/state/outcomes.jsonl"
+OVN_OUTCOME_BOOKKEEPING=off "$PY" "$ACCT" reconcile --state-dir "$G/state" --repos-dir "$G/repos" >/dev/null 2>&1
+ok "G4 OVN_OUTCOME_BOOKKEEPING=off restores the old behaviour (3 rows)" "[ \"\$(ng)\" = 3 ]"
+
 # ============================== E. old-format rows still parse in the readers ==============================
 E="$tmp/E"; mkdir -p "$E/state" "$E/logs"
 "$PY" - "$E/state/outcomes.jsonl" "$(iso 1800)" "$(iso 1200)" "$(iso 900)" "$(iso 600)" "$c0" "$c2" <<'EOF'
