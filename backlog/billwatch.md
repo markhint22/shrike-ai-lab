@@ -455,3 +455,19 @@
 # --- 27B-decomposed from roadmap [2026-10-27]: Test `get_current_user_or_404` dependency — `billwatch-backend/app/routers/users.py:34` is (review + tweak) [feat:billwatch-20261027-test-get-current-user-or-404-dependency-] ---
 
 # --- 27B-decomposed from roadmap [2026-10-27]: Test `get_followed_bills` endpoint — `billwatch-backend/app/routers/users.py:67` is a publ (review + tweak) [feat:billwatch-20261027-test-get-followed-bills-endpoint-billwat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `follow_bill` endpoint — `billwatch-backend/app/routers/users.py:93` is a public func (review + tweak) [feat:billwatch-20261027-test-follow-bill-endpoint-billwatch-back] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `unfollow_topic` endpoint — `billwatch-backend/app/routers/users.py:222` is a public  (review + tweak) [feat:billwatch-20261027-test-unfollow-topic-endpoint-billwatch-b] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `unfollow_legislator` endpoint — `billwatch-backend/app/routers/users.py:294` is a pu (review + tweak) [feat:billwatch-20261027-test-unfollow-legislator-endpoint-billwa] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_all_sync_status` and `get_bills_sync_status` endpoints — `billwatch-backend/app/ (review + tweak) [feat:billwatch-20261027-test-get-all-sync-status-and-get-bills-s] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_followed_committees`, `follow_committee`, and `unfollow_committee` endpoints — ` (review + tweak) [feat:billwatch-20261027-test-get-followed-committees-follow-comm] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_campaign_finance` endpoint — `billwatch-backend/app/routers/legislator_finance.p (review + tweak) [feat:billwatch-20261027-test-get-campaign-finance-endpoint-billw] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_financial_disclosures` endpoint — `billwatch-backend/app/routers/legislator_fina (review + tweak) [feat:billwatch-20261027-test-get-financial-disclosures-endpoint-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-27]: Test `get_voting_summary` endpoint — `billwatch-backend/app/routers/legislator_finance.py: (review + tweak) [feat:billwatch-20261027-test-get-voting-summary-endpoint-billwat] ---
