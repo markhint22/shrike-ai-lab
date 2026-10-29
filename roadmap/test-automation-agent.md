@@ -339,4 +339,4 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 - [ ] [P2] [decomposed] Test `should_process_delivery` CI logic — Add unit tests for `backend/app/routers/ci.py:186` to verify delivery filtering logic, ensuring only valid payloads are processed and invalid ones are rejected with appropriate status codes {cat: backend; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-29 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 7 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `build_run_url` CI result utility — Add unit tests for `backend/app/utils/ci_result.py:101` (`build_run_url`) to verify URL construction logic and edge cases (e.g., missing run ID, base URL handling) {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `build_run_url` CI result utility — Add unit tests for `backend/app/utils/ci_result.py:101` (`build_run_url`) to verify URL construction logic and edge cases (e.g., missing run ID, base URL handling) {cat: test; size: S; multifile: no; research: none}
