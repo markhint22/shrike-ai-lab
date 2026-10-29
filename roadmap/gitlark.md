@@ -438,3 +438,6 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-10-29 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `build_diff_pagination_meta` — `backend/app/routers/pull_requests.py:154` is a public function with zero test coverage; add unit tests in `backend/tests/` verifying correct pagination metadata calculation for various diff sizes and page numbers {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-29 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `check_deploys_action` — `backend/app/routers/control_plane.py:137` is a public function with zero test coverage; add a unit test in `backend/tests/` that mocks the deploy service and asserts the endpoint returns the correct status and payload for valid and invalid inputs {cat: test; size: S; multifile: no; research: none}
