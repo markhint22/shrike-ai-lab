@@ -401,4 +401,7 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-29 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `fetch_with_retry` retry logic — `billwatch-backend/app/core/congress.py:255` is a public function with no test coverage; add tests in `billwatch-backend/tests/` verifying it retries on transient errors and respects max attempts {cat: test; size: S; multifile: no; research: none}
-- [ ] [P2] [ready] Test `build_sitemap_xml` generation — `billwatch-backend/app/routers/bills.py:226` is a public function with no test coverage; add tests in `billwatch-backend/tests/` verifying XML structure and bill URL inclusion {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `build_sitemap_xml` generation — `billwatch-backend/app/routers/bills.py:226` is a public function with no test coverage; add tests in `billwatch-backend/tests/` verifying XML structure and bill URL inclusion {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-29 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `downvote_bill` endpoint — `billwatch-backend/app/routers/ranking.py:234` is a public function referenced by no test; add tests in `billwatch-backend/tests/` verifying that downvoting a bill updates the user's preference state and returns the correct HTTP response, ensuring parity with the existing `upvote_bill` tests. {cat: test; size: S; multifile: no; research: none}
