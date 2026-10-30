@@ -727,3 +727,9 @@
 # --- 27B-decomposed from roadmap [2026-10-29]: Test `list_epg_mappings` endpoint — Add unit tests for the untested public function `list_ (review + tweak) [feat:iptv_apps-20261029-test-list-epg-mappings-endpoint-add-unit] ---
 
 # --- deterministic work supply 2026-10-30 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-30]: Test `get_features` endpoint — Add unit tests for the untested public function `get_featur (review + tweak) [feat:iptv_apps-20261030-test-get-features-endpoint-add-unit-test] ---
+
+# --- 27B-decomposed from roadmap [2026-10-30]: Test `search_history` endpoint — Add unit tests for the untested public function `search_h (review + tweak) [feat:iptv_apps-20261030-test-search-history-endpoint-add-unit-te] ---
+
+# --- deterministic work supply 2026-10-30 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
