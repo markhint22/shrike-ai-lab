@@ -467,5 +467,9 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P3] [decomposed] Test `get_user_activity` — `backend/app/routers/audit.py:118` is a public function with zero test coverage; add a test in `backend/tests/` that mocks the DB session to verify it returns the correct list of user activity events for a given user ID and time range {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-30 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_audit_report` — `backend/app/routers/audit.py:167` is a public function with zero test coverage; add tests in `backend/tests/` verifying report generation logic and response structure {cat: test; size: M; multifile: no; research: none}
-- [ ] [P2] [ready] Test `get_replay_timeline` — `backend/app/routers/audit.py:257` is a public function with zero test coverage; add tests in `backend/tests/` verifying timeline reconstruction and event ordering {cat: test; size: M; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_audit_report` — `backend/app/routers/audit.py:167` is a public function with zero test coverage; add tests in `backend/tests/` verifying report generation logic and response structure {cat: test; size: M; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_replay_timeline` — `backend/app/routers/audit.py:257` is a public function with zero test coverage; add tests in `backend/tests/` verifying timeline reconstruction and event ordering {cat: test; size: M; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `list_connector_runs` — `backend/app/routers/connectors.py:43` is a public function with zero test coverage; add tests in `backend/tests/` verifying connector run listing and filtering {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [ready] Test `register_connector` — `backend/app/routers/connectors.py:57` is a public function with zero test coverage; add tests in `backend/tests/` verifying connector registration and validation {cat: test; size: S; multifile: no; research: none}
