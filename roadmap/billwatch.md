@@ -412,3 +412,6 @@ All research is grounded in the live repo.
 ## Local research 2026-10-30 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `validate_user_id` dependency — `billwatch-backend/app/core/dependencies.py:57` is a public function referenced by no test; add unit tests in `billwatch-backend/tests/` verifying it raises 401 for invalid UUIDs and returns the ID for valid ones {cat: test; size: S; multifile: no; research: none}
 - [ ] [P2] [decomposed] Test `validate_api_key` dependency — `billwatch-backend/app/core/dependencies.py:73` is a public function referenced by no test; add unit tests in `billwatch-backend/tests/` verifying it raises 401 for missing/invalid keys and passes valid keys {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `status_endpoint` health check — `billwatch-backend/app/main.py:181` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that asserts the endpoint returns 200 and the expected status payload {cat: test; size: S; multifile: no; research: none}
