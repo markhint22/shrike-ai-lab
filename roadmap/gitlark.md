@@ -457,3 +457,8 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `get_annotations` endpoint — `backend/app/routers/collaborative_workspace.py:389` is a public function with zero test coverage; add a test in `backend/tests/` that mocks the database session to verify it returns the correct list of annotations for a given workspace and file path {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 3 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_review_session_stats` endpoint — `backend/app/routers/review_collab.py:168` is a public function with zero test coverage; add tests in `backend/tests/` verifying stats calculation and response structure {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [ready] Test `get_conversation_history` endpoint — `backend/app/routers/audit.py:54` is a public function with zero test coverage; add tests in `backend/tests/` verifying history retrieval and pagination logic {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [ready] Test `get_manifest` endpoint — `backend/app/routers/pwa.py:45` is a public function with zero test coverage; add tests in `backend/tests/` verifying manifest JSON structure and content {cat: test; size: S; multifile: no; research: none}
