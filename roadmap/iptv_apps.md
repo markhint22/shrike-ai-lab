@@ -567,3 +567,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-29 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `list_epg_mappings` endpoint — Add unit tests for the untested public function `list_epg_mappings` in `iptv-backend/app/routers/epg.py:1183`, verifying it returns the correct list of EPG mappings for a given source and handles empty results gracefully {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_features` endpoint — Add unit tests for the untested public function `get_features` in `iptv-backend/app/routers/settings.py:50` to verify feature flag retrieval logic and response structure {cat: test; size: S; multifile: no; research: none}
