@@ -480,3 +480,6 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `search_conversations` service function — `backend/app/services/search.py:143` is a public function with zero test coverage; add a test in `backend/tests/` that mocks the database session and verifies search results are filtered by query terms and returned correctly {cat: backend; size: S; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_connection_stats` endpoint — `backend/app/routers/realtime.py:215` is a public function with zero test coverage; add a test in `backend/tests/` that mocks the WebSocket manager state and asserts the connection statistics (active, total) are accurately reported {cat: test; size: S; multifile: no; research: none}
