@@ -517,3 +517,7 @@
 # --- 27B-decomposed from roadmap [2026-10-30]: Test `validate_user_id` dependency — `billwatch-backend/app/core/dependencies.py:57` is a  (review + tweak) [feat:billwatch-20261030-test-validate-user-id-dependency-billwat] ---
 
 # --- 27B-decomposed from roadmap [2026-10-30]: Test `validate_api_key` dependency — `billwatch-backend/app/core/dependencies.py:73` is a  (review + tweak) [feat:billwatch-20261030-test-validate-api-key-dependency-billwat] ---
+
+# --- deterministic work supply 2026-10-30 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-30]: Test `status_endpoint` health check — `billwatch-backend/app/main.py:181` is a public func (review + tweak) [feat:billwatch-20261030-test-status-endpoint-health-check-billwa] ---
