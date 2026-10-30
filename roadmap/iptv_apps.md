@@ -575,4 +575,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `search_history` endpoint — Add unit tests for the untested public function `search_history` in `iptv-backend/app/routers/search.py:155` to verify that search history is correctly recorded, retrieved, and limited by user context, ensuring privacy and performance of the search feature. {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `resolve_stream_name` endpoint — Add unit tests for the untested public function `resolve_stream_name` in `iptv-backend/app/routers/downloads.py:117`, verifying correct name resolution logic and error handling for invalid stream identifiers {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `resolve_stream_name` endpoint — Add unit tests for the untested public function `resolve_stream_name` in `iptv-backend/app/routers/downloads.py:117`, verifying correct name resolution logic and error handling for invalid stream identifiers {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `list_downloads` endpoint — Add unit tests for the untested public function `list_downloads` in `iptv-backend/app/routers/downloads.py:233`, verifying response structure and user isolation {cat: test; size: S; multifile: no; research: none}
