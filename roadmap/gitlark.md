@@ -453,4 +453,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P2] [decomposed] Test `save_insight` endpoint — `backend/app/routers/repo_analysis.py:412` is a public function with zero test coverage; add tests in `backend/tests/` verifying it persists insights to the database and returns success status {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `get_members` — `backend/app/routers/collaborative_workspace.py:77` is a public function with zero test coverage; add a test in `backend/tests/` that asserts the endpoint returns the correct list of workspace members {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_members` — `backend/app/routers/collaborative_workspace.py:77` is a public function with zero test coverage; add a test in `backend/tests/` that asserts the endpoint returns the correct list of workspace members {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_annotations` endpoint — `backend/app/routers/collaborative_workspace.py:389` is a public function with zero test coverage; add a test in `backend/tests/` that mocks the database session to verify it returns the correct list of annotations for a given workspace and file path {cat: test; size: S; multifile: no; research: none}
