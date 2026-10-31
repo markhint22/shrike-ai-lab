@@ -581,4 +581,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `list_downloads` endpoint — Add unit tests for the untested public function `list_downloads` in `iptv-backend/app/routers/downloads.py:233`, verifying response structure and user isolation {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `list_dvr_recordings` and `delete_dvr_recording` — Add unit tests for the untested public functions `list_dvr_recordings` (`iptv-backend/app/routers/downloads.py:468`) and `delete_dvr_recording` (`iptv-backend/app/routers/downloads.py:512`) to verify DVR listing and deletion logic {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `list_dvr_recordings` and `delete_dvr_recording` — Add unit tests for the untested public functions `list_dvr_recordings` (`iptv-backend/app/routers/downloads.py:468`) and `delete_dvr_recording` (`iptv-backend/app/routers/downloads.py:512`) to verify DVR listing and deletion logic {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `verify_pin` endpoint — Add unit tests for the untested public function `verify_pin` in `iptv-backend/app/routers/parental.py:56`, covering valid PIN match, invalid PIN rejection, and lockout logic if present, with assertions on response status and body {cat: test; size: S; multifile: no; research: none}
