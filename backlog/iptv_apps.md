@@ -755,3 +755,17 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `report_usage` endpoint — Add unit tests for the untested public function `report_usa (review + tweak) [feat:iptv_apps-20261031-test-report-usage-endpoint-add-unit-test] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `get_daily_limit` endpoint — Add unit tests for the untested public function `get_dai (review + tweak) [feat:iptv_apps-20261031-test-get-daily-limit-endpoint-add-unit-t] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `check_time_restrictions_endpoint` — Add unit tests for the untested public function  (review + tweak) [feat:iptv_apps-20261031-test-check-time-restrictions-endpoint-ad] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_subscription` endpoint — Add unit tests for the untested public function `get_su (review + tweak) [feat:iptv_apps-20261031-test-get-subscription-endpoint-add-unit-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `compare_plans` endpoint — Add unit tests for the untested public function `compare_p (review + tweak) [feat:iptv_apps-20261031-test-compare-plans-endpoint-add-unit-tes] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `check_feature` endpoint — Add unit tests for the untested public function `check_fea (review + tweak) [feat:iptv_apps-20261031-test-check-feature-endpoint-add-unit-tes] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `create_stripe_checkout` and `create_stripe_portal` — Add unit tests for the untested (review + tweak) [feat:iptv_apps-20261031-test-create-stripe-checkout-and-create-s] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `stripe_webhook` and `revenuecat_webhook` — Add unit tests for the untested public fu (review + tweak) [feat:iptv_apps-20261031-test-stripe-webhook-and-revenuecat-webho] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `restore_apple_purchase` — Add unit tests for the untested public function in `iptv-b (review + tweak) [feat:iptv_apps-20261031-test-restore-apple-purchase-add-unit-tes] ---

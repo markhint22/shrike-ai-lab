@@ -539,3 +539,15 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `get_representatives` civic endpoint — `billwatch-backend/app/routers/civic.py:95` is (review + tweak) [feat:billwatch-20261031-test-get-representatives-civic-endpoint-] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `search_divisions` civic endpoint — `billwatch-backend/app/routers/civic.py:133` is a (review + tweak) [feat:billwatch-20261031-test-search-divisions-civic-endpoint-bil] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `trending_bill_to_response` endpoint — `billwatch-backend/app/routers/analytics.py:28 (review + tweak) [feat:billwatch-20261031-test-trending-bill-to-response-endpoint-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_popular_bills` endpoint — `billwatch-backend/app/routers/analytics.py:69` is a p (review + tweak) [feat:billwatch-20261031-test-get-popular-bills-endpoint-billwatc] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_bill_summary` analytics endpoint — `billwatch-backend/app/routers/analytics.py:1 (review + tweak) [feat:billwatch-20261031-test-get-bill-summary-analytics-endpoint] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `list_user_alerts` endpoint — `billwatch-backend/app/routers/analytics.py:210` is a p (review + tweak) [feat:billwatch-20261031-test-list-user-alerts-endpoint-billwatch] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `create_bill_alert` endpoint — `billwatch-backend/app/routers/analytics.py:241` is a  (review + tweak) [feat:billwatch-20261031-test-create-bill-alert-endpoint-billwatc] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `update_bill_alert` endpoint — `billwatch-backend/app/routers/analytics.py:270` is a  (review + tweak) [feat:billwatch-20261031-test-update-bill-alert-endpoint-billwatc] ---
