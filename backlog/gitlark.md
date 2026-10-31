@@ -598,3 +598,7 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `remove_tag_from_conversation` endpoint — `backend/app/routers/conversations.py:332`  (review + tweak) [feat:gitlark-20261031-test-remove-tag-from-conversation-endpoi] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `create_checkout` endpoint — `backend/app/routers/billing.py:112` is a public functio (review + tweak) [feat:gitlark-20261031-test-create-checkout-endpoint-backend-ap] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Check workspace ownership in create_workspace_conversation — `backend/app/routers/workspac (review + tweak) [feat:gitlark-20261031-check-workspace-ownership-in-create-work] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Fix N+1 query in get_shared_snippets by batching snippet fetch — `backend/app/routers/coll (review + tweak) [feat:gitlark-20261031-fix-n-1-query-in-get-shared-snippets-by-] ---

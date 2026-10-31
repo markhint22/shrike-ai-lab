@@ -529,3 +529,13 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `get_summary_coverage_endpoint` — `billwatch-backend/app/routers/sync_status.py:56` i (review + tweak) [feat:billwatch-20261031-test-get-summary-coverage-endpoint-billw] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `get_source_sync_status` endpoint — `billwatch-backend/app/routers/sync_status.py:86` (review + tweak) [feat:billwatch-20261031-test-get-source-sync-status-endpoint-bil] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `require_auth` dependency — `billwatch-backend/app/routers/sync_status.py:63` is a pu (review + tweak) [feat:billwatch-20261031-test-require-auth-dependency-billwatch-b] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `recommend_bills` endpoint — `billwatch-backend/app/routers/recommendations.py:20` is (review + tweak) [feat:billwatch-20261031-test-recommend-bills-endpoint-billwatch-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `find_representatives` civic endpoint — `billwatch-backend/app/routers/civic.py:33` i (review + tweak) [feat:billwatch-20261031-test-find-representatives-civic-endpoint] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_representatives` civic endpoint — `billwatch-backend/app/routers/civic.py:95` is (review + tweak) [feat:billwatch-20261031-test-get-representatives-civic-endpoint-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `search_divisions` civic endpoint — `billwatch-backend/app/routers/civic.py:133` is a (review + tweak) [feat:billwatch-20261031-test-search-divisions-civic-endpoint-bil] ---

@@ -749,3 +749,9 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `list_blocked_streams` endpoint — Add unit tests for the untested public function `li (review + tweak) [feat:iptv_apps-20261031-test-list-blocked-streams-endpoint-add-u] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Fix N+1 queries in detach_streams_from_groups loop — `iptv-backend/app/services/content_de (review + tweak) [feat:iptv_apps-20261031-fix-n-1-queries-in-detach-streams-from-g] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `block_stream` — Add unit tests for the untested public function `block_stream` in `i (review + tweak) [feat:iptv_apps-20261031-test-block-stream-add-unit-tests-for-the] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `report_usage` endpoint — Add unit tests for the untested public function `report_usa (review + tweak) [feat:iptv_apps-20261031-test-report-usage-endpoint-add-unit-test] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_daily_limit` endpoint — Add unit tests for the untested public function `get_dai (review + tweak) [feat:iptv_apps-20261031-test-get-daily-limit-endpoint-add-unit-t] ---
