@@ -425,3 +425,6 @@ All research is grounded in the live repo.
 
 ## Local research 2026-10-31 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `get_source_sync_status` endpoint — `billwatch-backend/app/routers/sync_status.py:86` is a public function referenced by no test; add a test in `billwatch-backend/tests/` verifying it returns the correct sync status structure for a specific source ID and handles missing sources gracefully {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-31 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `require_auth` dependency — `billwatch-backend/app/routers/sync_status.py:63` is a public function referenced by no test; add a test in `billwatch-backend/tests/` verifying it returns 401 for unauthenticated requests and passes through for valid tokens {cat: test; size: S; multifile: no; research: none}
