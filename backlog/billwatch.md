@@ -521,3 +521,11 @@
 # --- deterministic work supply 2026-10-30 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
 
 # --- 27B-decomposed from roadmap [2026-10-30]: Test `status_endpoint` health check — `billwatch-backend/app/main.py:181` is a public func (review + tweak) [feat:billwatch-20261030-test-status-endpoint-health-check-billwa] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Implement filter_legislators with real DB query — `billwatch-backend/app/services/advanced (review + tweak) [feat:billwatch-20261031-implement-filter-legislators-with-real-d] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Implement full_text_search with real query — `billwatch-backend/app/services/advanced_sear (review + tweak) [feat:billwatch-20261031-implement-full-text-search-with-real-que] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_summary_coverage_endpoint` — `billwatch-backend/app/routers/sync_status.py:56` i (review + tweak) [feat:billwatch-20261031-test-get-summary-coverage-endpoint-billw] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_source_sync_status` endpoint — `billwatch-backend/app/routers/sync_status.py:86` (review + tweak) [feat:billwatch-20261031-test-get-source-sync-status-endpoint-bil] ---

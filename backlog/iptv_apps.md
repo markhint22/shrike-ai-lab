@@ -745,3 +745,7 @@
 # --- 27B-decomposed from roadmap [2026-10-30]: Show error banner when guide fails to load — `iptv-web/src/views/GuideView.vue:77` (`loadG (review + tweak) [feat:iptv_apps-20261030-show-error-banner-when-guide-fails-to-lo] ---
 
 # --- 27B-decomposed from roadmap [2026-10-30]: Test `get_parental_settings` endpoint — Add unit tests for the untested public function `g (review + tweak) [feat:iptv_apps-20261030-test-get-parental-settings-endpoint-add-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `list_blocked_streams` endpoint — Add unit tests for the untested public function `li (review + tweak) [feat:iptv_apps-20261031-test-list-blocked-streams-endpoint-add-u] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Fix N+1 queries in detach_streams_from_groups loop — `iptv-backend/app/services/content_de (review + tweak) [feat:iptv_apps-20261031-fix-n-1-queries-in-detach-streams-from-g] ---
