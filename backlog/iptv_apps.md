@@ -737,3 +737,11 @@
 # --- 27B-decomposed from roadmap [2026-10-30]: Test `resolve_stream_name` endpoint — Add unit tests for the untested public function `res (review + tweak) [feat:iptv_apps-20261030-test-resolve-stream-name-endpoint-add-un] ---
 
 # --- 27B-decomposed from roadmap [2026-10-30]: Test `list_downloads` endpoint — Add unit tests for the untested public function `list_dow (review + tweak) [feat:iptv_apps-20261030-test-list-downloads-endpoint-add-unit-te] ---
+
+# --- 27B-decomposed from roadmap [2026-10-30]: Test `list_dvr_recordings` and `delete_dvr_recording` — Add unit tests for the untested pu (review + tweak) [feat:iptv_apps-20261030-test-list-dvr-recordings-and-delete-dvr-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-30]: Test `verify_pin` endpoint — Add unit tests for the untested public function `verify_pin`  (review + tweak) [feat:iptv_apps-20261030-test-verify-pin-endpoint-add-unit-tests-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-30]: Show error banner when guide fails to load — `iptv-web/src/views/GuideView.vue:77` (`loadG (review + tweak) [feat:iptv_apps-20261030-show-error-banner-when-guide-fails-to-lo] ---
+
+# --- 27B-decomposed from roadmap [2026-10-30]: Test `get_parental_settings` endpoint — Add unit tests for the untested public function `g (review + tweak) [feat:iptv_apps-20261030-test-get-parental-settings-endpoint-add-] ---
