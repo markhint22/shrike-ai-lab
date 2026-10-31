@@ -591,3 +591,6 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-10-30 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `get_parental_settings` endpoint — Add unit tests for the untested public function `get_parental_settings` in `iptv-backend/app/routers/parental.py:290` to verify it returns correct settings and handles missing profile cases {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-31 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `list_blocked_streams` endpoint — Add unit tests for the untested public function `list_blocked_streams` in `iptv-backend/app/routers/parental.py:496` to verify it correctly returns the list of blocked stream IDs for a given profile, including edge cases for empty lists and non-existent profiles {cat: test; size: S; multifile: no; research: none}
