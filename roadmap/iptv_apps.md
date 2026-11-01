@@ -647,4 +647,8 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P2] [decomposed] Test `get_mapping_suggestions` endpoint — Add unit tests for the untested public function `get_mapping_suggestions` in `iptv-backend/app/routers/epg.py:1457` to verify EPG mapping suggestion logic and response structure {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-11-01 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `add_channel_to_library` endpoint — Add unit tests for the untested public function `add_channel_to_library` in `iptv-backend/app/routers/discover.py:785` to verify it correctly persists a channel to the user's library and handles duplicate additions appropriately {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `add_channel_to_library` endpoint — Add unit tests for the untested public function `add_channel_to_library` in `iptv-backend/app/routers/discover.py:785` to verify it correctly persists a channel to the user's library and handles duplicate additions appropriately {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-01 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `clear_cache` endpoint — Add unit tests for the untested public function `clear_cache` in `iptv-backend/app/routers/discover.py:1053` to verify cache invalidation behavior and response status {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [ready] Test `get_funnel` endpoint — Add unit tests for the untested public function `get_funnel` in `iptv-backend/app/routers/engagement.py:55` to verify engagement funnel data aggregation and response structure {cat: test; size: S; multifile: no; research: none}
