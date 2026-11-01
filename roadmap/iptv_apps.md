@@ -619,4 +619,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 - [ ] [P3] [decomposed] Test `restore_apple_purchase` — Add unit tests for the untested public function in `iptv-backend/app/routers/subscription.py:492` to verify Apple receipt validation and subscription restoration logic {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-10-31 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `get_countries` endpoint — Add unit tests for the untested public function `get_countries` in `iptv-backend/app/routers/discover.py:189` to verify correct listing of available countries for content discovery {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `get_countries` endpoint — Add unit tests for the untested public function `get_countries` in `iptv-backend/app/routers/discover.py:189` to verify correct listing of available countries for content discovery {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-10-31 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_curated_youtube_channels` endpoint — Add unit tests for the untested public function `get_curated_youtube_channels` in `iptv-backend/app/routers/discover.py:205` to verify curated channel retrieval {cat: test; size: S; multifile: no; research: none}
