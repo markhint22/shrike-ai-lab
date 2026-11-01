@@ -571,3 +571,5 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `get_career_history` endpoint — `billwatch-backend/app/routers/career_history.py:70`  (review + tweak) [feat:billwatch-20261031-test-get-career-history-endpoint-billwat] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `get_legislator_votes` endpoint — `billwatch-backend/app/routers/votes.py:78` is a pu (review + tweak) [feat:billwatch-20261031-test-get-legislator-votes-endpoint-billw] ---
+
+# --- 27B-decomposed from roadmap [2026-11-01]: Fix NameError in RequestIdMiddleware when call_next raises — `billwatch-backend/app/core/r (review + tweak) [feat:billwatch-20261101-fix-nameerror-in-requestidmiddleware-whe] ---

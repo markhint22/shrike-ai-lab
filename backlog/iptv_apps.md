@@ -775,3 +775,7 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `get_curated_youtube_channels` endpoint — Add unit tests for the untested public func (review + tweak) [feat:iptv_apps-20261031-test-get-curated-youtube-channels-endpoi] ---
 
 # --- deterministic work supply 2026-10-31 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-11-01]: Eliminate N+1 user lookups in win-back email dispatch — `iptv-backend/app/services/win_bac (review + tweak) [feat:iptv_apps-20261101-eliminate-n-1-user-lookups-in-win-back-e] ---
+
+# --- 27B-decomposed from roadmap [2026-11-01]: Test `export_playlist` endpoint — Add unit tests for the untested public function `export_ (review + tweak) [feat:iptv_apps-20261101-test-export-playlist-endpoint-add-unit-t] ---
