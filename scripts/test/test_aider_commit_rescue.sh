@@ -7,11 +7,17 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 pass=0; fail=0
 ok(){ if [ "$2" = 1 ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 t(){ local l="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$l" 1; else ok "$l" 0; fi; }
+# 2026-11-01 (K4 tmp leak): two defects left 7 repos x ~46 entries (the box's top-5 'ovn.*' tmp-leak-top dirs, 44-50 entries each) per run:
+#  (1) mk() runs inside $(...), so its `TMPS+=("$d")` died with the subshell: nothing was ever registered;
+#  (2) every one of these dirs is a git checkout, and safe_rm_rf REFUSES a checkout root (error swallowed by >/dev/null): the .git dir goes first (a plain dir is allowed), then the rest.
+# The registry is a FILE the subshell appends to; its own dir is removed last.
+REG="$(safe_mktemp_dir k4reg)" || exit 1
 TMPS=()
-cleanup(){ local d; for d in "${TMPS[@]:-}"; do [ -n "$d" ] && safe_rm_rf "$d" >/dev/null 2>&1; done; }
+rm_repo(){ [ -n "$1" ] || return 0; safe_rm_rf "$1/.git" >/dev/null 2>&1; safe_rm_rf "$1" >/dev/null 2>&1; }
+cleanup(){ local d; for d in "${TMPS[@]:-}"; do rm_repo "$d"; done; [ -f "$REG/list" ] && while IFS= read -r d; do rm_repo "$d"; done < "$REG/list"; safe_rm_rf "$REG" >/dev/null 2>&1; }
 trap cleanup EXIT
 LIB="$HERE/../lib_fixup.sh"
-mk(){ local d; d="$(safe_mktemp_dir)" || exit 1; TMPS+=("$d"); git -C "$d" init -q; echo "a=1" > "$d/f.py"; git -C "$d" add -A; git -C "$d" -c user.email=t@t -c user.name=t commit -qm base; printf '%s' "$d"; }
+mk(){ local d; d="$(safe_mktemp_dir)" || exit 1; printf '%s\n' "$d" >> "$REG/list"; git -C "$d" init -q; echo "a=1" > "$d/f.py"; git -C "$d" add -A; git -C "$d" -c user.email=t@t -c user.name=t commit -qm base; printf '%s' "$d"; }
 G(){ git -c user.email=t@t -c user.name=t "$@"; }
 run(){ # $1=repo $2=log-text-after-offset $3=mutant lib(optional) ; edit file, then call rescue
   local d="$1" lib="${3:-$LIB}"

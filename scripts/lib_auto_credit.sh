@@ -254,11 +254,79 @@ ovn_card_credit_shadow() {  # <progress line of the credited item> <credited hea
   return 0
 }
 
+# SAME-CYCLE CREDIT (2026-11-01, package K4). 89 of 520 pushes (17%) were landed-uncredited: green work pushed, the item left [ ] and re-faced next cycle. The per-file credit above refuses
+# whenever the commit's touched path is not the item's NAMED path (path mismatch), although the item the cycle actually WORKED (ovn_resolve_top_item, what record_outcome bills) can
+# have a VERIFY that passes at the pushed head. OVN_SAME_CYCLE_CREDIT=off|shadow|on (default shadow): when no item was credited and nothing is indeterminate, run the WORKED item's own
+# VERIFY at head; PASS => `on` credits it in this same call (same tick/commit path, same RULE 1/5 checks), `shadow` only logs '--- auto-credit: SAME-CYCLE SHADOW: would credit line N ---'.
+# In `on` mode every credit commit carries an `Item-Hash: <hash>` trailer per credited item (shadow and off leave commit messages unchanged), so "is this item's work already on the branch" is answerable from git log:
+# ovn_item_commit_on_branch <hash> [depth] (rc 0 = a commit in the last `depth` (default 400) carries that trailer). The log line names it ('already credited on this branch').
+ovn_item_commit_on_branch() {  # <item hash> [depth]
+  local h="${1:-}" depth="${2:-400}" msgs
+  [ -n "$h" ] || return 1
+  msgs="$(git log -n "$depth" --format='%B' 2>/dev/null)"   # captured first: `git log | grep -q` under pipefail is flaky (grep exits early, SIGPIPE on the writer)
+  grep -qxF "Item-Hash: ${h}" <<< "$msgs"
+}
+_ovn_same_cycle_candidate() {  # <prog> <task_log> <already ticked lines> <indeterminate lines> -> prints "<line>" of the worked open item, or nothing
+  local prog="$1" tl="${2:-}" top ln text
+  [ "$(basename "$prog")" = OVERNIGHT_PROGRESS.md ] || return 0
+  declare -F ovn_resolve_top_item >/dev/null 2>&1 || return 0
+  top="$(ovn_resolve_top_item "$(dirname "$prog")" "$tl" 2>/dev/null)"
+  [ -n "$top" ] || return 0
+  ln="${top%%:*}"; text="${top#*:}"
+  case "$ln" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$(sed -n "${ln}p" "$prog")" = "$text" ] || return 0
+  case "$text" in "- [ ] "*) ;; *) return 0 ;; esac
+  case " $3 $4 " in *" $ln "*) return 0 ;; esac
+  printf '%s' "$ln"
+}
+
+# K4 review fix (2026-11-01): the VERIFY of a same-cycle candidate must FAIL at the pre-push head. A VERIFY that already passed BEFORE the work credits whatever the cycle happened
+# to push (the credit_already_satisfied false-credit pattern). Runs the item's VERIFY against `git archive <before>` extracted into a private temp dir (no change to the repo, its index or
+# its worktrees; untracked dependency dirs are symlinked in so a missing venv cannot fake a red). Prints FAIL (proven red before: credit may go ahead) | PASS | UNPROVEN
+# (could not run / timed out / no space: not proven red, so never credited). OVN_SAME_CYCLE_REQUIRE_RED=off skips the check (prints FAIL).
+_ovn_sc_before_result() {  # <before sha> <progress file> <line>
+  local b="$1" prog="$2" ln="$3" tmp res d base="${TMPDIR:-/tmp}" free
+  [ "${OVN_SAME_CYCLE_REQUIRE_RED:-on}" = off ] && { echo FAIL; return 0; }
+  free="$(df -Pk "$base" 2>/dev/null | awk 'NR==2{print $4}')"
+  case "$free" in ''|*[!0-9]*) ;; *) [ "$free" -lt 1048576 ] && { echo UNPROVEN; return 0; } ;; esac
+  tmp="$(mktemp -d "$base/ovn-sc-before.XXXXXX" 2>/dev/null)" || { echo UNPROVEN; return 0; }
+  [ -n "$tmp" ] && [ -d "$tmp" ] || { echo UNPROVEN; return 0; }
+  if ! { git archive --format=tar "$b" 2>/dev/null | tar -x -C "$tmp" 2>/dev/null; }; then rm -rf "${tmp:?}"; echo UNPROVEN; return 0; fi
+  for d in .venv venv node_modules env; do [ -e "$d" ] && [ ! -e "$tmp/$d" ] && ln -s "$PWD/$d" "$tmp/$d" 2>/dev/null; done
+  # K4 review fix: git archive carries only TRACKED files, so a VERIFY could fail at <before> for environment reasons (nested venv / node_modules, .env, generated or build
+  # output) and be misread as "proven red". Symlink every git-ignored top-level entry (git reports whole ignored dirs as one "!! dir/" row) of the live repo into the tree.
+  # The tree then matches the live environment as closely as possible; any residual drift can only make the run PASS (not credited), never fake a red.
+  while IFS= read -r d; do
+    d="${d%/}"; [ -n "$d" ] && [ -e "$d" ] && [ ! -e "$tmp/$d" ] || continue
+    mkdir -p "$tmp/$(dirname "$d")" 2>/dev/null; ln -s "$PWD/$d" "$tmp/$d" 2>/dev/null
+  done < <(git status --porcelain --ignored 2>/dev/null | sed -n 's/^!! //p')
+  cp "$prog" "$tmp/OVERNIGHT_PROGRESS.md" 2>/dev/null   # the item text (its VERIFY clause) as it is NOW, not as it was at <before>
+  res="$( cd "$tmp" && { PROG="$tmp/OVERNIGHT_PROGRESS.md"; _VC_MEMO_ON=0; _VC_MEMO=""; shadow_check "$ln" >/dev/null 2>&1; printf '%s' "${_LAST_VERIFY_RESULT:-}"; } )"
+  rm -rf "${tmp:?}"
+  case "$res" in PASS) echo PASS ;; TIMEOUT|UNRUNNABLE|NO_VERIFY_CLAUSE|SKIPPED_DENYLIST|'') echo UNPROVEN ;; *) echo FAIL ;; esac
+}
+# RULE 3 + the empty-change skip for the same-cycle path: any file the cycle changed (or the worked item NAMES) that is only the placeholder stub => refuse; and at least one changed
+# file must carry a real (non 0/0) diff. Prints the reason and returns 1 to refuse. (RULE 2, exact path equality, is skipped by design: that mismatch is what this path exists for.)
+_ovn_sc_work_is_real() {  # <before> <after> <changed files (newline sep)> <named target of the worked item or empty>
+  local b="$1" a="$2" ch="$3" tgt="$4" f real=0 norm=""
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    ovn_ac_has_real_diff "$b" "$a" "$f" && real=1
+    if ovn_ac_is_placeholder "$a" "$f"; then echo "${f} is only a placeholder stub ('${OVN_AC_PLACEHOLDER_TEXT}')"; return 1; fi
+  done <<< "$ch"
+  if [ -n "$tgt" ]; then
+    norm="$(ovn_normalize_path "$PWD" "$tgt" 2>/dev/null)"
+    if [ -n "$norm" ] && git cat-file -e "$a:$norm" 2>/dev/null && ovn_ac_is_placeholder "$a" "$norm"; then echo "${norm} (named by the item) is only a placeholder stub ('${OVN_AC_PLACEHOLDER_TEXT}')"; return 1; fi
+  fi
+  [ "$real" = 1 ] || { echo "no changed file has a real (non 0/0) diff"; return 1; }
+  return 0
+}
+
 ovn_auto_credit() {
   local before="$1" after="$2" prog="$3" _AC_TASK_LOG="${4:-}"
-  OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"
+  OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"; _AC_CREDITED_HASHES=""
   [ -f "$prog" ] || return 0
-  local _ac_pretext="" changed items bad n ln tgt cf norm res ticked_lines="" ticked_texts="" indet_lines="" indet_msgs="" _t0=$SECONDS _budget _AC_WORKED_H=""
+  local _sc_refused="" _sc_ran=0 _ac_pretext="" changed items bad n ln tgt cf norm res ticked_lines="" ticked_texts="" indet_lines="" indet_msgs="" _t0=$SECONDS _budget _AC_WORKED_H=""
   # visible to shadow_check through bash dynamic scope; every other caller of shadow_check keeps the 60s default
   local _VC_MEMO="" _VC_MEMO_ON=1   # identical VERIFY commands run once per call (lib_verify_clause.sh)
   local VERIFY_TIMEOUT_SECS="${OVN_AC_VERIFY_TIMEOUT:-300}" VERIFY_TIMEOUT_HEAVY_SECS="${OVN_AC_VERIFY_TIMEOUT_HEAVY:-900}"
@@ -304,6 +372,7 @@ ovn_auto_credit() {
       [ "$norm" = "$cf" ] || { _ovn_ac_log "REFUSED line ${ln} - item names ${tgt} (=${norm}), the commit touched ${cf}: path mismatch"; continue; }
       # RULE 3: never credit a placeholder stub
       if ovn_ac_is_placeholder "$after" "$cf"; then
+        _sc_refused="$_sc_refused $ln"
         _ovn_ac_log "REFUSED line ${ln} - ${cf} is only a placeholder stub ('${OVN_AC_PLACEHOLDER_TEXT}'), not real work"
         _ovn_cr_bump "$prog" "$ln" "placeholder stub"
         continue
@@ -320,16 +389,16 @@ ovn_auto_credit() {
           ticked_lines="$ticked_lines $ln"; ticked_texts="${ticked_texts}${ln}"$'\t'"${_ac_pretext}"$'\n'
           _ovn_ac_log "VERIFY passed for line ${ln} (${cf})"
           break ;;   # one item per touched file, as before
-        NO_VERIFY_CLAUSE) _ovn_ac_log "REFUSED line ${ln} (${cf}) - item has no VERIFY: clause, so there is nothing to prove it is done"
+        NO_VERIFY_CLAUSE) _sc_refused="$_sc_refused $ln"; _ovn_ac_log "REFUSED line ${ln} (${cf}) - item has no VERIFY: clause, so there is nothing to prove it is done"
                           _ovn_cr_bump "$prog" "$ln" "no VERIFY clause" ;;
-        SKIPPED_DENYLIST) _ovn_ac_log "REFUSED line ${ln} (${cf}) - the item's VERIFY: clause is not safe to run (denylist/redirect)"
+        SKIPPED_DENYLIST) _sc_refused="$_sc_refused $ln"; _ovn_ac_log "REFUSED line ${ln} (${cf}) - the item's VERIFY: clause is not safe to run (denylist/redirect)"
                           _ovn_cr_bump "$prog" "$ln" "VERIFY not safe to run" ;;
         TIMEOUT|UNRUNNABLE)
           # indeterminate: not credited, but NOT a failure either
           indet_lines="$indet_lines $ln"; indet_msgs="${indet_msgs:+$indet_msgs; }line ${ln}: ${_LAST_VERIFY_WHY}"
           _ovn_ac_log "INDETERMINATE line ${ln} (${cf}) - ${_LAST_VERIFY_WHY}; item left open, not counted as a failed attempt"
           OVN_AC_INDETERMINATE=$((OVN_AC_INDETERMINATE + 1)) ;;
-        *) _ovn_ac_log "REFUSED line ${ln} (${cf}) - the item's own VERIFY: clause FAILED"
+        *) _sc_refused="$_sc_refused $ln"; _ovn_ac_log "REFUSED line ${ln} (${cf}) - the item's own VERIFY: clause FAILED"
            _ovn_cr_bump "$prog" "$ln" "VERIFY failed" ;;
       esac
     done <<< "$items"
@@ -345,7 +414,42 @@ ovn_auto_credit() {
     done
   fi
 
-  [ -n "$ticked_lines" ] || return 0
+  # K4 same-cycle credit of the WORKED item (see the block comment above ovn_item_commit_on_branch). Gates, in order: not a line the loop above already refused (its VERIFY ran
+  # there), the cycle's change is real and not a placeholder stub (RULE 3 / empty-change), the VERIFY passes at head, AND it fails at the pre-push head.
+  if [ -z "$ticked_lines" ] && [ "${OVN_SAME_CYCLE_CREDIT:-shadow}" != off ]; then
+    local _sc_ln _sc_text _sc_h _sc_note="" _sc_why _sc_tgt _sc_bres _sc_vt_save="$VERIFY_TIMEOUT_SECS"
+    _sc_ln="$(_ovn_same_cycle_candidate "$prog" "$_AC_TASK_LOG" "$ticked_lines" "$indet_lines")"
+    case " $_sc_refused " in *" $_sc_ln "*) _sc_ln="" ;; esac
+    if [ -n "$_sc_ln" ]; then
+      _sc_text="$(sed -n "${_sc_ln}p" "$prog")"; _sc_h="$(_ovn_cr_hash "$_sc_text")"
+      ovn_item_commit_on_branch "$_sc_h" && _sc_note=" (an Item-Hash trailer for it is already on this branch)"
+      _sc_tgt="$(printf '%s\n' "$items" | awk -F'\t' -v n="$_sc_ln" '$1==n{print $2; exit}')"
+      if ! _sc_why="$(_ovn_sc_work_is_real "$before" "$after" "$changed" "$_sc_tgt")"; then
+        _ovn_ac_log "SAME-CYCLE REFUSED line ${_sc_ln}: ${_sc_why}; not credited"
+      elif [ $((SECONDS - _t0)) -lt "$_budget" ]; then
+        # shadow must stay cheap: its extra VERIFY run is capped (OVN_SC_SHADOW_VERIFY_TIMEOUT, default 60s); `on` keeps the normal per-VERIFY timeout
+        [ "${OVN_SAME_CYCLE_CREDIT:-shadow}" = on ] || VERIFY_TIMEOUT_SECS="${OVN_SC_SHADOW_VERIFY_TIMEOUT:-60}"
+        # K4 review fix: the shadow cap must also bound the before-run (it inherits VERIFY_TIMEOUT_SECS), so restore only after it
+        _sc_ran=1; shadow_check "$_sc_ln"
+        if [ "${_LAST_VERIFY_RESULT:-}" = PASS ]; then
+          _sc_bres="$(_ovn_sc_before_result "$before" "$prog" "$_sc_ln")"
+          VERIFY_TIMEOUT_SECS="$_sc_vt_save"
+          if [ "$_sc_bres" != FAIL ]; then
+            _ovn_ac_log "SAME-CYCLE ${OVN_SAME_CYCLE_CREDIT:-shadow}: line ${_sc_ln} NOT credited - its VERIFY $( [ "$_sc_bres" = PASS ] && echo "already passed BEFORE this push (${before:0:12}): not this cycle's work" || echo "could not be proven red at the pre-push head (${before:0:12})" )"
+          elif [ "${OVN_SAME_CYCLE_CREDIT:-shadow}" = on ]; then
+            ticked_lines=" $_sc_ln"; ticked_texts="${_sc_ln}"$'\t'"${_sc_text}"$'\n'
+            _ovn_ac_log "SAME-CYCLE: the worked item (line ${_sc_ln}) has a VERIFY that failed before the push and passes at head ${after:0:12}${_sc_note}; crediting it in this cycle"
+          else
+            _ovn_ac_log "SAME-CYCLE SHADOW: would credit line ${_sc_ln} (worked item, VERIFY red before the push, passes at head ${after:0:12})${_sc_note}; OVN_SAME_CYCLE_CREDIT=on enforces"
+          fi
+        fi
+        VERIFY_TIMEOUT_SECS="$_sc_vt_save"
+      fi
+    fi
+  fi
+
+  # the same-cycle VERIFY ran in the repo even if nothing is ticked (shadow, or refused): it must get the same RULE 1 tree check as every other VERIFY
+  [ -n "$ticked_lines" ] || [ "$_sc_ran" = 1 ] || return 0
 
   # RULE 1 again: running a VERIFY command must not have changed the tree. If it did, WE dirtied it: restore AFTER and refuse.
   _AC_PROG_CHANGED=0
@@ -361,6 +465,7 @@ ovn_auto_credit() {
     fi
   fi
 
+  [ -n "$ticked_lines" ] || return 0
   local _ac_row _ac_rowln _ac_rowtext
   for ln in $ticked_lines; do
     if [ "$_AC_PROG_CHANGED" = 1 ]; then
@@ -372,7 +477,7 @@ ovn_auto_credit() {
     fi
     _ac_before_text="$(sed -n "${ln}p" "$prog")"
     res="$(python3 "$_AC_DIR/ovn_credit_items.py" tick "$prog" "$ln" 2>/dev/null)"
-    if [ "$res" = "TICKED" ]; then ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; ovn_credit_twins "$prog" "$ln" "$_AC_TASK_LOG"; ovn_card_credit_shadow "$_ac_before_text" "$after"; fi
+    if [ "$res" = "TICKED" ]; then _AC_CREDITED_HASHES="${_AC_CREDITED_HASHES:-} $(_ovn_cr_hash "$_ac_before_text")"; ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; ovn_credit_twins "$prog" "$ln" "$_AC_TASK_LOG"; ovn_card_credit_shadow "$_ac_before_text" "$after"; fi
   done
   [ "$OVN_AC_CREDITED" -gt 0 ] || return 0
 
@@ -387,7 +492,11 @@ ovn_auto_credit() {
     return 1
   fi
   if ! git diff --cached --quiet 2>/dev/null; then
-    git commit -q -m "chore(queue): auto-credit item(s) whose file this green change touched" -- "$prog" 2>/dev/null
+    local _ac_msg="chore(queue): auto-credit item(s) whose file this green change touched" _ac_tl
+    if [ "${OVN_SAME_CYCLE_CREDIT:-shadow}" = on ] && [ -n "${_AC_CREDITED_HASHES:-}" ]; then
+      _ac_msg="${_ac_msg}"$'\n'; for _ac_tl in $_AC_CREDITED_HASHES; do _ac_msg="${_ac_msg}"$'\n'"Item-Hash: ${_ac_tl}"; done
+    fi
+    git commit -q -m "$_ac_msg" -- "$prog" 2>/dev/null
     OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"
   fi
   return 0

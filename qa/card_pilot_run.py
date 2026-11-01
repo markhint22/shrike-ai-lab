@@ -559,6 +559,31 @@ def _take_slot(base, n):
     return None
 
 
+def _nocard_is_noise(repo):
+    """K6 (2026-11-01): card_credit fired FLAG on 1002/1002 credits because the card pilot has produced NO cards for these repos, so every row said the same
+    thing ('credit_without_card') and carried no information. When the card store holds no card at all for the repo, log that fact ONCE (marker file
+    state/card_credit_nocard.<repo>.logged + one qa_gate_skips.jsonl line) and return True for every later credit so the caller does not record a row.
+    OVN_QA_CARD_CREDIT_NOCARD=rows restores a row per credit. The first credit (marker absent) is still recorded. Never raises."""
+    try:
+        if os.environ.get("OVN_QA_CARD_CREDIT_NOCARD", "once") == "rows":
+            return False
+        if any(r.get("repo") == repo and r.get("kind") == "card" and r.get("card") for r in read_rows()):
+            return False
+        d = qc.state_dir()
+        marker = os.path.join(d, "card_credit_nocard.%s.logged" % re.sub(r"[^A-Za-z0-9_.-]", "_", repo))
+        if os.path.exists(marker):
+            return True
+        os.makedirs(d, exist_ok=True)
+        with open(marker, "w") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
+        with open(os.path.join(d, "qa_gate_skips.jsonl"), "a") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "gate": CREDIT_GATE, "repo": repo, "reason_code": "no-cards-for-repo",
+                                "reason": "no S0 card exists for any item of %s: credit_without_card rows are suppressed from now on (one-time note; OVN_QA_CARD_CREDIT_NOCARD=rows restores them)" % repo}, sort_keys=True) + "\n")
+        return False
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def credit(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="card_pilot_run.py credit")
@@ -579,7 +604,10 @@ def credit(argv):
     det = {"item_key": key, "path": it["path"], "card_existed": False, "credit_without_card": True, "verify_passed_at_head": None}
     row = latest_card(read_rows(), a.repo, key)
     if row is None:
-        return qc.verdict("FLAG", CREDIT_GATE, a.repo, a.head, "credit_without_card: no S0 card exists for the credited item", det)
+        res = qc.verdict("FLAG", CREDIT_GATE, a.repo, a.head, "credit_without_card: no S0 card exists for the credited item", det)
+        if _nocard_is_noise(a.repo):
+            res["_norecord"] = True       # qc.main_guard still prints it but does not append the row
+        return res
     det.update(card_existed=True, credit_without_card=False, card_verdict=row.get("verdict"), card_lint_ok=bool(row.get("lint_ok")))
     verify = row["card"]["verify_cmd"]
     if not row.get("lint_ok"):

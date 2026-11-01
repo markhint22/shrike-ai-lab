@@ -32,6 +32,10 @@ OVN_FLOOR_ALERT_H (default 6) hours gets ONE `warn` line in state/alerts.log per
 0 backlog and no [ready] feature on 10-11 and nothing said so (the push alerters were consolidated into ovn_fleet_health.sh on 09-28 and none of them names this exact floor).
 Dedup: state/roadmap_floor_alerted.json {repo: "YYYY-MM-DD"}. OVN_FLOOR_ALERT=off disables; OVN_FLOOR_ALERT_MAX_BACKLOG (default 0) is the highest `backlog low (N)` that counts as the floor.
 
+2026-11-01 [READY] FLOOR (K4): the floor alert above only fires once the lane is already dry (backlog 0 AND > 6h starving). OVN_READY_FLOOR=off|shadow|on (default shadow) additionally warns, once per
+lane per local day, when roadmap/<repo>.md holds <= OVN_READY_FLOOR_MAX (default 2) `[ready]` features - the early warning. shadow writes "SHADOW would alert: ..." to state/roadmap_floor_shadow.log;
+on writes the `warn | ongoing-<repo> | roadmap-feature floor: ... has only N [ready] roadmap feature(s)` line to alerts.log (chronic-daily folded). Dedupe: state/roadmap_ready_floor_alerted.json.
+
 Usage: ovn_research_trigger_check.py [starve_hours=2] [log_path]
 """
 import importlib.util
@@ -52,6 +56,12 @@ PULLABLE_CHECKS = 2
 ALERTS_LOG = os.path.join(os.path.dirname(STATE), "alerts.log")
 FLOOR_STATE = os.path.join(os.path.dirname(STATE), "roadmap_floor_alerted.json")
 FLOOR_ALERT = os.environ.get("OVN_FLOOR_ALERT", "on") != "off"
+# 2026-11-01 (K4): the floor alert above only fires at backlog 0 AND >6h starving, i.e. after the lane is already dry. OVN_READY_FLOOR=off|shadow|on (default shadow:
+# logs what it would alert to state/roadmap_floor_shadow.log) warns once per lane per day when the roadmap holds <= OVN_READY_FLOOR_MAX (default 2) [ready] features.
+READY_FLOOR_MODE = os.environ.get("OVN_READY_FLOOR", "shadow")
+READY_FLOOR_STATE = os.path.join(os.path.dirname(STATE), "roadmap_ready_floor_alerted.json")
+READY_FLOOR_SHADOW = os.path.join(os.path.dirname(STATE), "roadmap_floor_shadow.log")
+READY_RE = re.compile(r"^- \[ \] \[P[1-4]\] \[ready\]", re.M)   # same selector as ovn_planner.sh / ovn_supply_report.py
 BACKLOG_LOW_RE = re.compile(r"backlog low \((\d+)\) but no \[ready\] roadmap feature")
 
 LINE_RE = re.compile(
@@ -179,6 +189,72 @@ def floor_alerts(starving, last_backlog, now):
     return fired
 
 
+def ready_floor_alerts(repos, now, skip=()):
+    """K4: warn once per lane per local day when roadmap/<repo>.md has <= OVN_READY_FLOOR_MAX [ready] features (default 2), BEFORE the lane is dry.
+    Mode off = nothing; shadow (default) = log the would-be line to roadmap_floor_shadow.log only; on = alerts.log (chronic-daily folding as the classic floor alert).
+    `skip` = repos the classic floor alert already covered in this run. Returns the lines written/logged. Never raises."""
+    mode = READY_FLOOR_MODE
+    if mode not in ("shadow", "on"):
+        return []
+    try:
+        max_ready = int(os.environ.get("OVN_READY_FLOOR_MAX", "2"))
+    except ValueError:
+        max_ready = 2
+    today = time.strftime("%Y-%m-%d", time.localtime(now))
+    try:
+        with open(READY_FLOOR_STATE) as f:
+            seen = json.load(f)
+        if not isinstance(seen, dict):
+            seen = {}
+    except (OSError, ValueError):
+        seen = {}
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ovn_chronic_alert as _ca
+        chronic = _ca.enabled()
+    except ImportError:
+        _ca, chronic = None, False
+    fired, changed = [], False
+    for repo in sorted(repos):
+        if repo in skip or seen.get(repo) == today:
+            continue
+        try:
+            with open(os.path.join(OVN_DIR, "roadmap", repo + ".md")) as f:
+                n = len(READY_RE.findall(f.read()))
+        except OSError:
+            continue   # no roadmap file for this lane: nothing to judge
+        if n > max_ready:
+            continue
+        line = "[%s] warn | ongoing-%s | roadmap-feature floor: %s has only %d [ready] roadmap feature(s) (floor %d) - promote [needs-research] features to [ready] in roadmap/%s.md (Claude research pass) before the lane runs dry" % (
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), repo, repo, n, max_ready, repo)
+        try:
+            if mode == "shadow":
+                with open(READY_FLOOR_SHADOW, "a") as f:
+                    f.write("SHADOW would alert: " + line + "\n")
+            elif chronic:
+                w = _ca.note(os.path.dirname(ALERTS_LOG), "roadmap-floor-ready:" + repo, line, now)
+                if w:
+                    fired.append(w)
+            else:
+                with open(ALERTS_LOG, "a") as f:
+                    f.write(line + "\n")
+        except OSError:
+            continue
+        seen[repo] = today
+        changed = True
+        if not (mode == "on" and chronic):
+            fired.append(line)
+    if changed:
+        try:
+            tmp = READY_FLOOR_STATE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(seen, f, indent=2, sort_keys=True)
+            os.replace(tmp, READY_FLOOR_STATE)
+        except OSError:
+            pass
+    return fired
+
+
 def load_streaks():
     try:
         with open(STREAK_STATE) as f:
@@ -256,7 +332,8 @@ def main():
     starving.sort(key=lambda r: -r["hours"])
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
     try:
-        floor_alerts(starving, last_backlog, now)   # r11 X8: one alerts.log warn per lane per day at the roadmap-feature floor
+        _fl = floor_alerts(starving, last_backlog, now)   # r11 X8: one alerts.log warn per lane per day at the roadmap-feature floor
+        ready_floor_alerts(list(by_repo), now, skip={r["repo"] for r in starving if any(("ongoing-%s |" % r["repo"]) in x for x in (_fl or []))})   # K4: [ready] <= 2
     except Exception:  # noqa: BLE001 - an alert helper must never break the starving state file the research poller reads
         pass
     for r in starving:

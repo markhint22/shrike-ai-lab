@@ -127,4 +127,21 @@ for qa_marker in "$STATE_DIR"/qa_stuck_alerted_*; do
   rm -f "$qa_marker"
 done
 
+# --- identical failing-test streak (2026-11-01, package K3 item 4) ------------------------------------------------------------------------------
+# Three consecutive hygiene failures on the SAME failing test set = a deterministic break (gitlark: one workspace-conversation status test, pass after pass). The python helper
+# parses logs/hygiene_gate/ and, once per signature, prints 'ALERT<TAB>repo<TAB>title<TAB>body' (mode OVN_HYG_SIGSTREAK=on) that is sent here as an URGENT = emergency-class relay
+# alert naming the tests and the commits that last touched them; the default mode (shadow) only logs (state/hygiene_sigstreak_shadow.log + one alerts.log info line).
+# OVN_HYG_SIGSTREAK=off disables. A missing helper / python3 is a log line, never a failure.
+if [ "${OVN_HYG_SIGSTREAK:-shadow}" != off ]; then
+  if [ -f scripts/ovn_hygiene_sigstreak.py ] && command -v python3 >/dev/null 2>&1; then
+    while IFS=$'\t' read -r _tag _repo _title _body; do
+      [ "$_tag" = ALERT ] || continue
+      alert "$_title" "rotating_light,no_entry" "$_body" "urgent"
+      log "$_repo: identical failing-test streak - EMERGENCY alert sent"
+    done < <(OVN_DIR="$PWD" OVN_STATE_DIR="$STATE_DIR" python3 scripts/ovn_hygiene_sigstreak.py 2>>"${OVN_HYG_SIGSTREAK_ERR:-/dev/null}")
+  else
+    log "identical-failing-test check skipped: scripts/ovn_hygiene_sigstreak.py or python3 missing"
+  fi
+fi
+
 log "hygiene-stuck check complete"

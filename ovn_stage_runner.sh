@@ -2123,7 +2123,7 @@ emit_unverified_outcome(){
   fr="$(bash ovn_classify_fail.sh "$cf" "$ust" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
   [ -n "$fr" ] && [ "$fr" != unknown ] || fr="stage-unverified"
   # 2026-10-21 (P4, OVN_STAGE_FAILTAG=on): the classifier short-circuits on the stage-unverified status text above, so fr was ALWAYS stage-unverified; use the cause tag
-  if [ "${OVN_STAGE_FAILTAG:-off}" = on ] && declare -F ovn_stage_fail_tag >/dev/null 2>&1; then _p4t="$(ovn_stage_fail_tag "$SLOG" "$vlog" 2>/dev/null)"; [ -n "$_p4t" ] && fr="$_p4t"; fi
+  if [ "${OVN_STAGE_FAILTAG-on}" = on ] && declare -F ovn_stage_fail_tag >/dev/null 2>&1; then _p4t="$(ovn_stage_fail_tag "$SLOG" "$vlog" 2>/dev/null)"; [ -n "$_p4t" ] && fr="$_p4t"; fi
   [ "${STAGE_NOEDIT:-0}" = 1 ] && fr="no-edit"   # 2026-10-10 (BX-09): the run produced no commit at all (bounded tag, same vocabulary as ovn_classify_fail.sh)
   detail="$(grep -m1 -iE 'FAILED |QUALITY FAIL|SEMANTIC FAIL|Error|error:|assert' "$vlog" 2>/dev/null | tr -d '"\\' | tr '\n\r\t' '   ' | tr -s ' ' | cut -c1-400)"
   [ -z "$detail" ] && detail="no step verified (${passed:-0}/${NSTEPS:-0} steps landed; no verify log)"

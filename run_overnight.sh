@@ -198,7 +198,7 @@ declare -F ovn_oa_head >/dev/null 2>&1 || ovn_oa_head(){ return 0; }
 declare -F ovn_vt_decide >/dev/null 2>&1 || ovn_vt_decide(){ OVN_VT_VERDICT=off; OVN_VT_COUNT=0; OVN_VT_BASE=""; OVN_VT_MSG=""; return 0; }
 declare -F ovn_vt_reset >/dev/null 2>&1 || ovn_vt_reset(){ return 0; }
 declare -F ovn_vt_revert_held >/dev/null 2>&1 || ovn_vt_revert_held(){ return 1; }
-# 2026-10-21 (package P4): stage-unverified fail tag (OVN_STAGE_FAILTAG, default off), head_before sidecar (the in-log marker was truncated by the scout's `> "$task_log"`),
+# 2026-10-21 (package P4): stage-unverified fail tag (OVN_STAGE_FAILTAG, default ON since 2026-11-01 (K4)), head_before sidecar (the in-log marker was truncated by the scout's `> "$task_log"`),
 # NO-NEW-RED re-run-once (OVN_NNR_RERUN=off|shadow|on, default off) + its revert label. Missing lib => the old behaviour for each.
 # shellcheck source=scripts/lib_p4_outcomes.sh
 source "$SCRIPT_DIR/scripts/lib_p4_outcomes.sh" 2>/dev/null || true
@@ -397,7 +397,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   if [ "$cls" != "landed" ] && [ -n "$tl" ] && [ -x "$SCRIPT_DIR/ovn_classify_fail.sh" ]; then
     fail_reason="$("$SCRIPT_DIR/ovn_classify_fail.sh" "$tl" "$3" 2>/dev/null)"
     # 2026-10-21 (P4): the stage caller's own cause tag for a stage-unverified row (only written when OVN_STAGE_FAILTAG=on)
-    if [ "${OVN_STAGE_FAILTAG:-off}" = on ] && [ -s "$tl.stagefr" ]; then
+    if [ "${OVN_STAGE_FAILTAG-on}" = on ] && [ -s "$tl.stagefr" ]; then
       case "$3" in *"no-op(stage-unverified)"*) _sfr="$(head -1 "$tl.stagefr" 2>/dev/null | tr -cd 'a-z0-9-')"; [ -n "$_sfr" ] && fail_reason="$_sfr";; esac
     fi
   fi
@@ -1771,9 +1771,9 @@ STUB
           # 2026-10-02 (bugs-first review fix): when the runner itself counted/escalated a manual bug this cycle (bug_attempt journal event), tag the
           # status 'bug-handled' (the 'no-op(stage-unverified)' text stays, so classification/stats are unchanged): ovn_item_guard.sh then neither
           # double-counts the attempt nor re-resolves 'top' and bills the failure to an unrelated roadmap item once the bug is parked.
-          # 2026-10-21 (P4, OVN_STAGE_FAILTAG=on, default off): one label hid 26 no-landing/no-verify runs and 28 failed-verify runs. The status text is unchanged; the
+          # 2026-10-21 (P4, OVN_STAGE_FAILTAG, default ON since 2026-11-01 K4): one label hid 26 no-landing/no-verify runs and 28 failed-verify runs. The status text is unchanged; the
           # cause goes to a sidecar record_outcome reads for fail_reason (dominant step reason, or the classified verify log).
-          if [ "${OVN_STAGE_FAILTAG:-off}" = on ] && [ -n "$_STAGE_JSONL" ]; then
+          if [ "${OVN_STAGE_FAILTAG-on}" = on ] && [ -n "$_STAGE_JSONL" ]; then
             _sft="$(ovn_stage_fail_tag "$_STAGE_JSONL" "${_STAGE_JSONL%.jsonl}.verify.log" 2>/dev/null)"
             [ -n "$_sft" ] && printf '%s\n' "$_sft" > "$task_log.stagefr" 2>/dev/null
           fi

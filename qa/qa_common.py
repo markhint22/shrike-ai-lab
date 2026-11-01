@@ -321,7 +321,8 @@ def main_guard(gate, fn, argv=None):
         res = verdict("UNVERIFIED", gate, "?", "?", "gate crashed: %s: %s" % (type(ex).__name__, ex))
     if res.get("ms") is None:
         res["ms"] = int((time.time() - t0) * 1000)
-    if "--no-record" not in argv:
+    skip_row = res.pop("_norecord", False)      # a gate may ask for one specific row not to be appended (K6: card_credit no-card noise); it is still printed
+    if "--no-record" not in argv and not skip_row:
         record(res)
     print(json.dumps(res, ensure_ascii=False, sort_keys=True))
     return 1 if (enforce_exit and res["mode"] == "enforce" and res["verdict"] == "FAIL") else 0

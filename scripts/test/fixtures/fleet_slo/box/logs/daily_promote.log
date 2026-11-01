@@ -1,0 +1,40 @@
+===== shrike-labs-website =====
+==================================================================
+shrike-labs-website: develop is +1 ahead of main
+  nothing to promote (tree identical).
+Daily prod promote Sat 09:00
+Promoted: billwatch iptv_apps
+No change: shrike-labs-website
+No change (tree identical): shrike-labs-website
+===== billwatch =====
+     billwatch-web/src/views/ForgotPasswordView.vue     |  75 +++++++++++++
+     billwatch-web/src/views/LoginView.vue              |   6 ++
+     .../src/views/__tests__/ForgotPasswordView.test.ts |  40 +++++++
+     30 files changed, 979 insertions(+), 47 deletions(-)
+  ⚠️  no staging URL configured (state/staging_url_billwatch) — smoke test SKIPPED.
+  ✅ PROMOTED billwatch develop -> main (+78). Prod deploy triggered. Rollback: git checkout prod-20261018-0900-billwatch
+  [candidate] 857f5bfd9f PASS, 0 develop merge(s) held back, release branch release/20261018, main fast-forwardable: yes
+  [staging-gate] mode=enforce staging_check=PASS/MATCH serving=857f5bfd9f provider=file evidence=ok -> proceed (MATCH: staging serves the candidate)
+  [prod-alembic] UNVERIFIED (shadow): no read-only prod alembic snapshot (candidate head 0005_add_sync_status_pass_counts) (no prod alembic snapshot)
+  [prod-deploy] billwatch promoted SHA 7f02dce8209f552329ce22ddb028df5514d1ba86 (main tip; the Railway PROD deploy builds exactly this commit)
+  [prod-deploy] post-promote check started (detached): result in logs/promote_postcheck.log, FAILED => emergency push + alerts.log
+===== iptv_apps =====
+     iptv-web/src/utils/playbackToken.ts                |  35 +++
+     iptv-web/src/views/PlayerView.vue                  |  42 +++-
+     59 files changed, 2084 insertions(+), 747 deletions(-)
+  [staging-e2e] mode=shadow e2e=UNVERIFIED commit=e017bf960d age=34m match=no source=box -> proceed (2 PASS, 5 UNVERIFIED)
+  ⚠️  no staging URL configured (state/staging_url_iptv_apps) — smoke test SKIPPED.
+  ✅ PROMOTED iptv_apps develop -> main (+189). Prod deploy triggered. Rollback: git checkout prod-20261018-0900-iptv_apps
+  [candidate] b1c9bbc31b PASS, 0 develop merge(s) held back, release branch release/20261018, main fast-forwardable: yes
+  [staging-gate] mode=enforce staging_check=PASS/MATCH serving=b1c9bbc31b provider=file evidence=ok -> proceed (MATCH: staging serves the candidate)
+  [prod-alembic] UNVERIFIED (shadow): no read-only prod alembic snapshot (candidate head 0015_parental_timezone_offset) (no prod alembic snapshot)
+  [prod-deploy] iptv_apps promoted SHA 7f4d8f62451769ed1a193768d001f551a0225c7f (main tip; the Railway PROD deploy builds exactly this commit)
+  [prod-deploy] post-promote check started (detached): result in logs/promote_postcheck.log, FAILED => emergency push + alerts.log
+===== shrike-labs-website =====
+==================================================================
+shrike-labs-website: develop is +1 ahead of main
+  nothing to promote (tree identical).
+Daily prod promote Sun 09:00
+Promoted: billwatch iptv_apps
+No change: shrike-labs-website
+No change (tree identical): shrike-labs-website

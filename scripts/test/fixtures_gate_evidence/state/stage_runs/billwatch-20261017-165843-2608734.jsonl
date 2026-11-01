@@ -1,0 +1,2 @@
+{"run": "20261017-165843-2608734", "repo": "billwatch", "tier": 1, "item": "[T1] x.py \u2014 real-shaped item [feat:billwatch-20261017-gate-regenerate-true-on-get-api-analytic]", "event": "decomposed", "steps": 1}
+{"run": "20261017-165843-2608734", "event": "item_verify", "mode": "shadow", "pre": "FAIL", "post": "FAIL", "post_why": "", "decision": "refuse:the item's own VERIFY is RED after the change"}

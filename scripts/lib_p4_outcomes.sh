@@ -2,12 +2,12 @@
 # scripts/lib_p4_outcomes.sh - package P4 (2026-10-21): stage-unverified classification, head_before audit, NO-NEW-RED re-run-once.
 # SOURCED by run_overnight.sh (and ovn_stage_runner.sh for the tag). Every function is fail-safe: a missing lib means the OLD behaviour.
 #
-#   ovn_stage_fail_tag <stage_runs jsonl> [verify_log]   (OVN_STAGE_FAILTAG=on|off, default off)
+#   ovn_stage_fail_tag <stage_runs jsonl> [verify_log]   (OVN_STAGE_FAILTAG=on|off, default ON since 2026-11-01 K4; an empty or off value disables)
 #       The inline stage caller's single "no-op(stage-unverified)" label hid two different things: 26 runs where no step landed and no verify ran (every step
 #       no-edit / empty-file / scope-violation / timeout / context-exceeded) and 28 where the full verify ran and failed. Prints one bounded tag:
 #         verify log present  -> ovn_classify_fail.sh on the verify log with a NEUTRAL status (the stage-unverified status itself short-circuits the classifier)
 #         no verify log       -> the dominant failed-step fail_reason from the journal (ties: first seen), else 'blocked' when steps were blocked, else stage-unverified.
-#       Off => prints nothing (caller keeps the old label). The status TEXT is never changed.
+#       Off (or empty) => prints nothing (caller keeps the old label). The status TEXT is never changed.
 #   ovn_hb_write <task_log> <sha>  / ovn_hb_read <task_log>
 #       head_before audit. The old marker went into the task log itself, and the scout step later does `aider ... > "$task_log"` (truncate), so 211 of 211 landed rows
 #       in 24h had head_before=="" and commits==[]. The sha now also goes to a sidecar "<task_log>.headbefore" that nothing truncates; first write wins (best-of-N).
@@ -18,7 +18,7 @@
 
 ovn_stage_fail_tag() {
   local jl="${1:-}" vlog="${2:-}" here tag
-  [ "${OVN_STAGE_FAILTAG:-off}" = on ] || return 0
+  [ "${OVN_STAGE_FAILTAG-on}" = on ] || return 0
   here="${OVN_P4_QDIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)}"
   if [ -n "$vlog" ] && [ -s "$vlog" ]; then
     tag="$(bash "$here/ovn_classify_fail.sh" "$vlog" "verify-failed" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"

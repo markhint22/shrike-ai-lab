@@ -18,7 +18,9 @@ QUEUE="$SHARED/CLAUDE_QUEUE.md"
 ARCHIVE="$SHARED/CLAUDE_QUEUE_DONE.md"
 BRIDGE="$SHARED/scripts/overnight-queue/claude_queue_bridge.py"
 ARCHIVER="$SHARED/scripts/overnight-queue/archive_claude_queue_done.py"
-SRV="${OVN_SSH:-mhintermeister@100.79.64.64}"
+# K1 (2026-11-01): OVN_SSH wins; else probe LAN then Tailscale (pick_srv in mac_lib.sh), LAN fallback; never fails. Tailscale-only default killed every Mac->box link for 4 days.
+[ -f "$SHARED/scripts/mac_lib.sh" ] && . "$SHARED/scripts/mac_lib.sh"
+if type pick_srv >/dev/null 2>&1; then SRV="$(pick_srv)"; else SRV="${OVN_SSH:-mhintermeister@192.168.68.145}"; fi
 REMOTE="${OVN_REMOTE_DIR:-overnight-queue}"
 TMP="$(mktemp -d)" || { echo "claude_queue_bridge: mktemp -d failed - abort" >&2; exit 1; }
 [ -n "$TMP" ] && [ -d "$TMP" ] || { echo "claude_queue_bridge: mktemp -d returned no usable directory - abort" >&2; exit 1; }   # 2026-10-16: an empty TMP made every "$TMP/..." path absolute

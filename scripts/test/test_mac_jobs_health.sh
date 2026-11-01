@@ -28,7 +28,7 @@ setlog() { printf '%s\n' "$2" > "$OVN_MAC_STATE/$1.log"; python3 -c 'import os,s
 live_ok() { printf '{"ts": %d, "mode": "enforce", "state": "ok", "head": "abc1234", "behind": 0, "ahead": 0, "detail": "", "dir": "x"}' "$NOW" > "$OVN_MAC_STATE/live_sync.json"; }
 run_h() { # run_h <mode> [now-offset] [script]
   local m="$1" off="${2:-0}" s="${3:-$HP}"
-  OVN_MAC_JOBS="$m" MAC_JOBS_MANIFEST="$MAN" MAC_JOBS_NOW=$((NOW + off)) MAC_JOBS_UID=501 MAC_JOBS_NO_BOX=1 python3 "$s" --print > "$T/hout.txt" 2>&1 < /dev/null
+  OVN_MAC_JOBS="$m" MAC_JOBS_MANIFEST="$MAN" MAC_JOBS_NOW=$((NOW + off)) MAC_JOBS_UID=501 MAC_JOBS_NO_BOX=1 MAC_DISK_FREE_GIB=100 python3 "$s" --print > "$T/hout.txt" 2>&1 < /dev/null
 }
 jf() { python3 -c 'import json,sys
 d=json.load(open(sys.argv[1]+"/health.json"))

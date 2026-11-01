@@ -14,6 +14,8 @@ Sources and limits (age = now - the file's own timestamp; a missing file counts 
   e2e_mac             state/qa_staging_e2e.json (the Mac RevenueCat lifecycle, copied over)   max 12 h     -> "Mac qa-staging-e2e not running: launchctl kickstart ..."
   e2e_box             state/staging_e2e_box.json (qa/staging_e2e_run.sh)                      max 12 h     -> box cron / runner hint
 The two e2e sources are skipped when the staging_e2e gate is off (OVN_QA_STAGING_E2E=off / qa_enforce.sh staging_e2e off). OVN_EVIDENCE_FRESHNESS=off disables the job.
+K1 (2026-11-01) ESCALATION (OVN_EVIDENCE_ESCALATE=on|shadow|off, default on): deploy_export older than 6 h (deploy_export_6h) or the daily promote HELD for EVIDENCE_STALE for
+more than a day (promote_held_stale) is written as an EMERGENCY alerts.log line AND pushed through the relay (X-Ovn-Level: emergency); WARN alone sat unread for 4 days.
 Dedupe: state/evidence_freshness_alerted.json {source: last alert epoch} - one WARN per stale source per 6 h; a source that is fresh again is forgotten, so the next
 outage alerts at once. Nothing here blocks, locks or touches a repo; always exits 0; prints one JSON summary line. EVIDENCE_FRESHNESS_NOW=<epoch> is a test clock.
 """
@@ -30,8 +32,12 @@ import qa_common as qc  # noqa: E402
 DEPLOY_MAX_S = 1800
 E2E_MAX_S = 12 * 3600
 REALERT_S = 6 * 3600
+ESCALATE_S = 6 * 3600          # K1: staging deploy export older than this => EMERGENCY (OVN_EVIDENCE_ESCALATE_S)
+HELD_ESCALATE_S = 24 * 3600    # K1: a daily promote held for EVIDENCE_STALE across more than this => EMERGENCY
+HELD_RE = None
 HINTS = {
-    "deploy_export": "Mac qa-staging-export not running: launchctl kickstart gui/$(id -u)/com.shrike.qa-staging-export (log ~/.qa_staging_export.log; needs the Railway CLI login)",
+    "deploy_export": "Mac qa-staging-export not running: launchctl kickstart gui/$(id -u)/com.shrike.qa-staging-export (log ~/.qa_staging_export.log; needs the Railway CLI login). "
+                     "If the export runs but copy to box fails: check ssh to $OVN_SSH and Tailscale",
     "e2e_mac": "Mac qa-staging-e2e not running: launchctl kickstart gui/$(id -u)/com.shrike.qa-staging-e2e (log ~/.qa_staging_e2e.log; needs the Railway CLI login)",
     "e2e_box": "box staging_e2e_run.sh produced no fresh result: check ~/overnight-queue/logs/staging_e2e.log and that the cron line '25 * * * * ... qa/staging_e2e_run.sh' is installed",
 }
@@ -81,12 +87,67 @@ def stale_sources(state_d, now, deploy_max=None, e2e_on=True):
     return out
 
 
-def run(state_d=None, now=None):
+def _hold_times(state_d):
+    """Epoch of every 'promote SKIPPED: staging_check EVIDENCE_STALE' line in state/alerts.log (written by promote_to_prod.sh), oldest first."""
+    import re
+    out = []
+    try:
+        with open(os.path.join(state_d, "alerts.log"), errors="replace") as f:
+            for line in f:
+                if "promote-staging-gate" in line and "EVIDENCE_STALE" in line:
+                    m = re.match(r"\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]", line)
+                    if m:
+                        out.append(time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")))
+    except OSError:
+        pass
+    return sorted(out)
+
+
+def escalations(state_d, now, deploy_max=None):
+    """-> list of (key, message): EMERGENCY-grade conditions. (1) newest staging deploy export older than 6 h (OVN_EVIDENCE_ESCALATE_S); (2) the daily promote HELD for
+    EVIDENCE_STALE on consecutive daily runs spanning > 24 h with the latest hold < 30 h ago. A missing export dir is NOT escalated (age unknown: fresh box)."""
+    out = []
+    lim = float(os.environ.get("OVN_EVIDENCE_ESCALATE_S", ESCALATE_S))
+    ages = [_age_of_json(p, "fetched_at", now) for p in glob.glob(os.path.join(state_d, "staging_deploys", "*.json"))]
+    ages = [a for a in ages if a is not None]
+    if ages and min(ages) > lim:
+        out.append(("deploy_export_6h", "staging deploy export is %.1f h old (> %g h): the daily promote gate will HOLD every repo. %s" % (min(ages) / 3600.0, lim / 3600.0, HINTS["deploy_export"])))
+    holds = _hold_times(state_d)
+    if holds and now - holds[-1] < 30 * 3600:
+        first = holds[-1]
+        for t in reversed(holds[:-1]):
+            if first - t > 36 * 3600:
+                break
+            first = t
+        if holds[-1] - first > HELD_ESCALATE_S:
+            out.append(("promote_held_stale", "daily promote HELD for EVIDENCE_STALE since %s (%.1f days): prod has not moved. %s" % (
+                time.strftime("%Y-%m-%d %H:%M", time.localtime(first)), (holds[-1] - first) / 86400.0, HINTS["deploy_export"])))
+    return out
+
+
+def push_emergency(title, msg):
+    """Best effort POST to the notification relay with X-Ovn-Level: emergency. Never raises. -> True when sent."""
+    import urllib.request
+    base = (os.environ.get("NTFY_SERVER") or "http://127.0.0.1:8099").rstrip("/")
+    topic = os.environ.get("NTFY_TOPIC", "shrike_ovn_311380987a")
+    try:
+        req = urllib.request.Request("%s/%s" % (base, topic), data=msg.encode()[:600], method="POST",
+                                     headers={"Title": title, "Priority": "urgent", "Tags": "rotating_light", "X-Ovn-Level": "emergency"})
+        urllib.request.urlopen(req, timeout=5).read()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def run(state_d=None, now=None, push=None):
     """Append the due alerts. -> (stale keys, alerted keys). Never raises on a bad dedupe file."""
     state_d = state_d or qc.state_dir()
     now = time.time() if now is None else now
     e2e_on = qc.mode("staging_e2e") != "off"
     stale = stale_sources(state_d, now, e2e_on=e2e_on)
+    esc_mode = os.environ.get("OVN_EVIDENCE_ESCALATE", "on")  # on | shadow (writes the EMERGENCY alerts.log line, no push) | off
+    esc = dict(escalations(state_d, now)) if esc_mode != "off" else {}
+    stale = stale + sorted(esc.items())
     dpath = os.path.join(state_d, "evidence_freshness_alerted.json")
     try:
         with open(dpath) as f:
@@ -102,8 +163,11 @@ def run(state_d=None, now=None):
         if isinstance(last, (int, float)) and now - last < REALERT_S:
             continue
         os.makedirs(state_d, exist_ok=True)
+        lvl = "EMERGENCY" if key in esc else "WARN"
         with open(os.path.join(state_d, "alerts.log"), "a") as f:
-            f.write("[%s] WARN | evidence-freshness | %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), msg.replace("\n", " ")))
+            f.write("[%s] %s | evidence-freshness | %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), lvl, msg.replace("\n", " ")))
+        if key in esc and esc_mode == "on":
+            (push or push_emergency)("Evidence stale: %s" % key, msg.replace("\n", " "))
         seen[key] = now  # only after the line is on disk
         alerted.append(key)
     os.makedirs(state_d, exist_ok=True)

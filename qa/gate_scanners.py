@@ -224,6 +224,21 @@ def usable_files(root, files, exts):
     return out
 
 
+TOOL_MISSING = "tool-missing"
+
+
+def mark_tool_missing(cells):
+    """K6 (2026-11-01): tag every UNVERIFIED cell whose tool is simply not installed with reason_code 'tool-missing' and return the sorted tool names. Without this a missing
+    ruff/bandit/gitleaks looked like any other UNVERIFIED row and the evidence report could not tell 'cannot run here' from 'ran and was unsure'. Text-matches the
+    '<tool> not installed' notes the run_* functions emit; no behaviour change (verdicts and summaries are untouched)."""
+    miss = []
+    for t, c in cells.items():
+        if c.get("status") == "UNVERIFIED" and str(c.get("note") or "").endswith(" not installed"):
+            c["reason_code"] = TOOL_MISSING
+            miss.append(t)
+    return sorted(miss)
+
+
 def run_ruff(root, files, timeout, ctx):
     exe = find_tool("ruff")
     if not exe:
@@ -824,6 +839,9 @@ def do_check(argv):
                "test_findings_excluded": test_skipped, "merge_base": mb, "cells": cells, "new": brief(sorted(real, key=lambda f: (not blocking(f), f["tool"], f["file"], f["line"]))),
                "advisory_new": brief(advis), "advisory_tools": sorted(ADVISORY), "baseline_mode": bmode,
                "stored_baseline": (stored or {}).get("sha", None)}
+    _miss = mark_tool_missing(cells)
+    if _miss:
+        details["reason_code"], details["tools_missing"] = TOOL_MISSING, _miss
     cnt = Counter("%s:%s" % (f["tool"], f["rule"]) for f in real)
     nloc = len({(f["file"], f["line"]) for f in real})
     top = ", ".join("%s x%d" % kv for kv in cnt.most_common(4))

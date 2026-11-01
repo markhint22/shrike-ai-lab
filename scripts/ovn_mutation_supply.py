@@ -8,6 +8,8 @@ item cannot be vacuous: it is RED while the mutant survives and GREEN only when 
 
 usage:
   ovn_mutation_supply.py scan   <repo_dir> [--max-mutants N] [--json]    nightly (cron, nice): run up to N mutants (default 40), write the survivors file
+  ovn_mutation_supply.py scan-all [--max-mutants N] [--json]    scan EVERY repo named in OVN_MUT_REPOS (comma list of names under $OVN_DIR/repos; default `xlite`), one after the other,
+                                each with its own OVN_MUT_MAX budget; a repo that is missing or is not a Godot project is skipped with a log line, never a failure (2026-11-01, K5)
   ovn_mutation_supply.py verify <repo_dir> <test_file> <src_file> <line> <orig_token> <mutated_token> [<occurrence>]
                                 exit 0 iff the test file PASSES on the real code and FAILS BY ASSERTION on the mutant (applied to a temp copy)
   ovn_mutation_supply.py sites  <gd_file>                                list the mutation sites of one file (debug)
@@ -21,7 +23,13 @@ GUT `-gtest=res://tests/<f>.gd -gexit`, 30 s timeout. survived = the test passes
 'Parse Error'/'SCRIPT ERROR' text (a mutant that breaks parsing or raises at run time is NOT a kill and NOT a survivor: status 'error').
 Cache: state/mutation_scan_<repo>.json keyed by (source sha, test sha); survivors: state/mutation_survivors_<repo>.json.
 env: OVN_DIR (default ~/overnight-queue), OVN_GODOT_BIN (default ~/godot/godot4), OVN_MUT_REF (default origin/overnight/feature, falls back to HEAD),
-     OVN_MUT_TIMEOUT (default 30), OVN_MUT_MAX (default 40), OVN_MUTATION_SCAN=off (scan kill switch), OVN_SUPPLY_MUTATION=1 (collect() is off unless set).
+     OVN_MUT_TIMEOUT (default 30), OVN_MUT_MAX (default 40), OVN_MUTATION_SCAN=off (scan kill switch), OVN_SUPPLY_MUTATION=1 (collect() is off unless set),
+     OVN_MUT_REPOS (scan-all target list, default `xlite`).
+ADDING MORE REPOS (2026-11-01, K5): the scanner mutates GDScript only (GUT tests, `scripts/**/*.gd`, a project.godot), so iptv_apps / billwatch / gitlark (Python/TypeScript/Kotlin) have
+nothing to scan today: scan-all logs `skip <repo>: no project.godot` for them. To widen coverage once a repo has a Godot project (or a second scanner exists): (1) add its name to OVN_MUT_REPOS
+in the cron line; (2) add the repo to the OVN_SUPPLY_MUTATION=1 work-supply cron (collect() reads state/mutation_survivors_<repo>.json, which scan writes per repo); (3) keep OVN_MUT_MAX per-repo budget x
+repos inside the cron `timeout`. Proposed cron (NOT installed; replaces the xlite-only 02:30 line):
+  30 2 * * * cd ~/overnight-queue && [ ! -e state/PAUSED ] && flock -n state/mutation_scan.lock nice -n 19 timeout 5400 env OVN_MUT_MAX=60 OVN_MUT_REPOS=xlite,iptv_apps,billwatch,gitlark python3 scripts/ovn_mutation_supply.py scan-all >> logs/mutation_scan.log 2>&1
 """
 import hashlib
 import json
@@ -603,11 +611,65 @@ def collect(root):
                "verify": verify_command(tp, src, s)}
 
 
+def mut_repos():
+    """Repo names scan-all walks: OVN_MUT_REPOS (comma list, whitespace tolerated, order kept, duplicates dropped), default `xlite`."""
+    raw = os.environ.get("OVN_MUT_REPOS")
+    names = [x.strip() for x in (raw if raw is not None else "xlite").split(",")]
+    out = []
+    for n in names:
+        if n and n not in out and "/" not in n and n not in (".", ".."):
+            out.append(n)
+    return out
+
+
+def scan_all(max_mutants, as_json=False):
+    """scan() for each repo of mut_repos(). A repo with no checkout, or whose checkout ref has no project.godot, is skipped with a line (non-Godot repos have nothing this scanner can mutate);
+    a crash in one repo does not stop the next. Returns 0 always (a best-effort nightly job)."""
+    for name in mut_repos():
+        rd = os.path.join(OVN_DIR, "repos", name)
+        if not os.path.isdir(rd):
+            print("mutation scan-all: skip %s: no checkout at %s" % (name, rd))
+            continue
+        if not is_godot_repo(rd):
+            print("mutation scan-all: skip %s: no project.godot (the scanner mutates GDScript only)" % name)
+            continue
+        try:
+            scan(rd, max_mutants, as_json)
+        except Exception as e:     # one repo's failure must not starve the others of their scan
+            print("mutation scan-all: %s failed: %s: %s" % (name, type(e).__name__, str(e)[:160]))
+    return 0
+
+
+def is_godot_repo(repo_dir):
+    """project.godot in the ref scan() will archive (OVN_MUT_REF, else HEAD) or, failing git, in the working tree."""
+    ref = os.environ.get("OVN_MUT_REF", "origin/overnight/feature")
+    if subprocess.run(["git", "-C", repo_dir, "rev-parse", "-q", "--verify", ref + "^{commit}"], capture_output=True).returncode != 0:
+        ref = "HEAD"
+    r = subprocess.run(["git", "-C", repo_dir, "cat-file", "-e", "%s:project.godot" % ref], capture_output=True)
+    if r.returncode == 0:
+        return True
+    return os.path.isfile(os.path.join(repo_dir, "project.godot")) and subprocess.run(["git", "-C", repo_dir, "rev-parse", "-q", "--verify", "HEAD"], capture_output=True).returncode != 0
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 0
     cmd = argv[1]
+    if cmd == "scan-all":
+        if os.environ.get("OVN_MUTATION_SCAN", "on") == "off":
+            print("mutation scan-all: OVN_MUTATION_SCAN=off - skip")
+            return 0
+        mx = int(os.environ.get("OVN_MUT_MAX", "40"))
+        if "--max-mutants" in argv:
+            mx = int(argv[argv.index("--max-mutants") + 1])
+        if not os.path.exists(godot_bin()):
+            print("mutation scan-all: godot binary %s not found - skip" % godot_bin())
+            return 0
+        import signal
+        for _sig in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(_sig, lambda n, f: sys.exit(128 + n))
+        return scan_all(mx, "--json" in argv)
     if cmd == "scan":
         if len(argv) < 3:
             print("usage: scan <repo_dir> [--max-mutants N] [--json]")

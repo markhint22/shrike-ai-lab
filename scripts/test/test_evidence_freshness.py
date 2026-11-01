@@ -38,6 +38,7 @@ def ok(name, cond, extra=""):
 T = os.path.realpath(tempfile.mkdtemp(prefix="evfresh-test-"))
 for k in ("OVN_QA_STAGING_E2E", "QA_STAGING_MAX_AGE_S", "EVIDENCE_FRESHNESS_NOW", "OVN_EVIDENCE_FRESHNESS", "QA_STATE_DIR", "OVN_DIR"):
     os.environ.pop(k, None)
+os.environ["OVN_EVIDENCE_ESCALATE"] = "off"  # K1: escalation has its own suite (test_evidence_escalation.py); this one pins the WARN dedupe logic across a 6 h clock jump
 
 
 def load(path, name):

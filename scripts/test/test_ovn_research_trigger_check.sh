@@ -6,6 +6,7 @@
 # Hermetic: HOME is a temp dir, logs are synthesized with timestamps relative to "now".
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_test_tz.sh"   # 2026-11-01 (K4): time-relative suite, pinned to UTC (DST fall-back made "N hours ago" ambiguous)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 PY="$HERE/../ovn_research_trigger_check.py"; [ -f "$PY" ] || PY="$REAL_HOME/overnight-queue/scripts/ovn_research_trigger_check.py"

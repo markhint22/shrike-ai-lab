@@ -1,0 +1,2 @@
+2026-10-19T05:12:01Z	gitlark	ruff	shadow	would-apply	1c5f999710c3d7bbddc5f1b08cd31394	backend/app/core/ai_config.py	20261018-235811
+2026-10-19T07:47:13Z	gitlark	ruff	shadow	would-apply	a4b91e0edf38e2fac885985f41bac7d1	backend/app/core/circuit_breaker.py	20261019-022553

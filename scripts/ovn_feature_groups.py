@@ -89,6 +89,7 @@ def _slugify(text, cut=40):
     """Mirror ovn_planner.sh's `tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g;
     s/^-+//; s/-+$//' | cut -c1-40` exactly, so a feat_id's slug can be re-derived from
     roadmap text and matched byte-for-byte."""
+    text = re.sub(r'\s*\[small-decomposition[^\]]*\]', '', text)   # 2026-11-01 K5: planner marker, not feature text
     s = re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
     return s[:cut]
 

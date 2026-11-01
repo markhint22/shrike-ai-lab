@@ -1,0 +1,1 @@
+{"details": {"cap_s": 600, "counts": {"not_checked": 142}, "cpu_s": 208.1}, "gate": "mutation", "mode": "shadow", "ms": 555100, "ref": "5b0535aa7b8bb7fca0433fcea1e955f7125efe7f", "repo": "billwatch", "summary": "hit the 600s wall cap (partial: 0/142 mutants checked, 0 survived)", "ts": "2026-10-20T13:59:24Z", "verdict": "UNVERIFIED"}

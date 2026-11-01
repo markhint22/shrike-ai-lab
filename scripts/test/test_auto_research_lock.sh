@@ -5,6 +5,7 @@
 # after the lock is taken (the old code leaked the lock on every daily-cap exit, which matches the alternation).
 # Hermetic (lib_ar_fixture.sh): temp HOME/state, stub ssh/scp/claude. Liveness in this test is ps stat too. Mutation checks at the bottom.
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_test_tz.sh"   # 2026-11-01 (K4): time-relative suite, pinned to UTC (DST fall-back made "N hours ago" ambiguous)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../../ovn_auto_research.sh"; [ -f "$SCRIPT" ] || SCRIPT="$HERE/../ovn_auto_research.sh"
 . "$HERE/lib_ar_fixture.sh"

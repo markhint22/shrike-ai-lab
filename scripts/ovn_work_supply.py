@@ -35,6 +35,8 @@ env:   OVN_DIR (default ~/overnight-queue); OVN_SUPPLY_MIN_BACKLOG (default 24: 
        OVN_WORK_SUPPLY=off kills the whole thing.
        OVN_SUPPLY_INFRA_ESCALATE_AFTER (12) / OVN_SUPPLY_INFRA_REALERT_EVERY (48): an unusable-verdict streak escalates to an 'error' alerts.log line (with the offending specs)
        and repeats it every N passes; OVN_INGEST_BAN_FILTER=off also drops the ban patterns from the pullable count (same switch as queue_refill).
+       OVN_SUPPLY_FROZEN=on|shadow|off (on): 2026-11-01 (K3 item 3) a gap whose file is on the repo's AGENTS.md frozen list ('Legacy/frozen - do not add ...' bullets, backticked
+       paths; a 'dual-purpose' bullet is skipped) is never supplied (gitlark: 34 BLOCKED cycles on a supply item for frozen code_review_agent.py). shadow = log only.
 exit:  0 always; prints a "N gaps found, M filtered (...), K specs" line and an ADDED/DRY-RUN line.
 """
 import ast
@@ -866,6 +868,104 @@ EXTENDED_REPOS = ("gitlark", "billwatch", "test-automation-agent", "shrike-monit
 EXTENDED_KINDS = ("swallowed-exception", "no-rate-limit", "pure-function-tests", "unused-import", "ruff-F601", "ruff-F811")
 
 
+FROZEN_MODE = os.environ.get("OVN_SUPPLY_FROZEN", "on").strip().lower()      # on | shadow | off
+_FROZEN_LEAD = re.compile(r"\bfrozen\b", re.I)
+_BULLET = re.compile(r"^\s{0,3}[-*+]\s")
+_FROZEN_GENERIC = frozenset(("__init__.py", "index.ts", "index.js", "index.tsx", "main.py", "utils.py", "util.py", "types.ts", "models.py", "config.py", "app.py", "base.py", "conftest.py"))
+
+
+def frozen_paths(root):
+    """Paths the repo's AGENTS.md declares frozen -> list of repo-relative strings (a trailing '/' = a directory; '*' = a glob).
+    Format read (gitlark's): a non-bullet line mentioning 'frozen' together with 'do not' (or a heading mentioning it) opens a list; the bullets that follow (indented lines
+    continue a bullet; blank lines and a few prose lines before the first bullet are tolerated; the next non-indented prose line after a bullet closes the list) each
+    contribute their backticked, slash-containing tokens. A bullet saying 'dual-purpose' is skipped (it names a file that stays in scope). Nothing else is frozen: no heuristics
+    on prose, so an AGENTS.md without such a list yields []."""
+    try:
+        text = read(os.path.join(root, "AGENTS.md"))
+    except Exception:
+        return []
+    out, bullets, cur = [], [], None
+    state, prose_left = "idle", 0       # idle | armed (lead-in seen, no bullet yet) | list
+    for ln in text.split("\n"):
+        is_bullet = bool(_BULLET.match(ln))
+        if state == "idle":
+            if not is_bullet and _FROZEN_LEAD.search(ln) and (re.search(r"do not", ln, re.I) or ln.lstrip().startswith("#")):
+                state, prose_left = "armed", 6
+            continue
+        if is_bullet:
+            state = "list"
+            cur = [ln]
+            bullets.append(cur)
+        elif not ln.strip():
+            continue
+        elif ln[:1] in (" ", "\t") and cur is not None:
+            cur.append(ln)
+        elif state == "armed":
+            prose_left -= 1
+            if prose_left <= 0:
+                state = "idle"
+        else:   # a non-indented prose line after the bullets: the list is over (it may itself open the next one)
+            state, cur = "idle", None
+            if _FROZEN_LEAD.search(ln) and (re.search(r"do not", ln, re.I) or ln.lstrip().startswith("#")):
+                state, prose_left = "armed", 6
+    for b in bullets:
+        body = " ".join(b)
+        if re.search(r"dual-purpose", body, re.I):
+            continue
+        for tok in re.findall(r"`([^`\s]+)`", body):
+            tok = tok.strip().rstrip(".,;:")
+            if tok.startswith(("-", "http")) or ("/" not in tok and "*" not in tok):
+                continue
+            if tok.startswith("./"):
+                tok = tok[2:]
+            if tok not in out:
+                out.append(tok)
+    return out
+
+
+def frozen_hit(path, frozen, root=None):
+    """The frozen entry that covers `path` (exact path, directory prefix, glob, or - only for an entry whose file NO LONGER EXISTS in the checkout (a stale list after a move)
+    and whose basename is distinctive - the same basename elsewhere), else None."""
+    import fnmatch
+    for fz in frozen:
+        if "*" in fz:
+            if fnmatch.fnmatch(path, fz):
+                return fz
+        elif fz.endswith("/"):
+            if path.startswith(fz):
+                return fz
+        elif path == fz:
+            return fz
+    if root is not None:
+        base = os.path.basename(path)
+        for fz in frozen:
+            if "*" in fz or fz.endswith("/") or os.path.basename(fz) != base or base in _FROZEN_GENERIC:
+                continue
+            if not os.path.exists(os.path.join(root, fz)):
+                return fz
+    return None
+
+
+def _frozen_note(repo, hits, mode):
+    """One log line per (file, day) in state/work_supply_frozen.log and ONE alerts.log info line per pass that has a new one."""
+    today = datetime.date.today().isoformat()
+    seen_p = _state("work_supply_frozen_seen_%s" % repo)
+    seen = set(read(seen_p).split("\n"))
+    new = [(f, fz) for f, fz in hits if "%s|%s" % (today, f) not in seen]
+    if not new:
+        return
+    try:
+        os.makedirs(os.path.dirname(seen_p), exist_ok=True)
+        with open(seen_p, "a") as f:
+            f.write("".join("%s|%s\n" % (today, x) for x, _ in new))
+        with open(_state("work_supply_frozen.log"), "a") as f:
+            for x, fz in new:
+                f.write("%s %s %s %s (AGENTS.md frozen entry %s)\n" % (time.strftime("%F %T"), repo, "SHADOW would-skip" if mode == "shadow" else "skipped", x, fz))
+    except OSError:
+        return
+    _alert("info", repo, "%s %d gap(s) on AGENTS.md frozen file(s): %s" % ("SHADOW would skip" if mode == "shadow" else "skipped", len(new), ", ".join(x for x, _ in new[:4])))
+
+
 def kind_allowlist(repo):
     """None = no restriction (iptv_apps, xlite, unknown repos, or OVN_SUPPLY_PROFILE=off); else the set of spec kinds this repo may be supplied with."""
     if repo not in EXTENDED_REPOS or os.environ.get("OVN_SUPPLY_PROFILE", "on") == "off":
@@ -1315,9 +1415,17 @@ def main(argv):
     seen, resupplied = load_seen(seen_path, now), load_resupplied(resup_path)
     lines_all = (backlog_t + "\n" + progress_t + "\n" + done_t).split("\n")
     found = collect_all(root, repo)
-    stat = {"seen": 0, "open": 0, "done-cooldown": 0, "held-by-file": 0, "parked": 0}
+    stat = {"seen": 0, "open": 0, "done-cooldown": 0, "held-by-file": 0, "parked": 0, "frozen": 0}
     specs, files_taken, resup_keys = [], set(), set()
+    frozen = frozen_paths(root) if FROZEN_MODE != "off" else []
+    frozen_hits = []
     for s in found:
+        fz = frozen_hit(s["file"], frozen, root) if frozen else None
+        if fz:
+            frozen_hits.append((s["file"], fz))
+            if FROZEN_MODE == "on":
+                stat["frozen"] += 1
+                continue
         why = _filter(s, lines_all, seen, resupplied, now)
         if why in stat:
             stat[why] += 1
@@ -1331,6 +1439,8 @@ def main(argv):
         specs.append(s)
         if why == "resupply":
             resup_keys.add(spec_key(s))
+    if frozen_hits and not dry:
+        _frozen_note(repo, frozen_hits, FROZEN_MODE)
     if not found:
         print("%s: no new mechanical gaps found" % repo)
         if not dry:
@@ -1338,7 +1448,7 @@ def main(argv):
         return 0
     print("%s: %d gaps found, %d filtered (seen=%d open=%d done-cooldown=%d held-by-file=%d%s), %d specs" % (
         repo, len(found), sum(stat.values()), stat["seen"], stat["open"], stat["done-cooldown"], stat["held-by-file"],
-        (" parked=%d" % stat["parked"]) if stat["parked"] else "", len(specs)))
+        ((" parked=%d" % stat["parked"]) if stat["parked"] else "") + ((" frozen=%d" % stat["frozen"]) if stat["frozen"] else ""), len(specs)))
     if not specs:
         if not dry:
             _touch(last_path)

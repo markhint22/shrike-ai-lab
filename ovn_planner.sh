@@ -217,6 +217,7 @@ PROMPT_END
   # misses per feature: accept 1-2 valid items on the 2nd miss, park a feature that yields nothing
   # after 3 tries as [needs-decompose] (which the [ready] selector skips) and say so.
   _miss_file="$STATE_DIR/planner_miss_${r}"
+  _small_decomp=0
   _miss_key="$(printf '%s' "$r|$feat" | cksum | cut -d' ' -f1)"
   if [ "${n:-0}" -lt 3 ]; then
     _misses=0
@@ -225,6 +226,7 @@ PROMPT_END
     printf '%s %s\n' "$_miss_key" "$_misses" > "$_miss_file" 2>/dev/null || true
     if [ "${n:-0}" -ge 1 ] && [ "$_misses" -ge 2 ]; then
       say "$r: 27B produced ${n} valid item(s) twice for this feature - accepting the small decomposition"
+      _small_decomp=1   # 2026-11-01 (K5): remembered so the [decomposed] roadmap line can say so (see below)
     elif [ "$_misses" -ge 3 ]; then
       sed -i "${fln}s/\[ready\]/[needs-decompose]/" "$rm"
       rm -f "$_miss_file"
@@ -336,6 +338,14 @@ PROMPT_END
   } >> "$bl"
   # mark the feature decomposed in the roadmap
   sed -i "${fln}s/\[ready\]/[decomposed]/" "$rm"
+  # 2026-11-01 (K5 supply engine): a feature the 27B could only split into 1-2 items (accepted on the 2nd miss) is the cheapest source of more supply: a human/Claude can split it
+  # properly. Record that on the roadmap line (` [small-decomposition n=<items>]`, appended at the END so the line's [P#]/[status] prefix and every `{cat:..}` parser are untouched;
+  # ovn_feature_groups / ovn_supply_ledger / ovn_local_research / ovn_qwen_explore slug functions strip the marker, so the 40-char [feat:] slug match is unaffected).
+  # Logging only: nothing else changes. OVN_PLANNER_SMALL_MARK=off disables it. `grep '\[small-decomposition' roadmap/<repo>.md` lists the features to split.
+  if [ "$_small_decomp" = 1 ] && [ "${OVN_PLANNER_SMALL_MARK:-on}" != off ]; then
+    sed -i "${fln}s/\$/ [small-decomposition n=${n}]/" "$rm"
+    say "$r: recorded small-decomposition (n=${n}) on the roadmap line: ${feat:0:80}"
+  fi
   say "$r: appended ${n} 27B-decomposed items to backlog; marked feature [decomposed]"
   clear_research_alert "$r"
   _did=$((_did+1))

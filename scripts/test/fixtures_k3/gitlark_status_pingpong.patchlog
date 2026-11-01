@@ -1,0 +1,27 @@
+@@9e8b5919ceffedf4c6f21386c3f471b624ecf7ad|1793491616|fix: change conversation creation endpoint status code to 201
+
+diff --git a/backend/app/routers/workspaces.py b/backend/app/routers/workspaces.py
+index c839ce94..e5414130 100644
+--- a/backend/app/routers/workspaces.py
++++ b/backend/app/routers/workspaces.py
+@@ -156 +156 @@ conversation_service = ConversationService()
+-@router.post("/{workspace_id}/conversations", response_model=ConversationResponse, status_code=200)
++@router.post("/{workspace_id}/conversations", response_model=ConversationResponse, status_code=201)
+@@ffc43510c201026596969736853afe9dafc4f5e8|1793478062|fix: change conversation creation endpoint status code to 200
+
+diff --git a/backend/app/routers/workspaces.py b/backend/app/routers/workspaces.py
+index 92485a54..78bf6d8b 100644
+--- a/backend/app/routers/workspaces.py
++++ b/backend/app/routers/workspaces.py
+@@ -156 +156 @@ conversation_service = ConversationService()
+-@router.post("/{workspace_id}/conversations", response_model=ConversationResponse, status_code=201)
++@router.post("/{workspace_id}/conversations", response_model=ConversationResponse, status_code=200)
+@@10c5746267e9d2cac34e347585c2b3d5be996b51|1793466512|fix: set 201 status code for workspace conversation creation
+
+diff --git a/backend/app/routers/workspaces.py b/backend/app/routers/workspaces.py
+index 06e09445..92485a54 100644
+--- a/backend/app/routers/workspaces.py
++++ b/backend/app/routers/workspaces.py
+@@ -156 +156 @@ conversation_service = ConversationService()
+-@router.post("/{workspace_id}/conversations", response_model=ConversationResponse)
++@router.post("/{workspace_id}/conversations", response_model=ConversationResponse, status_code=201)

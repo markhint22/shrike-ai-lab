@@ -351,6 +351,7 @@ echo; echo "===== coverage cron noise ====="; bash test_coverage_cron_noise.sh |
 echo; echo "===== credit refused park ====="; bash test_credit_refused_park.sh || rc=1
 echo; echo "===== delete intent ====="; bash test_delete_intent.sh || rc=1
 echo; echo "===== evidence freshness ====="; bash test_evidence_freshness.sh || rc=1
+echo; echo "===== evidence escalation (K1) ====="; bash test_evidence_escalation.sh || rc=1
 echo; echo "===== executor hook ====="; bash test_executor_hook.sh || rc=1
 echo; echo "===== fixup gates e2e ====="; bash test_fixup_gates_e2e.sh || rc=1
 echo; echo "===== fixup own test placeholder ====="; bash test_fixup_own_test_placeholder.sh || rc=1
@@ -579,6 +580,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
   echo; echo "===== mac live commit push ====="; bash test_mac_live_commit_push.sh || rc=1
   echo; echo "===== mac jobs health ====="; bash test_mac_jobs_health.sh || rc=1
   echo; echo "===== mac jobs install ====="; bash test_mac_jobs_install.sh || rc=1
+  echo; echo "===== k1 mac reach ====="; bash test_k1_mac_reach.sh || rc=1
   echo; echo "===== mac bridge e2e ====="; bash test_mac_bridge_e2e.sh || rc=1
 else
   echo; echo "===== mac tests (skipped on non-macOS) ====="
@@ -612,5 +614,16 @@ echo; echo "===== P5 shadow evidence (stage-order journal ts/item_hash/decision_
 echo; echo "===== qwen explore feature ====="; bash test_qwen_explore_feature.sh || rc=1
 echo; echo "===== P8 VERIFY pre-flight + observability (verify-lint A1 async-AST / H1 hyphen-import under OVN_VERIFY_ASYNC_LINT, scout-guard out-of-repo abs path, item_line_hash + digest sibling split, stage item-verify rc 4/5 shadow) ====="; bash test_p8_verify_preflight.sh || rc=1
 echo; echo "===== qa antigaming noact ====="; bash test_qa_antigaming_noact.sh || rc=1
+echo; echo "===== hygiene sigstreak ====="; bash test_hygiene_sigstreak.sh || rc=1
+echo; echo "===== item guard day cap ====="; bash test_item_guard_day_cap.sh || rc=1
+echo; echo "===== ovn pingpong guard ====="; bash test_ovn_pingpong_guard.sh || rc=1
+echo; echo "===== ovn work supply frozen ====="; bash test_ovn_work_supply_frozen.sh || rc=1
+echo; echo "===== K4: same-cycle credit of the worked item (OVN_SAME_CYCLE_CREDIT shadow default, Item-Hash trailer, mutants) ====="; bash test_k4_same_cycle_credit.sh || rc=1
+echo; echo "===== K4: digest noise (dedupe per hour, Queue-empty once, pass-rate min sample) + [ready] floor alert, mutants ====="; bash test_k4_digest_noise.sh || rc=1
+echo; echo "===== K4: time-relative suites pinned to UTC (DST fall-back night coverage failures), mutant ====="; bash test_k4_tz_pin.sh || rc=1
+echo; echo "===== K4: test_aider_commit_rescue tmp leak (7 git repos per run left behind), mutant ====="; bash test_k4_tmp_leak.sh || rc=1
+echo; echo "===== K5 supply engine (runway forecast, explorer lens yield cap, fresh local-research evidence, small-decomposition slug, mutation repo list; 20 mutants) ====="; bash test_k5_supply_engine.sh || rc=1
+echo; echo "===== K5 planner small-decomposition marker (GNU sed: box-only like test_ovn_planner.sh; 4 mutants) ====="; run_or_notrun test_k5_planner_small_decomp.sh
+echo; echo "===== K6: gate evidence report (shadow gates joined with later outcomes; UNVERIFIED separate; promote/HOLD rule; tool-missing codes; card_credit once-log; digest hook off by default; mutants) ====="; python3 test_ovn_gate_evidence_report.py || rc=1
 echo; finish || rc=1
 exit $rc

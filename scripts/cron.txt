@@ -21,8 +21,29 @@
 # Kill switch: OVN_CHURN_GUARD=off (or comment the line).  Dry run: DRY_RUN=1 scripts/ovn_churn_guard.sh.  Rollback: delete the line.
 */20 * * * * OVN_CHURN_REPOS="iptv_apps xlite" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_churn_guard.sh
 
+# --- Literal ping-pong guard (2026-11-01, package K3 item 1: gitlark workspace-conversation status_code 201 -> 200 -> 201 by three fleet commits in 8h, ~34 BLOCKED cycles; the churn guard needs >=8
+# commits on a FILE). ovn_pingpong_guard.sh reads the last 24h of origin/overnight/feature (FETCH ONLY) and flags a line whose literals (numbers/strings/true/false/None) were set to a
+# different value by >=3 fleet commits with at least one REVISIT (A->B->A). Default mode is SHADOW (state/pingpong_shadow.log + one alerts.log info line; nothing written to any branch);
+# OVN_PINGPONG_MODE=enforce parks the open items naming the file ([AUTO-SKIP pingpong: ...; recovery:none]) and adds ONE [CLAUDE] follow-up (citing the likely failing test + the competing
+# commits) that claude_queue_bridge.sh harvests into CLAUDE_QUEUE.md. Shipped OFF (not installed): enable by removing '#OFF# '.  Kill switch: OVN_PINGPONG_GUARD=off.  DRY_RUN=1 prints only.
+#OFF# (off by default) */20 * * * * OVN_PINGPONG_REPOS="gitlark billwatch iptv_apps test-automation-agent" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_pingpong_guard.sh
+
+# --- K3 flags that need no cron line (all default to SHADOW or the safe side; shipped with the code):
+#   OVN_ITEM_DAY_CAP_MODE=shadow|enforce|off (shadow) + OVN_ITEM_DAY_CAP=3   ovn_item_guard.sh: any 3 non-landing attempts of one item in 24h (mixed statuses) -> parked when enforce
+#   OVN_SUPPLY_FROZEN=on|shadow|off (on)                                     ovn_work_supply.py: never supply a gap on a file in the repo's AGENTS.md frozen list
+#   OVN_HYG_SIGSTREAK=shadow|on|off (shadow)                                 ovn_hygiene_stuck_check.sh (existing hourly cron): >=3 hygiene failures on the IDENTICAL failing test set -> urgent alert when 'on'
+
 # --- 2026-10-18 supply report (ovn_supply_report.py): per starving repo depth / burn / runway / last supply source / root cause -> state/supply_report.json + logs/supply_report.log.
 # READ-ONLY and pushes nothing: ovn_notify.py update (hourly) and ovn_research_trigger_check.{sh,py} read it. Every 30 min at :14/:44 (before the :20 hourly update).
 14,44 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_supply_report.py >> logs/supply_report.cron.log 2>&1
 # MAC crontab (NOT the box): ships the auto-research run.log + bridge status to the box so the report can name auto-research causes (lane excluded / rc=124 / parser reject / cap).
 # 17 * * * * python3 $HOME/LocalProjects/shared/scripts/overnight-queue/scripts/ovn_supply_report.py --export-ar | ssh -o BatchMode=yes mhintermeister@100.79.64.64 'cat > overnight-queue/state/.ar_status.tmp && mv overnight-queue/state/.ar_status.tmp overnight-queue/state/auto_research_status.json'
+
+# --- 2026-11-01 K5 supply engine (PROPOSED, NOT INSTALLED; every new behaviour defaults to shadow)
+# supply-runway forecast (ovn_supply_forecast.py): per repo burn (landed/day, trailing 7d) vs pullable + [ready] x ~5 -> runway hours; < 24h writes state/research_requests/<repo>.json
+# (mode on only) and adds ONE hourly-update bullet. Shadow = json + logs/supply_forecast.log only. Flip to on with `env OVN_SUPPLY_FORECAST=on` after a day of sane shadow lines.
+# 7,37 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_supply_forecast.py >> logs/supply_forecast.cron.log 2>&1
+# explorer lens yield cap: OVN_QE_YIELD_CAP=shadow|on|off (default shadow; notes `yield-cap-shadow:would-skip=<lens>` on the pass line), OVN_QE_YIELD_N=4. No cron change.
+# local-research fresh evidence: OVN_LR_FRESH_EVIDENCE=shadow|on|off (default shadow; coverage_latest[_<repo>].json, ruff_<repo>.json, tsc_<repo>.txt in state/, origin-tree TODOs). No cron change.
+# mutation scan for more repos (GDScript-only scanner: today only xlite has a project.godot; replaces the 02:30 xlite line when a second Godot repo exists):
+# 30 2 * * * cd /home/mhintermeister/overnight-queue && [ ! -e state/PAUSED ] && flock -n state/mutation_scan.lock nice -n 19 timeout 5400 env OVN_MUT_MAX=60 OVN_MUT_REPOS=xlite python3 scripts/ovn_mutation_supply.py scan-all >> logs/mutation_scan.log 2>&1

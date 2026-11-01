@@ -17,6 +17,7 @@ drafts, and committed (that one file only). Nothing here touches code.
 
 usage: ovn_local_research.py <repo> [--dry-run] [--force] [--max N] [--evidence-only]
 env:   OVN_DIR (default ~/overnight-queue), LITELLM_BASE, LITELLM_MASTER_KEY, OVN_MODEL,
+       OVN_LR_FRESH_EVIDENCE=shadow|on|off (default shadow; K5: extra evidence from coverage / ruff / tsc summaries / origin-tree TODOs when the normal collectors leave < 2 pieces),
        OVN_LR_COVERED_MODE=open|legacy (default open: evidence is covered only by an OPEN line naming the same file AND symbol/line)
 exit:  0 always (research is best-effort); prints one summary line.
 """
@@ -170,6 +171,165 @@ def gd_untested_classes(root):
     return out
 
 
+# ---------------------------------------------------------------- FRESH evidence (2026-11-01, K5 supply engine)
+# The collectors above go dry: every finding is covered by an open line or remembered as a duplicate (3 proposed / 0 validated, then `only N piece(s) of evidence`). These extra sources read
+# artifacts the fleet already produces, so a dry pass has something new to look at. Every proposal built from them still goes through the SAME validator, path check and dup memory.
+#   coverage   state/coverage_latest_<repo>.json, else state/coverage_latest.json (coverage.py `json` shape {"files": {path: {"missing_lines": [...]}}}, or {"repos": {<repo>: that}}):
+#              public functions (py `def`, gd `func`) whose body is mostly uncovered
+#   lint       state/ruff_<repo>.json (`ruff check --output-format json`: [{code, filename, location:{row}, message}]) and state/tsc_<repo>.txt (`path(line,col): error TSnnnn: msg` lines)
+#   todo       TODO/FIXME in the repo's ORIGIN tree (git grep of origin/overnight/feature, else HEAD) - the working-tree `todos` collector sees only the checkout
+# OVN_LR_FRESH_EVIDENCE=shadow|on|off, default SHADOW: when the normal collectors leave < 2 pieces, `shadow` only reports how many fresh pieces exist (stdout line + state/local_research_fresh.log)
+# and changes nothing; `on` appends them as evidence. off = nothing.
+FRESH_MAX_PER_SOURCE = int(os.environ.get("OVN_LR_FRESH_PER_SOURCE", "6"))
+FRESH_MIN_UNCOVERED = int(os.environ.get("OVN_LR_FRESH_MIN_UNCOVERED", "5"))
+
+
+def fresh_mode():
+    m = os.environ.get("OVN_LR_FRESH_EVIDENCE", "shadow").strip().lower()
+    return m if m in ("shadow", "on", "off") else "shadow"
+
+
+def _load_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _repo_rel(root, repo, path):
+    """Repo-relative form of a path found in a report (absolute, `repos/<repo>/..`, or already relative); None when the file is not in the checkout."""
+    p = path.replace("\\", "/")
+    for marker in ("/repos/%s/" % repo, "repos/%s/" % repo):
+        if marker in p:
+            p = p.split(marker, 1)[1]
+            break
+    else:
+        if p.startswith(root.rstrip("/") + "/"):
+            p = p[len(root.rstrip("/")) + 1:]
+    p = p.lstrip("./") if p.startswith("./") else p
+    return p if p and not p.startswith("/") and os.path.isfile(os.path.join(root, p)) else None
+
+
+def _func_spans(text, is_gd):
+    """[(name, first_line, last_line)] of top-level functions by indentation (1-based, inclusive). Public only (no leading underscore)."""
+    lines = text.split("\n")
+    rx = re.compile(r"^func ([a-z][A-Za-z0-9_]*)\(" if is_gd else r"^(?:async )?def ([a-z][A-Za-z0-9_]*)\(")
+    spans = []
+    for i, l in enumerate(lines):
+        m = rx.match(l)
+        if not m:
+            continue
+        j = i + 1
+        while j < len(lines) and (not lines[j].strip() or lines[j][:1] in (" ", "\t")):
+            j += 1
+        last = j
+        while last > i + 1 and not lines[last - 1].strip():
+            last -= 1
+        spans.append((m.group(1), i + 1, last))
+    return spans
+
+
+def fresh_uncovered_functions(root, repo, state):
+    d = _load_json(os.path.join(state, "coverage_latest_%s.json" % repo))
+    if d is None:
+        d = _load_json(os.path.join(state, "coverage_latest.json"))
+        if isinstance(d, dict) and isinstance(d.get("repos"), dict):
+            d = d["repos"].get(repo)
+    files = d.get("files") if isinstance(d, dict) else None
+    if not isinstance(files, dict):
+        return []
+    out = []
+    for path, info in sorted(files.items()):
+        miss = (info or {}).get("missing_lines") if isinstance(info, dict) else None
+        if not miss:
+            continue
+        r = _repo_rel(root, repo, path)
+        if not r or is_test_path(r) or not r.endswith((".py", ".gd")):
+            continue
+        missing = {int(x) for x in miss if isinstance(x, int)}
+        for name, a, b in _func_spans(read(os.path.join(root, r)), r.endswith(".gd")):
+            body = set(range(a + 1, b + 1))
+            n_miss = len(body & missing)
+            if n_miss >= FRESH_MIN_UNCOVERED and n_miss * 2 >= len(body):
+                out.append({"kind": "uncovered-function", "file": r, "line": a,
+                            "text": "public function `%s`: %d of its %d lines never ran under the test suite (coverage report)" % (name, n_miss, len(body)), "_w": n_miss})
+    out.sort(key=lambda e: -e.pop("_w"))
+    return out[:FRESH_MAX_PER_SOURCE * 3]
+
+
+def fresh_lint_findings(root, repo, state):
+    out = []
+    rj = _load_json(os.path.join(state, "ruff_%s.json" % repo))
+    if isinstance(rj, list):
+        seen = set()
+        for f in rj:
+            try:
+                r = _repo_rel(root, repo, str(f["filename"]))
+                if not r or is_test_path(r):
+                    continue
+                key = (r, f["code"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({"kind": "lint-finding", "file": r, "line": int((f.get("location") or {}).get("row") or 1),
+                            "text": "ruff %s: %s" % (f["code"], str(f.get("message", ""))[:100])})
+            except (KeyError, TypeError, ValueError):
+                continue
+    seen = set()
+    for l in read(os.path.join(state, "tsc_%s.txt" % repo)).split("\n"):
+        m = re.match(r"^(.+?)\((\d+),\d+\): error (TS\d+): (.*)$", l.strip())
+        if not m:
+            continue
+        r = _repo_rel(root, repo, m.group(1))
+        if not r or is_test_path(r) or (r, m.group(3)) in seen:
+            continue
+        seen.add((r, m.group(3)))
+        out.append({"kind": "lint-finding", "file": r, "line": int(m.group(2)), "text": "tsc %s: %s" % (m.group(3), m.group(4)[:100])})
+    return out[:FRESH_MAX_PER_SOURCE * 2]
+
+
+def fresh_origin_todos(root, repo=None, state=None):
+    ref = os.environ.get("OVN_LR_ORIGIN_REF", "origin/overnight/feature")
+    try:
+        if subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", ref + "^{commit}"], capture_output=True, timeout=20).returncode != 0:
+            ref = "HEAD"
+        r = subprocess.run(["git", "-C", root, "grep", "-nIE", r"(^|[^A-Za-z0-9_])(TODO|FIXME)[: ]", ref, "--", "*.py", "*.ts", "*.tsx", "*.vue", "*.gd", "*.kt"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    out = []
+    for l in r.stdout.split("\n"):
+        m = re.match(r"^[^:]+:(.+?):(\d+):(.*)$", l) if ":" in l else None
+        if not m or is_test_path(m.group(1)):
+            continue
+        out.append({"kind": "todo", "file": m.group(1), "line": int(m.group(2)), "text": m.group(3).strip()[:140]})
+    return out[:FRESH_MAX_PER_SOURCE * 3]
+
+
+FRESH_COLLECTORS = [fresh_uncovered_functions, fresh_lint_findings, fresh_origin_todos]
+
+
+def collect_fresh(root, repo, state, skip=None, have=(), limit=None):
+    """Round-robin over FRESH_COLLECTORS, at most FRESH_MAX_PER_SOURCE each, dropping evidence `skip` calls covered and anything whose (file, line) is already in `have`."""
+    limit = MAX_EVIDENCE if limit is None else limit
+    taken = {(e["file"], e["line"]) for e in have}
+    per = []
+    for fn in FRESH_COLLECTORS:
+        try:
+            lst = [e for e in fn(root, repo, state) if (e["file"], e["line"]) not in taken and not (skip and skip(e))]
+        except Exception as e:      # a broken fresh source must not kill the pass
+            sys.stderr.write("fresh collector %s failed: %s\n" % (fn.__name__, e))
+            lst = []
+        per.append(lst[:FRESH_MAX_PER_SOURCE])
+    out = []
+    while len(out) < limit and any(per):
+        for lst in per:
+            if lst and len(out) < limit:
+                out.append(lst.pop(0))
+    return out
+
+
 COLLECTORS = [py_unlimited_routers, py_swallowed, py_untested_functions, gd_loaders_without_coercion,
               gd_untested_classes, todos]
 
@@ -219,6 +379,7 @@ KIND_WORDS = {
 
 def feat_slug(feature_text):
     """The slug ovn_planner.sh puts in a [feat:<repo>-<YYYYMMDD>-<slug>] tag: lowercase, non-alnum runs -> '-', trimmed, first 40 chars."""
+    feature_text = re.sub(r"\s*\[small-decomposition[^\]]*\]", "", feature_text)   # 2026-11-01 K5: planner marker, not feature text
     s = re.sub(r"[^a-z0-9]+", "-", feature_text.lower()).strip("-")[:40]
     return s or "item"
 
@@ -502,6 +663,20 @@ def main(argv):
     dup_path = os.path.join(state, "local_research_dupseen_%s" % repo)
     dup_seen = load_dup_seen(dup_path) if os.environ.get("OVN_LR_DUP_MEMORY", "on") != "off" else {}
     evidence = collect(root, skip=(lambda e: covered(e) or evidence_key(e) in dup_seen))
+    # 2026-11-01 (K5): the normal collectors are dry -> look at the fresh sources (coverage / lint summaries / origin-tree TODOs). shadow (default) only reports.
+    if len(evidence) < 2 and fresh_mode() != "off":
+        _skip = lambda e: covered(e) or evidence_key(e) in dup_seen  # noqa: E731
+        _fresh = collect_fresh(root, repo, state, skip=_skip, have=evidence)
+        if _fresh:
+            _kinds = ",".join(sorted({e["kind"] for e in _fresh}))
+            sys.stderr.write("%s: fresh-evidence[%s]: %d piece(s) (%s)\n" % (repo, fresh_mode(), len(_fresh), _kinds))
+            try:
+                with open(os.path.join(state, "local_research_fresh.log"), "a") as f:
+                    f.write("%s %s [%s] %d fresh piece(s): %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), repo, fresh_mode(), len(_fresh), _kinds))
+            except OSError:
+                pass
+            if fresh_mode() == "on":
+                evidence = (evidence + _fresh)[:MAX_EVIDENCE]
     if "--evidence-only" in flags:
         for e in evidence:
             print("[%s] %s:%d %s" % (e["kind"], e["file"], e["line"], e["text"]))

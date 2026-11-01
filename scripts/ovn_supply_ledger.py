@@ -128,6 +128,7 @@ def classify_header(header):
 
 def _slug(text):
     """The slug ovn_planner.sh puts in a [feat:<repo>-<YYYYMMDD>-<slug>] tag: lowercase, non-alnum runs -> '-', trimmed, first 40 chars."""
+    text = re.sub(r"\s*\[small-decomposition[^\]]*\]", "", text)   # 2026-11-01 K5: the planner's small-decomposition marker is not part of the feature text
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "item"
 
 

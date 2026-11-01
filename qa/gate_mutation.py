@@ -227,6 +227,8 @@ def record_skip(reason, repo=None, record=True):
         d = qc.state_dir()
         os.makedirs(d, exist_ok=True)
         row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "gate": GATE, "reason": str(reason)[:300]}
+        if "mutmut is not installed" in str(reason) or "cannot locate the QA venv" in str(reason):
+            row["reason_code"] = "tool-missing"        # K6: the evidence report calls this out instead of treating it as a quiet skip
         if repo:
             row["repo"] = repo
         with open(os.path.join(d, "qa_gate_skips.jsonl"), "a") as f:

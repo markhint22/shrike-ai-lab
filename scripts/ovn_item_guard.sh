@@ -122,7 +122,7 @@ case "$status" in
         rm -f "$state/item_fails/${id}.${_lh}.count" "$state/item_fails/${id}.${_lh}.toks" \
               "$state/item_fails/${id}.${_lh}.noopcount" "$state/item_fails/${id}.${_lh}.nooptoks" \
               "$state/item_fails/${id}.${_lh}.lastfail" "$state/item_fails/${id}.${_lh}.indet" "$state/item_fails/${id}.${_lh}.indetlands" "$state/item_fails/${id}.${_lh}.lastids" \
-              "$state/item_fails/${id}.${_lh}.ungrounded" "$state/credit_refused/$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g').${_lh}" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive"); item credited => its credit-refusal counter goes too
+              "$state/item_fails/${id}.${_lh}.ungrounded" "$state/item_fails/${id}.${_lh}.attempts24" "$state/credit_refused/$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g').${_lh}" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive"); item credited => its credit-refusal counter goes too
       done < <(grep -ohE 'item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
       # 2026-10-02 (harness-X X-a): "indet-hash <md5>" = the cycle landed green but the item's own VERIFY timed out / was not runnable, so the runner
       # could neither credit nor fail it. The commit DID land: clear its failure/no-op streaks like a credited landing, and arm a bounded allowance
@@ -140,7 +140,7 @@ case "$status" in
         fi
         rm -f "$state/item_fails/${id}.${_ih}.count" "$state/item_fails/${id}.${_ih}.toks" \
               "$state/item_fails/${id}.${_ih}.noopcount" "$state/item_fails/${id}.${_ih}.nooptoks" \
-              "$state/item_fails/${id}.${_ih}.lastfail" "$state/item_fails/${id}.${_ih}.ungrounded" 2>/dev/null
+              "$state/item_fails/${id}.${_ih}.lastfail" "$state/item_fails/${id}.${_ih}.ungrounded" "$state/item_fails/${id}.${_ih}.attempts24" 2>/dev/null
         printf '0' > "$state/item_fails/${id}.${_ih}.indet" 2>/dev/null
       done < <(grep -ohE 'indet-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
     fi
@@ -228,6 +228,7 @@ lineno="${top%%:*}"
 text="${top#*:}"
 # 2026-10-02: schema/migration/model items get a larger fail + token budget (measured evidence in lib_item_select.sh ovn_schema_budget);
 # every other item keeps CAP/NCAP/TOKCAP exactly as configured above. OVN_SCHEMA_BUDGET=off restores the single budget for all.
+_CAP_BASE="$CAP"
 if command -v ovn_schema_budget >/dev/null 2>&1; then
   CAP="$(ovn_schema_budget failcap "$CAP" "$text")"
   NCAP="$(ovn_schema_budget noopcap "$NCAP" "$text")"
@@ -356,6 +357,50 @@ if [ "$is_bug" = 1 ]; then
     rm -f "$bcountf" "$btoksf" "$state/failures/${id}.count" 2>/dev/null
   fi
   exit 0
+fi
+
+# --- Rolling 24h non-landing cap (2026-11-01, package K3 item 2) --------------------------------------------------------------------------------------
+# Every cap above counts CONSECUTIVE same-kind results (fails on one counter, no-ops on another, same failing-test signature on a third) and a landing or an
+# unrelated cycle of another kind resets or dilutes them, so an item that alternates (revert, no-op, revert, fixup-undid-item ...) all day never reaches any single
+# cap: gitlark's workspace-conversation status item took 34 BLOCKED-class cycles plus reverts before a human saw it. This counts ANY non-landing attempt of the item in a
+# rolling 24h window: state/item_fails/<id>.<hash>.attempts24 holds one "<epoch> <status word>" line per guard call (older than 24h are dropped; a landing of the item
+# deletes the file). At OVN_ITEM_DAY_CAP (default 3) attempts the item is parked, whatever mix of statuses they were.
+# Not counted (nothing attempted, or a benign/terminal no-op that has its own path): skip*/held* and no-op(BLOCKED|ALREADY-DONE|NEEDS-DECISION).
+# OVN_ITEM_DAY_CAP_MODE (default shadow): shadow = log only (state/item_day_cap_shadow.log on every over-cap attempt + ONE alerts.log info line per crossing),
+# enforce = tag '[AUTO-SKIP after N non-landing attempts in 24h (...); review]' + chore(queue) commit/push like the other caps, off = disabled.
+_dc_mode="${OVN_ITEM_DAY_CAP_MODE:-shadow}"
+_dc_cap="${OVN_ITEM_DAY_CAP:-3}"; case "$_dc_cap" in ''|*[!0-9]*|0) _dc_cap=3;; esac
+# K3 review fix: schema/migration/model items already got a larger fail budget above (CAP raised from _CAP_BASE by ovn_schema_budget); the day cap grows by the same
+# amount so it can never park them BEFORE their own budget is spent. Non-schema items (CAP == _CAP_BASE) keep the plain day cap.
+case "$CAP:${_CAP_BASE:-}" in *[!0-9:]*|:*|*:) ;; *) [ "$CAP" -gt "$_CAP_BASE" ] && _dc_cap=$(( _dc_cap + CAP - _CAP_BASE )) ;; esac
+if [ "$_dc_mode" != off ]; then
+  case "$status" in
+    skip*|held*|no-op\(BLOCKED\)|no-op\(ALREADY-DONE\)|no-op\(NEEDS-DECISION\)) : ;;
+    *)
+      _dc_f="$state/item_fails/${id}.${h}.attempts24"
+      _dc_now="$(date +%s)"
+      _dc_word="$(printf '%s' "$status" | tr -c 'A-Za-z0-9()_.-' ' ' | awk '{print ($1 == "" ? "none" : $1)}')"
+      { [ -f "$_dc_f" ] && awk -v lo=$(( _dc_now - 86400 )) '$1 ~ /^[0-9]+$/ && $1 > lo' "$_dc_f"; printf '%s %s\n' "$_dc_now" "$_dc_word"; } > "$_dc_f.$$" 2>/dev/null && mv -f "$_dc_f.$$" "$_dc_f" 2>/dev/null
+      _dc_n="$(wc -l < "$_dc_f" 2>/dev/null | tr -d ' ')"; case "$_dc_n" in ''|*[!0-9]*) _dc_n=0;; esac
+      if [ "$_dc_n" -ge "$_dc_cap" ]; then
+        _dc_mix="$(awk '{print $2}' "$_dc_f" | sort | uniq -c | awk '{printf "%s%sx %s", (NR>1?", ":""), $1, $2}')"
+        if [ "$_dc_mode" = enforce ]; then
+          branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+          _ig_sedi "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP after ${_dc_n} non-landing attempts in 24h (${_dc_mix}) - mixed outcomes, so no single-kind streak tripped; review] #" "$prog"
+          if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+            git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+            git -C "$repo" commit -q -m "chore(queue): park item after ${_dc_n} non-landing attempts in 24h (per-item day cap)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
+            [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+            echo "AUTO-SKIPPED item after ${_dc_n} non-landing attempts in 24h (${_dc_mix}): ${text:0:70}"
+          fi
+          rm -f "$state/failures/${id}.count" "$countf" "$toksf" "$ncountf" "$ntoksf" "$lastidsf" "$_dc_f" 2>/dev/null
+          exit 0
+        fi
+        printf '%s id=%s hash=%s attempts24=%s/%s mix=%s status=%s item=%s\n' "$(date '+%F %T')" "$id" "$h" "$_dc_n" "$_dc_cap" "$_dc_mix" "$status" "${text:0:100}" >> "$state/item_day_cap_shadow.log" 2>/dev/null || true
+        [ "$_dc_n" -eq "$_dc_cap" ] && echo "[$(date '+%Y-%m-%d %H:%M:%S')] info | item-guard | ${id} item ${h:0:8} SHADOW day-cap: ${_dc_n} non-landing attempts in 24h (${_dc_mix}) - would park (OVN_ITEM_DAY_CAP_MODE=enforce): ${text:0:80}" >> "$state/alerts.log" 2>/dev/null
+      fi
+      ;;
+  esac
 fi
 
 # --- Ungrounded-plan sibling-group park (2026-10-04, h13) ------------------------------------------------------------------------------------

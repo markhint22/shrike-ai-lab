@@ -315,6 +315,15 @@ $_TRI_LINES"
   fi
 fi
 
+# 2026-11-01 (K6): ONE bullet of shadow-gate promotion evidence (ovn_gate_evidence_report.py --digest). OFF by default: set OVN_GATE_EVIDENCE_DIGEST=on to enable.
+# Read-only; a failure or empty output adds nothing.
+if [ "${OVN_GATE_EVIDENCE_DIGEST:-off}" = "on" ] && [ -f "$DIR/ovn_gate_evidence_report.py" ]; then
+  _GEV="$(OVN_STATE_DIR="$STATE_DIR" python3 "$DIR/ovn_gate_evidence_report.py" --digest 2>/dev/null | head -1)"
+  [ -n "$_GEV" ] && body="$body
+
+$_GEV"
+fi
+
 # 2026-09-19 FIX: only rotate/clear the buffer if the digest actually delivered. Previously
 # this ran unconditionally, so a failed send (see send() above) still wiped the accumulated
 # stats — the next cycle would report a falsely-quiet window and the failed window's data

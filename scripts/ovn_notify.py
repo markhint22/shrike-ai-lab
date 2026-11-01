@@ -21,6 +21,10 @@ env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIF
         OVN_IDLE_LINE=0 (no "Lane idle" lines in the hourly update), OVN_IDLE_ALERT=0 (no "Fleet starved" emergency), OVN_IDLE_ALERT_H (default 6)
         OVN_STARVED_PRIORITY=off ("Fleet starved" only when EVERY lane is idle, not when the priority lanes are), OVN_PRIORITY_LANES (default iptv_apps,xlite),
         OVN_DUTY_LINE=0 (no "Lane duty 24h" line in the hourly update)
+        2026-11-01 (K4 digest noise), each OVN_*=off|shadow|on, default shadow (shadow = state/notify_shadow.log "would ..." lines, behaviour unchanged; on = enforce):
+        OVN_DIGEST_DEDUPE   (one digest per (title with digits folded, UTC hour); two went out at 01:20)
+        OVN_EMPTY_ONCE      ('Queue empty' bullet: one line, only when the set of empty repos changes or every OVN_EMPTY_REPEAT_H=6 h)
+        OVN_PASSRATE_MIN    ('Pass rate' headline only with >= OVN_PASSRATE_MIN_N=5 good+bad outcomes in the window)
 """
 import base64
 import email.header
@@ -59,6 +63,22 @@ EMERGENCY_RE = re.compile(r"\bDOWN\b|auto-restart FAILED|fleet stalled|model is 
 
 def _p(name):
     return os.path.join(STATE, name)
+
+
+def _mode(flag):
+    """off | shadow | on for an OVN_* flag; unset or unrecognised = shadow (new enforcement behaviour ships log-only)."""
+    v = (os.environ.get(flag) or "shadow").strip().lower()
+    return v if v in ("off", "shadow", "on") else "shadow"
+
+
+def _shadow(flag, msg):
+    """One 'would ...' line for a flag in shadow mode. Never raises."""
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(_p("notify_shadow.log"), "a") as f:
+            f.write("[%s] %s | would %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now())), flag, msg))
+    except OSError:
+        pass
 
 
 def now():
@@ -145,6 +165,16 @@ def fix_header(v):
     return v
 
 
+def _digest_key(key):
+    """A digest's dedupe key: the title with digit runs folded ('2 to look at' and '3 to look at' are the SAME hourly digest)."""
+    return re.sub(r"\d+", "#", key or "")
+
+
+def _body_hash(body):
+    import hashlib
+    return hashlib.md5((body or "").encode("utf-8", "replace")).hexdigest()[:12]
+
+
 def forward(title, body, priority="default", tags="", kind="emergency", dry=False):
     """Push ONE message upstream, honoring the daily cap and the per-title emergency cooldown. Returns 'sent' | 'deduped' | 'capped' | 'failed' | 'dry'."""
     key = clean_title(title)
@@ -152,6 +182,16 @@ def forward(title, body, priority="default", tags="", kind="emergency", dry=Fals
     if kind == "emergency":
         if any(r.get("key") == key and r.get("kind") == "emergency" and now() - r["ts"] < EMERGENCY_COOLDOWN for r in hist):
             return "deduped"
+    if kind == "digest" and _mode("OVN_DIGEST_DEDUPE") != "off":
+        dk, hr, bh = _digest_key(key), int(now() // 3600), _body_hash(body)
+        # same folded title AND same body in the same UTC hour: a changed body (new problem, different items, a boot line) is NEW
+        # information and must go out; records written before this field existed (no "bh") never suppress.
+        if any(r.get("kind") == "digest" and _digest_key(r.get("key", "")) == dk and int(r.get("ts", 0) // 3600) == hr
+               and r.get("bh") == bh for r in hist):
+            if _mode("OVN_DIGEST_DEDUPE") == "on":
+                return "deduped"
+            if not dry:
+                _shadow("OVN_DIGEST_DEDUPE", "suppress a second digest in the same hour: %s" % key)
     if len(hist) >= DAILY_CAP:
         return "capped"
     if dry:
@@ -170,7 +210,7 @@ def forward(title, body, priority="default", tags="", kind="emergency", dry=Fals
         code = e.code
     except Exception:
         code = 0
-    _append_jsonl(_p("notify_sent.jsonl"), {"ts": now(), "key": key, "kind": kind, "ok": ok, "code": code})
+    _append_jsonl(_p("notify_sent.jsonl"), {"ts": now(), "key": key, "kind": kind, "ok": ok, "code": code, "bh": _body_hash(body)})
     if not ok:
         # an undeliverable EMERGENCY must still reach the next hourly update (a failed hourly update itself is simply retried next hour)
         if kind == "emergency":
@@ -348,6 +388,17 @@ def stats_line(t, rows_hour):
     gh, bh = _pass_counts(rows_hour)
     gd, bd = _pass_counts(today)
     out = "Pass rate: last hour %d/%d (%s) · today %d/%d (%s)" % (gh, gh + bh, _pct(gh, bh), gd, gd + bd, _pct(gd, bd))
+    try:
+        min_n = int(os.environ.get("OVN_PASSRATE_MIN_N", "5"))
+    except ValueError:
+        min_n = 5
+    if gd + bd < min_n and _mode("OVN_PASSRATE_MIN") != "off":
+        # K4: "Pass rate: today 1/1 (100%)" / "0/2 (0%)" is noise, not a rate
+        if _mode("OVN_PASSRATE_MIN") == "on":
+            # only the TODAY half of the headline is a too-small sample: keep the last-hour figure and (below) the tier split
+            out = "Outcomes today: %d (fewer than %d, no pass rate yet) · last hour %d/%d (%s)" % (gd + bd, min_n, gh, gh + bh, _pct(gh, bh))
+        else:
+            _shadow("OVN_PASSRATE_MIN", "replace the pass-rate headline (%d good+bad today < %d): %s" % (gd + bd, min_n, out))
     tiers = {}
     for r in today:
         sev = r.get("severity")
@@ -519,6 +570,20 @@ def supply_lines(rep):
         return []
 
 
+def forecast_lines(t):
+    """2026-11-01 (K5): ONE bullet `Supply runway < 24h: ...` from state/supply_forecast.json (ovn_supply_forecast, mode `on` only; < 3 h old). [] otherwise; never raises. OVN_FORECAST_LINE=0 turns it off."""
+    if os.environ.get("OVN_FORECAST_LINE", "1") == "0":
+        return []
+    try:
+        _d = os.path.dirname(os.path.abspath(__file__))
+        if _d not in sys.path:
+            sys.path.insert(0, _d)
+        import ovn_supply_forecast as sf
+        return sf.digest_lines(sf.fresh_forecast(t, STATE))
+    except Exception:
+        return []
+
+
 def slo_lines(t):
     """2026-10-18 (package L5-fleet-slo): ONE line from ovn_fleet_slo when an SLO has been in breach > 1 h (plus one when the SLO summary itself went stale). [] unless
     its mode is `on` (default shadow; `ovn_fleet_slo.py mode off` is the rollback). Reads state/fleet_slo.json of THIS module's STATE; never raises."""
@@ -583,8 +648,69 @@ def autodeploy_report(t):
         return None, None
 
 
+EMPTY_STATE = "notify_empty_state.json"
+
+
+def _empty_gate(empty, t):
+    """K4: (emit, sig). The 'Queue empty' bullet is emitted when the SET of empty repos changed since the last digest that carried it, or OVN_EMPTY_REPEAT_H (6) h passed.
+    Read-only: do_update records the state (_empty_commit) only after a successful send. mode off = always emit; shadow = always emit + log the would-be suppression."""
+    sig = ",".join(empty)
+    mode = _mode("OVN_EMPTY_ONCE")
+    if mode == "off" or not empty:
+        return True, sig
+    try:
+        rep_s = float(os.environ.get("OVN_EMPTY_REPEAT_H", "6")) * 3600
+    except ValueError:
+        rep_s = 6 * 3600
+    try:
+        with open(_p(EMPTY_STATE)) as f:
+            st = json.load(f)
+        same = st.get("sig") == sig and t - float(st.get("ts", 0)) < rep_s
+    except (OSError, ValueError, TypeError, AttributeError):
+        same = False
+    if same and mode == "shadow":
+        _shadow("OVN_EMPTY_ONCE", "drop the unchanged 'Queue empty: %s' bullet" % sig)
+        return True, sig
+    return (not same), sig
+
+
+def _empty_commit(sig, t):
+    """Record that a digest carried the 'Queue empty' bullet for `sig` (kept at its first-emit time so the 6 h repeat is measured from the last emission)."""
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        try:
+            with open(_p(EMPTY_STATE)) as f:
+                st = json.load(f)
+        except (OSError, ValueError):
+            st = {}
+        if sig:
+            if st.get("sig") != sig or t - float(st.get("ts", 0) or 0) >= _empty_repeat_s():
+                st = {"sig": sig, "ts": t}
+        else:
+            st = {}
+        tmp = _p(EMPTY_STATE) + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(st, f)
+        os.replace(tmp, _p(EMPTY_STATE))
+    except OSError:
+        pass
+
+
+def _empty_repeat_s():
+    try:
+        return float(os.environ.get("OVN_EMPTY_REPEAT_H", "6")) * 3600
+    except ValueError:
+        return 6 * 3600
+
+
 def compose_update(window=3600, at=None):
     """Return (title, body, needs_count). Pure function of state + the clock (`at` for tests)."""
+    r = compose_update_ex(window, at)
+    return r[0], r[1], r[2]
+
+
+def compose_update_ex(window=3600, at=None):
+    """compose_update plus (current empty-repo signature, whether the 'Queue empty' bullet was emitted): (title, body, needs_count, (sig, emitted))."""
     t = at or now()
     rows = _outcomes_since(t - window)
     landed, reverted, uncredited, credit_only = {}, {}, 0, 0
@@ -645,6 +771,7 @@ def compose_update(window=3600, at=None):
             lines.append(dl)
     # 2026-10-18: "backlog is out" said nothing about WHY. One line per starving repo: depth, burn, runway, last supply source, root cause (ovn_supply_report). Text only: no push of its own.
     lines.extend(supply_lines(sup))
+    lines.extend(forecast_lines(t))   # 2026-11-01 (K5): runway-forecast bullet (mode on only)
     lines.extend(slo_lines(t))   # 2026-10-18: fleet SLO breach > 1 h (mode on only; no push of its own)
     _ad_line, _ad_need = autodeploy_report(t)   # 2026-10-18 (L4): box vs repo drift + gated auto-deploy verdict; text only, no push of its own
     if _ad_line:
@@ -655,15 +782,19 @@ def compose_update(window=3600, at=None):
         lines.append("Back up: " + ", ".join(re.sub(r"^.*?:\s*", "", t) for t in recovered[:4]))
     # 2026-10-08: an EMPTY active queue is the most important thing to know (the lane is idle) and used to hide under an "all good" title.
     empty = sorted(k for v, k in low if v == 0)
+    emitted_empty = ("", False)
     if empty:
-        needs.insert(0, {"title": "Queue empty: %s" % ", ".join(empty), "text": empty_cause_text(sup, empty) or "that lane has nothing to do until the refuel adds work (work supply runs every 30 min)", "prio": "high", "ts": t})
+        _emit, _sig = _empty_gate(empty, t)
+        emitted_empty = (_sig, _emit)
+        if _emit:
+            needs.insert(0, {"title": "Queue empty: %s" % ", ".join(empty), "text": empty_cause_text(sup, empty) or "that lane has nothing to do until the refuel adds work (work supply runs every 30 min)", "prio": "high", "ts": t})
     for bn in reversed(boot_notes(t if at else None)):   # 2026-10-10: a reboot / silent queue is at least as important as an empty queue
         needs.insert(0, {"title": bn["title"], "text": bn["text"], "prio": bn["prio"], "ts": t})
     shown = needs[:3]
     title = ("⚠️ Shrike hourly — %d to look at" % len(needs)) if needs else "✅ Shrike hourly — all good"
     body = "\n".join((["• %s — %s" % (n["title"], n["text"]) if n["text"] and n["text"].lower() not in n["title"].lower() else "• " + n["title"] for n in shown]) +
                      (["(+%d more, see alerts.log)" % (len(needs) - 3)] if len(needs) > 3 else []) + lines)
-    return title, body, len(needs)
+    return title, body, len(needs), emitted_empty
 
 
 def do_update(dry=False, force=False):
@@ -673,14 +804,20 @@ def do_update(dry=False, force=False):
         last = 0
     if not force and now() - last < 50 * 60:
         return "skipped: last update %dm ago" % ((now() - last) / 60)
-    title, body, _ = compose_update()
+    title, body, _, (empty_sig, empty_emitted) = compose_update_ex()
     if dry:
         return "%s\n%s" % (title, body)
     res = forward(title, body, "default", "", kind="digest")
-    if res in ("sent", "capped"):
+    if res in ("sent", "capped", "deduped"):
+        if res != "deduped" and _mode("OVN_EMPTY_ONCE") != "off":
+            if not empty_sig:
+                _empty_commit("", now())            # no lane empty any more: the next emptiness is a state change
+            elif empty_emitted:
+                _empty_commit(empty_sig, now())
         os.makedirs(STATE, exist_ok=True)
         open(_p("notify_last_update"), "w").write(str(now()))
-        for bn in boot_notes():     # the boot line is reported ONCE per boot (the next update would otherwise repeat it for up to 2 h)
+        # a 'deduped' digest was NOT delivered: never mark the boot note reported (it is the only copy of a changed state)
+        for bn in (boot_notes() if res != "deduped" else []):     # the boot line is reported ONCE per boot (the next update would otherwise repeat it for up to 2 h)
             if bn.get("boot"):
                 open(_p("notify_boot_reported"), "w").write(str(bn["boot"]))
     return "%s (%s)" % (title, res)

@@ -2,6 +2,7 @@
 # 2026-10-16 (box home wipe): hermetic test of ops/box_recover.sh (fake HOME via RC_HOME, fake drive, stub crontab, throwaway ssh key). Nothing real is touched, no network.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
+. "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_test_tz.sh"   # 2026-11-01 (K4): time-relative suite, pinned to UTC (DST fall-back made "N hours ago" ambiguous)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OPS="$HERE/../../ops"; REC="$OPS/box_recover.sh"; BAK="$OPS/box_home_backup.sh"
 P=0; F=0

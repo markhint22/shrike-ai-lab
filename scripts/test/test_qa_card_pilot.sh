@@ -49,7 +49,8 @@ runhook OVN_QA_CARD_CREDIT_SYNC=1 OVN_QA_CARD_CREDIT=off
 runhook OVN_QA_CARD_CREDIT_SYNC=1 OVN_QA_CARD_CREDIT=enforce; rc=$?
 [ "$rc" = 0 ]; ok "an 'enforce' value changes nothing (still rc 0, no enforce path)" $?
 n1="$(wc -l < "$CC" | tr -d ' ')"
-runhook OVN_QA_CARD_CREDIT_SYNC=0
+# K6 (2026-11-01): repeated no-card credits are logged once, not per row; this check needs a row per credit, so ask for the old behaviour explicitly
+runhook OVN_QA_CARD_CREDIT_SYNC=0 OVN_QA_CARD_CREDIT_NOCARD=rows
 for _ in $(seq 1 100); do [ "$(wc -l < "$CC" | tr -d ' ')" -gt "$n1" ] && break; sleep 0.2; done
 [ "$(wc -l < "$CC" | tr -d ' ')" -gt "$n1" ]; ok "the real (detached, niced) variant also logs, without blocking the caller" $?
 # no state dir = nothing is created

@@ -106,6 +106,19 @@ LANDABLE = os.environ.get("OVN_QE_LANDABLE", "on")             # off = the xlite
 COOLDOWN_PRODUCTIVE_S = int(_env_num("OVN_QE_COOLDOWN_PRODUCTIVE_MIN", 45, float) * 60)
 COOLDOWN_EMPTY_S = int(_env_num("OVN_QE_COOLDOWN_EMPTY_H", 0.25, float) * 3600)      # an empty pass costs ~1 GPU-minute; lens + file rotation already prevent repeats (3 h was a hidden low cap)
 LENS_TTL_S = int(_env_num("OVN_QE_LENS_TTL_H", 4, float) * 3600)
+# 2026-11-01 (K5 supply engine) lens YIELD CAP: a lens that keeps coming back empty for a repo burns a model pass (~1 GPU-minute, a slot in the lens rotation) for nothing. After
+# OVN_QE_YIELD_N (default 4) CONSECUTIVE empty passes of one lens on one repo, AND zero accepted items from that lens for that repo in the last 7 days (accepted.jsonl), the lens is skipped for
+# the rest of the local day (the next day it gets one probe pass; a productive pass resets the streak). feature-ideation, bug-hunt and completeness are ALWAYS eligible, so a repo can never
+# be left with no lens. A pass that died only on verify-dialect (a spelling miss) or made zero model calls does not count as empty. OVN_QE_YIELD_CAP=shadow|on|off, default SHADOW: the streaks and
+# would-skip are recorded in the ledger and the pass note (`yield-cap-shadow:would-skip=<lens>`) but pick_lens is unchanged; `on` really skips (note `yield-skip:<lens>`).
+YIELD_N = int(_env_num("OVN_QE_YIELD_N", 4))
+YIELD_WINDOW_S = int(_env_num("OVN_QE_YIELD_WINDOW_D", 7, float) * 86400)
+YIELD_ALWAYS = ("feature-ideation", "bug-hunt", "completeness")
+
+
+def yield_cap_mode():
+    m = os.environ.get("OVN_QE_YIELD_CAP", "shadow").strip().lower()
+    return m if m in ("shadow", "on", "off") else "shadow"
 FILE_TTL_S = int(_env_num("OVN_QE_FILE_TTL_H", 72, float) * 3600)
 READY_CAP = _env_num("OVN_QE_READY_CAP", 4)
 MIN_FRESH_FILES = _env_num("OVN_QE_MIN_FRESH_FILES", 8)
@@ -354,7 +367,8 @@ def fit(s, n):
 
 def feat_slug(feature_text):
     """The slug ovn_planner.sh puts in [feat:<repo>-<YYYYMMDD>-<slug>]: lowercase, non-alnum runs -> '-', trimmed, then the first 40 chars (shell: sed; cut -c1-40)."""
-    s = re.sub(r"[^a-z0-9]+", "-", (feature_text or "").lower()).strip("-")[:40]
+    feature_text = re.sub(r"\s*\[small-decomposition[^\]]*\]", "", feature_text or "")   # 2026-11-01 K5: planner marker, not feature text
+    s = re.sub(r"[^a-z0-9]+", "-", feature_text.lower()).strip("-")[:40]
     return s or "item"
 
 
@@ -511,6 +525,45 @@ def load_ledger(repo):
 
 def today_str(t=None):
     return datetime.date.fromtimestamp(t or now_ts()).isoformat()
+
+
+def lens_accepts_in_window(repo, lens, now):
+    """Items the lens got accepted for this repo within YIELD_WINDOW_S (accepted.jsonl, written by record_accepted)."""
+    n = 0
+    try:
+        with open(os.path.join(LEDGER_ROOT[0] or qdir(), "accepted.jsonl")) as f:
+            for ln in f:
+                try:
+                    d = json.loads(ln)
+                    if d.get("repo") == repo and d.get("lens") == lens and now - float(d.get("ts_epoch") or 0) < YIELD_WINDOW_S:
+                        n += 1
+                except (ValueError, TypeError, AttributeError):
+                    continue
+    except OSError:
+        pass
+    return n
+
+
+def yield_skip_set(L, now):
+    """Lenses the yield cap has parked for today's local day (empty set when the cap is off)."""
+    if yield_cap_mode() == "off":
+        return set()
+    today = today_str(now)
+    return {n for n, d in (L.get("lens_skip") or {}).items() if d == today and n not in YIELD_ALWAYS}
+
+
+def update_yield(repo, L, lens, written, dialect_only, calls, now):
+    """Maintain L['empty_streak'][lens] and, when the streak reaches YIELD_N with zero accepts in the window, L['lens_skip'][lens] = today (see the YIELD_CAP comment)."""
+    if yield_cap_mode() == "off" or lens in YIELD_ALWAYS or dialect_only or (calls is not None and calls <= 0):
+        return
+    st = L.setdefault("empty_streak", {})
+    if written:
+        st[lens] = 0
+        (L.get("lens_skip") or {}).pop(lens, None)
+        return
+    st[lens] = int(st.get(lens, 0)) + 1
+    if st[lens] >= YIELD_N and lens_accepts_in_window(repo, lens, now) == 0:
+        L.setdefault("lens_skip", {})[lens] = today_str(now)
 
 
 def next_midnight(t):
@@ -820,12 +873,14 @@ def lens_ttl(name):
     return QF.lens_ttl_s() if name == FEATURE_LENS else LENS_TTL_S
 
 
-def pick_lens(cfg, L, now, forced=None, feature=False, only_feature=False):
+def pick_lens(cfg, L, now, forced=None, feature=False, only_feature=False, skip=()):
     """-> (lens, wait_until). Least-recently-used applicable lens whose TTL has passed; wait_until = earliest expiry when none is available. `feature` makes the feature-ideation lens eligible (a starving repo; it is
     then preferred whenever its own TTL has passed: the bug lenses have no evidence left); `only_feature` = the bug-lens daily cap is spent, only the feature lens may run."""
     names = applicable_lenses(cfg, feature=feature)
     if forced:
         return (forced, 0) if forced in names else (None, 0)
+    if skip:                                            # K5 yield cap (mode `on` only): lenses that were empty N times in a row today; the always-eligible lenses are never in `skip`
+        names = [n for n in names if n not in skip] or names
     if only_feature:
         names = [n for n in names if n == FEATURE_LENS]
         if not names:
@@ -2731,7 +2786,7 @@ def finish(row, t0, dry, line_extra=""):
     rej = ",".join("%s:%d" % kv for kv in sorted(d["rejected"].items(), key=lambda kv: -kv[1])) or "-"
     line = "%s %s lens=%s result=%s files=%d proposed=%d accepted=%d rejected={%s} calls=%d tok=%d/%d %ds%s%s" % (
         time.strftime("%Y-%m-%d %H:%M:%S"), d["repo"], d["lens"] or "-", d["result"], len(d["files"]), d["proposed"], d["accepted"], rej, d["calls"], d["ptok"], d["ctok"], d["secs"],
-        (" note=" + d["note"]) if d["note"] else "", line_extra)
+        (" note=" + d["note"]) if d["note"] else "", ((" " + d["yield"]) if d.get("yield") else "") + line_extra)
     cd = d.get("critic")
     if cd:
         line += " critic=%s eval=%d approved=%d rejected=%d disagree=%d errors=%d cut=%d critic_reject_rate=%.0f%%" % (
@@ -2875,6 +2930,15 @@ def _locked_main(repo, cfg, clone, rm, cache_root, row, flags, dry, force, force
             write_next(repo, now + 3600)
         return finish(row, t0, dry)
     lens, wait_until = pick_lens(cfg, L, now, forced_lens, feature=feat_avail, only_feature=bug_capped)
+    # K5 yield cap: `on` re-picks without the lenses parked for today; `shadow` only notes what it would have skipped. A forced --lens is never overridden.
+    _ycap, _yskip = yield_cap_mode(), yield_skip_set(L, now)
+    if _ycap != "off" and _yskip and not forced_lens and lens is not None and lens in _yskip:
+        if _ycap == "on":
+            lens2, wait2 = pick_lens(cfg, L, now, None, feature=feat_avail, only_feature=bug_capped, skip=_yskip)
+            row.d["yield"] = "yield-skip:%s" % lens
+            lens, wait_until = lens2, wait2
+        else:
+            row.d["yield"] = "yield-cap-shadow:would-skip=%s" % lens
     if lens is None:
         row.d["result"], row.d["note"] = ("skip-bad-lens", forced_lens) if forced_lens else ("skip-lens-ttl", "all lenses covered within %dh" % (LENS_TTL_S // 3600))
         if not dry and not forced_lens:
@@ -3117,6 +3181,7 @@ def _ledger_pass(repo, L, lens, files_shown, written, dry, now, dialect_only=Fal
             else:
                 L["day_count"] = int(L["day_count"]) + 1
         L["last_pass_ts"], L["last_accepted"], L["last_lens"] = done, written, lens
+        update_yield(repo, L, lens, written, dialect_only, calls, done)
         atomic_write(ledger_path(repo), json.dumps(L, indent=1, sort_keys=True))
         if not dry:
             write_next(repo, done + (COOLDOWN_PRODUCTIVE_S if written else COOLDOWN_EMPTY_S))
