@@ -551,3 +551,23 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `create_bill_alert` endpoint — `billwatch-backend/app/routers/analytics.py:241` is a  (review + tweak) [feat:billwatch-20261031-test-create-bill-alert-endpoint-billwatc] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `update_bill_alert` endpoint — `billwatch-backend/app/routers/analytics.py:270` is a  (review + tweak) [feat:billwatch-20261031-test-update-bill-alert-endpoint-billwatc] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `track_page_view` analytics endpoint — `billwatch-backend/app/routers/analytics.py:33 (review + tweak) [feat:billwatch-20261031-test-track-page-view-analytics-endpoint-] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_kpi_weekly` endpoint — `billwatch-backend/app/routers/analytics.py:467` is a pub (review + tweak) [feat:billwatch-20261031-test-get-kpi-weekly-endpoint-billwatch-b] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `trigger_summary_batch` endpoint — `billwatch-backend/app/routers/analytics.py:480` i (review + tweak) [feat:billwatch-20261031-test-trigger-summary-batch-endpoint-bill] ---
+
+# --- deterministic work supply 2026-10-31 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_notifications` endpoint — `billwatch-backend/app/routers/notifications.py:25` is (review + tweak) [feat:billwatch-20261031-test-get-notifications-endpoint-billwatc] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `update_notification` endpoint — `billwatch-backend/app/routers/notifications.py:79`  (review + tweak) [feat:billwatch-20261031-test-update-notification-endpoint-billwa] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `mark_all_read` endpoint — `billwatch-backend/app/routers/notifications.py:120` is a  (review + tweak) [feat:billwatch-20261031-test-mark-all-read-endpoint-billwatch-ba] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `preview_digest` endpoint — `billwatch-backend/app/routers/digest.py:88` is a public  (review + tweak) [feat:billwatch-20261031-test-preview-digest-endpoint-billwatch-b] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_career_history` endpoint — `billwatch-backend/app/routers/career_history.py:70`  (review + tweak) [feat:billwatch-20261031-test-get-career-history-endpoint-billwat] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_legislator_votes` endpoint — `billwatch-backend/app/routers/votes.py:78` is a pu (review + tweak) [feat:billwatch-20261031-test-get-legislator-votes-endpoint-billw] ---

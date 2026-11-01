@@ -769,3 +769,9 @@
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `stripe_webhook` and `revenuecat_webhook` — Add unit tests for the untested public fu (review + tweak) [feat:iptv_apps-20261031-test-stripe-webhook-and-revenuecat-webho] ---
 
 # --- 27B-decomposed from roadmap [2026-10-31]: Test `restore_apple_purchase` — Add unit tests for the untested public function in `iptv-b (review + tweak) [feat:iptv_apps-20261031-test-restore-apple-purchase-add-unit-tes] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_countries` endpoint — Add unit tests for the untested public function `get_count (review + tweak) [feat:iptv_apps-20261031-test-get-countries-endpoint-add-unit-tes] ---
+
+# --- 27B-decomposed from roadmap [2026-10-31]: Test `get_curated_youtube_channels` endpoint — Add unit tests for the untested public func (review + tweak) [feat:iptv_apps-20261031-test-get-curated-youtube-channels-endpoi] ---
+
+# --- deterministic work supply 2026-10-31 (ovn_work_supply.py; VERIFY is red-before, mechanical) ---
