@@ -520,3 +520,6 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-11-01 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `lifespan` lifecycle — `backend/app/main.py:43` defines the FastAPI lifespan context manager which is critical for startup/shutdown logic but has zero test coverage; add a test in `backend/tests/` that verifies the app starts and shuts down cleanly without errors {cat: backend; size: S; multifile: no; research: none}
+
+## Local research 2026-11-02 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_review_history` — `backend/app/routers/review.py:277` is a public function with zero test coverage; add a test in `backend/tests/` that verifies the endpoint returns the correct list of review history entries {cat: test; size: S; multifile: no; research: none}
