@@ -651,4 +651,7 @@ Direct-code-verified against the live `develop` checkout (not just the roadmap s
 
 ## Local research 2026-11-01 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `clear_cache` endpoint — Add unit tests for the untested public function `clear_cache` in `iptv-backend/app/routers/discover.py:1053` to verify cache invalidation behavior and response status {cat: test; size: S; multifile: no; research: none}
-- [ ] [P2] [ready] Test `get_funnel` endpoint — Add unit tests for the untested public function `get_funnel` in `iptv-backend/app/routers/engagement.py:55` to verify engagement funnel data aggregation and response structure {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `get_funnel` endpoint — Add unit tests for the untested public function `get_funnel` in `iptv-backend/app/routers/engagement.py:55` to verify engagement funnel data aggregation and response structure {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-02 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test continue watching management endpoints — Add unit tests for the untested public functions `add_to_continue_watching` in `iptv-backend/app/routers/watch_history.py:550`, `update_continue_watching` in `iptv-backend/app/routers/watch_history.py:594`, and `remove_from_continue_watching` in `iptv-backend/app/routers/watch_history.py:624` to verify state transitions {cat: test; size: M; multifile: no; research: none}
