@@ -502,3 +502,6 @@ All research is grounded in the live repo.
 
 ## Local research 2026-11-02 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P3] [decomposed] Test `get_sync_status` admin endpoint — `billwatch-backend/app/routers/admin.py:147` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that mocks the sync service and asserts the response structure and status code {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-02 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `legislator_to_response` serialization — `billwatch-backend/app/routers/legislators.py:31` is a public function referenced by no test; add unit tests in `billwatch-backend/tests/test_legislators.py` verifying correct mapping of legislator fields to response schema and handling of missing optional data {cat: test; size: S; multifile: no; research: none}
