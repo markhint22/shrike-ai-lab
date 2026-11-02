@@ -7,9 +7,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SC="$(cd "$HERE/../../.." && pwd)"   # shared/scripts
 [ -f "$SC/mac_lib.sh" ] && [ -f "$SC/ovn_pick_srv.py" ] && [ -f "$SC/mac_jobs_health.py" ] && [ -f "$SC/railway_config_guard.py" ] || { echo "  SKIP: K1 Mac scripts not present under $SC (box copy of the queue dir)"; exit 0; }
-T="$(mktemp -d "${TMPDIR:-/tmp}/k1test.XXXXXX")" || exit 1
-case "$T" in /*/k1test.*) :;; *) echo "  FAIL: unsafe tmp"; exit 1;; esac
-trap 'rm -rf "$T"' EXIT
+. "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-11-01: fail-closed sandbox helpers (lint_unsafe_rm.py R1/R8)
+T="$(safe_mktemp_dir k1test)" || exit 1
+trap 'safe_rm_rf "${T:?}"' EXIT
 fails=0; n=0
 ok() { n=$((n+1)); if [ "$2" = 0 ]; then echo "  ok   $1"; else echo "  FAIL $1"; fails=$((fails+1)); fi; }
 LAN="mhintermeister@192.168.68.145"; TS="mhintermeister@100.79.64.64"
@@ -65,7 +65,7 @@ NOW=2000000000
 printf 'com.t.b | 3600 | %s/b.log | hb/b |\n' "$S" > "$S/m"
 printf '{"ts": %d, "mode": "enforce", "state": "ok", "head": "abc1234", "behind": 0, "ahead": 0, "detail": "", "dir": "x"}' "$NOW" > "$S/live_sync.json"
 hrun() { # hrun <hb-age-s> [extra env...] ; fresh state each time
-  local age="$1"; shift; rm -rf "$S/alerts.log" "$S/alert_sent" "$S/health.json" "$S/health_state.json"
+  local age="$1"; shift; rm -rf "${S:?}/alerts.log" "${S:?}/alert_sent" "${S:?}/health.json" "${S:?}/health_state.json"
   echo $((NOW - age)) > "$S/hb/b"
   env OVN_MAC_STATE="$S" OVN_MAC_JOBS=shadow MAC_JOBS_MANIFEST="$S/m" MAC_JOBS_NOW=$NOW MAC_JOBS_UID=501 MAC_LAUNCHCTL="$T/bin/launchctl" MAC_CURL="$T/bin/curl" \
       NTFY_SERVER=http://127.0.0.1:9 MAC_DISK_FREE_GIB=100 "$@" python3 "${HP:-$SC/mac_jobs_health.py}" > "$T/h.out" 2>&1 < /dev/null
@@ -115,7 +115,7 @@ print("rc=%s good_intact=%s" % (rc, json.load(open(good)) == {"user": {"refreshT
 print("cfg_unchanged=%s" % (real(os.path.join(home, ".railway", "config.json")).read() == sys.argv[4].replace("\\n", "\n")))
 print("tmp_left=%s" % any(f.endswith(".tmp") for f in os.listdir(os.path.join(home, ".railway"))))
 EOF
-setup_home() { rm -rf "$T/home"; mkdir -p "$T/home/.railway"; echo '{"user": {"refreshToken": "KEEP"}}' > "$T/home/.railway/config.good.json"; printf '%s' "$1" > "$T/home/.railway/config.json"; }
+setup_home() { rm -rf "${T:?}/home"; mkdir -p "$T/home/.railway"; echo '{"user": {"refreshToken": "KEEP"}}' > "$T/home/.railway/config.good.json"; printf '%s' "$1" > "$T/home/.railway/config.json"; }
 setup_home '{"user": {"refreshToken": "NEW"}}'
 out="$(python3 "$T/enospc.py" valid "$T/home" "$SC/railway_config_guard.py" '{"user": {"refreshToken": "NEW"}}' 2>&1)"
 echo "$out" | grep -q 'rc=0 good_intact=True' && echo "$out" | grep -q 'tmp_left=False'; ok "valid config + disk full: snapshot step skipped, rc 0, existing good copy NOT truncated, no tmp litter ($(echo "$out" | tr '\n' ' '))" $?

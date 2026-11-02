@@ -97,4 +97,10 @@ ok "the prompt region is still byte-for-byte what it was (the golden prompt test
 sed 's/\[ "\$_dp_mode" = on \] && _det_items=/false \&\& _det_items=/' "$PL" > "$tmp/mut_planner.sh"
 setup "$FEAT_OK"; PLANNER="$tmp/mut_planner.sh" run env OVN_PLANNER_DELETE_BYPASS=on
 ok "MUTATION: with the on-branch neutralised the model IS called (the 'never called' assertion above would fail)" "[ \"\$(calls)\" = 1 ]"
+# ---- 2026-11-01 regression (K5): the deterministic path must not die on an unbound _small_decomp (set -u aborted the planner after appending the item, before its final log line) ----
+setup "$FEAT_OK"; : > "$tmp/run.log"; run env OVN_PLANNER_DELETE_BYPASS=on; _rc_on=$?
+ok "on: the planner exits 0 and prints no 'unbound variable' (K5 _small_decomp regression)" "[ $_rc_on = 0 ] && ! grep -q 'unbound variable' '$tmp/run.log'"
+grep -v '^  _small_decomp=0   # 2026-11-01' "$PL" > "$tmp/mut_unbound.sh"
+setup "$FEAT_OK"; : > "$tmp/run.log"; PLANNER="$tmp/mut_unbound.sh" run env OVN_PLANNER_DELETE_BYPASS=on
+ok "MUTATION: without the _small_decomp=0 initialiser the on path dies with 'unbound variable' (the assertion above bites)" "grep -q 'unbound variable' '$tmp/run.log'"
 echo "$P passed, $F failed"; [ "$F" -eq 0 ]

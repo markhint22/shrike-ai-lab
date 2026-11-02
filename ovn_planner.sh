@@ -141,6 +141,7 @@ for r in $REPOS; do
   # pass for EVERY path; anything doubtful is a SKIP and the model decomposes the feature exactly as before. OVN_PLANNER_DELETE_BYPASS=off|shadow|on (default shadow: log what
   # it would have done, still call the model).
   _det_items=""
+  _small_decomp=0   # 2026-11-01: must be set on EVERY path - the deterministic-delete path skips the model block that sets it, and set -u aborted the whole planner at the [small-decomposition] check (K5 regression)
   _delx="$HOME/overnight-queue/scripts/ovn_delete_executor.py"
   _dp_mode="${OVN_PLANNER_DELETE_BYPASS:-shadow}"
   if [ "$_dp_mode" != off ] && [ -f "$_delx" ]; then

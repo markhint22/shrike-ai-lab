@@ -8,7 +8,8 @@ PY="$(command -v python3.12 || command -v python3)"
 rc=$?
 echo "test_ovn_pingpong_guard.py rc=$rc"
 W="$HERE/../ovn_pingpong_guard.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/pp_wrap.XXXXXX")"; mkdir -p "$T/ovn/state" "$T/ovn/scripts"
+. "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-11-01: lint_unsafe_rm.py R1/R8
+T="$(safe_mktemp_dir pp_wrap)" || exit 1; mkdir -p "$T/ovn/state" "$T/ovn/scripts"
 wf=0
 chk(){ if [ "$2" = "1" ]; then echo "  ok   wrapper: $1"; else echo "  FAIL wrapper: $1"; wf=$((wf+1)); fi; }
 bash -n "$W" 2>/dev/null; chk "ovn_pingpong_guard.sh parses" "$([ $? -eq 0 ] && echo 1 || echo 0)"
@@ -20,6 +21,6 @@ mkdir -p "$T/bin"; printf '#!/bin/sh\nexit 3\n' > "$T/bin/python3"; chmod +x "$T
 cp "$HERE/../ovn_pingpong_guard.py" "$T/ovn/scripts/" 2>/dev/null; cp "$W" "$T/ovn/scripts/"
 PATH="$T/bin:$PATH" OVN_PINGPONG_REPOS=" " OVN_DIR="$T/ovn" OVN_STATE_DIR="$T/ovn/state" bash "$T/ovn/scripts/ovn_pingpong_guard.sh" >/dev/null 2>&1; r=$?
 chk "python failure still exits 0" "$([ $r -eq 0 ] && echo 1 || echo 0)"
-rm -rf "$T"
+safe_rm_rf "${T:?}"
 [ "$wf" -gt 0 ] && rc=1
 exit $rc

@@ -102,7 +102,8 @@ try:
     mut = os.path.join(T, "ovn_mutation_supply_mut.py")
     src = open(TOOL).read()
     anchor = "signal.signal(_sig, lambda n, f: sys.exit(128 + n))"
-    ok("mutation anchor exists exactly once in the tool", src.count(anchor) == 1)
+    # K5 (2026-11-01) added a scan-all entry point with its own handler: the anchor now appears once per entry point (scan, scan-all); the mutant removes ALL of them.
+    ok("mutation anchor exists in the tool (one per scan entry point, at least 1)", src.count(anchor) >= 1)
     open(mut, "w").write(src.replace(anchor, "pass"))
     before, alive, rc, out = scan_and_signal(mut, signal.SIGTERM)
     ok("MUTANT (no handlers): killed by the default SIGTERM action (rc -15) and the scratch dir is LEFT BEHIND - the checks above bite",
