@@ -492,4 +492,7 @@ All research is grounded in the live repo.
 - [ ] [P2] [decomposed] Test `get_sitemap` — `billwatch-backend/app/routers/bills.py:239` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that verifies the endpoint returns valid XML with correct bill URLs and lastmod dates {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-11-01 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `get_voting_statistics` endpoint — `billwatch-backend/app/routers/votes.py:326` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that mocks the DB session to verify the endpoint returns aggregated vote counts and handles empty legislator data correctly {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `get_voting_statistics` endpoint — `billwatch-backend/app/routers/votes.py:326` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that mocks the DB session to verify the endpoint returns aggregated vote counts and handles empty legislator data correctly {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-01 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_endpoint_docs` API documentation endpoint — `billwatch-backend/app/routers/api_docs.py:23` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that verifies the endpoint returns valid JSON schema and correct status code {cat: test; size: S; multifile: no; research: none}
