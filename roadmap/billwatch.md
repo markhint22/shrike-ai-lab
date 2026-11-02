@@ -498,4 +498,7 @@ All research is grounded in the live repo.
 - [ ] [P3] [decomposed] Test `get_endpoint_docs` API documentation endpoint — `billwatch-backend/app/routers/api_docs.py:23` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that verifies the endpoint returns valid JSON schema and correct status code {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-11-02 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P3] [ready] Test `get_topics` endpoint — `billwatch-backend/app/routers/topics.py:44` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that mocks the service layer to verify the endpoint returns the expected list of topics and handles empty results correctly {cat: test; size: S; multifile: no; research: none}
+- [ ] [P3] [decomposed] Test `get_topics` endpoint — `billwatch-backend/app/routers/topics.py:44` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that mocks the service layer to verify the endpoint returns the expected list of topics and handles empty results correctly {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-02 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P3] [ready] Test `get_sync_status` admin endpoint — `billwatch-backend/app/routers/admin.py:147` is a public function referenced by no test; add a test in `billwatch-backend/tests/` that mocks the sync service and asserts the response structure and status code {cat: test; size: S; multifile: no; research: none}
