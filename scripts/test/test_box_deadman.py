@@ -404,7 +404,7 @@ if os.path.isfile(PLIST):
     import plistlib
     pl = plistlib.load(open(PLIST, "rb"))
     ok("plist: 10-minute StartInterval, not RunAtLoad, points at box_deadman.py", pl["StartInterval"] == 600 and pl["RunAtLoad"] is False and any(a.endswith("scripts/overnight-queue/scripts/box_deadman.py") for a in pl["ProgramArguments"]))
-    ok("plist: NTFY_SERVER is the relay on the box (the same value the other Mac jobs use)", pl["EnvironmentVariables"]["NTFY_SERVER"] == "http://100.79.64.64:8099")
+    ok("plist: NTFY_SERVER is the relay on the box (the same value the other Mac jobs use)", pl["EnvironmentVariables"]["NTFY_SERVER"] == "http://192.168.68.145:8099")
     ok("plist label", pl["Label"] == "com.shrike.box-deadman")
     ok("plist is not installed in ~/Library/LaunchAgents by the code", True)
 

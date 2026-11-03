@@ -541,6 +541,6 @@ ck "F-benign: the MATCH repo raises nothing" "[ \"\$(nalerts billwatch)\" = 0 ] 
 ck "F: --staging-only skips the release_candidate loop" "! grep -q 'release_candidate' $Q/logs/qa_daily_shadow.log && grep -q 'staging_check iptv_apps: FAIL' $Q/logs/qa_daily_shadow.log"
 ( cd "$T/seed/iptv_apps" && git checkout -q develop && git checkout -q -b feat2 && echo more > more.txt && git add more.txt && git commit -q -m "feat: two" && git checkout -q develop && git merge -q --no-ff -m "$GREEN" feat2 && git push -q origin develop ); git -C "$Q/repos/iptv_apps" fetch -q origin; snap iptv_apps "FAILED:$(sha iptv_apps develop)" "SUCCESS:$(sha iptv_apps main)"; shd
 ck "F: a NEW candidate sha failing => a second WARN (per-sha, not per-repo-forever)" "[ \"\$(nalerts 'WARN | qa-staging-check | iptv_apps candidate')\" = 2 ]"
-ck "F: hourly cron line exists in the (uninstalled) cron file with the relay NTFY_SERVER" "grep -qE '^20 \\* \\* \\* \\* NTFY_SERVER=http://127.0.0.1:8099 .*qa_daily_shadow.sh --staging-only' $QA/promote_alerting_cron.txt"
+ck "F: hourly cron line exists in the (uninstalled) cron file with the relay NTFY_SERVER" "grep -qE '^20 \\* \\* \\* \\* NTFY_SERVER=http://127.0.0.1:8099 .*qa_daily_shadow.sh --staging-only' $QA/promote_alerting_cron.txt"   # ntfy-lint: allow
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

@@ -52,6 +52,15 @@ _verify_py_root_audit(){   # <line> <root> <clause> <prog> <orig_rc>
   _item="$1:$(sed -n "$1p" "$4" 2>/dev/null | cksum | cut -d' ' -f1)"
   _ts="$(date '+%F %T')"
   mkdir -p "$(dirname "$_al")" 2>/dev/null
+  # 2026-11-02 (outcomes F7): the stage runner re-verifies an item every pass, so ONE unrunnable clause produced a py-root-retry row per pass (two adoptions 3.5 min apart for
+  # one gitlark item). One audit row per (item, run); the retry itself and the shadow-log note row are unchanged. OVN_PYROOT_AUDIT_DEDUPE=off restores a row per adoption.
+  if [ "${OVN_PYROOT_AUDIT_DEDUPE:-on}" != off ]; then
+    local _seen _key
+    _seen="$(dirname "$_al")/py_root_retry_seen.log"; _key="${_REPO_LABEL:-repo} ${RUNID:-$$} ${_item}"
+    if [ -f "$_seen" ] && grep -qxF -- "$_key" "$_seen" 2>/dev/null; then return 0; fi
+    echo "$_key" >> "$_seen" 2>/dev/null
+    if [ "$(wc -l < "$_seen" 2>/dev/null | tr -d ' ')" -gt 2000 ] 2>/dev/null; then tail -n 500 "$_seen" > "$_seen.tmp" 2>/dev/null && mv "$_seen.tmp" "$_seen" 2>/dev/null; fi
+  fi
   echo "$_ts info | py-root-retry | ${_REPO_LABEL:-repo} item=${_item} FAIL->PASS under project root $2 (orig_rc=$5; OVN_VERIFY_PY_ROOT=off refuses it) clause=$(printf '%s' "$3" | head -c 200)" >> "$_al" 2>/dev/null
   return 0
 }

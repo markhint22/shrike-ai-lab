@@ -9,6 +9,8 @@ export OVN_NTFY_GUARD_LOG="$T/guard.log"
 . "$HERE/ntfy_guard.sh"
 curl -s -m 2 -d hi https://ntfy.sh/some_topic; rc=$?
 ok "a direct ntfy.sh call is swallowed and succeeds" "$([ $rc = 0 ] && echo 1 || echo 0)"
+curl -s -m 2 -d hi http://127.0.0.1:8099/relay_topic; rc=$?
+ok "a direct call to the LIVE relay (127.0.0.1:8099, the scripts' default since 2026-11-02) is swallowed and logged" "$([ $rc = 0 ] && grep -q 'relay_topic' "$T/guard.log" && echo 1 || echo 0)"
 ok "the swallowed attempt is logged with its arguments" "$(grep -q 'ntfy.sh/some_topic' "$T/guard.log" && echo 1 || echo 0)"
 out="$(bash -c 'PATH=/usr/local/bin:/usr/bin:/bin; curl -s -m 2 -d x https://ntfy.sh/child_topic; echo rc=$?')"
 ok "a child bash that resets PATH to /usr/bin first is still guarded" "$(printf '%s' "$out" | grep -q 'rc=0' && grep -q child_topic "$T/guard.log" && echo 1 || echo 0)"
@@ -24,12 +26,12 @@ ok "run_coverage.sh sources the guard" "$(grep -q 'ntfy_guard.sh' "$HERE/../cov/
 # ---- regression (2026-10-01): run_all.sh's header must load the guard when started with a RELATIVE path from the repo root, as cron does
 _q="$(cd "$HERE/../.." && pwd)"; _probe="$HERE/.ra_probe.sh"
 n=$(grep -n '^rc=0' "$HERE/run_all.sh" | head -1 | cut -d: -f1)
-{ head -n "$((n-1))" "$HERE/run_all.sh"; echo 'echo "PROBE NTFY_SERVER=[${NTFY_SERVER:-unset}] curl=$(type -t curl)"'; } > "$_probe"
+{ head -n "$((n-1))" "$HERE/run_all.sh"; echo 'echo "PROBE NTFY_SERVER=[${NTFY_SERVER:-unset}] curl=$(type -t curl) disable=${OVN_NOTIFY_DISABLE:-unset}"'; } > "$_probe"
 # 2026-10-15 (G3): the probe runs run_all's header, which calls ovn_tmp_isolate (single-flight lock under OVN_TEST_TMP_BASE). When this suite runs INSIDE a
 # run_all (the box cron/manual run holds that lock), the probe inherited the outer lock and exited 75 "another run_all.sh is in progress" -> no PROBE line.
 # Give the probe its own private isolation base so its lock is independent of the outer run; the header behaviour under test is unchanged.
-_out="$(cd "$_q" && OVN_TEST_TMP_BASE="$T/probe-qtmp" NTFY_SERVER=http://127.0.0.1:8099 bash scripts/test/.ra_probe.sh 2>&1)"; rm -f "$_probe"
+_out="$(cd "$_q" && OVN_TEST_TMP_BASE="$T/probe-qtmp" NTFY_SERVER=http://127.0.0.1:8099 bash scripts/test/.ra_probe.sh 2>&1)"; rm -f "$_probe"   # ntfy-lint: allow (the probe only sources the run_all header, which replaces this value)
 # the probe's own EXIT cleanup also prints a "tmp-leak:" report line (lib_tmp_isolation.sh), so the PROBE line is matched exactly rather than the whole output
-ok "run_all.sh header loads the guard under a relative (cron-style) invocation, unsets NTFY_SERVER, and shadows curl" "$(printf '%s\n' "$_out" | grep -qxF 'PROBE NTFY_SERVER=[unset] curl=function' && echo 1 || echo 0)"
+ok "run_all.sh header loads the guard under a relative (cron-style) invocation, points NTFY_SERVER at the closed port 9, shadows curl and sets OVN_NOTIFY_DISABLE=1" "$(printf '%s\n' "$_out" | grep -qxF 'PROBE NTFY_SERVER=[http://127.0.0.1:9] curl=function disable=1' && echo 1 || echo 0)"
 echo "  $pass passed, $fail failed"; [ "$fail" = 0 ]
 

@@ -35,7 +35,7 @@ REPORT_DIR="$DIR/reports"
 TS="$(date '+%Y-%m-%d %H:%M')"
 NOOP_STREAK_ALERT="${NOOP_STREAK_ALERT:-30}"
 NTFY_TOPIC="${NTFY_TOPIC:-}"
-NTFY_SERVER="${NTFY_SERVER:-https://ntfy.sh}"
+NTFY_SERVER="${NTFY_SERVER:-http://127.0.0.1:8099}"
 
 # Repos wound down for good (Railway/Vercel taken offline, every tasks.json entry
 # disabled) — see the shared repo's CLAUDE.md "DISCONTINUED" notice. Their branches

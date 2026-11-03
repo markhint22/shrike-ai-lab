@@ -29,9 +29,18 @@
 #OFF# (off by default) */20 * * * * OVN_PINGPONG_REPOS="gitlark billwatch iptv_apps test-automation-agent" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_pingpong_guard.sh
 
 # --- K3 flags that need no cron line (all default to SHADOW or the safe side; shipped with the code):
-#   OVN_ITEM_DAY_CAP_MODE=shadow|enforce|off (shadow) + OVN_ITEM_DAY_CAP=3   ovn_item_guard.sh: any 3 non-landing attempts of one item in 24h (mixed statuses) -> parked when enforce
+#   OVN_ITEM_DAY_CAP_MODE=shadow|enforce|off (shadow) + OVN_ITEM_DAY_CAP=5   ovn_item_guard.sh: any 5 non-landing attempts of one item in 24h (mixed statuses) -> parked when enforce, but only while the last two attempts left the SAME footprint (OVN_ITEM_DAY_CAP_PROGRESS=off = plain count) or at OVN_ITEM_DAY_CAP_HARD=8 (P4, 2026-11-02; was 3)
 #   OVN_SUPPLY_FROZEN=on|shadow|off (on)                                     ovn_work_supply.py: never supply a gap on a file in the repo's AGENTS.md frozen list
 #   OVN_HYG_SIGSTREAK=shadow|on|off (shadow)                                 ovn_hygiene_stuck_check.sh (existing hourly cron): >=3 hygiene failures on the IDENTICAL failing test set -> urgent alert when 'on'
+
+# --- P4 pipeline guards 2026-11-02 (outcomes F1/F5/F6/F7/F9/F10), no cron line needed, every NEW behaviour is SHADOW/off unless noted:
+#   OVN_PRODTOUCH_SIBLINGS=on|off (on = pure false-positive fix)   lib_fixup.sh [prod-touch]: files named by sibling items of the same [feat:] / ticked this cycle, or a ticked staged production step, are not prod-touch
+#   OVN_VERIFY_U4=shadow|enforce|off (shadow)                      ovn_verify_shape_lint.py: enforce rewrites/drops `python -c 'from backend.app...'` at item creation; shadow adds u4_would to verify_shape_lint.log
+#   OVN_PYROOT_AUDIT_DEDUPE=on|off (on)                            lib_verify_clause.sh: one py-root-retry alerts.log row per (repo, run, item); the retry itself stays ON
+#   OVN_PINGPONG_ANCHOR=on|off (on) / OVN_PINGPONG_BOOL=off|shadow|enforce (shadow) / OVN_PINGPONG_BOOL_MIN=2   ovn_pingpong_guard.py: same-line anchor; `: bool = True/False` default flip detector (never parks unless enforce); one log row per commit set
+#   OVN_STAGE_FAILTAG_STATUS=off|shadow|on (shadow)                run_overnight.sh: on appends ' cause:<tag>' to the no-op(stage-unverified) stage(higher-tier) status; shadow -> state/stage_status_tag_shadow.log
+#   OVN_REDGREEN_SUSPECT=off|shadow|enforce (shadow)               run_overnight.sh: enforce = red-green SUSPECT skips every credit path (row becomes landed-uncredited); shadow -> state/redgreen_suspect_shadow.log
+#   OVN_AC_NOVERIFY_PROOF=off|shadow|on (shadow)                   lib_auto_credit.sh: on credits an item with NO runnable VERIFY when the commit adds the definition of an identifier the item names
 
 # --- 2026-10-18 supply report (ovn_supply_report.py): per starving repo depth / burn / runway / last supply source / root cause -> state/supply_report.json + logs/supply_report.log.
 # READ-ONLY and pushes nothing: ovn_notify.py update (hourly) and ovn_research_trigger_check.{sh,py} read it. Every 30 min at :14/:44 (before the :20 hourly update).
@@ -47,3 +56,15 @@
 # local-research fresh evidence: OVN_LR_FRESH_EVIDENCE=shadow|on|off (default shadow; coverage_latest[_<repo>].json, ruff_<repo>.json, tsc_<repo>.txt in state/, origin-tree TODOs). No cron change.
 # mutation scan for more repos (GDScript-only scanner: today only xlite has a project.godot; replaces the 02:30 xlite line when a second Godot repo exists):
 # 30 2 * * * cd /home/mhintermeister/overnight-queue && [ ! -e state/PAUSED ] && flock -n state/mutation_scan.lock nice -n 19 timeout 5400 env OVN_MUT_MAX=60 OVN_MUT_REPOS=xlite python3 scripts/ovn_mutation_supply.py scan-all >> logs/mutation_scan.log 2>&1
+
+# --- 2026-11-02 P2 notify quality (PROPOSED, NOT INSTALLED: enable by removing '#OFF# ')
+# N8 delivery heartbeat: ONE priority-3 message a day at 08:00 box time (America/Chicago = CST/CDT): 'ntfy alive YYYY-MM-DD' + 'N sent/24h, M capped, K dropped, last emergency <title> <age>' (+ '[suppressed N]' for
+# emergencies that were capped/deduped since the previous heartbeat). Never deduped, exempt from every cap: no message by 09:00 = the channel (relay, ntfy.sh quota, phone) is the problem, not the fleet.
+# While NO heartbeat went out in the last 26 h the hourly 'all good' digest keeps being sent (OVN_DIGEST_QUIET only silences it once the heartbeat is alive), so enabling this line is what quiets the all-good hours.
+#OFF# (off by default) 0 8 * * * cd /home/mhintermeister/overnight-queue && NTFY_SERVER=http://127.0.0.1:8099 python3 scripts/ovn_notify.py heartbeat >> logs/ovn_notify_heartbeat.log 2>&1
+# N7 escalation flags (no cron line needed; each defaults to SHADOW = a 'would escalate' line in state/notify_shadow.log, flip with `env OVN_ESC_...=on` after a day of sane shadow lines; once per signature per local day):
+#   OVN_ESC_HYGIENE=shadow|on|off (shadow)       ovn_hygiene_stuck_check.sh: a hygiene gate stuck >= OVN_ESC_HYGIENE_H (4) h -> ONE emergency-class push per repo per day
+#   OVN_ESC_PROMOTE_RED=shadow|on|off (shadow)   daily_promote.sh: final HELD/BLOCKED promote of OVN_ESC_PROMOTE_REPOS (billwatch iptv_apps) -> ONE emergency-class push per repo per day
+#   (already ON before this package, verified, not duplicated: promote HELD EVIDENCE_STALE across > 1 day = qa/evidence_freshness_check.py OVN_EVIDENCE_ESCALATE=on; a critical Mac job NOT_LOADED/stale = scripts/mac_jobs_health.py emergency)
+# N6/N10 knobs (no cron line): OVN_EMPTY_ONCE / OVN_PASSRATE_MIN now default ON (=off|shadow are the kill switches); OVN_DIGEST_QUIET=on|shadow|off (on); OVN_NOTIFY_DIGEST_CAP=24, OVN_NOTIFY_EMERGENCY_CAP=20
+#   (separate daily budgets; an explicit OVN_NOTIFY_DAILY_CAP is still a total ceiling). QR_REFILL_MIN_DRY_S=21600 / QR_REFILL_QUIET_S=43200: queue_refill 'Backlog refilled' hysteresis (per repo).

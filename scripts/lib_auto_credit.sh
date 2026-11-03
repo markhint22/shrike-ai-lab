@@ -389,7 +389,19 @@ ovn_auto_credit() {
           ticked_lines="$ticked_lines $ln"; ticked_texts="${ticked_texts}${ln}"$'\t'"${_ac_pretext}"$'\n'
           _ovn_ac_log "VERIFY passed for line ${ln} (${cf})"
           break ;;   # one item per touched file, as before
-        NO_VERIFY_CLAUSE) _sc_refused="$_sc_refused $ln"; _ovn_ac_log "REFUSED line ${ln} (${cf}) - item has no VERIFY: clause, so there is nothing to prove it is done"
+        NO_VERIFY_CLAUSE)
+          # 2026-11-02 (outcomes F10, root cause of xlite's 15 landed-uncredited + ~50 ALREADY-DONE no-ops/day): ~29% of xlite items carry no runnable VERIFY (103 none + 383 prose/GDScript
+          # expressions such as `assert_eq(UpkeepCost.squad_upkeep(3, -10), 0)`; bare-verify rightly rejects them). This rule refuses them, the green push is class landed-uncredited, the item
+          # stays open, and the NEXT cycle's scout ALREADY-DONE credit (ovn_credit_verify_gate lets NO_VERIFY_CLAUSE through) ticks it after one wasted cycle. Evidence-based credit instead:
+          # OVN_AC_NOVERIFY_PROOF=shadow|on|off (default shadow = log only; on = tick): the item NAMES an identifier and this commit's diff on the item's own file ADDS its definition.
+          _nvp=""; [ "${OVN_AC_NOVERIFY_PROOF:-shadow}" != off ] && _nvp="$(_ovn_ac_noverify_proof "$before" "$after" "$cf" "$_ac_pretext")"
+          if [ -n "$_nvp" ] && [ "${OVN_AC_NOVERIFY_PROOF:-shadow}" = on ]; then
+            ticked_lines="$ticked_lines $ln"; ticked_texts="${ticked_texts}${ln}"$'\t'"${_ac_pretext}"$'\n'
+            _ovn_ac_log "NO-VERIFY PROOF line ${ln} (${cf}): the item has no runnable VERIFY but this commit adds the definition of '${_nvp}' it names; crediting"
+            break
+          fi
+          [ -n "$_nvp" ] && _ovn_ac_log "NO-VERIFY PROOF SHADOW line ${ln} (${cf}): would credit - the commit adds the definition of '${_nvp}' the item names (OVN_AC_NOVERIFY_PROOF=on enforces)"
+          _sc_refused="$_sc_refused $ln"; _ovn_ac_log "REFUSED line ${ln} (${cf}) - item has no VERIFY: clause, so there is nothing to prove it is done"
                           _ovn_cr_bump "$prog" "$ln" "no VERIFY clause" ;;
         SKIPPED_DENYLIST) _sc_refused="$_sc_refused $ln"; _ovn_ac_log "REFUSED line ${ln} (${cf}) - the item's VERIFY: clause is not safe to run (denylist/redirect)"
                           _ovn_cr_bump "$prog" "$ln" "VERIFY not safe to run" ;;
@@ -500,6 +512,27 @@ ovn_auto_credit() {
     OVN_AC_NEWHEAD="$(git rev-parse HEAD 2>/dev/null)"
   fi
   return 0
+}
+
+# _ovn_ac_noverify_proof <before> <after> <file> <item text>: prints the identifier and rc 0 when the item text NAMES an identifier (a backticked `name` / `Class.name`, or `func|def NAME`) and the
+# diff of <file> between the two shas ADDS a definition of it (func/def/class/const/let/var/signal/enum/function/interface/type NAME, or an UNINDENTED statement-level assignment `NAME = ` / `NAME: T = `; 2026-11-02 FX-P4: an indented `  name: value` / `name = ` line - dict key, kwarg, local assignment - is NOT a definition). Needs the name to be >= 4 chars and not a
+# language keyword; a name that was ALREADY defined before the commit (same definition on a removed line) proves nothing. Pure git/grep; any trouble = no proof.
+_ovn_ac_noverify_proof() {
+  local before="${1:-}" after="${2:-}" cf="${3:-}" text="${4:-}" names n added removed
+  [ -n "$before" ] && [ -n "$after" ] && [ -n "$cf" ] || return 1
+  names="$( { printf '%s' "$text" | grep -oE '`[A-Za-z_][A-Za-z0-9_.]*(\([^`]*\))?`' | sed -E 's/^`//; s/`$//; s/\(.*$//; s/.*\.//'; printf '%s' "$text" | grep -oE '(func|def) +[A-Za-z_][A-Za-z0-9_]*' | awk '{print $2}'; } | awk 'length($0) >= 4' | grep -vxE 'true|false|null|None|self|func|static|void|return|class|const|enum|signal|Array|Dictionary|String|int|float|bool' | sort -u | head -8)"
+  [ -n "$names" ] || return 1
+  added="$(git diff -U0 "$before" "$after" -- "$cf" 2>/dev/null | grep -E '^\+[^+]' || true)"
+  removed="$(git diff -U0 "$before" "$after" -- "$cf" 2>/dev/null | grep -E '^-[^-]' || true)"
+  [ -n "$added" ] || return 1
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    if grep -qE "^\+[[:space:]]*((static|async|private|public|export|override|abstract|final)[[:space:]]+)*(func|def|class|const|let|var|signal|enum|fun|function|interface|type)[[:space:]]+${n}([^A-Za-z0-9_]|$)|^\+${n}([[:space:]]*:[[:space:]]*[A-Za-z_][^=]*)?[[:space:]]*=[^=]" <<< "$added"; then
+      if grep -qE "^-[[:space:]]*((static|async|private|public|export|override|abstract|final)[[:space:]]+)*(func|def|class|const|var|signal|enum|fun|function)[[:space:]]+${n}([^A-Za-z0-9_]|$)" <<< "$removed"; then continue; fi
+      printf '%s' "$n"; return 0
+    fi
+  done <<< "$names"
+  return 1
 }
 
 # ovn_landed_uncredited <task_log> <status>: rc 0 when this cycle PUSHED green work but the item was NOT credited (2026-10-09, harness-credit-integrity item 4).

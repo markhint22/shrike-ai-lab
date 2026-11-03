@@ -72,12 +72,14 @@ doable(){ # $1=repo -> doable count (open [ ] minus parked)
 
 FORCE_PULL="${FORCE_PULL:-0}"   # if >0, pull this many per repo regardless of current doable (one-time priority injection)
 dry=""; newly_dry=""; reminder_dry=""; recovered=""
+# N5: a dry episode that predates state/backlog_dry_first_<repo> (in flight at deploy time) falls back to the marker's own timestamp as its start; clearing the marker is the recovery
+mark_recovered(){ [ -f "$STATE_DIR/backlog_dry_first_$1" ] || cp "$2" "$STATE_DIR/backlog_dry_first_$1" 2>/dev/null; rm -f "$2"; recovered="$recovered $1"; }
 now=$(date +%s)
 for r in $repos; do
   d=$(doable "$r"); bl="backlog/$r.md"; marker="$STATE_DIR/qr_dry_$r"
   if [ "$FORCE_PULL" -eq 0 ] && [ "$d" -ge "$MIN_DOABLE" ]; then
     log_rl "$r" "$r: $d doable (ok, no refill)"
-    [ -f "$marker" ] && { rm -f "$marker"; recovered="$recovered $r"; }
+    [ -f "$marker" ] && { mark_recovered "$r" "$marker"; }
     continue
   fi
   avail=0; [ -f "$bl" ] && avail=$(grep -cE '^- \[ \] \[T[1-5]\]' "$bl" 2>/dev/null)  # no `|| echo 0`: grep -c prints 0 itself; the [ -f ] guard covers a missing file
@@ -103,7 +105,7 @@ for r in $repos; do
     if [ -f "roadmap/$r.md" ] && grep -qE '^- \[ \] \[P[1-4]\] \[ready\]' "roadmap/$r.md" 2>/dev/null; then
       log_rl_reset "$r"
       log "$r: $d doable — backlog empty but roadmap has a [ready] feature (planner will refill; not marking dry)"
-      [ -f "$marker" ] && { rm -f "$marker"; recovered="$recovered $r"; }
+      [ -f "$marker" ] && { mark_recovered "$r" "$marker"; }
       continue
     fi
     log_rl "$r" "$r: $d doable — backlog DRY (roadmap also has no [ready] feature)"
@@ -111,13 +113,14 @@ for r in $repos; do
       dry="$dry $r"
       if [ ! -f "$marker" ]; then
         echo "$now" > "$marker"; newly_dry="$newly_dry $r"
+        [ -f "$STATE_DIR/backlog_dry_first_$r" ] || echo "$now" > "$STATE_DIR/backlog_dry_first_$r"   # N5: when THIS dry episode began (the marker itself is refreshed at every reminder)
       elif [ $(( now - $(cat "$marker" 2>/dev/null || echo "$now") )) -ge "$DRY_REMIND_SECS" ]; then
         echo "$now" > "$marker"; reminder_dry="$reminder_dry $r"
       fi
     fi
     continue
   fi
-  [ -f "$marker" ] && { rm -f "$marker"; recovered="$recovered $r"; }
+  [ -f "$marker" ] && { mark_recovered "$r" "$marker"; }
   if [ "$FORCE_PULL" -gt 0 ]; then need=$FORCE_PULL; else need=$(( ADD_TO - d )); fi
   [ "$need" -lt 1 ] && need=1; [ "$need" -gt "$avail" ] && need=$avail
   ./queue.sh hold "$r" >/dev/null 2>&1 || true
@@ -161,11 +164,28 @@ fi
 if [ -n "$reminder_dry" ]; then
   log "backlog-dry reminder — ntfy suppressed, see ovn_fleet_health.sh, unresolved:${reminder_dry}"
 fi
-if [ -n "$recovered" ]; then
+# 2026-11-02 (N5): "Backlog refilled" flapped (gitlark 3x in 2.5 h at the doable threshold) and, when NTFY_SERVER was unset, went straight to ntfy.sh past the relay's
+# DROP/dedupe. Per-repo hysteresis: announce a repo only when its dry episode lasted >= QR_REFILL_MIN_DRY_S (6 h; state/backlog_dry_first_<repo>) AND the last announcement for it is
+# >= QR_REFILL_QUIET_S (12 h) old (state/backlog_refilled_<repo>); everything else is logged only. The episode marker is always cleared. The push goes to the relay
+# (NTFY_SERVER default http://127.0.0.1:8099, fail-closed: an unreachable relay just drops it).
+announce=""
+for r in $recovered; do
+  first="$(cat "$STATE_DIR/backlog_dry_first_$r" 2>/dev/null || echo "")"
+  case "$first" in ''|*[!0-9]*) first="$now";; esac
+  last="$(cat "$STATE_DIR/backlog_refilled_$r" 2>/dev/null || echo 0)"
+  case "$last" in ''|*[!0-9]*) last=0;; esac
+  rm -f "$STATE_DIR/backlog_dry_first_$r"
+  if [ $(( now - first )) -ge "${QR_REFILL_MIN_DRY_S:-21600}" ] && [ $(( now - last )) -ge "${QR_REFILL_QUIET_S:-43200}" ]; then
+    announce="$announce $r"; echo "$now" > "$STATE_DIR/backlog_refilled_$r"
+  else
+    log "backlog-recovered for $r NOT announced (dry $(( (now - first) / 60 ))m < $(( ${QR_REFILL_MIN_DRY_S:-21600} / 60 ))m, or announced $(( (now - last) / 60 ))m ago < $(( ${QR_REFILL_QUIET_S:-43200} / 60 ))m)"
+  fi
+done
+if [ -n "$announce" ]; then
   curl -fsS --max-time 8 -H "Title: Backlog refilled" -H "Tags: white_check_mark" -H "Priority: low" \
-    -d "These repos have doable items again:${recovered}." \
-    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
-  log "backlog-recovered note sent for:${recovered}"
+    -d "These repos have doable items again:${announce}." \
+    "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true
+  log "backlog-recovered note sent for:${announce}"
 fi
 [ -n "$dry" ] && [ -z "$newly_dry$reminder_dry" ] && log_rl "_still_dry" "still dry (no alert, within cooldown):${dry}"
 date +%s > "$STATE_DIR/qr_last_pass" 2>/dev/null

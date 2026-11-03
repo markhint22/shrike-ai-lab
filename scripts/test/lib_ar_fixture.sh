@@ -91,7 +91,9 @@ open(p, "a").write("%s %s: %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.loca
 PY
 }
 ar_run(){
-  env -i HOME="$T/home" PATH="$FAKEBIN:$PYDIR:/usr/bin:/bin" SHARED_DIR="$SHARED_T" OVN_AUTO_RESEARCH_STATE="$STATE" OVN_CLONES_DIR="$CLONES" \
+  # 2026-11-02 (P3): the suite pins TZ=UTC (lib_test_tz.sh) and writes count_$(date +%F) itself; env -i dropped TZ so the script under test used the box LOCAL date. From 18:00 CST (= 00:00 UTC) the two
+  # dates differ, so the 18:17 cron run failed the daily-cap checks (and every manual run after 18:00 local). The caller's TZ is now passed through.
+  env -i HOME="$T/home" ${TZ:+TZ="$TZ"} PATH="$FAKEBIN:$PYDIR:/usr/bin:/bin" SHARED_DIR="$SHARED_T" OVN_AUTO_RESEARCH_STATE="$STATE" OVN_CLONES_DIR="$CLONES" \
      OVN_SSH=stub@box OVN_AR_CLAUDE="$FAKEBIN/claude" FAKEBOX="$BOX" CAPTURE="$CAP" TMPDIR="$T/tmp" "$@" "$BASH" "$AR_SCRIPT" > "$T/out.txt" 2>&1
   AR_RC=$?
 }

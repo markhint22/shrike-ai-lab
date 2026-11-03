@@ -4,6 +4,7 @@
 # the machine-parseable "#SUMMARY" trailer, and the wrapper's alert-only-when-D/F behaviour.
 # Hermetic: HOME is a temp dir with a fake state/outcomes.jsonl; curl is a stub with the script's PATH patched.
 set -uo pipefail
+export NTFY_SERVER="http://relay.stub.test"   # 2026-11-02 (N5): scripts post to $NTFY_SERVER (default: the relay, never https://ntfy.sh); the stub curl logs this URL
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
@@ -120,7 +121,7 @@ NTFY_TOPIC=tt runsh >/dev/null
 chk "flagged: one alert" test "$(grep -c -- '--CALL--' "$CURLLOG")" = 1
 chk "flagged: title carries the D/F count (2)" grep -q 'Title: Research-batch scorecard: 2 batch(es) graded D/F' "$CURLLOG"
 chk "flagged: tag warning" grep -q 'Tags: warning' "$CURLLOG"
-chk "flagged: url" grep -q 'https://ntfy.sh/tt$' "$CURLLOG"
+chk "flagged: url" grep -q 'http://relay.stub.test/tt$' "$CURLLOG"
 chk "flagged: body has detail lines" grep -q 'rb/badA' "$CURLLOG"
 chk "flagged: body excludes the #SUMMARY line" bash -c "! grep -q '#SUMMARY' '$CURLLOG'"
 chk "flagged: #SUMMARY kept in the log" grep -q '#SUMMARY total=3 A=1 B=0 C=0 D=1 F=1 flagged=2' "$LOG"
@@ -140,9 +141,9 @@ chk "flagged, no topic: no curl" bash -c "! test -s '$CURLLOG'"
 chk "flagged, no topic: still logged" grep -q 'graded D/F\|rb/bad' "$LOG"
 echo ftopic > "$W/state/ntfy_topic"
 runsh >/dev/null
-chk "topic from state/ntfy_topic" grep -q 'https://ntfy.sh/ftopic$' "$CURLLOG"
+chk "topic from state/ntfy_topic" grep -q 'http://relay.stub.test/ftopic$' "$CURLLOG"
 : > "$CURLLOG"; NTFY_TOPIC=etopic runsh >/dev/null
-chk "env topic wins" grep -q 'https://ntfy.sh/etopic$' "$CURLLOG"
+chk "env topic wins" grep -q 'http://relay.stub.test/etopic$' "$CURLLOG"
 
 # missing/garbled #SUMMARY -> FLAGGED defaults to 0 -> no alert (stubbed python)
 setup

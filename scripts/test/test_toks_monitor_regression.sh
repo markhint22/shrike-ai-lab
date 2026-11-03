@@ -29,7 +29,7 @@ cat > "$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 url="${@: -1}"
 case "$url" in
-  *ntfy.sh*) echo "ALERT_CALL $*" >> "$FAKE_NTFY_LOG"; exit 0 ;;
+  *ntfy.sh*|*127.0.0.1:*) echo "ALERT_CALL $*" >> "$FAKE_NTFY_LOG"; exit 0 ;;
   *)
     sleep "${FAKE_DELAY:-0.1}"
     printf '{"usage":{"completion_tokens":%s}}' "${FAKE_TOKENS:-100}"

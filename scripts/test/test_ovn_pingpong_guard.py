@@ -335,7 +335,7 @@ def integ_benign(root):
 def main():
     print("== pingpong guard: replay of the real gitlark case (10c57462 / ffc43510 / 9e8b5919) ==")
     unit = [("real gitlark case flagged (3 commits, 201/200/201, one revisit, commit order)", chk_real_case, r'|(?<![\w.])(-?\d+(?:\.\d+)?)(?![\w.])', r'|(?<![\w.])(NEVERMATCH\d+(?:\.\d+)?)(?![\w.])'),
-            ("forward-only edits (10->20->30->40) are NOT a ping-pong", chk_forward_only_not_flagged, 'if revisits < 1:', 'if False:'),
+            ("forward-only edits (10->20->30->40) are NOT a ping-pong", chk_forward_only_not_flagged, 'if kind == "literal" and revisits < 1:', 'if False:'),
             ("only two commits on the line are NOT enough", chk_two_flips_not_flagged, 'min_n = MIN_N if min_n is None else min_n', 'min_n = 2'),
             ("same line shape in two different test functions is NOT one ping-pong", chk_distinct_tests_not_collapsed, 'state.setdefault((path, nk, ctx), {', 'state.setdefault((path, nk, ""), {'),
             ("seeded True/False flips (3 commits, 2 revisits) flagged", chk_bool_flip_seeded, 'walk = {st["seed"]} if st["seed"] is not None else set()', 'walk = set()'),

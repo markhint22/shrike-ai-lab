@@ -142,7 +142,7 @@ echo 500 > "$T/code"
 ok "no topic: exits 0 and sends no alerts" "$([ "$RC" = 0 ] && [ ! -s "$ALERTS" ] && echo 1 || echo 0)"
 echo "fromfile" > "$Q/state/ntfy_topic"; echo 200 > "$T/code"; rm -f "$Q/state/qh_bad_chickadee-backend" "$Q/state/lowqueue_alert_last"; : > "$CURLLOG"; : > "$ALERTS"
 ( cd "$Q" && PATH="$BIN:$PATH" env -u NTFY_TOPIC MIN_DOABLE=5 bash queue_health.sh >"$T/out.txt" 2>&1 ); RC=$?
-ok "topic read from state/ntfy_topic" "$(grep -q 'ntfy.sh/fromfile' "$CURLLOG" && echo 1 || echo 0)"
+ok "topic read from state/ntfy_topic" "$(grep -q '/fromfile' "$CURLLOG" && echo 1 || echo 0)"
 
 echo "queue_health_full: $P passed, $F failed"
 [ "$F" = 0 ]

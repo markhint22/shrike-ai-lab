@@ -26,7 +26,7 @@ cat > "$BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 url="${@: -1}"
 case "$url" in
-  *ntfy.sh*) title=""; prev=""; for a in "$@"; do [ "$prev" = "-H" ] && case "$a" in Title:*) title="$a";; esac; prev="$a"; done; echo "$title" >> "$NTFY"; exit 0;;
+  *ntfy.sh*|*127.0.0.1:*) title=""; prev=""; for a in "$@"; do [ "$prev" = "-H" ] && case "$a" in Title:*) title="$a";; esac; prev="$a"; done; echo "$title" >> "$NTFY"; exit 0;;
   *) [ -n "${FAKE_FAIL:-}" ] && exit 22
      printf '{"usage":{"completion_tokens":%s}}' "${FAKE_TOKENS:-150}";;
 esac

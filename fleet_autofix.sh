@@ -13,7 +13,7 @@ STATE_DIR="$HOME/overnight-queue/state"; mkdir -p "$STATE_DIR" logs
 TOPIC="${NTFY_TOPIC:-shrike_ovn_311380987a}"
 LOG="logs/fleet_autofix.log"
 say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true; }
 
 say "=== autofix tick ==="
 

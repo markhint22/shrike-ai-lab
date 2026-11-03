@@ -98,6 +98,17 @@ if [ -n "$unverified" ]; then
   body="$body
 UNVERIFIED (promoted without staging provenance):$unverified"
 fi
-curl -fsS --max-time 8 -H "Title: Daily prod promote" -H "Tags: rocket" -H "Priority: $PROMOTE_PRIO" -d "$body" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
+# 2026-11-02 (N7): a promote that ends HELD (staging gate) or BLOCKED (migration/smoke gate, conflict) for the revenue-bearing repos used to be one line in the 09:00 summary (prio high
+# is still a NOTE to the relay, buffered into an hourly digest nobody may read). Escalate it once per repo per day as an emergency-class push (ovn_notify.py escalate; flag
+# OVN_ESC_PROMOTE_RED shadow|on|off, default shadow = log only; repos: OVN_ESC_PROMOTE_REPOS, default billwatch iptv_apps). Runs after the retry pass, so a transient hold that cleared never escalates.
+for _er in $held $blocked; do
+  case " ${OVN_ESC_PROMOTE_REPOS:-billwatch iptv_apps} " in
+    *" $_er "*)
+      _ek="HELD"; case " $blocked " in *" $_er "*) _ek="BLOCKED";; esac
+      OVN_NOTIFY_STATE="$PWD/state" ${OVN_ESCALATE_CMD:-python3 scripts/ovn_notify.py escalate} --sig "promote_red:$_er" --title "Prod promote $_ek: $_er" \
+        --body "The daily promote of $_er ended $_ek and it stayed on its last-good prod build. See logs/daily_promote.log." --flag OVN_ESC_PROMOTE_RED >>"${OVN_ESC_LOG:-/dev/null}" 2>&1 || true;;
+  esac
+done
+curl -fsS --max-time 8 -H "Title: Daily prod promote" -H "Tags: rocket" -H "Priority: $PROMOTE_PRIO" -d "$body" "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true
 command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_queue_promote" "Daily prod promote" "rocket" "$body"
 echo "$body"

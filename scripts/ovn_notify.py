@@ -17,6 +17,8 @@ alert was dropped for a day, and the phone feed was unreadable. Now:
 usage:  ovn_notify.py serve [--port 8099]
         ovn_notify.py update [--dry-run] [--force]
         ovn_notify.py check  [--dry-run]
+        ovn_notify.py heartbeat [--dry-run]
+        ovn_notify.py escalate --sig S --title T [--body B] --flag OVN_ESC_X [--dry-run]
 env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIFY_DAILY_CAP (default 40), OVN_NOTIFY_DISABLE=1 (drop all pushes)
         OVN_IDLE_LINE=0 (no "Lane idle" lines in the hourly update), OVN_IDLE_ALERT=0 (no "Fleet starved" emergency), OVN_IDLE_ALERT_H (default 6)
         OVN_STARVED_PRIORITY=off ("Fleet starved" only when EVERY lane is idle, not when the priority lanes are), OVN_PRIORITY_LANES (default iptv_apps,xlite),
@@ -25,6 +27,13 @@ env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIF
         OVN_DIGEST_DEDUPE   (one digest per (title with digits folded, UTC hour); two went out at 01:20)
         OVN_EMPTY_ONCE      ('Queue empty' bullet: one line, only when the set of empty repos changes or every OVN_EMPTY_REPEAT_H=6 h)
         OVN_PASSRATE_MIN    ('Pass rate' headline only with >= OVN_PASSRATE_MIN_N=5 good+bad outcomes in the window)
+        2026-11-02 (P2 notify quality): OVN_EMPTY_ONCE and OVN_PASSRATE_MIN now default to ON (their shadow logs were clean; OVN_*=off / =shadow are the kill switches).
+        OVN_DIGEST_QUIET    (off|shadow|on, default on): no hourly digest when there is nothing to look at ("all good"), UNLESS no heartbeat went out in the last 26 h
+                            (then the all-good digest is the only sign of life and keeps being sent: the quiet mode is self-protecting until the heartbeat cron is enabled)
+        OVN_NOTIFY_DIGEST_CAP (default 24) / OVN_NOTIFY_EMERGENCY_CAP (default 20): SEPARATE per-24h budgets; OVN_NOTIFY_DAILY_CAP, when set explicitly, stays a total ceiling too.
+        `heartbeat` : one priority-3 'ntfy alive <date>' message (never deduped, exempt from every cap) so SILENCE of the channel is detectable; carries sent/capped/dropped
+                      counts, the last emergency and '[suppressed N]' for emergencies that were capped/deduped since the previous heartbeat.
+        `escalate --sig S --title T --body B --flag OVN_ESC_X`: ONE emergency-class push per signature per local day (mode shadow|on|off, default shadow = notify_shadow.log only).
 """
 import base64
 import email.header
@@ -48,6 +57,10 @@ ROOT = os.path.dirname(STATE.rstrip("/")) if os.path.basename(STATE.rstrip("/"))
 UPSTREAM = os.environ.get("OVN_NOTIFY_UPSTREAM", "https://ntfy.sh").rstrip("/")
 TOPIC = os.environ.get("NTFY_TOPIC", "shrike_ovn_311380987a")
 DAILY_CAP = int(os.environ.get("OVN_NOTIFY_DAILY_CAP", "40"))
+DAILY_CAP_EXPLICIT = "OVN_NOTIFY_DAILY_CAP" in os.environ    # an explicitly set total cap is still honoured (on top of the per-kind budgets); the default 40 is NOT a ceiling any more (N10)
+DIGEST_CAP = int(os.environ.get("OVN_NOTIFY_DIGEST_CAP", "24"))
+EMERGENCY_CAP = int(os.environ.get("OVN_NOTIFY_EMERGENCY_CAP", "20"))
+HEARTBEAT_FRESH_S = 26 * 3600
 EMERGENCY_COOLDOWN = 3 * 3600
 IDLE_LANE_S = 30 * 60               # a lane with nothing pullable whose last real attempt is older than this is "idle" (hourly update line)
 STARVED_DEDUP_S = 12 * 3600         # "Fleet starved" is pushed at most once per 12 h
@@ -65,10 +78,15 @@ def _p(name):
     return os.path.join(STATE, name)
 
 
+# flags whose shadow log was reviewed clean and that now default to ON (2026-11-02, N6); the env var still switches them off / back to shadow
+_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET")
+
+
 def _mode(flag):
-    """off | shadow | on for an OVN_* flag; unset or unrecognised = shadow (new enforcement behaviour ships log-only)."""
-    v = (os.environ.get(flag) or "shadow").strip().lower()
-    return v if v in ("off", "shadow", "on") else "shadow"
+    """off | shadow | on for an OVN_* flag; unset or unrecognised = shadow (new enforcement behaviour ships log-only), except the _DEFAULT_ON flags (on)."""
+    dflt = "on" if flag in _DEFAULT_ON else "shadow"
+    v = (os.environ.get(flag) or dflt).strip().lower()
+    return v if v in ("off", "shadow", "on") else dflt
 
 
 def _shadow(flag, msg):
@@ -146,6 +164,22 @@ def sent_today():
     return [r for r in _read_jsonl(_p("notify_sent.jsonl")) if r.get("ts", 0) >= cutoff and r.get("ok")]
 
 
+def _event(action, kind, key=""):
+    """Record that a message was capped / deduped / dropped (the heartbeat reports them; silence must be countable). Trimmed to the last 24 h when it passes 1 MB. Never raises."""
+    try:
+        p = _p("notify_events.jsonl")
+        _append_jsonl(p, {"ts": now(), "action": action, "kind": kind, "key": key})
+        if os.path.getsize(p) > 1_000_000:
+            cut = now() - 86400
+            keep = [r for r in _read_jsonl(p) if r.get("ts", 0) >= cut]
+            with open(p + ".tmp", "w") as f:
+                for r in keep:
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            os.replace(p + ".tmp", p)
+    except OSError:
+        pass
+
+
 def _hdr(v):
     """HTTP header value; non-ASCII (emoji) titles use RFC 2047, which ntfy decodes."""
     return v if v.isascii() else "=?UTF-8?B?%s?=" % base64.b64encode(v.encode("utf-8")).decode()
@@ -176,11 +210,16 @@ def _body_hash(body):
 
 
 def forward(title, body, priority="default", tags="", kind="emergency", dry=False):
-    """Push ONE message upstream, honoring the daily cap and the per-title emergency cooldown. Returns 'sent' | 'deduped' | 'capped' | 'failed' | 'dry'."""
+    """Push ONE message upstream, honoring the per-kind daily budgets and the per-title emergency cooldown. Returns 'sent' | 'deduped' | 'capped' | 'failed' | 'dry' | 'disabled'.
+    kind 'heartbeat' is never deduped and exempt from every cap. OVN_NOTIFY_DISABLE=1 pushes nothing at all (tests, ntfy_guard.sh)."""
+    if os.environ.get("OVN_NOTIFY_DISABLE"):
+        return "disabled"
     key = clean_title(title)
     hist = sent_today()
     if kind == "emergency":
         if any(r.get("key") == key and r.get("kind") == "emergency" and now() - r["ts"] < EMERGENCY_COOLDOWN for r in hist):
+            if not dry:
+                _event("deduped", kind, key)
             return "deduped"
     if kind == "digest" and _mode("OVN_DIGEST_DEDUPE") != "off":
         dk, hr, bh = _digest_key(key), int(now() // 3600), _body_hash(body)
@@ -189,11 +228,20 @@ def forward(title, body, priority="default", tags="", kind="emergency", dry=Fals
         if any(r.get("kind") == "digest" and _digest_key(r.get("key", "")) == dk and int(r.get("ts", 0) // 3600) == hr
                and r.get("bh") == bh for r in hist):
             if _mode("OVN_DIGEST_DEDUPE") == "on":
+                if not dry:
+                    _event("deduped", kind, key)
                 return "deduped"
             if not dry:
                 _shadow("OVN_DIGEST_DEDUPE", "suppress a second digest in the same hour: %s" % key)
-    if len(hist) >= DAILY_CAP:
-        return "capped"
+    if kind != "heartbeat":
+        # N10: digests and emergencies have SEPARATE budgets (a day of hourly digests must not starve an emergency); an explicit OVN_NOTIFY_DAILY_CAP is a total ceiling as well
+        mine = sum(1 for r in hist if r.get("kind") == kind)
+        budget = {"digest": DIGEST_CAP, "emergency": EMERGENCY_CAP}.get(kind)
+        total = sum(1 for r in hist if r.get("kind") != "heartbeat")
+        if (budget is not None and mine >= budget) or (DAILY_CAP_EXPLICIT and total >= DAILY_CAP) or (budget is None and total >= DAILY_CAP):
+            if not dry:
+                _event("capped", kind, key)
+            return "capped"
     if dry:
         return "dry"
     req = urllib.request.Request("%s/%s" % (UPSTREAM, TOPIC), data=(body or "").encode("utf-8"), method="POST")
@@ -225,6 +273,8 @@ def handle_publish(topic, headers, body, source=""):
     prio = headers.get("priority", "default")
     cls = classify(title, prio, headers.get("x-ovn-level", ""))
     if cls == "drop":
+        if not os.environ.get("OVN_NOTIFY_DISABLE"):
+            _event("dropped", "drop", clean_title(title))
         return "dropped"
     if cls in ("emergency", "digest"):
         res = forward(title, short(body, 200) if cls == "emergency" else body, "urgent" if cls == "emergency" else "default",
@@ -300,12 +350,16 @@ def _outcomes_since(cutoff):
 
 
 def _doable(repo_dir):
+    """Open, takeable items. P5-supply-truth: the filter now lives in ovn_supply_filter (one definition shared with ovn_supply_report / fleet_stats)."""
     try:
-        lines = open(os.path.join(repo_dir, "OVERNIGHT_PROGRESS.md"), errors="replace").read().split("\n")
-    except OSError:
-        return None
-    bad = re.compile(r"AUTO-SKIP|HUMAN-ONLY|human/|\[CLAUDE\]|BLOCKED ITEM|\(retired-", re.I)   # same filter as run_overnight/queue_refill (a bare "human" matched ordinary item text)
-    return sum(1 for l in lines if l.startswith("- [ ]") and not bad.search(l))
+        import ovn_supply_filter as f
+    except ImportError:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ovn_supply_filter", os.path.join(os.path.dirname(os.path.abspath(__file__)), "ovn_supply_filter.py"))
+        f = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(f)
+    c = f.count_repo(repo_dir)
+    return None if c is None else c["doable"]
 
 
 def _enabled_repos():
@@ -804,9 +858,18 @@ def do_update(dry=False, force=False):
         last = 0
     if not force and now() - last < 50 * 60:
         return "skipped: last update %dm ago" % ((now() - last) / 60)
-    title, body, _, (empty_sig, empty_emitted) = compose_update_ex()
+    title, body, needs_n, (empty_sig, empty_emitted) = compose_update_ex()
     if dry:
         return "%s\n%s" % (title, body)
+    # N6: an "all good" digest is noise; send a digest only when there is something to look at. The daily heartbeat is the proof of life, so the quiet mode only applies while a
+    # heartbeat went out in the last 26 h - without one (cron not enabled yet) the all-good digest is the only sign of life and is still sent.
+    if needs_n == 0 and _mode("OVN_DIGEST_QUIET") != "off" and not force:
+        if heartbeat_alive():
+            if _mode("OVN_DIGEST_QUIET") == "on":
+                os.makedirs(STATE, exist_ok=True)
+                open(_p("notify_last_update"), "w").write(str(now()))
+                return "skipped: nothing to look at (heartbeat covers liveness)"
+            _shadow("OVN_DIGEST_QUIET", "skip the all-good digest: %s" % title)
     res = forward(title, body, "default", "", kind="digest")
     if res in ("sent", "capped", "deduped"):
         if res != "deduped" and _mode("OVN_EMPTY_ONCE") != "off":
@@ -821,6 +884,79 @@ def do_update(dry=False, force=False):
             if bn.get("boot"):
                 open(_p("notify_boot_reported"), "w").write(str(bn["boot"]))
     return "%s (%s)" % (title, res)
+
+
+# ---------------------------------------------------------------- heartbeat / escalation (2026-11-02, P2 notify quality)
+def heartbeat_alive(t=None):
+    """True when a heartbeat was delivered within HEARTBEAT_FRESH_S (26 h)."""
+    t = now() if t is None else t
+    return any(r.get("kind") == "heartbeat" and r.get("ok") and t - r.get("ts", 0) < HEARTBEAT_FRESH_S for r in _read_jsonl(_p("notify_sent.jsonl")))
+
+
+def heartbeat_text(t=None):
+    """-> (title, body). 'ntfy alive YYYY-MM-DD' + 'N sent/24h, M capped, K dropped, last emergency <title> <age>' (+ ' [suppressed N]': emergencies capped/deduped since the previous heartbeat)."""
+    t = now() if t is None else t
+    sent_rows = _read_jsonl(_p("notify_sent.jsonl"))
+    events = _read_jsonl(_p("notify_events.jsonl"))
+    cut = t - 86400
+    sent = sum(1 for r in sent_rows if r.get("ok") and r.get("kind") != "heartbeat" and r.get("ts", 0) >= cut)
+    capped = sum(1 for r in events if r.get("action") == "capped" and r.get("ts", 0) >= cut)
+    dropped = sum(1 for r in events if r.get("action") == "dropped" and r.get("ts", 0) >= cut)
+    last_hb = max([r.get("ts", 0) for r in sent_rows if r.get("kind") == "heartbeat" and r.get("ok")] or [cut])
+    suppressed = sum(1 for r in events if r.get("kind") == "emergency" and r.get("action") in ("capped", "deduped") and r.get("ts", 0) > last_hb)
+    em = [r for r in sent_rows if r.get("ok") and r.get("kind") == "emergency"]
+    last = ("%s %s ago" % (em[-1].get("key", "?"), _dur(t - em[-1].get("ts", t)))) if em else "none"
+    body = "%d sent/24h, %d capped, %d dropped, last emergency %s" % (sent, capped, dropped, last)
+    if suppressed:
+        body += " [suppressed %d]" % suppressed
+    return "ntfy alive %s" % time.strftime("%Y-%m-%d", time.localtime(t)), body
+
+
+def do_heartbeat(dry=False):
+    """Send the heartbeat (priority 3 = default). Never deduped, exempt from the caps. -> result string."""
+    title, body = heartbeat_text()
+    if dry:
+        return "%s: %s" % (title, body)
+    return "%s: %s -> %s" % (title, body, forward(title, body, "default", "white_check_mark", kind="heartbeat"))
+
+
+def escalate(sig, title, body, flag, dry=False):
+    """ONE emergency-class push per signature per local day. `flag` is an OVN_* mode variable: off = nothing, shadow (default) = a 'would escalate' line in notify_shadow.log only, on = push.
+    The day is only consumed by a delivered push (a capped/failed one retries on the next run). -> 'off' | 'shadow' | 'already-today' | forward()'s result."""
+    mode = _mode(flag)
+    if mode == "off":
+        return "off"
+    day = time.strftime("%Y-%m-%d", time.localtime(now()))
+    path = _p("notify_escalated.json")
+    try:
+        seen = json.load(open(path))
+        seen = seen if isinstance(seen, dict) else {}
+    except (OSError, ValueError):
+        seen = {}
+    if mode == "shadow":
+        if seen.get("shadow:" + sig) != day and not dry:
+            _shadow(flag, "escalate (emergency push, once per day) %s: %s" % (sig, clean_title(title)))
+            seen["shadow:" + sig] = day
+            _save_escalated(path, seen, day)
+        return "shadow"
+    if seen.get(sig) == day:
+        return "already-today"
+    res = forward(title, body, "urgent", "rotating_light", kind="emergency", dry=dry)
+    if res in ("sent", "deduped") and not dry:
+        seen[sig] = day
+        _save_escalated(path, seen, day)
+    return res
+
+
+def _save_escalated(path, seen, day):
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        seen = {k: v for k, v in seen.items() if v == day}      # yesterday's signatures are forgotten
+        with open(path + ".tmp", "w") as f:
+            json.dump(seen, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------- emergency checks
@@ -936,6 +1072,15 @@ def main(argv):
         print(do_update(dry="--dry-run" in argv, force="--force" in argv))
     elif cmd == "check":
         print(do_check(dry="--dry-run" in argv))
+    elif cmd == "heartbeat":
+        print(do_heartbeat(dry="--dry-run" in argv))
+    elif cmd == "escalate":
+        def _arg(name, d=""):
+            return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else d
+        if not _arg("--sig") or not _arg("--title") or not _arg("--flag"):
+            print("escalate needs --sig, --title and --flag")
+            return 2
+        print(escalate(_arg("--sig"), _arg("--title"), _arg("--body"), _arg("--flag"), dry="--dry-run" in argv))
     else:
         print(__doc__)
         return 2

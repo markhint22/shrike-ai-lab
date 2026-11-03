@@ -59,7 +59,7 @@ clone_into_repos(){ # $1=repo-name $2=origin-path
 #     default 8-repo list, so we must pass a real non-empty, non-existent name instead) so its
 #     own top-level pytest/vitest/GUT loop is a harmless no-clone skip, then call the function ---
 call_enqueue(){ # $1=repo $2=area $3=detail
-  ( CURLLOG_PATH="$CURLLOG" PATH="$FAKEBIN:$PATH" HOME="$SANDBOX_HOME" NTFY_TOPIC=ovn-test-watch-unit-test-fake NTFY_SERVER=https://ntfy.sh \
+  ( CURLLOG_PATH="$CURLLOG" PATH="$FAKEBIN:$PATH" HOME="$SANDBOX_HOME" NTFY_TOPIC=ovn-test-watch-unit-test-fake NTFY_SERVER=http://stub.test \
     bash -c '
       source "$1" __unittest_no_such_repo__
       emergency_enqueue "$2" "$3" "$4"
@@ -83,7 +83,7 @@ ok "A: it lands immediately below the '## Next Steps' header (worked first next 
 ok "A: the real work item below it is undisturbed" "printf '%s' \"$after\" | grep -q 'foo.py — real work'"
 ok "A: origin got the commit + push" \
    "git --git-dir='$oA' log --oneline overnight/feature | grep -q 'EMERGENCY.*pytest suite red'"
-ok "A: an ntfy alert was actually sent" "grep -q 'ntfy.sh/ovn-test-watch-unit-test-fake' '$CURLLOG'"
+ok "A: an ntfy alert was actually sent" "grep -q 'stub.test/ovn-test-watch-unit-test-fake' '$CURLLOG'"
 ok "A: alert mentions the failing detail" "grep -q 'test_bar' '$CURLLOG'"
 
 # === B: an emergency for the SAME area is already open -> must not pile up a duplicate ===

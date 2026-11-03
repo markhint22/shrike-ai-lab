@@ -135,6 +135,7 @@ ok "G3b: marker refreshed" "[ \"\$(cat '$wd/state/qr_dry_r3')\" -gt 1000 ]"
 # ok-branch recovery (55): healthy repo with stale marker
 printf -- '- [ ] [T1] a\n' > "$wd/repos/r3/OVERNIGHT_PROGRESS.md"
 : > "$ALERT_LOG"
+echo 1 > "$wd/state/backlog_dry_first_r3"   # N5 (2026-11-02): the dry episode is old enough (>= QR_REFILL_MIN_DRY_S) to be announced
 out="$( cd "$wd" && HOME="$tmp" MIN_DOABLE=1 bash ./queue_refill.sh r3 2>&1 )"
 ok "G4: healthy repo with marker -> recovered" "printf '%s' \"\$out\" | grep -q 'backlog-recovered note sent for: r3' && [ ! -f '$wd/state/qr_dry_r3' ]"
 # roadmap-ready recovery (80)

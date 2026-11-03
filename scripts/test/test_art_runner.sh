@@ -69,9 +69,15 @@ chk("parse_queue: line_no/raw recorded", ts[0]["raw"].startswith("- [ ] [unit] r
 import subprocess
 real_run = subprocess.run
 A.TOPIC = "topic_xyz"
+_saved_srv = os.environ.pop("NTFY_SERVER", None)   # 2026-11-02 (N5): the suite guard sets NTFY_SERVER to a closed port; the DEFAULT under test is the relay, never ntfy.sh
 A.alert("Title A", "body text")
 log = open(os.environ["CURL_LOG"]).read()
-chk("alert: posts to ntfy topic with title/tags/body", "https://ntfy.sh/topic_xyz" in log and "Title: Title A" in log and "Tags: art" in log and "body text" in log)
+chk("alert: posts to the relay (default http://127.0.0.1:8099, never ntfy.sh) with title/tags/body", "http://127.0.0.1:8099/topic_xyz" in log and "ntfy.sh" not in log and "Title: Title A" in log and "Tags: art" in log and "body text" in log)
+os.environ["NTFY_SERVER"] = "http://stub.test:1"; open(os.environ["CURL_LOG"], "w").close()
+A.alert("Title B", "body b")
+chk("alert: an explicit NTFY_SERVER is used as given", "http://stub.test:1/topic_xyz" in open(os.environ["CURL_LOG"]).read())
+if _saved_srv is None: os.environ.pop("NTFY_SERVER", None)
+else: os.environ["NTFY_SERVER"] = _saved_srv
 def boom(*a, **k): raise OSError("no curl")
 subprocess.run = boom
 try:

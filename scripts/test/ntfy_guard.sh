@@ -6,7 +6,7 @@
 #
 # Defines and EXPORTS a `curl` shell function (functions beat PATH lookups, so it also wins over scripts that reset PATH to
 # /usr/bin first). It swallows any call whose URL contains ntfy.sh, but ONLY when the curl that would run is the real system binary -
-# a test that puts its own stub curl first on PATH still sees every call and can assert on it. Swallowed attempts are appended to
+# a test that puts its own stub curl first on PATH still sees every call and can assert on it. Since 2026-11-02 the live RELAY (127.0.0.1:8099 / localhost:8099, the scripts' fail-closed default) is swallowed too. Swallowed attempts are appended to
 # $OVN_NTFY_GUARD_LOG so a suite run can be audited for tests that still try to reach the network.
 OVN_NTFY_GUARD_LOG="${OVN_NTFY_GUARD_LOG:-/tmp/ovn_ntfy_guard.log}"
 export OVN_NTFY_GUARD_LOG
@@ -15,7 +15,7 @@ curl() {
   case "$real" in
     /usr/bin/curl|/bin/curl|/usr/local/bin/curl|/opt/homebrew/bin/curl|/opt/homebrew/opt/curl/bin/curl)   # 2026-10-10: + the Homebrew keg path (what `type -P curl` returns on the dev Mac; it was NOT swallowed there)
       case "$*" in
-        *ntfy.sh*) printf '%s pid=%s %s :: %s\n' "$(date '+%F %T')" "$$" "${BASH_SOURCE[1]:-?}" "$*" >> "$OVN_NTFY_GUARD_LOG" 2>/dev/null; return 0 ;;
+        *ntfy.sh*|*127.0.0.1:8099*|*localhost:8099*) printf '%s pid=%s %s :: %s\n' "$(date '+%F %T')" "$$" "${BASH_SOURCE[1]:-?}" "$*" >> "$OVN_NTFY_GUARD_LOG" 2>/dev/null; return 0 ;;
       esac ;;
   esac
   command curl "$@"
@@ -26,7 +26,13 @@ export -f curl
 # relay. Tests assume the default server (https://ntfy.sh, which the guard above swallows); inheriting the relay made 4+ tests fail
 # only under cron ("Queue tests FAILED" at 00:09 and 06:09) while every manual run passed, and let test traffic reach the real
 # relay. Tests must run in the same environment whether started by cron or by hand.
-unset NTFY_SERVER
+# 2026-11-02 (N4): `unset NTFY_SERVER` was NOT enough. Two leaks: (1) python tests calling qa/evidence_freshness_check.push_emergency("t","m") fell back to the LIVE relay on
+# 127.0.0.1:8099 and pushed a real urgent 't'/'m' to Mark's phone every suite run (6 in 28 h; the curl wrapper above only swallows ntfy.sh); (2) after the scripts' fail-closed default moved to
+# the relay (http://127.0.0.1:8099), an unset NTFY_SERVER in a test would reach the real relay on the box. NTFY_SERVER now points at the CLOSED port 9 (connection refused, nothing listens)
+# and OVN_NOTIFY_DISABLE=1 makes ovn_notify classify/forward push nothing. Tests that exercise ovn_notify against a fake upstream `unset OVN_NOTIFY_DISABLE` themselves; a test that wants
+# a stub server sets its own NTFY_SERVER. test_ntfy_lint.py fails the suite when a test posts to :8099 / ntfy.sh without this guard.
+export NTFY_SERVER="http://127.0.0.1:9"
+export OVN_NOTIFY_DISABLE=1
 
 # 2026-10-10 (qacov F7): the same class of leak for the BOX. A suite run on the Mac once appended a synthetic alert ("RevenueCat lifecycle E2E on staging FAILED: 1/2 passed;
 # failed=['x']; staging=abcdef12", 2026-10-09 12:19) to the REAL box's state/alerts.log through the real `ssh` (fixed 4 minutes later by the QA_E2E_SSH shim override, 9c1988a). This

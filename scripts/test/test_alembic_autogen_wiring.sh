@@ -125,7 +125,7 @@ awk '/if \[ -x "\$SCRIPT_DIR\/scripts\/ovn_alembic_autogen.sh" \]; then/{p=1} p{
 run_block() {  # $1 = BEFORE ; env passes through. prints new AFTER_SHA on the last line
   ( BEFORE_SHA="$1"; AFTER_SHA="$(git rev-parse HEAD)"; SCRIPT_DIR="$QROOT"; task_log="$T/task.log"; : > "$task_log"
     # cron-shaped: minimal PATH (the hook must find python3 etc. on its own)
-    export PATH=/usr/local/bin:/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:8099
+    export PATH=/usr/local/bin:/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:9
     . "$blk"; echo "AFTER=$AFTER_SHA"; echo "LOG<<$(cat "$task_log" | tr '\n' '|')" )
 }
 nfiles() { ls proj/alembic/versions/*.py | wc -l | tr -d ' '; }

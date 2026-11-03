@@ -20,7 +20,7 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="$DIR/state"
 TOPIC="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
-SERVER="${NTFY_SERVER:-https://ntfy.sh}"
+SERVER="${NTFY_SERVER:-http://127.0.0.1:8099}"
 HOURS=1
 [ -n "$TOPIC" ] || exit 0
 

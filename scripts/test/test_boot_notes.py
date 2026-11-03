@@ -71,6 +71,7 @@ UPTIME_FILE = os.path.join(T, "uptime")
 def load(path, name):
     env_keep = dict(os.environ)
     os.environ.update(OVN_NOTIFY_STATE=STATE, NTFY_TOPIC="t_test", OVN_NOTIFY_UPSTREAM=URL, OVN_LLM_HEALTH_URL=URL + "/health/readiness", OVN_UPTIME_FILE=UPTIME_FILE, OVN_UNIT_STATE="active")
+    os.environ.pop("OVN_NOTIFY_DISABLE", None)   # ntfy_guard.sh exports OVN_NOTIFY_DISABLE=1 for the suite; this test drives ovn_notify against a local fake upstream
     for k in ("OVN_BOOT_NOTE", "OVN_SILENT_S", "OVN_IDLE_LINE"):
         os.environ.pop(k, None)
     spec = importlib.util.spec_from_file_location(name, path)

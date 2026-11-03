@@ -116,7 +116,52 @@ d = mk("off", 7 * H); os.environ["QA_STATE_DIR"] = d
 pushed = []; FM.run(d, NOW, push=lambda t, m: pushed.append(t))
 ok("OVN_EVIDENCE_ESCALATE=off: old WARN behaviour, no EMERGENCY, no push", not any("EMERGENCY" in l for l in lines(d)) and not pushed)
 os.environ.pop("OVN_EVIDENCE_ESCALATE")
-ok("push_emergency never raises on an unreachable relay", FM.push_emergency("t", "m") in (True, False))
+# 2026-11-02 (N4): the old line here, FM.push_emergency("t", "m") unmocked, defaulted to the LIVE relay (127.0.0.1:8099) and paged Mark's phone with a real urgent 't' / 'm' on every
+# suite run. push_emergency now has NO live default: unset NTFY_SERVER = no push. Everything below talks to a local stub or to nothing.
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+_posts = []
+
+
+class _Stub(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        _posts.append({"path": self.path, "title": self.headers.get("Title"), "lvl": self.headers.get("X-Ovn-Level"), "body": self.rfile.read(n).decode()})
+        self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
+
+
+_srv = HTTPServer(("127.0.0.1", 0), _Stub); threading.Thread(target=_srv.serve_forever, daemon=True).start()
+
+
+def push_scenario(mod):
+    """-> list of broken expectations for mod.push_emergency (unset => no push; stub relay => one emergency POST; OVN_NOTIFY_DISABLE => no push)."""
+    bad = []
+    saved = {k: os.environ.get(k) for k in ("NTFY_SERVER", "OVN_NOTIFY_DISABLE")}
+    try:
+        del _posts[:]
+        os.environ.pop("NTFY_SERVER", None); os.environ.pop("OVN_NOTIFY_DISABLE", None)
+        os.environ["NTFY_SERVER"] = ""    # explicitly empty, like an unset variable in cron-less shells
+        if mod.push_emergency("t", "m") is not False:
+            bad.append("unset/empty NTFY_SERVER must not push (returned non-False)")
+        os.environ["NTFY_SERVER"] = "http://127.0.0.1:%d" % _srv.server_port
+        if mod.push_emergency("t", "m") is not True or len(_posts) != 1 or _posts[0]["lvl"] != "emergency" or _posts[0]["title"] != "t":
+            bad.append("with a stub relay exactly one emergency POST expected: %r" % _posts)
+        os.environ["OVN_NOTIFY_DISABLE"] = "1"
+        n0 = len(_posts)
+        if mod.push_emergency("t", "m") is not False or len(_posts) != n0:
+            bad.append("OVN_NOTIFY_DISABLE=1 must not push")
+    finally:
+        for k, v in saved.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+    return bad
+
+
+_pbad = push_scenario(FM)
+ok("push_emergency: unset NTFY_SERVER = no push, stub relay = one emergency POST, OVN_NOTIFY_DISABLE = none", not _pbad, _pbad)
 
 print("# mutation checks")
 src = open(SRC).read()
@@ -137,6 +182,22 @@ for label, (a, b) in muts.items():
     except Exception as ex:  # noqa: BLE001
         bm = ["crash %s" % ex]
     ok("mutant [%s]: scenario FAILS (%d broken)" % (label, len(bm)), len(bm) > 0)
+_PUSH_MUT = {
+    "push_emergency falls back to the live relay": ('base = (os.environ.get("NTFY_SERVER") or "").rstrip("/")', 'base = (os.environ.get("NTFY_SERVER") or "http://127.0.0.1:%d" % _srv.server_port).rstrip("/")'),
+    "push_emergency ignores OVN_NOTIFY_DISABLE": ('if not base or os.environ.get("OVN_NOTIFY_DISABLE"):', "if not base:"),
+}
+for label, (a, b) in _PUSH_MUT.items():
+    if a not in src:
+        ok("mutant [%s] applies" % label, False); continue
+    mp = os.path.join(T, "pmut_%d.py" % abs(hash(label))); open(mp, "w").write(src.replace(a, b))
+    try:
+        mm = load(mp, "pmut_%d" % abs(hash(label)))
+        mm._srv = _srv
+        os.environ["NTFY_SERVER"] = ""
+        bm = push_scenario(mm)
+    except Exception as ex:  # noqa: BLE001
+        bm = ["crash %s" % ex]
+    ok("mutant [%s]: push scenario FAILS (%d broken)" % (label, len(bm)), len(bm) > 0)
 shutil.rmtree(T, ignore_errors=True)
 print("evidence escalation: %d passed, %d failed" % (P, F))
 sys.exit(1 if F else 0)

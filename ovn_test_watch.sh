@@ -107,7 +107,7 @@ emergency_enqueue(){ # $1=repo $2=area $3=failing-detail [$4=files]   (EW_LOCK_W
   exec 202>&-   # release run.lock BEFORE the (slow, network) ntfy alert
   [ "$EW_ALERT" = 1 ] && curl -fsS --max-time 8 -H "Title: ${repo} ${area} tests are red" -H "Tags: rotating_light" -H "Priority: high" \
     -d "The full-suite watchdog found ${area} failing in ${repo}. An [EMERGENCY] triage+fix item was queued at the top of its Next Steps — the fleet will work it first next cycle. Failing: ${detail:0:300}" \
-    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true
   return 0
 }
 # retry what was deferred, once, with a long run.lock wait (called at the end of the sweep; may re-defer into TW_DEFERRED for logging only)

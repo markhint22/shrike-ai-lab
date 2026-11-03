@@ -269,16 +269,22 @@ _ovn_fx_is_testpath() {
   return 1
 }
 
+# lib_safe_tmp.sh (fail-closed mktemp/rm helpers, 2026-10-16 HOME-deletion incident). Production sourcing: no helper => the callers below fail safe (no output / rc 0).
+if ! declare -F safe_mktemp_dir >/dev/null 2>&1; then
+  _ovn_fx_here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+  [ -f "${_ovn_fx_here:-/nonexistent}/test/lib_safe_tmp.sh" ] && . "${_ovn_fx_here}/test/lib_safe_tmp.sh"
+fi
+
 # ovn_fixup_item_line <before_sha> <task_log>: prints "N:text" of the item the cycle worked, resolved against the BEFORE tree's OVERNIGHT_PROGRESS.md (the model's
 # commit has usually ticked its own item, so the post-commit file would point at the NEXT item). Empty when unresolvable.
 ovn_fixup_item_line() {
   local before="${1:-}" tl="${2:-}" d out=""
   declare -F ovn_resolve_top_item >/dev/null 2>&1 || return 0
   [ -n "$before" ] || return 0
-  d="$(mktemp -d 2>/dev/null)" || return 0
+  d="$(safe_mktemp_dir ovnfx 2>/dev/null)" || return 0
   [ -n "$d" ] && [ -d "$d" ] || return 0   # 2026-10-16: an empty result (rc 0) must not become "$d/OVERNIGHT_PROGRESS.md" = /OVERNIGHT_PROGRESS.md
   if git show "${before}:OVERNIGHT_PROGRESS.md" > "$d/OVERNIGHT_PROGRESS.md" 2>/dev/null; then out="$(ovn_resolve_top_item "$d" "$tl" 2>/dev/null)"; fi
-  rm -rf "$d"
+  safe_rm_rf "$d"
   # Wrong-item guard (harness-credit-integrity review): ovn_resolve_top_item falls back to the TOP of the file when the scout named files that no open item mentions.
   # That top item is then probably NOT what the cycle worked, and the gates below (which can reset the tree in enforce mode) must not act on it: when the log carries
   # scout file tokens and the resolved item text contains none of them, answer "unresolvable". No scout tokens at all => the top item is the best answer there is.
@@ -419,19 +425,93 @@ ovn_testonly_is_test_item() {
   return 1
 }
 
+# _ovn_tp_sibling_info <before_sha> <head> <item text>: prints "FILE <token>" for every file named (before its VERIFY clause) by a SIBLING of the worked item - any line of
+# OVERNIGHT_PROGRESS.md (BEFORE or HEAD tree) carrying the same [feat:ID] tag, or ticked by this cycle - and "PRODSTEP" when the cycle ticked a staged step
+# ('<!-- staged p/n DONE -->') whose own target is a production path (not cat:test). 2026-11-02 (outcomes F6): 3 of 3 inspected [prod-touch] alerts were legitimate sibling-step
+# work (shrike-notify [T3] backend/app/main.py was 'staged 1/1 DONE' in the same cycle but the guard picked the sibling [T2] cat:test line as 'the item'). Fail-safe: no output.
+_ovn_tp_sibling_info() {
+  local before="${1:-}" head="${2:-HEAD}" text="${3:-}" d
+  [ -n "$before" ] || return 0
+  d="$(safe_mktemp_dir ovntp 2>/dev/null)" || return 0
+  [ -n "$d" ] && [ -d "$d" ] || return 0
+  git show "${before}:OVERNIGHT_PROGRESS.md" > "$d/b.md" 2>/dev/null || { safe_rm_rf "$d"; return 0; }
+  git show "${head}:OVERNIGHT_PROGRESS.md" > "$d/h.md" 2>/dev/null || : > "$d/h.md"
+  python3 -I - "$d/b.md" "$d/h.md" "$text" <<'PY' 2>/dev/null
+import re, sys
+b = open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines()
+h = open(sys.argv[2], encoding="utf-8", errors="replace").read().splitlines()
+text = sys.argv[3]
+TOK = re.compile(r'[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}')
+def is_test(p):
+    return bool(re.match(r'^(tests?/|.*/tests?/|__tests__/|.*/__tests__/|test_|.*/test_)', p) or re.search(r'(_test\.(py|gd)|\.test\.|\.spec\.)', p))
+def body(line):
+    line = re.sub(r'<!--.*?-->', '', line)
+    return line.split('VERIFY:')[0]
+m = re.search(r'\[feat:([A-Za-z0-9_.-]+)\]', text)
+tag = '[feat:%s]' % m.group(1) if m else None
+sib, ticked = [], []
+bopen = set(l.rstrip() for l in b)
+for l in b + h:
+    if tag and l.lstrip().startswith('- [') and tag in l:
+        sib.append(l)
+for l in h:
+    if l.startswith('- [x] '):
+        norm = re.sub(r'\s*<!--\s*staged .*?-->', '', l).rstrip()
+        if ('- [ ] ' + norm[6:]) in bopen:
+            ticked.append(l)
+seen = set()
+for l in sib + ticked:
+    for t in TOK.findall(body(l)):
+        t = t.lstrip('./')
+        if t and not t.startswith('http') and t not in seen:
+            seen.add(t); print('FILE ' + t)
+for l in ticked:
+    if '<!-- staged' not in l or 'cat:test' in l.lower():
+        continue
+    toks = TOK.findall(body(re.sub(r'^- \[x\] (\[[A-Za-z0-9]+\] )*', '', l)))
+    if toks and not is_test(toks[0].lstrip('./')):
+        print('PRODSTEP'); break
+PY
+  safe_rm_rf "$d"
+  return 0
+}
+
 # ovn_testonly_prod_touch <before_sha> <head> <item text> <target>: prints the files the cycle changed outside tests/ and the item target (bookkeeping files
-# excluded); rc 0 when the item is a test item and there is at least one
+# excluded); rc 0 when the item is a test item and there is at least one. OVN_PRODTOUCH_SIBLINGS (default on = a pure false-positive fix, off = old behaviour) also
+# excludes files named by sibling items of the same staged feature / items ticked this cycle and treats a cycle that ticked a staged production step as not test-only.
 ovn_testonly_prod_touch() {
-  local before="$1" head="$2" text="$3" tgt="${4:-}" f out=""
+  local before="$1" head="$2" text="$3" tgt="${4:-}" f out="" info="" sib="" t skip prodstep=0
   ovn_testonly_is_test_item "$text" "$tgt" || return 1
+  if [ "${OVN_PRODTOUCH_SIBLINGS:-on}" != off ]; then
+    info="$(_ovn_tp_sibling_info "$before" "$head" "$text")"
+    case "$info" in *PRODSTEP*) prodstep=1 ;; esac
+    sib="$(printf '%s\n' "$info" | sed -n 's/^FILE //p')"
+  fi
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in OVERNIGHT_PROGRESS.md|OVERNIGHT_DONE.md) continue ;; esac
     _ovn_fx_is_testpath "$f" && continue
     [ -n "$tgt" ] && [ "$f" = "$tgt" ] && continue
+    skip=0
+    if [ -n "$sib" ]; then
+      while IFS= read -r t; do
+        [ -n "$t" ] || continue
+        if [ "$f" = "$t" ] || [ "${f%/"$t"}" != "$f" ]; then skip=1; break; fi
+      done <<< "$sib"
+    fi
+    [ "$skip" = 1 ] && continue
     out="${out:+$out }$f"
   done <<< "$(git diff --name-only "$before" "$head" -- . 2>/dev/null)"
   [ -n "$out" ] || return 1
+  if [ "$prodstep" = 1 ]; then
+    # PRODSTEP: the cycle ticked a staged production step => never alert (false-positive fix), but a cycle that ALSO touched unrelated production files is a blind spot:
+    # write one TSV shadow row (ts_utc, repo, item hash, files) so it is measurable. OVN_PRODSTEP_SHADOW_LOG overrides the path; best effort.
+    local _pl="${OVN_PRODSTEP_SHADOW_LOG:-$HOME/overnight-queue/state/prodstep_blindspot_shadow.log}" _rp _ih
+    _rp="$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)"
+    _ih="$(printf '%s' "$text" | cksum | awk '{print $1}')"
+    { mkdir -p "$(dirname "$_pl")" && printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${_rp:-?}" "$_ih" "$out" >> "$_pl"; } 2>/dev/null || true
+    return 1
+  fi
   printf '%s\n' "$out"
 }
 

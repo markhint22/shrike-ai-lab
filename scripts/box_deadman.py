@@ -8,7 +8,7 @@ Run it every 10 minutes from launchd (scripts/overnight-queue/com.shrike.box-dea
 Read-only: one ssh to the box (key auth, BatchMode), nothing is written on the box, no credential is read or printed. ALWAYS exits 0.
 
 What it checks (one ssh round trip):
-  unreachable   ssh to the box fails on every address (Tailscale then LAN)
+  unreachable   ssh to the box fails on every address (LAN then Tailscale)
   stalled       overnight-queue.service is active (or activating) and the queue is not paused, but neither a state/outcomes.jsonl row nor a reports/*.md run report
                 (one per run_overnight pass, ~70 s even when idle) nor a live attempt log (stage_runs/*.log, ongoing-*.log) is newer than DEADMAN_STALE_S (default 1200 s = 20 min)
   unit_down     overnight-queue.service is neither active nor activating, and the queue is not paused
@@ -33,7 +33,7 @@ DELIVERY PATH (decided + justified; consistent with the 2026-09-30 notification 
 
 usage:  box_deadman.py [--dry-run] [--status] [--send-test [--direct]]
 env:    DEADMAN_STATE_DIR (default ~/.box_deadman) DEADMAN_LOG DEADMAN_SSH (ssh command, default 'ssh -o BatchMode=yes -o ConnectTimeout=10 ...')
-        DEADMAN_SSH_TARGETS (space separated user@host, default the Tailscale then the LAN address of the box)
+        DEADMAN_SSH_TARGETS (space separated user@host, default the LAN then the Tailscale address of the box)
         NTFY_SERVER (relay, as everywhere; unset => relay step skipped) NTFY_TOPIC DEADMAN_DIRECT_URL (default https://ntfy.sh) DEADMAN_NET_URL (internet probe)
         DEADMAN_STALE_S DEADMAN_MISSES DEADMAN_REMIND_S DEADMAN_MAX_GAP_S DEADMAN_BOOT_GRACE_S (default 600: no stalled/unit_down verdict in the first 10 min of uptime)
         DEADMAN_DISABLE=1 (do nothing) DEADMAN_LOG_MAX (bytes before the log rotates to .1, default 524288) DEADMAN_NOW (epoch, tests)
@@ -50,7 +50,7 @@ import urllib.error
 import urllib.request
 
 DEFAULT_TOPIC = "shrike_ovn_311380987a"   # same default as ovn_notify.py / pause_guard.sh (public in the repo already)
-DEFAULT_TARGETS = "mhintermeister@100.79.64.64 mhintermeister@192.168.68.145"
+DEFAULT_TARGETS = "mhintermeister@192.168.68.145 mhintermeister@100.79.64.64"   # P1 2026-11-02: LAN first (Tailscale was stopped for days; each dead Tailscale try costs the full ssh ConnectTimeout)
 DEFAULT_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -o StrictHostKeyChecking=accept-new"
 KINDS = ("unreachable", "stalled", "unit_down", "llm_down")
 

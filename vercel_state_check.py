@@ -32,6 +32,7 @@ NOISE_BRANCHES = {"claude/feature", "overnight/feature"}     # fleet work branch
 MAX_RETRIES = int(os.environ.get("VSC_MAX_RETRIES", "2"))
 RETRY_MIN_AGE_S = float(os.environ.get("VSC_RETRY_MIN_AGE_S", "180"))
 RETRY_MAX_AGE_S = float(os.environ.get("VSC_RETRY_MAX_AGE_S", str(6 * 3600)))
+ESCALATE_POLLS = int(os.environ.get("VSC_ESCALATE_POLLS", "3"))
 RETRY = os.environ.get("VSC_RETRY", "on").lower() not in ("off", "0", "false", "no")
 VERCEL = os.environ.get("VSC_VERCEL_BIN", "vercel")
 SCOPE = os.environ.get("VSC_SCOPE", "shrikelabs")
@@ -87,17 +88,37 @@ def api(tok, path):
         return json.load(urllib.request.urlopen(r, timeout=30))
 
 
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    import ovn_relay  # P1-notify-delivery: relay LAN/Tailscale fallback + checked delivery + emergency ssh/direct fallback
+except Exception:  # noqa: BLE001
+    ovn_relay = None
+
+
 def push(title, body, urgent, dry):
+    """-> True when some channel took the message. 2026-11-02 (P1): the relay address was Tailscale while Tailscale was stopped and the failure was only printed (chickadee prod=ERROR
+    appeared 66 times, never pushed). Now: relay via NTFY_SERVER, LAN, Tailscale in turn; an urgent message the relay did not take is also appended to the box alerts.log and posted
+    directly to ntfy.sh (rate limited); every failed delivery leaves a [delivery-failed] line in ~/.ovn_mac_jobs/alerts.log. Callers record a message as sent only when this returns True."""
     if dry:
         print(("EMERGENCY " if urgent else "NOTE ") + title + " :: " + body)
-        return
-    srv = os.environ.get("NTFY_SERVER", "https://ntfy.sh")
+        return True
+    if ovn_relay is not None:
+        r = ovn_relay.deliver("emergency" if urgent else "warn", "vercel:" + title[:60], body, title=title)
+        # FX-P1: True only when a REAL push channel took it. An emergency that only reached the ssh alerts.log (digest) was NOT pushed, so it is retried next poll.
+        # A non-urgent note may rely on the ssh digest line (that is its normal channel when the relay is down).
+        ok = bool(r.get("relay") or r.get("direct") or (not urgent and r.get("ssh")))
+        if not ok:
+            print("push failed: no channel took %r" % title)
+        return ok
+    srv = (os.environ.get("NTFY_SERVER") or "http://127.0.0.1:8099")  # P2: never default to the public ntfy.sh
     req = urllib.request.Request("%s/%s" % (srv, TOPIC), data=body.encode(), method="POST",
                                  headers={"Title": title, "Priority": "urgent" if urgent else "default"})
     try:
         urllib.request.urlopen(req, timeout=15)
+        return True
     except Exception as e:  # noqa: BLE001 - alert delivery must never crash the check
         print("push failed:", e)
+        return False
 
 
 def _mac_hb(name):
@@ -159,8 +180,19 @@ def main():
                     print("%s: transient %s on %s (%s) -> redeploy %s (attempt %d/%d)" % (name, d.get("errorCode") or "rate-limit", k, (d.get("meta") or {}).get("githubCommitSha", "")[:9], "accepted" if ok else "FAILED", n + 1, MAX_RETRIES))
         prod = sorted([d for d in deps if (d.get("target") or "") == "production"], key=lambda d: -d["createdAt"])
         if prod and st(prod[0]) in BAD and state.get("prod_" + name) != prod[0]["uid"] and prod[0]["uid"] not in pending:
-            push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), (prod[0].get("errorMessage") or "newest production deploy is not live")[:200], True, dry)
-            state["prod_" + name] = prod[0]["uid"]
+            # recorded as sent ONLY when a channel took it (a lost push used to be marked sent: the next poll stayed silent)
+            if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), (prod[0].get("errorMessage") or "newest production deploy is not live")[:200], True, dry) is not False:
+                state["prod_" + name] = prod[0]["uid"]
+        # P1 escalation: production newest state ERROR for ESCALATE_POLLS consecutive polls (a transient redeploy would have cleared it) -> ONE urgent push per day per project,
+        # independent of the per-deployment dedupe above (the same ERROR deployment can sit there for days). VSC_ESCALATE_POLLS=0 disables.
+        if prod and st(prod[0]) == "ERROR" and prod[0]["uid"] not in pending:
+            n_err = int(state.get("errpolls_" + name, 0)) + 1
+        else:
+            n_err = 0
+        state["errpolls_" + name] = n_err
+        if ESCALATE_POLLS > 0 and n_err >= ESCALATE_POLLS and state.get("esc_" + name) != today:
+            if push("Vercel PRODUCTION %s still ERROR (%d polls)" % (name, n_err), ((prod[0].get("errorMessage") or "newest production deploy is in ERROR") + " - production has not recovered")[:200], True, dry) is not False:
+                state["esc_" + name] = today
 
         def actionable(d):
             if (d.get("target") or "preview") == "production" or st(d) not in BAD or d["createdAt"] < cutoff:
@@ -174,8 +206,8 @@ def main():
         bad = [d for d in deps if actionable(d)]
         if bad and state.get("note_" + name) != today:
             why = (bad[0].get("errorMessage") or st(bad[0]))[:90]
-            push("Vercel previews failing: %s (%d)" % (name, len(bad)), why, False, dry)
-            state["note_" + name] = today
+            if push("Vercel previews failing: %s (%d)" % (name, len(bad)), why, False, dry) is not False:
+                state["note_" + name] = today
         print("%s: prod=%s bad_previews_%dh=%d retries_pending=%d" % (name, st(prod[0]) if prod else "-", WINDOW_H, len(bad), len(pending)))
     if not dry:
         json.dump(state, open(STATE, "w"))

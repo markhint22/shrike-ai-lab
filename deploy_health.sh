@@ -35,7 +35,7 @@ alert(){ # alert <key> <title> <tags> <body> [priority]  — respects DRYRUN + s
   if suppressed "$key"; then log "  (suppressed alert for $key — human-gated, see alert_suppress.txt)"; return 0; fi
   [ "$DRYRUN" = 1 ] && return 0
   local prio="${4:-default}"
-  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true; }
+  curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true; }
 log(){ echo "$(date '+%F %T') $*"; }
 code(){ curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null; }
 healthy(){ case "$1" in 200|301|302|307|308) return 0;; *) return 1;; esac; }

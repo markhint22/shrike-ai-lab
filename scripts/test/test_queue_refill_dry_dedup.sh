@@ -70,6 +70,7 @@ ok "aged-dry never pushes the (now-consolidated) reminder ntfy" \
 
 : > "$ALERT_LOG"
 printf -- '- [ ] [T1] a\n- [ ] [T1] b\n' > "$wd/repos/foo/OVERNIGHT_PROGRESS.md"
+echo 1 > "$wd/state/backlog_dry_first_foo"   # N5 (2026-11-02): the dry episode lasted >= QR_REFILL_MIN_DRY_S, so the recovery is announced
 run_refill 1
 ok "recovery fires exactly one recovered note" \
    "[ \$(grep -c 'Backlog refilled' '$ALERT_LOG') -eq 1 ]"

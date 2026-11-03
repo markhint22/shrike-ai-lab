@@ -15,7 +15,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="$DIR/state"
 BUF="$STATE_DIR/digest_buffer.log"
 TOPIC="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
-SERVER="${NTFY_SERVER:-https://ntfy.sh}"
+SERVER="${NTFY_SERVER:-http://127.0.0.1:8099}"
 DIGEST_HOURS=3
 [ -n "$TOPIC" ] || exit 0
 

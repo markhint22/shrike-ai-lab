@@ -4,6 +4,7 @@
 # three false-positive filters: VERIFY: clauses dropped, delete/removal items skipped, sibling-line targets.
 # Hermetic: fake $HOME/overnight-queue git repo, curl stubbed, script PATH line patched so the stub wins.
 set -uo pipefail
+export NTFY_SERVER="http://relay.stub.test"   # 2026-11-02 (N5): scripts post to $NTFY_SERVER (default: the relay, never https://ntfy.sh); the stub curl logs this URL
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
@@ -126,7 +127,7 @@ chk "summary line logged" grep -q '=== 1 item(s) citing a file not found anywher
 chk "curl called once" test "$(grep -c -- '--CALL--' "$CURLLOG")" = 1
 chk "alert title" grep -q 'Title: Citation check: 1 suspect item(s)' "$CURLLOG"
 chk "alert tag warning" grep -q 'Tags: warning' "$CURLLOG"
-chk "alert posts to ntfy.sh/<topic>" grep -q 'https://ntfy.sh/tt$' "$CURLLOG"
+chk "alert posts to relay.stub.test/<topic>" grep -q 'http://relay.stub.test/tt$' "$CURLLOG"
 chk "alert body names repo+file" grep -q 'alpha @ .*MISSING: GhostTest.kt' "$CURLLOG"
 eqv "since marker == latest backlog commit" "$(gi log -1 --format=%H -- backlog/alpha.md)" "$(cat "$W/state/citation_check_since_alpha")"
 
@@ -166,10 +167,10 @@ chk "no ntfy topic -> curl never invoked" bash -c "! test -s '$CURLLOG'"
 # topic from state file
 echo "filetopic" > "$W/state/ntfy_topic"; rm -f "$W/state/citation_check_since_alpha"
 runsh alpha >/dev/null
-chk "topic read from state/ntfy_topic" grep -q 'https://ntfy.sh/filetopic$' "$CURLLOG"
+chk "topic read from state/ntfy_topic" grep -q 'http://relay.stub.test/filetopic$' "$CURLLOG"
 : > "$CURLLOG"; rm -f "$W/state/citation_check_since_alpha"
 NTFY_TOPIC=envtopic runsh alpha >/dev/null
-chk "NTFY_TOPIC env wins over state file" grep -q 'https://ntfy.sh/envtopic$' "$CURLLOG"
+chk "NTFY_TOPIC env wins over state file" grep -q 'http://relay.stub.test/envtopic$' "$CURLLOG"
 
 # skipping: backlog without repo dir, repo dir without backlog; default repo list
 setup

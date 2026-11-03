@@ -16,6 +16,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.environ.get("K5_SCRIPTS") or os.path.abspath(os.path.join(HERE, ".."))
+os.environ["TZ"] = "UTC"      # 2026-11-02 (P3): NOW and every date derived from it are timezone-independent (same pin as lib_test_tz.sh)
+time.tzset()
 BASE = os.path.realpath(tempfile.mkdtemp(prefix="k5-supply-"))
 import atexit  # noqa: E402
 atexit.register(lambda: shutil.rmtree(BASE, ignore_errors=True) if os.path.basename(BASE).startswith("k5-supply-") else None)
@@ -210,6 +212,9 @@ os.environ["OVN_DIR"] = ROOT
 qz = load("ovn_qwen_explore")
 os.makedirs(os.path.join(STATE, "qwen_explore"), exist_ok=True)
 Lz = qz.load_ledger("rz")
+# 2026-11-02 (P3): _ledger_pass stamps lens_skip with today_str(now_ts()) = the REAL date. The test compared it with today_str(NOW) (a fixed 2026-11-01), so Y16 passed only on 11-01
+# (the day it was written) and failed in every cron run after midnight. The clock the code reads is now pinned to NOW.
+qz.now_ts = lambda: NOW
 for _ in range(4):
     qz._ledger_pass("rz", Lz, YL, ["f.py"], 0, False, NOW, False, 3)
 saved = json.load(open(os.path.join(STATE, "qwen_explore", "ledger_rz.json")))

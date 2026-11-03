@@ -127,7 +127,7 @@ shadow_check 7
 ok "R5 a non-python clause is never retried" '! grep -q "note=py-root-retry" "$SHADOW_LOG"'
 
 # ---------------- AUDIT (2026-10-14): every FAIL->PASS adoption of the retry is written to state/alerts.log ----------------
-rm -f "$W/alerts.log"; : > "$SHADOW_LOG"
+rm -f "$W/alerts.log" "$W/py_root_retry_seen.log"; : > "$SHADOW_LOG"   # 2026-11-02: the dedupe ledger lives next to alerts.log; earlier sections adopted item 1 in this same process
 shadow_check 1
 eq "AU1 the retry-adopted PASS is still a PASS" "$_LAST_VERIFY_RESULT" PASS
 ok "AU1 alerts.log (next to the shadow log) gets one py-root-retry audit line" '[ "$(grep -c "py-root-retry" "$W/alerts.log")" = 1 ]'
@@ -136,16 +136,18 @@ ok "AU1 the audit line carries the clause" 'grep "py-root-retry" "$W/alerts.log"
 ok "AU1 the audit line names the project root and that it is a FAIL->PASS" 'grep "py-root-retry" "$W/alerts.log" | grep -q "FAIL->PASS under project root $R/backend"'
 ok "AU1 the audit line is shaped like an alerts.log line (date | level | key | message)" 'grep "py-root-retry" "$W/alerts.log" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8} info \| py-root-retry \| "'
 shadow_check 1
-ok "AU2 a second adoption appends a second line (no silent dedupe)" '[ "$(grep -c "py-root-retry" "$W/alerts.log")" = 2 ]'
-rm -f "$W/alerts.log"
+ok "AU2 (2026-11-02) a second adoption of the SAME item in the SAME run is deduped (one audit row per item+run)" '[ "$(grep -c "py-root-retry" "$W/alerts.log")" = 1 ]'
+RUNID=run-2 shadow_check 1
+ok "AU2 the same item in a NEW run appends a second line" '[ "$(grep -c "py-root-retry" "$W/alerts.log")" = 2 ]'
+rm -f "$W/alerts.log" "$W/py_root_retry_seen.log"
 shadow_check 4
 ok "AU3 a retry that stays FAIL writes no audit line (only FAIL->PASS is a false green)" '[ ! -s "$W/alerts.log" ]'
 shadow_check 6
 ok "AU4 a clause that passes without the retry writes no audit line" '[ ! -s "$W/alerts.log" ]'
-rm -f "$W/alerts.log"; OVN_VERIFY_ALERTS_LOG="$W/elsewhere/alerts.log" shadow_check 1
+rm -f "$W/alerts.log" "$W/py_root_retry_seen.log"; OVN_VERIFY_ALERTS_LOG="$W/elsewhere/alerts.log" shadow_check 1
 ok "AU5 OVN_VERIFY_ALERTS_LOG redirects the audit line" '[ -s "$W/elsewhere/alerts.log" ] && [ ! -e "$W/alerts.log" ]'
 # AU7 (2026-10-14 review): two items with the SAME VERIFY in one auto-credit call. The second is a memo replay of the first's adopted PASS; it is a credit too and must be audited.
-rm -f "$W/alerts.log"; : > "$SHADOW_LOG"
+rm -f "$W/alerts.log" "$W/py_root_retry_seen.log" "$W/elsewhere/py_root_retry_seen.log"; : > "$SHADOW_LOG"
 MEMO_PROG="$W/memo_prog.md"; { sed -n 1p "$W/prog.md"; sed -n 1p "$W/prog.md"; } > "$MEMO_PROG"
 PROG="$MEMO_PROG"; _VC_MEMO_ON=1; _VC_MEMO=""
 shadow_check 1; _m1="$_LAST_VERIFY_RESULT"

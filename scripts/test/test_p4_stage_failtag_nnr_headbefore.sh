@@ -41,7 +41,7 @@ nok "A5 switch empty (disabled) prints NOTHING so the old label stays" "[ -n \"\
 ok "A5b K4: switch UNSET now defaults ON (stage-unverified rows carry their cause)" "[ -n \"\$( unset OVN_STAGE_FAILTAG; source '$LIB'; ovn_stage_fail_tag '$J1' )\" ]"
 nok "A5c K4: an explicit OVN_STAGE_FAILTAG=off still disables" "[ -n \"\$(OVN_STAGE_FAILTAG=off tag '$J1')\" ]"
 ok "A5d K4: all three callers default the switch ON (unset), not off" "! grep -q 'OVN_STAGE_FAILTAG:-off' '$R' '$LIB' '$HERE/../../ovn_stage_runner.sh' && grep -c 'OVN_STAGE_FAILTAG-on' '$R' | grep -q 2"
-ok "A6 status text prefix unchanged in the caller" "grep -q 'echo \"no-op(stage-unverified) stage(higher-tier)\"' '$R' && grep -q 'echo \"no-op(stage-unverified) stage(higher-tier) bug-handled\"' '$R'"
+ok "A6 status text prefix unchanged in the caller (2026-11-02: now via ovn_stage_status_cause, whose off/shadow default returns the status unchanged and which only ever inserts ' cause:<tag>' after stage(higher-tier))" "grep -q 'ovn_stage_status_cause \"\${_sft:-}\" \"no-op(stage-unverified) stage(higher-tier)\"; echo\$' '$R' && grep -q 'ovn_stage_status_cause \"\${_sft:-}\" \"no-op(stage-unverified) stage(higher-tier)\"; echo \" bug-handled\"' '$R'"
 ok "A7 caller wires the tag to a sidecar read by record_outcome" "grep -q 'ovn_stage_fail_tag' '$R' && grep -q '\\.stagefr' '$R'"
 mutate "$LIB" 'tag="$(jq -r '"'"'select(.step!=null and .verdict=="fail"' 'tag="$(jq -r '"'"'select(.step==99 and .verdict=="fail"' "$tmp/mutA.sh" \
   && nok "A-MUTANT step-reason scan disabled (single label) is caught by A1" "[ \"\$( source '$tmp/mutA.sh'; OVN_STAGE_FAILTAG=on ovn_stage_fail_tag '$J1' '$tmp/none.verify.log')\" = no-edit ]"

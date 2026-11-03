@@ -128,7 +128,11 @@ def escalations(state_d, now, deploy_max=None):
 def push_emergency(title, msg):
     """Best effort POST to the notification relay with X-Ovn-Level: emergency. Never raises. -> True when sent."""
     import urllib.request
-    base = (os.environ.get("NTFY_SERVER") or "http://127.0.0.1:8099").rstrip("/")
+    # 2026-11-02 (N4): NO live-relay default. The old fallback (http://127.0.0.1:8099) made every suite run that called push_emergency("t", "m") page Mark's phone with a real
+    # urgent push. Unset NTFY_SERVER (a test, a bare shell) now means "do not push"; the cron environment always exports it. OVN_NOTIFY_DISABLE=1 also skips.
+    base = (os.environ.get("NTFY_SERVER") or "").rstrip("/")
+    if not base or os.environ.get("OVN_NOTIFY_DISABLE"):
+        return False
     topic = os.environ.get("NTFY_TOPIC", "shrike_ovn_311380987a")
     try:
         req = urllib.request.Request("%s/%s" % (base, topic), data=msg.encode()[:600], method="POST",

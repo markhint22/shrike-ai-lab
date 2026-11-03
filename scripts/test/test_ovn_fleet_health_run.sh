@@ -10,6 +10,7 @@ set -uo pipefail
 # pin git's config, so every check runs the same way whether started by hand, by cron or from run_all.
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 for _v in $(env | sed -n -E 's/^((OVN|NTFY|GIT)_[A-Za-z0-9_]*)=.*/\1/p'); do unset "$_v"; done
+export NTFY_SERVER="http://relay.stub.test"   # 2026-11-02 (N5): scripts post to $NTFY_SERVER (default: the relay, never https://ntfy.sh); the stub curl logs this URL
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 pick(){ for c in "$@"; do [ -f "$c" ] && { echo "$c"; return; }; done; }
@@ -95,7 +96,7 @@ ok "S1: landed_7d counts epoch-ms ts" "$(has_log 'r_lt1: doable=2 runway=<1d bur
 ok "S1: landed_7d counts 'timestamp' key" "$(has_log 'r_3d: doable=6 runway=~3d burn24h=2 landed_7d=1')"
 ok "S1: 4 low-runway repos summary" "$(has_log '=== 4 repo(s) at or under 2d runway (of 6 active) ===')"
 ok "S1: exactly one alert sent" "$([ "$(grep -c '^--$' "$ALERTS")" = 1 ] && echo 1 || echo 0)"
-ok "S1: alert goes to the configured topic" "$(grep -q 'https://ntfy.sh/topic1' "$ALERTS" && echo 1 || echo 0)"
+ok "S1: alert goes to the configured topic" "$(grep -q 'http://relay.stub.test/topic1' "$ALERTS" && echo 1 || echo 0)"
 ok "S1: alert title counts low repos" "$(grep -q 'Title: Fleet health: 4 repo(s) low on runway' "$ALERTS" && echo 1 || echo 0)"
 ok "S1: alert body lists the low repos, not the healthy ones" "$(grep -q 'r_zero: 0d runway' "$ALERTS" && grep -q 'r_2d: ~2d runway' "$ALERTS" && ! grep -q 'r_15d' "$ALERTS" && echo 1 || echo 0)"
 
@@ -104,13 +105,13 @@ mk S1b; cp "$T/S1/home/overnight-queue/tasks.json" "$R/"; cp -r "$T/S1/home/over
 cp "$T/S1/home/overnight-queue/state/"* "$R/state/"
 run NTFY_TOPIC=t2 OVN_RUNWAY_ALERT_DAYS=1
 ok "S1b: threshold env respected (3 low)" "$(has_log '=== 3 repo(s) at or under 1d runway (of 6 active) ===' )"
-ok "S1b: state/ntfy_topic fallback is unused when env set" "$(grep -q 'ntfy.sh/t2' "$ALERTS" && echo 1 || echo 0)"
+ok "S1b: state/ntfy_topic fallback is unused when env set" "$(grep -q 'relay.stub.test/t2' "$ALERTS" && echo 1 || echo 0)"
 
 # topic from state/ntfy_topic and no-topic silence
 mk S1c; cp "$T/S1/home/overnight-queue/tasks.json" "$R/"; cp -r "$T/S1/home/overnight-queue/repos/." "$R/repos/"; cp "$T/S1/home/overnight-queue/state/"* "$R/state/"
 echo "filetopic" > "$R/state/ntfy_topic"
 run NTFY_TOPIC=
-ok "S1c: topic read from state/ntfy_topic when env empty" "$(grep -q 'ntfy.sh/filetopic' "$ALERTS" && echo 1 || echo 0)"
+ok "S1c: topic read from state/ntfy_topic when env empty" "$(grep -q 'relay.stub.test/filetopic' "$ALERTS" && echo 1 || echo 0)"
 rm "$R/state/ntfy_topic"; : > "$ALERTS"
 run NTFY_TOPIC=
 ok "S1c: no topic anywhere -> no alert but still logged" "$([ ! -s "$ALERTS" ] && [ "$(has_log '=== 4 repo(s)')" = 1 ] && echo 1 || echo 0)"

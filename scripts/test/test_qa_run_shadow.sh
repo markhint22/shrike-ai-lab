@@ -18,7 +18,7 @@ cat > "$T/ovn/qa/gate_slow.py" <<'PY'
 import time
 time.sleep(30)
 PY
-env -i HOME="$HOME" PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:8099 QA_GATE_TIMEOUT=2 bash -c "cd '$T/ovn' && bash qa/qa_run_shadow.sh demo abc123 def456"
+env -i HOME="$HOME" PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:9 QA_GATE_TIMEOUT=2 bash -c "cd '$T/ovn' && bash qa/qa_run_shadow.sh demo abc123 def456"
 ok "exits 0 even with a crashing and a timing-out gate" "$([ $? = 0 ] && echo 1 || echo 0)"
 L="$T/ovn/logs/qa_shadow.log"
 ok "good gate logged PASS" "$(grep -q 'good: PASS' "$L" && echo 1 || echo 0)"
@@ -47,7 +47,7 @@ print(json.dumps({"verdict":"PASS","gate":"other"}))
 PY
 echo '{"_comment":"x","billwatch":{"backend_dir":"b"}}' > "$M/qa/qa_repos.json"
 ML="$M/logs/qa_shadow.log"
-runm(){ env -i HOME="$HOME" PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:8099 bash -c "cd '$M' && bash qa/qa_run_shadow.sh $1 aaa bbb"; }
+runm(){ env -i HOME="$HOME" PATH=/usr/bin:/bin NTFY_SERVER=http://127.0.0.1:9 bash -c "cd '$M' && bash qa/qa_run_shadow.sh $1 aaa bbb"; }
 runm billwatch
 ok "registered repo (billwatch): migrations gate ran" "$(grep -q 'billwatch .*migrations: PASS' "$ML" && echo 1 || echo 0)"
 runm xlite

@@ -76,6 +76,7 @@ ok "no roadmap file: marker is still created (unchanged fallback)" "[ -f '$wd/st
 #     again (e.g. Claude promotes needs-research -> ready) -> marker clears, recovery note ---
 : > "$ALERT_LOG"
 printf -- '- [ ] [P2] [ready] Newly promoted feature\n' > "$wd/roadmap/foo.md"
+echo 1 > "$wd/state/backlog_dry_first_foo"   # N5 (2026-11-02): a dry episode shorter than QR_REFILL_MIN_DRY_S (6 h) is not announced; this one is old
 run_refill >/dev/null
 ok "roadmap regains a [ready] feature: clears a pre-existing dry marker" "[ ! -f '$wd/state/qr_dry_foo' ]"
 ok "roadmap regains a [ready] feature: fires the recovery note" \

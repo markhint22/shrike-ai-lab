@@ -167,13 +167,19 @@ def parse_bridge_log(text):
     return last
 
 
+def _default_bridge_log():
+    """P1: the launchd template now logs to ~/Library/Logs/shrike/ (the Mac wipes /tmp on reboot); fall back to the old /tmp path until the plist is migrated."""
+    new = os.path.expanduser("~/Library/Logs/shrike/claude_queue_bridge.log")
+    return new if os.path.exists(new) else "/tmp/claude_queue_bridge.log"
+
+
 def export_ar(ar_dir=None, bridge_log=None, now=None):
     """The JSON the Mac writes into the box's state/auto_research_status.json."""
     now = float(now if now is not None else time.time())
     ar_dir = ar_dir or os.path.expanduser("~/.ovn_auto_research")
     parsed = parse_ar_log(_read(os.path.join(ar_dir, "run.log")), now)
     parsed["ts"] = now
-    parsed["bridge_last_pass_ts"] = parse_bridge_log(_read(bridge_log or "/tmp/claude_queue_bridge.log"))
+    parsed["bridge_last_pass_ts"] = parse_bridge_log(_read(bridge_log or _default_bridge_log()))
     return parsed
 
 
@@ -415,21 +421,32 @@ def collect(now=None, root=None, state=None, repos=None, depths=None):
         items24 = w.get("items")
         covered = w.get("covered_h") or 0
         burn_day = None if items24 is None else (items24 * 24.0 / covered if 0 < covered < 24 else float(items24))
-        if pull is None:
-            runway = None
-        elif pull == 0:
-            runway = 0.0
-        elif burn_day:
-            runway = pull / (burn_day / 24.0)
-        else:
-            runway = None
+        det = _filter().count_repo(os.path.join(root, "repos", repo))   # P5-supply-truth: doable + excluded-by-reason from the ONE shared filter
+        dn = doable.get(repo)
+        pull_extra = None if (pull is None or dn is None) else max(0, pull - dn)   # pullable lines the progress file does not carry yet (queue_refill copies them)
+        # OVN_SUPPLY_RUNWAY_BASIS=eligible (default) | doable | pullable; runway_pullable_h is always kept.
+        el, _dn, el_back = _filter().eligible_supply(root, repo, dn)
+        want = (os.environ.get("OVN_SUPPLY_RUNWAY_BASIS") or "eligible").strip().lower()
+        want = want if want in ("pullable", "doable", "eligible") else "eligible"
+        # FX-P5: default basis is ELIGIBLE supply = doable + eligible backlog (queue_refill moves backlog into the progress file when doable < 15, so doable alone read 0 = false starving).
+        # A basis whose figure is unknown falls back: eligible -> doable -> pullable.
+        if want == "eligible" and el is None:
+            want = "doable"
+        if want == "doable" and dn is None:
+            want = "pullable"
+        basis_name = want
+        use_pull = want == "pullable"
+        basis = {"pullable": pull, "doable": dn, "eligible": el}[want]
+        runway = _runway(basis, burn_day)
+        runway_pull = _runway(pull, burn_day)
         rm = ctx["roadmap"].get(repo, "")
         srcs = source_records(repo, now, ctx)
-        starving = pull == 0 or (runway is not None and runway < runway_floor)
+        starving = (basis == 0 if basis_name == "eligible" else pull == 0) or (runway is not None and runway < runway_floor)
         causes = classify(repo, now, srcs) if starving else []
         ls = last_source(srcs)
         out["repos"][repo] = {
-            "doable": doable.get(repo), "pullable": pull, "ready": len(READY_RE.findall(rm)), "needs_research": len(NEEDS_RE.findall(rm)),
+            "doable": dn, "pullable": pull, "open": None if det is None else det["open"], "excluded": {} if det is None else det["excluded"],
+            "pullable_not_in_progress": pull_extra, "runway_basis": basis_name, "eligible": el, "eligible_backlog": el_back, "runway_pullable_h": None if runway_pull is None else round(runway_pull, 1), "ready": len(READY_RE.findall(rm)), "needs_research": len(NEEDS_RE.findall(rm)),
             "burn_per_day": None if burn_day is None else round(burn_day, 1), "landed_24h": w.get("landed"), "runway_h": None if runway is None else round(runway, 1),
             "starving": bool(starving), "sources": srcs, "last_source": None if ls is None else {"name": ls[0], "ts": ls[1], "n": ls[2]},
             "causes": [{"class": c, "text": t} for c, t in causes], "cause_class": causes[0][0] if causes else None,
@@ -439,6 +456,19 @@ def collect(now=None, root=None, state=None, repos=None, depths=None):
 
 
 # ----------------------------------------------------------------------------------------------------------- text
+def _filter():
+    return _import("ovn_supply_filter")
+
+
+def _runway(n, burn_day):
+    """Hours of supply: n items at burn_day items/day. 0 when n == 0, None when unknown or nothing burns."""
+    if n is None:
+        return None
+    if n == 0:
+        return 0.0
+    return n / (burn_day / 24.0) if burn_day else None
+
+
 def repo_line(repo, rec, now):
     """The concise one-liner: depth, burn, runway, last supply source, root cause."""
     def n(v, unit=""):
@@ -446,8 +476,9 @@ def repo_line(repo, rec, now):
     ls = rec.get("last_source")
     last = "last supply %s %s%s" % (ls["name"], ago(ls["ts"], now), " (+%s)" % ls["n"] if ls.get("n") else "") if ls else "last supply: none on record"
     why = " + ".join(c["text"] for c in rec["causes"][:2]) or "ok"
-    return "%s: pullable %s, ready %s, burn %s/d, runway %s; %s; cause: %s" % (
-        repo, n(rec["pullable"]), n(rec["ready"]), n(rec["burn_per_day"]), "n/a" if rec["runway_h"] is None else "%gh" % rec["runway_h"], last, why)
+    exc = _filter().excluded_str(rec.get("excluded") or {})
+    return "%s: doable %s, pullable %s%s, ready %s, burn %s/d, runway %s; %s; cause: %s" % (
+        repo, n(rec.get("doable")), n(rec["pullable"]), " (excluded from doable: %s)" % exc if exc else "", n(rec["ready"]), n(rec["burn_per_day"]), "n/a" if rec["runway_h"] is None else "%gh" % rec["runway_h"], last, why)
 
 
 def starving_lines(rep):

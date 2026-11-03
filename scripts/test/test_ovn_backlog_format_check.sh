@@ -3,6 +3,7 @@
 # (a commit adds "# --- decomposed ... ---" header(s) to backlog/<repo>.md but zero "- [ ] [T1..5]" payload lines).
 # Hermetic: fake $HOME/overnight-queue git repo, curl stubbed, script PATH line patched so the stub wins.
 set -uo pipefail
+export NTFY_SERVER="http://relay.stub.test"   # 2026-11-02 (N5): scripts post to $NTFY_SERVER (default: the relay, never https://ntfy.sh); the stub curl logs this URL
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
@@ -50,7 +51,7 @@ chk "summary line" grep -q '=== 1 header-only-backlog commit(s) found this run =
 chk "alert sent once" test "$(grep -c -- '--CALL--' "$CURLLOG")" = 1
 chk "alert title" grep -q 'Title: Backlog format check: 1 suspect commit(s)' "$CURLLOG"
 chk "alert tags" grep -q 'Tags: warning' "$CURLLOG"
-chk "alert url uses topic" grep -q 'https://ntfy.sh/tt$' "$CURLLOG"
+chk "alert url uses topic" grep -q 'http://relay.stub.test/tt$' "$CURLLOG"
 chk "alert body is the report" grep -q 'alpha backlog commit .* added 1 header(s)' "$CURLLOG"
 eqv "since marker == latest commit" "$(gi log -1 --format=%H -- backlog/alpha.md)" "$(cat "$W/state/backlog_check_since_alpha")"
 
@@ -107,10 +108,10 @@ chk "no topic: still logged" grep -q SUSPECT "$LOG"
 chk "no topic: curl never called" bash -c "! test -s '$CURLLOG'"
 echo ftopic > "$W/state/ntfy_topic"; rm -f "$W/state/backlog_check_since_alpha"
 runsh alpha >/dev/null
-chk "topic from state/ntfy_topic" grep -q 'https://ntfy.sh/ftopic$' "$CURLLOG"
+chk "topic from state/ntfy_topic" grep -q 'http://relay.stub.test/ftopic$' "$CURLLOG"
 rm -f "$W/state/backlog_check_since_alpha"; : > "$CURLLOG"
 NTFY_TOPIC=etopic runsh alpha >/dev/null
-chk "env topic wins" grep -q 'https://ntfy.sh/etopic$' "$CURLLOG"
+chk "env topic wins" grep -q 'http://relay.stub.test/etopic$' "$CURLLOG"
 
 # missing backlog file skipped; default repo list; garbage since-sha
 setup

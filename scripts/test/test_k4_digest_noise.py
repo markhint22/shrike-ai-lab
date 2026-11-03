@@ -18,6 +18,7 @@ Q = os.path.join(T, "q"); ST = os.path.join(Q, "state")
 os.makedirs(ST)
 os.environ["OVN_SUPPLY_LINE"] = "0"
 os.environ.update(OVN_NOTIFY_STATE=ST, NTFY_TOPIC="t_test", OVN_NOTIFY_DAILY_CAP="50", OVN_NOTIFY_UPSTREAM="http://127.0.0.1:9", OVN_LLM_HEALTH_URL="http://127.0.0.1:9/x")
+os.environ.pop("OVN_NOTIFY_DISABLE", None)   # ntfy_guard.sh exports OVN_NOTIFY_DISABLE=1 for the suite; these tests drive ovn_notify against a local fake upstream
 for k in ("OVN_DIGEST_DEDUPE", "OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_PASSRATE_MIN_N", "OVN_EMPTY_REPEAT_H", "OVN_NOTIFY_DISABLE", "OVN_IDLE_LINE"):
     os.environ.pop(k, None)
 os.environ["OVN_IDLE_LINE"] = "0"
@@ -127,9 +128,12 @@ reset(); set_queue({"iptv_apps": 0, "xlite": 0}); write_outcomes([]); modes(OVN_
 N.do_update(force=True); CLOCK[0] += H; set_queue({"iptv_apps": 5, "xlite": 5}); N.do_update(force=True)   # recovered, digest sent
 CLOCK[0] += H; set_queue({"iptv_apps": 0, "xlite": 0})
 ok("E5 on: empty -> recovered -> empty again is a state change: the bullet returns", empty_in(N.compose_update(at=CLOCK[0])[1]))
-reset(); set_queue({"iptv_apps": 0, "xlite": 0}); write_outcomes([]); modes(OVN_DIGEST_DEDUPE="off")   # default shadow
+reset(); set_queue({"iptv_apps": 0, "xlite": 0}); write_outcomes([]); modes(OVN_DIGEST_DEDUPE="off")   # default = ON since 2026-11-02 (N6)
 N.do_update(force=True); CLOCK[0] += H
-ok("E6 default (shadow): the unchanged bullet is STILL shown (old behaviour) and the would-drop is logged", empty_in(N.compose_update(at=CLOCK[0])[1]) and "OVN_EMPTY_ONCE | would drop the unchanged 'Queue empty: iptv_apps,xlite'" in shadow_log())
+ok("E6 default (ON since 2026-11-02): the unchanged bullet is dropped on the next digest, nothing logged as 'would'", not empty_in(N.compose_update(at=CLOCK[0])[1]) and "OVN_EMPTY_ONCE | would drop" not in shadow_log())
+reset(); set_queue({"iptv_apps": 0, "xlite": 0}); write_outcomes([]); modes(OVN_DIGEST_DEDUPE="off", OVN_EMPTY_ONCE="shadow")   # the kill switch back to log-only
+N.do_update(force=True); CLOCK[0] += H
+ok("E6b OVN_EMPTY_ONCE=shadow (kill switch): the unchanged bullet is STILL shown (old behaviour) and the would-drop is logged", empty_in(N.compose_update(at=CLOCK[0])[1]) and "OVN_EMPTY_ONCE | would drop the unchanged 'Queue empty: iptv_apps,xlite'" in shadow_log())
 modes(OVN_EMPTY_ONCE="off", OVN_DIGEST_DEDUPE="off"); reset(); set_queue({"iptv_apps": 0, "xlite": 0}); N.do_update(force=True); CLOCK[0] += H
 ok("E7 off: always shown, no state file written", empty_in(N.compose_update(at=CLOCK[0])[1]) and not os.path.exists(os.path.join(ST, "notify_empty_state.json")))
 
@@ -145,7 +149,9 @@ modes(OVN_PASSRATE_MIN="on"); write_outcomes([orow(60), orow(120, "bad", "revert
 _b = N.compose_update(at=BASE)[1]
 ok("P5 on: a small sample drops ONLY the today rate - the last-hour figure and the 'By tier today' split are kept", "last hour 1/2 (50%)" in _b and "By tier today:" in _b and "Pass rate:" not in _b)
 modes(); write_outcomes([orow(60), orow(120, "bad", "reverted")]); reset_shadow = os.path.join(ST, "notify_shadow.log")
-ok("P4 default (shadow): the headline is still shown and the would-replace is logged", "Pass rate:" in N.compose_update(at=BASE)[1] and "OVN_PASSRATE_MIN | would replace the pass-rate headline" in shadow_log())
+ok("P4 default (ON since 2026-11-02): the small-sample headline is replaced, no 'would' line", "Pass rate:" not in N.compose_update(at=BASE)[1] and "Outcomes today: 2" in N.compose_update(at=BASE)[1] and "OVN_PASSRATE_MIN | would replace" not in shadow_log())
+modes(OVN_PASSRATE_MIN="shadow"); write_outcomes([orow(60), orow(120, "bad", "reverted")])
+ok("P4b OVN_PASSRATE_MIN=shadow (kill switch): the headline is still shown and the would-replace is logged", "Pass rate:" in N.compose_update(at=BASE)[1] and "OVN_PASSRATE_MIN | would replace the pass-rate headline" in shadow_log())
 
 # ===================================================== (d) supply-floor alert at [ready] <= 2
 def trig_run(mode, ready, planner_hours_ago=None, extra_env=None, repo="alpha", now_epoch=None):

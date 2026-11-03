@@ -23,9 +23,18 @@ unset DL_REAL_EMULATOR_TEST
 # bash/python3 are shadowed by these two functions for the whole run: every `bash test_x.sh` / `python3 test_x.py` is executed unchanged (command bash/python3), and a nonzero exit
 # other than 77 (NOT RUN, reported separately) records the suite name. finish() prints the list just before the banner. Functions are not exported, so nested shells are unaffected.
 FAILED_SUITES=""
-_ovn_note_fail(){ case "$1" in *.sh|*.py) [ "$2" -eq 0 ] || [ "$2" -eq 77 ] || FAILED_SUITES="${FAILED_SUITES:-} $1";; esac; }
-bash(){ command bash "$@"; local _r=$?; _ovn_note_fail "${1:-}" "$_r"; return $_r; }
-python3(){ command python3 "$@"; local _r=$?; _ovn_note_fail "${1:-}" "$_r"; return $_r; }
+# 2026-11-02 (P3-suite-cron): with OVN_SUITE_CAPTURE_DIR set (ONLY ops/run_suite_sandboxed_cron.sh sets it; default off = behaviour unchanged) each suite's combined output is also tee'd to a file there and a
+# failing suite appends "<suite>TAB<first failing check line>" to $OVN_SUITE_CAPTURE_DIR/failed.tsv, so the cron wrapper can alert WHICH suite failed and WHY instead of leaving it in a 64 MB log.
+_ovn_first_fail(){ [ -n "${2:-}" ] && [ -f "$2" ] || return 0; local _l; _l="$(grep -a -m1 -E '^  (FAIL|not ok)' "$2")"; [ -n "$_l" ] || _l="$(grep -a -m1 -E '^[[:space:]]*(FAIL|not ok|✗|❌)|FAIL:|Traceback \(most recent' "$2")"; printf '%s\n' "$_l" | cut -c1-300; }  # FX-P3: the suite's own "  FAIL ..." check line first, loose heuristic only as fallback
+_ovn_note_fail(){ case "$1" in *.sh|*.py) [ "$2" -eq 0 ] || [ "$2" -eq 77 ] || { FAILED_SUITES="${FAILED_SUITES:-} $1"; [ -n "${OVN_SUITE_CAPTURE_DIR:-}" ] && printf '%s\t%s\n' "$1" "$(_ovn_first_fail "$1" "${3:-}")" >> "$OVN_SUITE_CAPTURE_DIR/failed.tsv" 2>/dev/null; };; esac; }
+_ovn_run_suite(){ # $1 = interpreter, rest = args (args[0] is the suite)
+  local _i="$1"; shift; local _r _o=""
+  case "${1:-}" in *.sh|*.py) [ -n "${OVN_SUITE_CAPTURE_DIR:-}" ] && [ -d "$OVN_SUITE_CAPTURE_DIR" ] && _o="$OVN_SUITE_CAPTURE_DIR/$(basename "$1").$$.$RANDOM.out";; esac
+  if [ -n "$_o" ]; then command "$_i" "$@" 2>&1 | tee "$_o"; _r=${PIPESTATUS[0]}; else command "$_i" "$@"; _r=$?; fi
+  _ovn_note_fail "${1:-}" "$_r" "$_o"; return $_r
+}
+bash(){ _ovn_run_suite bash "$@"; }
+python3(){ _ovn_run_suite python3 "$@"; }
 rc=0
 NOTRUN=0
 # a suite exiting 77 could not run on this host (missing flock/bash 4/source file): it is NOT green - counted and reported at the end (2026-10-14)
@@ -541,6 +550,8 @@ echo; echo "===== D1: VERIFY shape linter (shadow default; OVN_VERIFY_LINT=off|s
 echo; echo "===== D1 repair: ovn_planner.sh verify-lint hook (recount, [decomposed] marking, quarantine, fail-open fall-through + timeout; planner mutants) ====="; bash test_verify_lint_planner_hook.sh || rc=1
 echo; echo "===== qa tool health (P1 gate tool sentinel + installer; hermetic, with mutants) ====="; bash test_qa_tool_health.sh || rc=1
 echo; echo "===== P6a: limiter-order lint (ast; limiter above route = never enforced; shadow hook; mutant) ====="; bash test_limiter_order_lint.sh || rc=1
+echo; echo "===== P3: suite cron log rotation + failure alerts + K5 Y16 / auto-research-lock date pins ====="; bash test_suite_cron_log.sh || rc=1
+echo; echo "===== FX-P3: suite cron capture cleanup + candidate-mode log behaviour + first-fail line ====="; bash test_suite_cron_fx.sh || rc=1
 echo; echo "===== P6b: qa_tool_health reads #OFF# / '(off by default' cron lines as declared off (mutation proofs) ====="; bash test_tool_health_off_marker.sh || rc=1
 echo; echo "===== P6c: classifier plain 'verdict: no-edit' short-circuit ====="; bash test_classify_noedit_plain.sh || rc=1
 echo; echo "===== check applied migration immutable ====="; bash test_check_applied_migration_immutable.sh || rc=1
@@ -581,6 +592,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
   echo; echo "===== mac jobs health ====="; bash test_mac_jobs_health.sh || rc=1
   echo; echo "===== mac jobs install ====="; bash test_mac_jobs_install.sh || rc=1
   echo; echo "===== k1 mac reach ====="; bash test_k1_mac_reach.sh || rc=1
+  echo; echo "===== P1 notify delivery (relay fallback, emergency ssh+direct, vercel escalation) ====="; bash test_p1_notify_delivery.sh || rc=1
+  echo; echo "===== FX-P1 notify delivery (no-relay emergency direct, push truthfulness, guard) ====="; bash test_fxp1_notify_delivery.sh || rc=1
   echo; echo "===== mac bridge e2e ====="; bash test_mac_bridge_e2e.sh || rc=1
 else
   echo; echo "===== mac tests (skipped on non-macOS) ====="
@@ -625,5 +638,17 @@ echo; echo "===== K4: test_aider_commit_rescue tmp leak (7 git repos per run lef
 echo; echo "===== K5 supply engine (runway forecast, explorer lens yield cap, fresh local-research evidence, small-decomposition slug, mutation repo list; 20 mutants) ====="; bash test_k5_supply_engine.sh || rc=1
 echo; echo "===== K5 planner small-decomposition marker (GNU sed: box-only like test_ovn_planner.sh; 4 mutants) ====="; run_or_notrun test_k5_planner_small_decomp.sh
 echo; echo "===== K6: gate evidence report (shadow gates joined with later outcomes; UNVERIFIED separate; promote/HOLD rule; tool-missing codes; card_credit once-log; digest hook off by default; mutants) ====="; python3 test_ovn_gate_evidence_report.py || rc=1
+echo; echo "===== P5 supply truth (shared doable filter, report doable+pullable+excluded, bridge autoclose by feat tag, ALREADY-DONE evidence gate; 16 mutants) ====="; bash test_p5_supply_truth.sh || rc=1
+echo; echo "===== P4 pipeline guards: prod-touch sibling exclusion (outcomes F6) ====="; bash test_p4_prod_touch_siblings.sh || rc=1
+echo; echo "===== P4 pipeline guards: U4 promote flag + py-root-retry audit dedupe (outcomes F7) ====="; bash test_p4_u4_promote_and_pyroot_dedupe.sh || rc=1
+echo; echo "===== P4 pipeline guards: ping-pong anchor + config-default detector + log dedupe (outcomes F9) ====="; python3 test_p4_pingpong_anchor.py || rc=1
+echo; echo "===== P4 pipeline guards: progress-aware item day cap (outcomes F9) ====="; bash test_p4_day_cap_progress.sh || rc=1
+echo; echo "===== P4 pipeline guards: stage status cause tag + red-green SUSPECT policy (outcomes F5/F1) ====="; bash test_p4_status_cause_and_redgreen_suspect.sh || rc=1
+echo; echo "===== P4 pipeline guards: no-VERIFY proof credit (outcomes F10) ====="; bash test_p4_noverify_proof_credit.sh || rc=1
+echo; echo "===== P2 notify quality: OVN_NOTIFY_DISABLE in forward, separate digest/emergency budgets, heartbeat, quiet all-good digest, escalate once/day (N4/N6/N7/N8/N10), 10 mutants ====="; bash test_p2_notify_quality.sh || rc=1
+echo; echo "===== P2 N4: lint - no test can post to the live relay / ntfy.sh; guard exports closed-port NTFY_SERVER + OVN_NOTIFY_DISABLE; no script defaults NTFY_SERVER to ntfy.sh (N5 audit), mutants ====="; bash test_ntfy_lint.sh || rc=1
+echo; echo "===== P2 N5: queue_refill 'Backlog refilled' via the relay + per-repo hysteresis (6 mutants) ====="; bash test_queue_refill_hysteresis.sh || rc=1
+echo; echo "===== P2 F4/N7: hygiene-stuck recovery from the last hygiene result per feature branch + escalation at 4h (7 mutants) ====="; bash test_hygiene_stuck_f4.sh || rc=1
+echo; echo "===== P2 N7: daily promote HELD/BLOCKED escalation for billwatch/iptv_apps (5 mutants) ====="; bash test_daily_promote_escalation.sh || rc=1
 echo; finish || rc=1
 exit $rc

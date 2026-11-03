@@ -12,7 +12,7 @@ mkdir -p "$STATE_DIR"
 NOTIFIED="$STATE_DIR/feature_progress_notified.log"
 touch "$NOTIFIED"
 TOPIC="${NTFY_TOPIC:-$(cat "$STATE_DIR/ntfy_topic" 2>/dev/null)}"
-SERVER="${NTFY_SERVER:-https://ntfy.sh}"
+SERVER="${NTFY_SERVER:-http://127.0.0.1:8099}"
 [ -n "$TOPIC" ] || exit 0
 
 alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "$SERVER/$TOPIC" >/dev/null 2>&1 || true; }

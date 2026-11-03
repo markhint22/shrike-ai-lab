@@ -57,4 +57,4 @@ echo "$(date '+%F %T') lock_guard: killed orphaned run.lock holders [$killed ] â
 [ -n "$TOPIC" ] && curl -fsS --max-time 8 \
   -H "Title: fleet lock-orphan cleared" -H "Tags: wrench" -H "Priority: default" \
   -d "lock_guard killed orphaned run.lock holders that were blocking the fleet with no live owner. systemd will restart run_overnight and the fleet resumes." \
-  "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
+  "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true

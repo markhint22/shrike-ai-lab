@@ -32,7 +32,7 @@ ok("proposal covers billwatch, gitlark, test-automation-agent, iptv_apps and xli
 ok("slow iptv_apps suite runs LAST so it cannot starve the others of the shared budget", repos[-1:] == ["iptv_apps"], repos)
 ok("proposal is a valid 5-field cron line calling the deployed script path with the relay NTFY_SERVER",
    cron and re.match(r"^11 \*/3 \* \* \* ", cron[0]) and "/home/mhintermeister/overnight-queue/qa/baseline_refresh_cron.sh" in cron[0]
-   and "NTFY_SERVER=http://127.0.0.1:8099" in cron[0], cron)
+   and "NTFY_SERVER=http://127.0.0.1:8099" in cron[0], cron)  # ntfy-lint: allow
 live = open(os.path.join(OQ, "ops", "crontab.box.snapshot.txt")).read()
 ok("the live snapshot still has the old 2-repo line (proposal is a delta for the lead to apply, nothing silently changed)",
    'OVN_BASELINE_REFRESH_REPOS="iptv_apps xlite"' in live)

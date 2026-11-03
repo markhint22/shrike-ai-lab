@@ -34,6 +34,7 @@ BIN2="$tmp/bin2"; mkdir -p "$BIN2"; cp "$BIN/gitlark_control_consumer.sh" "$BIN/
 
 export OVERNIGHT_DIR="$tmp/overnight-queue"; STATE="$OVERNIGHT_DIR/state"; mkdir -p "$STATE"
 export NTFY_TOPIC="test_topic_never_sent"; export NTFY_LOG="$tmp/ntfy.log"
+export NTFY_SERVER="http://relay.stub.test"   # 2026-11-02: the script posts to $NTFY_SERVER (default: the relay, never ntfy.sh); the fake curl logs the URL
 curl(){ echo "CURL $*" >> "$NTFY_LOG"; return 0; }; export -f curl
 unset SHRIKE_NOTIFY_URL
 run(){ "$BIN/gitlark_control_consumer.sh" "$@"; }
@@ -89,7 +90,7 @@ ok "promote line -> exactly one promote_to_prod.sh call" "$([ "$(promotes repos/
 ok "promote_to_prod.sh invoked as '--yes <repo>'" "$(grep -q -- "^--yes $tmp/repos/promote_repo\$" "$PROMOTE_LOG" && echo 1 || echo 0)"
 ok "promote logged with its marker" "$(printf '%s' "$out" | grep -q 'gitlark-triggered PROMOTE (gitlark-control:promote:ws1:tok)' && echo 1 || echo 0)"
 ok "promote: seen counter = 1" "$([ "$(seen promote_repo)" = 1 ] && echo 1 || echo 0)"
-ok "promote: ntfy alert title/tag/priority/body" "$(grep -q 'Title: gitlark-triggered promote: promote_repo' "$NTFY_LOG" && grep -q 'Tags: rocket' "$NTFY_LOG" && grep -q 'Priority: default' "$NTFY_LOG" && grep -q 'marker=gitlark-control:promote:ws1:tok' "$NTFY_LOG" && grep -q 'https://ntfy.sh/test_topic_never_sent' "$NTFY_LOG" && echo 1 || echo 0)"
+ok "promote: ntfy alert title/tag/priority/body" "$(grep -q 'Title: gitlark-triggered promote: promote_repo' "$NTFY_LOG" && grep -q 'Tags: rocket' "$NTFY_LOG" && grep -q 'Priority: default' "$NTFY_LOG" && grep -q 'marker=gitlark-control:promote:ws1:tok' "$NTFY_LOG" && grep -q 'http://relay.stub.test/test_topic_never_sent' "$NTFY_LOG" && echo 1 || echo 0)"
 ok "promote does not pause the fleet" "$([ ! -f "$STATE/PAUSED" ] && echo 1 || echo 0)"
 
 # ---- 3. pause ----
@@ -172,11 +173,11 @@ rm -f "$STATE/PAUSED"
 if [ -f "$BIN2/shrike_notify_lib.sh" ]; then
   make_repo sn_repo; write_control_lines "$tmp/repos/sn_repo" "$(PAUSE s1)"; clear_state
   SHRIKE_NOTIFY_URL="https://sn.example.app/" "$BIN2/gitlark_control_consumer.sh" "$tmp/repos/sn_repo" >/dev/null 2>&1
-  ok "SHRIKE_NOTIFY_URL set -> also published to <url>/fleet_<repo>_control" "$(grep -q 'CURL .*https://sn.example.app/fleet_sn_repo_control' "$NTFY_LOG" && grep -q 'https://ntfy.sh/test_topic_never_sent' "$NTFY_LOG" && echo 1 || echo 0)"
+  ok "SHRIKE_NOTIFY_URL set -> also published to <url>/fleet_<repo>_control" "$(grep -q 'CURL .*https://sn.example.app/fleet_sn_repo_control' "$NTFY_LOG" && grep -q 'http://relay.stub.test/test_topic_never_sent' "$NTFY_LOG" && echo 1 || echo 0)"
   ok "shrike payload carries title + tags" "$(grep 'fleet_sn_repo_control' "$NTFY_LOG" | grep -q 'gitlark-triggered fleet pause' && echo 1 || echo 0)"
   rm -f "$STATE/PAUSED" "$NTFY_LOG" "$STATE/gitlark_control_seen_sn_repo"
   "$BIN2/gitlark_control_consumer.sh" "$tmp/repos/sn_repo" >/dev/null 2>&1
-  ok "SHRIKE_NOTIFY_URL unset (lib present) -> only ntfy.sh is called" "$([ "$(grep -c '^CURL' "$NTFY_LOG")" = 1 ] && grep -q ntfy.sh "$NTFY_LOG" && echo 1 || echo 0)"
+  ok "SHRIKE_NOTIFY_URL unset (lib present) -> only the ntfy server is called" "$([ "$(grep -c '^CURL' "$NTFY_LOG")" = 1 ] && grep -q relay.stub.test "$NTFY_LOG" && echo 1 || echo 0)"
 else echo "  skip shrike dual-publish cases (shrike_notify_lib.sh not found)"; fi
 make_repo nolib_repo; write_control_lines "$tmp/repos/nolib_repo" "$(PAUSE n1)"; clear_state
 SHRIKE_NOTIFY_URL="https://sn.example.app" run "$tmp/repos/nolib_repo" >/dev/null 2>&1; rc=$?

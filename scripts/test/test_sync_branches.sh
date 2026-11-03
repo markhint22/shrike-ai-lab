@@ -93,10 +93,10 @@ out="$(run "repos/$n")"
 ok "conflicting back-merge logged as needing a human" "$(printf '%s' "$out" | grep -q "$n: CONFLICT back-merging main -> develop — needs a human" && echo 1 || echo 0)"
 ok "conflict leaves origin/develop untouched and reports reconciled: none" "$([ "$(sha $n develop)" = "$b" ] && printf '%s' "$out" | grep -q 'reconciled: none' && echo 1 || echo 0)"
 ok "conflict: worktree removed, no leaked temp dir, merge aborted" "$([ "$(git -C "$Q/repos/$n" worktree list | wc -l | tr -d ' ')" = 1 ] && [ "$(leaks)" = 0 ] && echo 1 || echo 0)"
-ok "conflict: ntfy alert posted to the default topic with high priority" "$(grep -q 'https://ntfy.sh/shrike_ovn_311380987a' "$NTFY_LOG" && grep -q 'Priority: high' "$NTFY_LOG" && grep -q 'Title: Branch back-merge conflict' "$NTFY_LOG" && echo 1 || echo 0)"
+ok "conflict: ntfy alert posted to the default topic with high priority" "$(grep -q '/shrike_ovn_311380987a' "$NTFY_LOG" && grep -q 'Priority: high' "$NTFY_LOG" && grep -q 'Title: Branch back-merge conflict' "$NTFY_LOG" && echo 1 || echo 0)"
 ok "conflict alert names the repo and uses --max-time 8" "$(grep -q "needs a human): $n\." "$NTFY_LOG" && grep -q -- '--max-time 8' "$NTFY_LOG" && echo 1 || echo 0)"
 rm -f "$NTFY_LOG"; out="$(NTFY_TOPIC=my_topic run "repos/$n")"
-ok "NTFY_TOPIC override is honoured in the alert URL" "$(grep -q 'https://ntfy.sh/my_topic' "$NTFY_LOG" && ! grep -q shrike_ovn "$NTFY_LOG" && echo 1 || echo 0)"
+ok "NTFY_TOPIC override is honoured in the alert URL" "$(grep -q '/my_topic' "$NTFY_LOG" && ! grep -q shrike_ovn "$NTFY_LOG" && echo 1 || echo 0)"
 ok "conflict persists across runs (still flagged, still untouched)" "$(printf '%s' "$out" | grep -q CONFLICT && [ "$(sha $n develop)" = "$b" ] && echo 1 || echo 0)"
 
 # ---- 7. push rejected by origin ----

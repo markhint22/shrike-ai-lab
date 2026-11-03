@@ -364,12 +364,17 @@ fi
 # unrelated cycle of another kind resets or dilutes them, so an item that alternates (revert, no-op, revert, fixup-undid-item ...) all day never reaches any single
 # cap: gitlark's workspace-conversation status item took 34 BLOCKED-class cycles plus reverts before a human saw it. This counts ANY non-landing attempt of the item in a
 # rolling 24h window: state/item_fails/<id>.<hash>.attempts24 holds one "<epoch> <status word>" line per guard call (older than 24h are dropped; a landing of the item
-# deletes the file). At OVN_ITEM_DAY_CAP (default 3) attempts the item is parked, whatever mix of statuses they were.
+# deletes the file). At OVN_ITEM_DAY_CAP (default 5; was 3 until 2026-11-02) attempts the item is parked, whatever mix of statuses they were - PROGRESS-AWARE since 2026-11-02 (outcomes F9:
+# a cap of 3 would have parked two items that later landed after 4-6 attempts: shrike-monitor e657d55c, gitlark f17f4949): each ledger line also carries a footprint signature
+# (cksum of the files aider edited + the commit subjects of that attempt, 'none' when it did nothing) and the tokens burned. The cap trips only when the last two attempts left the SAME footprint
+# (no progress in the diff between attempts) or the attempt count reaches the hard cap OVN_ITEM_DAY_CAP_HARD (default 8, at least cap+3). OVN_ITEM_DAY_CAP_PROGRESS=off restores the plain count.
 # Not counted (nothing attempted, or a benign/terminal no-op that has its own path): skip*/held* and no-op(BLOCKED|ALREADY-DONE|NEEDS-DECISION).
 # OVN_ITEM_DAY_CAP_MODE (default shadow): shadow = log only (state/item_day_cap_shadow.log on every over-cap attempt + ONE alerts.log info line per crossing),
 # enforce = tag '[AUTO-SKIP after N non-landing attempts in 24h (...); review]' + chore(queue) commit/push like the other caps, off = disabled.
 _dc_mode="${OVN_ITEM_DAY_CAP_MODE:-shadow}"
-_dc_cap="${OVN_ITEM_DAY_CAP:-3}"; case "$_dc_cap" in ''|*[!0-9]*|0) _dc_cap=3;; esac
+_dc_cap="${OVN_ITEM_DAY_CAP:-5}"; case "$_dc_cap" in ''|*[!0-9]*|0) _dc_cap=5;; esac
+_dc_hard="${OVN_ITEM_DAY_CAP_HARD:-8}"; case "$_dc_hard" in ''|*[!0-9]*|0) _dc_hard=8;; esac
+[ "$_dc_hard" -lt $(( _dc_cap + 3 )) ] && _dc_hard=$(( _dc_cap + 3 ))
 # K3 review fix: schema/migration/model items already got a larger fail budget above (CAP raised from _CAP_BASE by ovn_schema_budget); the day cap grows by the same
 # amount so it can never park them BEFORE their own budget is spent. Non-schema items (CAP == _CAP_BASE) keep the plain day cap.
 case "$CAP:${_CAP_BASE:-}" in *[!0-9:]*|:*|*:) ;; *) [ "$CAP" -gt "$_CAP_BASE" ] && _dc_cap=$(( _dc_cap + CAP - _CAP_BASE )) ;; esac
@@ -380,9 +385,23 @@ if [ "$_dc_mode" != off ]; then
       _dc_f="$state/item_fails/${id}.${h}.attempts24"
       _dc_now="$(date +%s)"
       _dc_word="$(printf '%s' "$status" | tr -c 'A-Za-z0-9()_.-' ' ' | awk '{print ($1 == "" ? "none" : $1)}')"
-      { [ -f "$_dc_f" ] && awk -v lo=$(( _dc_now - 86400 )) '$1 ~ /^[0-9]+$/ && $1 > lo' "$_dc_f"; printf '%s %s\n' "$_dc_now" "$_dc_word"; } > "$_dc_f.$$" 2>/dev/null && mv -f "$_dc_f.$$" "$_dc_f" 2>/dev/null
+      # footprint of THIS attempt: the files aider edited + the commit subjects it made (sha stripped); 'none' = nothing attempted/applied
+      _dc_sig="none"
+      if [ -n "${task_log:-}" ] && [ -f "$task_log" ]; then
+        _dc_sig="$( { grep -ohE 'Applied edit to [^ ]+' "$task_log" 2>/dev/null; grep -ohE '^Commit [0-9a-f]{6,40} .*' "$task_log" 2>/dev/null | sed -E 's/^Commit [0-9a-f]+ //'; } | sort -u | cksum | cut -d' ' -f1)"
+        [ "$_dc_sig" = 4294967295 ] && _dc_sig="none"   # cksum of empty input
+      fi
+      { [ -f "$_dc_f" ] && awk -v lo=$(( _dc_now - 86400 )) '$1 ~ /^[0-9]+$/ && $1 > lo' "$_dc_f"; printf '%s %s %s %s\n' "$_dc_now" "$_dc_word" "${_dc_sig:-none}" "${cur_toks:-0}"; } > "$_dc_f.$$" 2>/dev/null && mv -f "$_dc_f.$$" "$_dc_f" 2>/dev/null
       _dc_n="$(wc -l < "$_dc_f" 2>/dev/null | tr -d ' ')"; case "$_dc_n" in ''|*[!0-9]*) _dc_n=0;; esac
-      if [ "$_dc_n" -ge "$_dc_cap" ]; then
+      # progress: did the last two attempts leave the same footprint? (ledger lines written before 2026-11-02 have no signature => unknown => treated as stagnant, i.e. the old plain count)
+      _dc_stag=1
+      if [ "${OVN_ITEM_DAY_CAP_PROGRESS:-on}" != off ] && [ "$_dc_n" -ge 2 ]; then
+        _dc_s1="$(awk -v n="$_dc_n" 'NR==n-1{print $3}' "$_dc_f")"; _dc_s2="$(awk -v n="$_dc_n" 'NR==n{print $3}' "$_dc_f")"
+        if [ -n "$_dc_s1" ] && [ -n "$_dc_s2" ] && [ "$_dc_s1" != "$_dc_s2" ]; then _dc_stag=0; fi
+      fi
+      _dc_trip=0
+      if [ "$_dc_n" -ge "$_dc_cap" ] && { [ "$_dc_stag" = 1 ] || [ "$_dc_n" -ge "$_dc_hard" ]; }; then _dc_trip=1; fi
+      if [ "$_dc_trip" = 1 ]; then
         _dc_mix="$(awk '{print $2}' "$_dc_f" | sort | uniq -c | awk '{printf "%s%sx %s", (NR>1?", ":""), $1, $2}')"
         if [ "$_dc_mode" = enforce ]; then
           branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
@@ -396,8 +415,11 @@ if [ "$_dc_mode" != off ]; then
           rm -f "$state/failures/${id}.count" "$countf" "$toksf" "$ncountf" "$ntoksf" "$lastidsf" "$_dc_f" 2>/dev/null
           exit 0
         fi
-        printf '%s id=%s hash=%s attempts24=%s/%s mix=%s status=%s item=%s\n' "$(date '+%F %T')" "$id" "$h" "$_dc_n" "$_dc_cap" "$_dc_mix" "$status" "${text:0:100}" >> "$state/item_day_cap_shadow.log" 2>/dev/null || true
-        [ "$_dc_n" -eq "$_dc_cap" ] && echo "[$(date '+%Y-%m-%d %H:%M:%S')] info | item-guard | ${id} item ${h:0:8} SHADOW day-cap: ${_dc_n} non-landing attempts in 24h (${_dc_mix}) - would park (OVN_ITEM_DAY_CAP_MODE=enforce): ${text:0:80}" >> "$state/alerts.log" 2>/dev/null
+        printf '%s id=%s hash=%s attempts24=%s/%s mix=%s stagnant=%s status=%s item=%s\n' "$(date '+%F %T')" "$id" "$h" "$_dc_n" "$_dc_cap" "$_dc_mix" "$_dc_stag" "$status" "${text:0:100}" >> "$state/item_day_cap_shadow.log" 2>/dev/null || true
+        # ONE alert per crossing: the first tripping attempt (the previous ledger line carries no 'T' mark); the tripping line is marked
+        _dc_prevT="$(awk -v n="$_dc_n" 'NR==n-1{print $5}' "$_dc_f" 2>/dev/null)"
+        sed '$s/$/ T/' "$_dc_f" > "$_dc_f.$$" 2>/dev/null && mv -f "$_dc_f.$$" "$_dc_f" 2>/dev/null
+        [ "$_dc_prevT" != T ] && echo "[$(date '+%Y-%m-%d %H:%M:%S')] info | item-guard | ${id} item ${h:0:8} SHADOW day-cap: ${_dc_n} non-landing attempts in 24h (${_dc_mix}) - would park (OVN_ITEM_DAY_CAP_MODE=enforce): ${text:0:80}" >> "$state/alerts.log" 2>/dev/null
       fi
       ;;
   esac

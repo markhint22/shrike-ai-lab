@@ -32,6 +32,39 @@ ovn_stage_fail_tag() {
   printf '%s' "${tag:-stage-unverified}"
 }
 
+# ovn_stage_status_cause <cause tag> <status>   (OVN_STAGE_FAILTAG_STATUS=off|shadow|on, default SHADOW; 2026-11-02 outcomes F5)
+#   The cause tag (test-red / no-edit / timeout / ...) lived only in fail_reason, so a bucket report grouped by status showed 56 of 78 noops as one
+#   'no-op(stage-unverified) stage(higher-tier)' bucket. on = the cause is appended to the status text right after 'stage(higher-tier)': 'no-op(stage-unverified) stage(higher-tier) cause:test-red'
+#   (the 'no-op(stage-unverified)' prefix every classifier/grep keys on is untouched; a trailing ' bug-handled' stays last). shadow = the status is unchanged and the would-be
+#   status is appended to state/stage_status_tag_shadow.log. off = unchanged. Prints the status.
+ovn_stage_status_cause() {
+  local tag st="${2:-}" mode="${OVN_STAGE_FAILTAG_STATUS:-shadow}" sd
+  tag="$(printf '%s' "${1:-}" | tr -cd 'a-z0-9-')"
+  if [ -z "$tag" ] || [ "$mode" = off ] || [ "$tag" = stage-unverified ]; then printf '%s' "$st"; return 0; fi
+  case "$st" in *"stage(higher-tier)"*) ;; *) printf '%s' "$st"; return 0 ;; esac
+  local new="${st/"stage(higher-tier)"/"stage(higher-tier) cause:${tag}"}"
+  if [ "$mode" = on ]; then printf '%s' "$new"; return 0; fi
+  sd="${OVN_P4_STATE_DIR:-${SCRIPT_DIR:-.}/state}"
+  mkdir -p "$sd" 2>/dev/null && printf '%s\twould=%s\n' "$(date '+%F %T')" "$new" >> "$sd/stage_status_tag_shadow.log" 2>/dev/null
+  printf '%s' "$st"; return 0
+}
+
+# ovn_redgreen_suspect_policy <task_log> <id> <repo_label>   (OVN_REDGREEN_SUSPECT=off|shadow|enforce, default SHADOW; 2026-11-02 outcomes F1/F5)
+#   A new test that passes WITHOUT the fix (red-green SUSPECT) used to be tag-only: the cycle was pushed, credited and counted as landed (gitlark error-reporting: 4 commits, 134k tokens,
+#   the default flipped so the new tests passed pre-fix). enforce = rc 0 (the caller skips every credit path AND records a '--- auto-credit: REFUSED' marker after the landing marker, so the
+#   row becomes class landed-uncredited instead of landed); shadow = rc 1 and a row in state/redgreen_suspect_shadow.log saying what enforce would do; off = rc 1, silent.
+ovn_redgreen_suspect_policy() {
+  local tl="${1:-}" id="${2:-?}" repo="${3:-?}" mode="${OVN_REDGREEN_SUSPECT:-shadow}" sd
+  case "$mode" in
+    enforce) return 0 ;;
+    off) return 1 ;;
+  esac
+  sd="${OVN_P4_STATE_DIR:-${SCRIPT_DIR:-.}/state}"
+  mkdir -p "$sd" 2>/dev/null && printf '%s\t%s\tid=%s\twould skip the credit (class landed-uncredited) under OVN_REDGREEN_SUSPECT=enforce\n' "$(date '+%F %T')" "$repo" "$id" >> "$sd/redgreen_suspect_shadow.log" 2>/dev/null
+  [ -n "$tl" ] && [ -f "$tl" ] && echo "--- redgreen-suspect: SHADOW would skip the credit (OVN_REDGREEN_SUSPECT=enforce) ---" >> "$tl"
+  return 1
+}
+
 ovn_hb_write() {  # <task_log> <sha>
   local tl="${1:-}" sha
   sha="$(printf '%s' "${2:-}" | tr -cd '0-9a-fA-F')"

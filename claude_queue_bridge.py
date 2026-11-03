@@ -25,6 +25,12 @@ by claude_queue_bridge.sh as Passes A-D each cycle:
              when their signature matches a signatures-file entry, closing the loop so the 27B
              stops re-flagging code Claude already fixed.
 
+  autoclose  (Pass A2, P5-supply-truth 2026-11-02) — close a harvested `[CLAUDE]` line when the fleet later LANDED the same feature. Matching is by `[feat:TAG]` (never by line
+             text: 125 of 177 open lines were stale because the fleet had landed the feature under different wording/paths): the tag must have a class=landed|credit-only row in
+             outcomes.jsonl for that repo AND every test id the line's VERIFY names (`::test_x`, `-t "title"`, `test_x`) must exist on <ref> (default origin/develop) in the repo clone.
+             That is a PRESENCE proof, not an execution of the VERIFY. Mode OVN_BRIDGE_AUTOCLOSE (default `shadow`): shadow only logs what it would close
+             (state/bridge_autoclose_shadow.log), `enforce` flips the line to [x], `off` skips. harvest uses the same tag match so a closed feature is not re-opened.
+
 IMPORTANT — dedup relies on task_sig(), not bare norm_sig(): a queue-formatted line carries a
 "[CLAUDE] <repo>/ — " prefix that the raw AUTO-SKIP task text never has, so norm_sig()'s
 first-12-words comparison would silently never match across that boundary (this was the actual
@@ -41,9 +47,10 @@ Usage:
   claude_queue_bridge.py prework    --queue CLAUDE_QUEUE.md --prework-list <file of existing prework basenames>
   claude_queue_bridge.py harvest    --queue CLAUDE_QUEUE.md --autoskip <file: repo<TAB>task lines> [--archive CLAUDE_QUEUE_DONE.md]
   claude_queue_bridge.py signatures --queue CLAUDE_QUEUE.md [--archive CLAUDE_QUEUE_DONE.md]
+  claude_queue_bridge.py autoclose  --queue CLAUDE_QUEUE.md --outcomes <outcomes.jsonl> --repos-dir <dir with <repo>/ clones> [--archive ...] [--mode shadow|enforce|off]
   claude_queue_bridge.py retire     --progress <repo's OVERNIGHT_PROGRESS.md> --signatures <file: one normsig per line>
 """
-import argparse, re, sys, datetime
+import argparse, json, os, re, subprocess, sys, datetime
 
 # canonical repo basenames + aliases seen in CLAUDE_QUEUE headers/inline text
 REPO_ALIASES = {
@@ -294,9 +301,147 @@ def cmd_prework(args):
     sys.stderr.write(f"prework: emitted {emitted} code-able items lacking a briefing\n")
 
 
+# ---------------------------------------------------------------------------------------------- autoclose (P5-supply-truth)
+LANDED_CLASSES = ("landed", "credit-only")
+VERIFY_RE = re.compile(r"VERIFY:\s*`([^`]+)`")
+TEST_ID_RES = (
+    re.compile(r"::([A-Za-z_][A-Za-z0-9_]*)"),                 # pytest path::test_name (also path::Class::test_name)
+    re.compile(r"""\s-t\s+(?:"([^"]+)"|'([^']+)')"""),         # vitest/jest -t "title"
+    re.compile(r"\b(test_[A-Za-z0-9_]+)"),                     # bare test_ names (pytest -k, gut)
+)
+
+
+def feat_tag_of(text):
+    m = FEAT_TAG_RE.search(text or "")
+    return m.group(1) if m else None
+
+
+def landed_tags(outcomes_path):
+    """{(repo, feat_tag)} that have a landed/credit-only row in an outcomes.jsonl (unparseable rows skipped). Keyed by repo: a tag landed for billwatch must not close a gitlark line."""
+    tags = set()
+    try:
+        fh = open(outcomes_path, "rb")
+    except OSError:
+        return tags
+    with fh:
+        for raw in fh:
+            try:
+                r = json.loads(raw.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if isinstance(r, dict) and r.get("class") in LANDED_CLASSES and r.get("feat_tag"):
+                tags.add((str(r.get("repo") or ""), str(r["feat_tag"])))
+    return tags
+
+
+def _tag_landed(tags, repo, tag):
+    """True when (repo, tag) landed. An outcomes row with no repo field (legacy) matches any repo."""
+    return (repo, tag) in tags or ("", tag) in tags
+
+
+def named_test_ids(line):
+    """Test ids the line's VERIFY command names ([] when there is no VERIFY or it names none)."""
+    m = VERIFY_RE.search(line)
+    if not m:
+        return []
+    cmd = m.group(1)
+    ids = []
+    bare = re.sub(r"\S+\.(?:py|ts|tsx|js|gd|kt|swift)\b(?:::\S+)?", " ", cmd)   # a test FILE name (tests/test_x.py) is not a test id: only names inside the file are
+    for rx in TEST_ID_RES:
+        for g in rx.findall(bare if rx is TEST_ID_RES[2] else cmd):
+            g = next((x for x in g if x), "") if isinstance(g, tuple) else g
+            if g and g not in ids:
+                ids.append(g)
+    return ids
+
+
+def present_on_ref(repo_dir, ref, needle):
+    """True when `needle` occurs in any file of <ref> in the clone (git grep: path-independent, so a wrong path in the line does not matter)."""
+    try:
+        r = subprocess.run(["git", "-C", repo_dir, "grep", "-qF", "-e", needle, ref], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def verify_on_develop(repo_dir, ref, line, present=present_on_ref):
+    """(ok, why): the line names >= 1 test id and every one exists on <ref>."""
+    ids = named_test_ids(line)
+    if not ids:
+        return False, "no named test id in VERIFY"
+    missing = [i for i in ids if not present(repo_dir, ref, i)]
+    return (not missing), ("missing on %s: %s" % (ref, ", ".join(missing)) if missing else "all %d named test id(s) present on %s" % (len(ids), ref))
+
+
+def closed_tags(lines):
+    """feat tags of CHECKED lines (queue + archive): a closed feature is never re-harvested."""
+    out = set()
+    for ln in lines:
+        m = CHECKED_ITEM_RE.match(ln)
+        if m:
+            t = feat_tag_of(m.group(1))
+            if t:
+                out.add(t)
+    return out
+
+
+def autoclose_mode(arg=None):
+    v = (arg or os.environ.get("OVN_BRIDGE_AUTOCLOSE") or "shadow").strip().lower()
+    return v if v in ("shadow", "enforce", "off") else "shadow"
+
+
+def _shadow(path, msg):
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except OSError:
+        pass
+
+
+def autoclose_lines(lines, tags, repos_dir, ref, today, present=present_on_ref):
+    """(new_lines, closed:[(lineno, repo, tag, why)]). Pure apart from the git grep: only open lines that carry a [feat:] tag whose tag landed."""
+    out, closed, header = [], [], ""
+    for i, ln in enumerate(lines):
+        h = HEADER_RE.match(ln)
+        if h:
+            header = h.group(1).strip()
+        m = ITEM_RE.match(ln)
+        tag = feat_tag_of(m.group(1)) if m else None
+        if m and tag:
+            repo = infer_repo(m.group(1), header)
+            if repo and _tag_landed(tags, repo, tag):
+                ok, why = verify_on_develop(os.path.join(repos_dir, repo), ref, ln, present)
+                if ok:
+                    closed.append((i + 1, repo, tag, why))
+                    out.append(ln.replace("- [ ]", "- [x]", 1) + " (auto-closed %s: [feat:%s] landed, %s)" % (today, tag, why))
+                    continue
+        out.append(ln)
+    return out, closed
+
+
+def cmd_autoclose(args):
+    mode = autoclose_mode(args.mode)
+    if mode == "off":
+        sys.stderr.write("autoclose: off\n")
+        return
+    lines = open(args.queue, encoding="utf-8").read().splitlines()
+    new, closed = autoclose_lines(lines, landed_tags(args.outcomes), args.repos_dir, args.ref, args.today)
+    for lineno, repo, tag, why in closed:
+        _shadow(args.shadow_log, "%s %s would-close line %d %s [feat:%s] (%s)" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", lineno, repo, tag, why))
+    if mode == "enforce" and closed:
+        with open(args.queue, "w", encoding="utf-8") as f:
+            f.write("\n".join(new) + "\n")
+    sys.stderr.write("autoclose: mode=%s %s=%d\n" % (mode, "closed" if mode == "enforce" else "would-close", len(closed)))
+
+
 def cmd_harvest(args):
     lines = open(args.queue, encoding="utf-8").read().splitlines() + read_lines_optional(args.archive)
     existing_sigs = {task_sig(t) for t, _ in iter_all_items(lines)}
+    mode = autoclose_mode(getattr(args, "mode", None))
+    closed = {("", t) for t in closed_tags(lines)} | (landed_tags(args.outcomes) if getattr(args, "outcomes", "") else set()) if mode != "off" else set()
     new_items = []
     for ln in open(args.autoskip, encoding="utf-8").read().splitlines():
         if "\t" not in ln:
@@ -307,6 +452,11 @@ def cmd_harvest(args):
             continue
         if task_sig(task) in existing_sigs:
             continue
+        tag = feat_tag_of(task)
+        if tag and _tag_landed(closed, repo, tag):      # P5: a feature already closed (or landed by the fleet) is not re-opened under different wording
+            _shadow(getattr(args, "shadow_log", ""), "%s %s would-not-reharvest %s [feat:%s]" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", repo, tag))
+            if mode == "enforce":
+                continue
         existing_sigs.add(task_sig(task))
         new_items.append((repo, task))
     if not new_items:
@@ -332,6 +482,17 @@ def main():
     hp.add_argument("--autoskip", required=True)
     hp.add_argument("--archive", default="")
     hp.add_argument("--today", default=datetime.date.today().isoformat())
+    hp.add_argument("--outcomes", default="")
+    hp.add_argument("--mode", default="")
+    hp.add_argument("--shadow-log", default="")
+    ap = sub.add_parser("autoclose")
+    ap.add_argument("--queue", required=True)
+    ap.add_argument("--outcomes", required=True)
+    ap.add_argument("--repos-dir", required=True)
+    ap.add_argument("--ref", default="origin/develop")
+    ap.add_argument("--mode", default="")
+    ap.add_argument("--shadow-log", default="")
+    ap.add_argument("--today", default=datetime.date.today().isoformat())
     sp = sub.add_parser("signatures")
     sp.add_argument("--queue", required=True)
     sp.add_argument("--archive", default="")
@@ -345,6 +506,7 @@ def main():
         "harvest": cmd_harvest,
         "signatures": cmd_signatures,
         "retire": cmd_retire,
+        "autoclose": cmd_autoclose,
     }[args.cmd](args)
 
 

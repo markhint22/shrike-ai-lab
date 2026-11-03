@@ -26,6 +26,13 @@ Action, mode OVN_PINGPONG_MODE (default 'shadow'):
                 citation reaches CLAUDE_QUEUE.md; [CLAUDE] keeps every picker away from it.
              3. commit with the fleet identity, push NON-force with fetch + re-apply + retry (the fleet pushes every minute).
   off      detect nothing (same as OVN_PINGPONG_GUARD=off in the wrapper).
+2026-11-02 (P4 / outcomes F9) refinements:
+  - ANCHOR (OVN_PINGPONG_ANCHOR=on|off, default on): after a key's first state, a later state only counts when the commit REPLACES the line that carried the previous state (the removed line has the
+    same masked key and the literal tuple equals the tracked last state). A commit that merely ADDS another line with the same shape (a new test next to an old one: iptv
+    test_notifications_service.py 'First notification' / 'Blocked for A' / 'Allowed for B' + a duplicate re-add) is a different line, not a flip: the live false positive.
+  - CONFIG-DEFAULT detector (OVN_PINGPONG_BOOL=off|shadow|enforce, default shadow): a `name: bool = True|False` default replaced by the opposite value flips ON/OFF (the gitlark error_reporting_enabled
+    default False -> True contradicted the item's own VERIFY). Needs only OVN_PINGPONG_BOOL_MIN (default 2) anchored states, no revisit. shadow = logged (kind=config-default) and never parked; enforce = parked like a literal ping-pong.
+  - LOG DEDUPE: the shadow row / per-run PING-PONG line is written once per (repo, line family, COMMIT SET) instead of once per run or per day.
 Safety: DRY_RUN=1 prints only; ANY infrastructure failure logs a line, changes nothing and exits 0; at most OVN_PINGPONG_MAX_PARK (10) lines per run.
 
   ovn_pingpong_guard.py               one pass over OVN_PINGPONG_REPOS (default 'gitlark billwatch iptv_apps test-automation-agent')
@@ -53,6 +60,10 @@ MIN_N = envi("OVN_PINGPONG_MIN", 3)
 MAX_PARK = envi("OVN_PINGPONG_MAX_PARK", 10)
 MAX_FILES = envi("OVN_PINGPONG_MAX_FILES", 25)
 PUSH_TRIES = envi("OVN_PINGPONG_PUSH_TRIES", 5)
+ANCHOR = os.environ.get("OVN_PINGPONG_ANCHOR", "on").strip().lower() != "off"
+BOOL_MODE = os.environ.get("OVN_PINGPONG_BOOL", "shadow").strip().lower()   # off | shadow | enforce
+BOOL_MIN = envi("OVN_PINGPONG_BOOL_MIN", 2)
+BOOL_DEFAULT = re.compile(r"^\s*[A-Za-z_]\w*\s*:\s*bool\s*=\s*(?:True|False)\b")
 DRY = cg.DRY
 STATE = cg.STATE
 
@@ -142,6 +153,11 @@ def detect(commits, now, window_h=None, min_n=None):
                         st["last"] = st["seed"] = ov
                 if nv == st["last"]:
                     continue   # same state as before (e.g. a whitespace-only touch): not a flip
+                if ANCHOR and st["last"] is not None:
+                    # a later state must REPLACE the line that held the previous state; a second line of the same shape elsewhere is not a flip of it
+                    rk, rv = mask(rem[i]) if (paired and i < len(rem)) else (None, ())
+                    if rk != nk or rv != st["last"]:
+                        continue
                 st["events"].append((c, nv))
                 st["last"] = nv
                 st["line"] = new.strip()
@@ -154,20 +170,27 @@ def detect(commits, now, window_h=None, min_n=None):
             if c["sha"] not in shas:
                 shas.append(c["sha"])
         n = len(shas)
-        if n < min_n:
-            continue
         seq = [v for _, v in ev]
+        kind = "literal"
+        is_bool = BOOL_MODE != "off" and bool(BOOL_DEFAULT.match(st["line"]))
+        if is_bool and n >= BOOL_MIN and len({v for v in seq} | ({st["seed"]} if st["seed"] is not None else set())) >= 2 and n < min_n:
+            kind = "config-default"
+        elif n < min_n:
+            continue
         walk = {st["seed"]} if st["seed"] is not None else set()   # the pre-window state counts: a flip BACK to it is a revisit
         revisits = 0
         for v in seq:
             if v in walk:
                 revisits += 1
             walk.add(v)
-        if revisits < 1:
-            continue
+        if kind == "literal" and revisits < 1:
+            if is_bool and n >= BOOL_MIN and len(walk) >= 2:
+                kind = "config-default"   # >= min_n forward-only flips of a bool default: still a config flip
+            else:
+                continue
         bysha = collections.OrderedDict((c["sha"], c) for c, _ in ev)
         found.append({
-            "file": path, "key": key, "line": st["line"][:160], "n": n, "revisits": revisits,
+            "file": path, "key": key, "line": st["line"][:160], "n": n, "revisits": revisits, "kind": kind,
             "states": [" ".join(v) if len(v) <= 3 else " ".join(v[:3]) + " ..." for v in seq],
             "values": ["/".join(x for x in v if re.match(r"^-?\d+(\.\d+)?$|^(True|False|true|false|None|null)$", x)) or " ".join(v)[:30] for v in seq],
             "commits": [(c["sha"][:8], c["s"][:80]) for c in bysha.values()],
@@ -343,19 +366,24 @@ def once(key):
     return True
 
 
+def commit_set(f):
+    """Stable id of the commits behind a finding: a re-detection of the SAME commits is not new information (2026-11-02, F9: the same iptv family was reported every run)."""
+    return hashlib.sha1(",".join(sorted(s for s, _ in f["commits"])).encode()).hexdigest()[:10]
+
+
 def shadow_log(repo, f, would_park, today):
-    if not once("SHADOW|%s|%s|%s" % (repo, f["fid"], today)):
+    if not once("SHADOW|%s|%s|%s" % (repo, f["fid"], commit_set(f))):
         return
     try:
         os.makedirs(STATE, exist_ok=True)
         with open(os.path.join(STATE, "pingpong_shadow.log"), "a") as fh:
-            fh.write("%s %s %s literal-pingpong n=%d revisits=%d values=%s would-park=%d tests=%s commits=%s line=%s\n" % (
-                time.strftime("%F %T"), repo, f["file"], f["n"], f["revisits"], "/".join(f["values"])[:60], would_park,
+            fh.write("%s %s %s %s-pingpong n=%d revisits=%d values=%s would-park=%d tests=%s commits=%s line=%s\n" % (
+                time.strftime("%F %T"), repo, f["file"], "config-default" if f.get("kind") == "config-default" else "literal", f["n"], f["revisits"], "/".join(f["values"])[:60], would_park,
                 ",".join(f.get("tests") or []) or "-", ",".join(s for s, _ in f["commits"]), f["line"][:100]))
     except OSError as e:
         log("could not write shadow log (%s)" % e)
     cg.alert("info", "pingpong-guard:%s" % repo, "SHADOW %s: line literal flipped %d times in %dh (%s) by fleet commits %s - would park %d queue item(s) + add a Claude follow-up (OVN_PINGPONG_MODE=enforce)" % (
-        f["file"], f["n"], WINDOW_H, "/".join(f["values"])[:40], ",".join(s for s, _ in f["commits"][:4]), would_park), "PPS|%s|%s|%s" % (repo, f["fid"], today))
+        f["file"], f["n"], WINDOW_H, "/".join(f["values"])[:40], ",".join(s for s, _ in f["commits"][:4]), would_park), "PPS|%s|%s|%s" % (repo, f["fid"], commit_set(f)))
 
 
 def one_repo(repo, now, state):
@@ -376,15 +404,23 @@ def one_repo(repo, now, state):
         return
     today = time.strftime("%Y-%m-%d")
     ambiguous = cg.add_tree_aliases(clone, findings)   # fills f['aliases'] with same-stem test/source counterparts
+    quiet = 0
     for f in findings:
         f["tests"] = find_tests(clone, f)
-        log("%s: PING-PONG %s n=%d revisits=%d values=%s commits=%s" % (repo, f["file"], f["n"], f["revisits"], "/".join(f["values"])[:40], ",".join(s for s, _ in f["commits"])))
+        if once("LOG|%s|%s|%s" % (repo, f["fid"], commit_set(f))):
+            log("%s: PING-PONG[%s] %s n=%d revisits=%d values=%s commits=%s" % (repo, f.get("kind", "literal"), f["file"], f["n"], f["revisits"], "/".join(f["values"])[:40], ",".join(s for s, _ in f["commits"])))
+        else:
+            quiet += 1
+    if quiet:
+        log("%s: %d known ping-pong finding(s) unchanged (same commit set already logged)" % (repo, quiet))
     rc, text, _ = cg.git(["show", "%s:OVERNIGHT_PROGRESS.md" % cg.REF], cwd=clone)
     if rc != 0:
         log("%s: infra (cannot read OVERNIGHT_PROGRESS.md on %s)" % (repo, cg.REF))
         return
     budget = max(0, MAX_PARK - state["parked"])
-    _, would, protected, would_follow = plan(text, findings, ambiguous, budget)
+    # config-default findings are shadow-only (logged, never parked) unless OVN_PINGPONG_BOOL=enforce
+    actionable = [f for f in findings if f.get("kind") != "config-default" or BOOL_MODE == "enforce"]
+    _, would, protected, would_follow = plan(text, actionable, ambiguous, budget)
     if DRY or MODE != "enforce":
         for f in findings:
             log("%s: %s would park %d item(s) for %s%s" % (repo, "DRY_RUN" if DRY else "SHADOW", would.get(f["file"], 0), f["file"],
@@ -397,7 +433,7 @@ def one_repo(repo, now, state):
     if not would and not would_follow:
         log("%s: nothing left to park (already parked / follow-up present)" % repo)
         return
-    ok, parked, n_follow = apply_and_push(repo, clone, findings, budget, ambiguous)
+    ok, parked, n_follow = apply_and_push(repo, clone, actionable, budget, ambiguous)
     if not ok:
         cg.alert("warn", "pingpong-guard:%s" % repo, "could not push the literal ping-pong park to %s (will retry next tick); flipping: %s" % (
             cg.BRANCH, ", ".join(f["file"] for f in findings[:3])), "PPF|%s|%s" % (repo, today))

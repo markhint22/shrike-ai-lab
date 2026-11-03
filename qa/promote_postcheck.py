@@ -116,7 +116,7 @@ def log(repo, sha, status, msg):
 
 def push_emergency(title, body):
     """Emergency push via the relay (NTFY_SERVER), exactly how the shell scripts do it. Never raises; the stub-able `curl` binary on PATH."""
-    url = "%s/%s" % (os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/"), os.environ.get("NTFY_TOPIC", "shrike_ovn_311380987a"))
+    url = "%s/%s" % ((os.environ.get("NTFY_SERVER") or "http://127.0.0.1:8099").rstrip("/"), os.environ.get("NTFY_TOPIC", "shrike_ovn_311380987a"))
     try:
         subprocess.run(["curl", "-fsS", "--max-time", "8", "-H", "Title: " + title, "-H", "Tags: rotating_light", "-H", "Priority: urgent",
                         "-H", "X-OVN-Level: emergency", "-d", body, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

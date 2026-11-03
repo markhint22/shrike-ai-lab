@@ -36,7 +36,7 @@ ovn_claude_auth_probe() {   # <claude_bin> [timeout_bin] [model]
 
 _ovn_auth_push() {   # <title> <priority> <tags> <body>   best-effort, never fails the caller
   command -v curl >/dev/null 2>&1 || return 0
-  curl -fsS --max-time 8 -H "Title: $1" -H "Priority: $2" -H "Tags: $3" -d "$4" "${NTFY_SERVER:-https://ntfy.sh}/${NTFY_TOPIC:-shrike_ovn_311380987a}" >/dev/null 2>&1 || true
+  curl -fsS --max-time 8 -H "Title: $1" -H "Priority: $2" -H "Tags: $3" -d "$4" "${NTFY_SERVER:-http://127.0.0.1:8099}/${NTFY_TOPIC:-shrike_ovn_311380987a}" >/dev/null 2>&1 || true
 }
 
 ovn_claude_auth_alert() {   # <state_dir> <job> <detail>

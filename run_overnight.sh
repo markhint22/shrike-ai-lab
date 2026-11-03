@@ -203,6 +203,8 @@ declare -F ovn_vt_revert_held >/dev/null 2>&1 || ovn_vt_revert_held(){ return 1;
 # shellcheck source=scripts/lib_p4_outcomes.sh
 source "$SCRIPT_DIR/scripts/lib_p4_outcomes.sh" 2>/dev/null || true
 declare -F ovn_stage_fail_tag >/dev/null 2>&1 || ovn_stage_fail_tag(){ return 0; }
+declare -F ovn_stage_status_cause >/dev/null 2>&1 || ovn_stage_status_cause(){ printf '%s' "${2:-}"; }
+declare -F ovn_redgreen_suspect_policy >/dev/null 2>&1 || ovn_redgreen_suspect_policy(){ return 1; }
 declare -F ovn_hb_write >/dev/null 2>&1 || ovn_hb_write(){ return 0; }
 declare -F ovn_hb_read >/dev/null 2>&1 || ovn_hb_read(){ [ -f "${1:-}" ] && grep -a -m1 -oE '^--- ovn-head-before: [0-9a-f]{7,40} ---' "$1" 2>/dev/null | grep -oE '[0-9a-f]{7,40}' | head -1; return 0; }
 declare -F ovn_nnr_apply >/dev/null 2>&1 || ovn_nnr_apply(){ return 1; }
@@ -1773,14 +1775,16 @@ STUB
           # double-counts the attempt nor re-resolves 'top' and bills the failure to an unrelated roadmap item once the bug is parked.
           # 2026-10-21 (P4, OVN_STAGE_FAILTAG, default ON since 2026-11-01 K4): one label hid 26 no-landing/no-verify runs and 28 failed-verify runs. The status text is unchanged; the
           # cause goes to a sidecar record_outcome reads for fail_reason (dominant step reason, or the classified verify log).
+          _sft=""
           if [ "${OVN_STAGE_FAILTAG-on}" = on ] && [ -n "$_STAGE_JSONL" ]; then
             _sft="$(ovn_stage_fail_tag "$_STAGE_JSONL" "${_STAGE_JSONL%.jsonl}.verify.log" 2>/dev/null)"
             [ -n "$_sft" ] && printf '%s\n' "$_sft" > "$task_log.stagefr" 2>/dev/null
           fi
+          # 2026-11-02 (outcomes F5, OVN_STAGE_FAILTAG_STATUS=off|shadow|on, default shadow): the cause tag also goes into the status text (bucket reports then show test-red/no-edit/timeout)
           if [ -n "$_STAGE_JSONL" ] && grep -q '"event":"bug_attempt"' "$_STAGE_JSONL" 2>/dev/null; then
-            echo "no-op(stage-unverified) stage(higher-tier) bug-handled"
+            ovn_stage_status_cause "${_sft:-}" "no-op(stage-unverified) stage(higher-tier)"; echo " bug-handled"
           else
-            echo "no-op(stage-unverified) stage(higher-tier)"
+            ovn_stage_status_cause "${_sft:-}" "no-op(stage-unverified) stage(higher-tier)"; echo
           fi
         fi
         return
@@ -2571,6 +2575,19 @@ PYEOF
             case "${_pg%% *}" in
               MISSING|STILL_EXISTS) echo "--- scout ALREADY-DONE credit REFUSED at line ${_ad_ln} (path gate: ${_pg}) - left open ---" >> "$task_log"; continue ;;
             esac
+            # 2026-11-02 (P5-supply-truth, cqueue F4): evidence gate on the scout's claim - the plan file must be the item's own named file, the item must carry a VERIFY clause and the string it
+            # asks for must exist in the target (scripts/ovn_already_done_gate.py). OVN_ALREADY_DONE_STRICT=shadow (default: log 'would be REFUSED' to state/already_done_gate_shadow.log, credit as before) | enforce | off.
+            _adg_mode="${OVN_ALREADY_DONE_STRICT:-shadow}"
+            if [ "$_adg_mode" != off ] && [ -f "$SCRIPT_DIR/scripts/ovn_already_done_gate.py" ]; then
+              _adg="$(python3 "$SCRIPT_DIR/scripts/ovn_already_done_gate.py" OVERNIGHT_PROGRESS.md "$_ad_ln" "$PWD" "$_df" 2>>"$task_log")"
+              if [ "${_adg%% *}" = REFUSE ]; then
+                echo "$(date -u +%FT%TZ) $(basename "$PWD") line ${_ad_ln} ${_adg}" >> "$SCRIPT_DIR/state/already_done_gate_shadow.log" 2>/dev/null
+                if [ "$_adg_mode" = enforce ]; then
+                  echo "--- scout ALREADY-DONE credit REFUSED at line ${_ad_ln} (evidence gate: ${_adg#REFUSE }) - left open ---" >> "$task_log"; continue
+                fi
+                echo "--- scout ALREADY-DONE credit at line ${_ad_ln} would be REFUSED (evidence gate: ${_adg#REFUSE }) - OVN_ALREADY_DONE_STRICT=${_adg_mode}, crediting anyway ---" >> "$task_log"
+              fi
+            fi
             # 2026-10-09 (harness-credit-integrity item 7): the scout's say-so is not enough - the item's own VERIFY must not FAIL (OVN_VERIFY_GATE_MODE, default enforce;
             # an item without a VERIFY clause is credited as before). See ovn_credit_verify_gate in scripts/lib_auto_credit.sh.
             if declare -F ovn_credit_verify_gate >/dev/null 2>&1 && ! ovn_credit_verify_gate OVERNIGHT_PROGRESS.md "$_ad_ln" "$task_log" "scout ALREADY-DONE credit"; then
@@ -3947,7 +3964,7 @@ All files you need are already in the chat. You cannot run commands or call tool
       # Red-green check (2026-08-25 Tier-3): did a bugfix's new test earn its
       # pass? Runs on the code state before the bookkeeping doc commit.
       REDGREEN="$(run_redgreen_check "$BEFORE_SHA" "$AFTER_SHA")"
-      _skip_credit=0
+      _skip_credit=0; _rg_refuse=0
       case "$REDGREEN" in
         restore-failed-dirty)
           echo "--- RED-GREEN RESTORE FAILED and the tree could not be reset to ${AFTER_SHA:0:12}: holding the cycle, nothing credited or pushed ---" >> "$task_log"
@@ -3960,9 +3977,12 @@ All files you need are already in the chat. You cannot run commands or call tool
       if [ "$REDGREEN" = "suspect" ]; then
         echo "--- RED-GREEN SUSPECT: new test(s) passed WITHOUT the fix (vacuous or mirrors the bug) ---" >> "$task_log"
         emit_alert warn "$id" "red-green: a new test passed without the fix (possible vacuous/mirror test) — review the diff on ${branch}"
+        # 2026-11-02 (outcomes F1/F5): OVN_REDGREEN_SUSPECT=shadow (default) logs what enforce would do; enforce skips every credit path and records an auto-credit REFUSED marker (below) => landed-uncredited
+        if ovn_redgreen_suspect_policy "$task_log" "$id" "$(basename "$PWD")"; then _skip_credit=1; _rg_refuse=1; fi
       fi
 
       echo "--- landing: bookkeeping + auto-credit + push phase ---" >> "$task_log"   # 2026-10-09: segment marker for ovn_landed_uncredited (best-of-N reuses this log)
+      [ "${_rg_refuse:-0}" = 1 ] && echo "--- auto-credit: REFUSED - red-green SUSPECT: the new test(s) passed without the fix (OVN_REDGREEN_SUSPECT=enforce); nothing credited ---" >> "$task_log"
       # Runner-owned progress bookkeeping (2026-08-25 Tier-1). The model declared
       # what it did via DONE:/DECISION:/NEW: trailers in its commit message(s);
       # apply them to OVERNIGHT_PROGRESS.md deterministically here. Gated on

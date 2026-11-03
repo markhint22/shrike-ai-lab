@@ -231,7 +231,7 @@ def checks(sr):
     Fx({"billwatch": {"burn": 0}, "gitlark": {"doable": 30, "burn": 2}}, ar={"repos": {"billwatch": ar_ev("excluded", 600, "allowlist OVN_AR_REPOS=iptv_apps xlite")}})
     w(os.path.join(STATE, "outcomes.jsonl"), open(os.path.join(STATE, "outcomes.jsonl")).read() + json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(NOW - 4 * H)), "repo": "billwatch", "class": "landed", "status": "ok", "duration_s": 5, "item_hash": "q", "feat_tag": ""}) + "\n")
     title, body, _n = notify.compose_update(at=NOW)
-    chk("hourly: starving repo gets its supply line", re.search(r"^billwatch: pullable 0, ready 0, burn \d+/d, runway 0h; .*cause: lane excluded", body, re.M), body)
+    chk("hourly: starving repo gets its supply line", re.search(r"^billwatch: doable \d+, pullable 0, ready 0, burn \d+/d, runway 0h; .*cause: lane excluded", body, re.M), body)
     chk("hourly: stocked repo gets none", not re.search(r"^gitlark: pullable", body, re.M), body)
     chk("hourly: 'Queue empty' bullet carries the cause class", "Queue empty: billwatch" in body and "no supply - excluded: billwatch" in body, body)
     chk("hourly: covered repo's Lane idle line is dropped", not re.search(r"Lane idle \S+: billwatch", body), body)
@@ -293,7 +293,7 @@ def checks(sr):
             os.remove(os.path.join(q, "state", fn))
     cp = subprocess.run(["bash", os.path.join(trig_dir, "ovn_research_trigger_check.sh")], capture_output=True, text=True, env=dict(e2, PATH=os.environ.get("PATH", "")), timeout=120)
     lg = open(sh_log).read() if os.path.exists(sh_log) else ""
-    chk("trigger .sh logs 'supply: xlite: ... cause: lane excluded' for the newly starving repo", re.search(r"supply: xlite: pullable 0, .*cause: lane excluded", lg) is not None, lg[-600:] + cp.stderr[-300:])
+    chk("trigger .sh logs 'supply: xlite: ... cause: lane excluded' for the newly starving repo", re.search(r"supply: xlite: doable \d+, pullable 0, .*cause: lane excluded", lg) is not None, lg[-600:] + cp.stderr[-300:])
     return out
 
 
@@ -325,9 +325,9 @@ if __name__ == "__main__":
         ("cause order: explorer-rejected ahead of excluded", 'CAUSE_ORDER = ("excluded", "timeout", "parser-reject", "explorer-rejected"', 'CAUSE_ORDER = ("explorer-rejected", "excluded", "timeout", "parser-reject"'),
         ("excluded detection removed", 'if ar["state"] == "excluded" and recent(ar["last_event_ts"]):', 'if False:'),
         ("stale evidence counted (fresh window ignored)", "recent = lambda ts: ts is not None and now - ts <= fresh", "recent = lambda ts: ts is not None"),
-        ("runway ignores burn", "runway = pull / (burn_day / 24.0)", "runway = float(pull)"),
-        ("runway floor ignored (only pullable 0 starves)", "starving = pull == 0 or (runway is not None and runway < runway_floor)", "starving = pull == 0"),
-        ("pullable 0 gives no runway", "elif pull == 0:\n            runway = 0.0", "elif pull == 0:\n            runway = None"),
+        ("runway ignores burn", "return n / (burn_day / 24.0) if burn_day else None", "return float(n)"),
+        ("runway floor ignored (only pullable 0 starves)", "starving = (basis == 0 if basis_name == \"eligible\" else pull == 0) or (runway is not None and runway < runway_floor)", "starving = (basis == 0 if basis_name == \"eligible\" else pull == 0)"),
+        ("pullable 0 gives no runway", "    if n == 0:\n        return 0.0", "    if n == 0:\n        return None"),
         ("burn counts rows not distinct items", "burn_day = None if items24 is None else (items24 * 24.0 / covered if 0 < covered < 24 else float(items24))", "burn_day = None if items24 is None else 0.0"),
         ("last source picks the oldest producer", "if ts and (best is None or ts > best[1]):", "if ts and (best is None or ts < best[1]):"),
         ("explorer rejection not detected", 'if q["state"] == "rejected" and recent(q.get("last_run_ts")):', "if False:"),

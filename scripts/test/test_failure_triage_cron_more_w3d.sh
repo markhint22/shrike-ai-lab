@@ -61,7 +61,7 @@ ok "the regression is kept pending" "grep -q 'abc1234\|demo' '$BST/failure_triag
 ok "no push attempted without a topic" "[ ! -f '$tmp/curl.calls' ]"
 echo topic1 > "$BST/ntfy_topic"
 rc="$(run_cron)"
-ok "once a topic exists the pending regression is delivered" "grep -q 'ntfy.sh/topic1' '$tmp/curl.calls'"
+ok "once a topic exists the pending regression is delivered" "grep -q '/topic1' '$tmp/curl.calls'"
 ok "and the pending file is cleared" "[ ! -e '$BST/failure_triage_pending_push.txt' ]"
 
 echo "$P passed, $F failed"; [ "$F" -eq 0 ]

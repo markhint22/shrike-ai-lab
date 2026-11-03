@@ -19,7 +19,19 @@ LOG="$HOME/overnight-queue/logs/gpu_autoswap.log"
 STATE="$HOME/overnight-queue/state"
 ts(){ date "+%F %T"; }
 say(){ echo "$(ts) $*" >> "$LOG"; }
-alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true; }
+alert(){ curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: ${4:-default}" -d "$3" "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true; }
+
+# P1 (2026-11-02): gpu_autoswap.log sat silent from 10-16 ("Permission denied" cron lines) and nobody could tell a dead watcher from a quiet healthy one. Every run touches
+# state/gpu_autoswap.hb (epoch seconds) and writes ONE heartbeat line to the log at most every HB_LOG_EVERY_S (default 1800), before any early exit.
+HB_LOG_EVERY_S="${HB_LOG_EVERY_S:-1800}"
+mkdir -p "$STATE" "$(dirname "$LOG")" 2>/dev/null
+_now=$(date +%s); echo "$_now" > "$STATE/gpu_autoswap.hb" 2>/dev/null
+_last=$(cat "$STATE/gpu_autoswap.hb_log" 2>/dev/null); _last="${_last:-0}"
+if [ $(( _now - _last )) -ge "$HB_LOG_EVERY_S" ]; then
+  echo "$_now" > "$STATE/gpu_autoswap.hb_log" 2>/dev/null
+  _hold=none; [ -f "$STATE/art_window.hold" ] && _hold=art; [ -f "$STATE/coder_window.hold" ] && _hold=coder
+  say "heartbeat: watcher alive; window hold=$_hold"   # no docker call here: a hold must still exit before any container check
+fi
 
 healthy(){ docker exec "$C" curl -sf --max-time 5 http://localhost:8080/health >/dev/null 2>&1; }
 

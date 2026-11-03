@@ -116,7 +116,7 @@ for l in j.get("log_lines", []): print("LOG" + l)' 2>/dev/null)"
         if [ ! -e "$_hm" ]; then mkdir -p "$STATE/promote_held" 2>/dev/null; : > "$_hm" 2>/dev/null
           curl -fsS --max-time 8 -H "Title: Promote HELD: $name" -H "Tags: no_entry" -H "Priority: default" \
             -d "$name stayed on its last-good prod build: staging gate ${gate_reason:-FAIL} for candidate ${gate_cand:0:10}. Other repos promoted independently." \
-            "${NTFY_SERVER:-https://ntfy.sh}/${NTFY_TOPIC:-shrike_ovn_311380987a}" >/dev/null 2>&1 || true
+            "${NTFY_SERVER:-http://127.0.0.1:8099}/${NTFY_TOPIC:-shrike_ovn_311380987a}" >/dev/null 2>&1 || true
         fi
         fi
         continue

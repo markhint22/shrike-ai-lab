@@ -62,11 +62,25 @@ ssh -o ConnectTimeout=20 "$SRV" "
 awk '/^===AUTOSKIP===/{s=1;next} /^===PREWORKLIST===/{s=2;next} s==1{print > "'"$TMP"'/autoskip.tsv"} s==2{print > "'"$TMP"'/prework_list.txt"}' "$TMP/srv.txt"
 touch "$TMP/autoskip.tsv" "$TMP/prework_list.txt"
 
+# ---- Pass A0 (P5-supply-truth): box outcomes.jsonl for the feat_tag landed-match used by autoclose + harvest (mode OVN_BRIDGE_AUTOCLOSE: shadow default / enforce / off) ----
+AC_MODE="${OVN_BRIDGE_AUTOCLOSE:-shadow}"
+AC_SHADOW_LOG="${OVN_BRIDGE_SHADOW_LOG:-$SHARED/scripts/overnight-queue/state/bridge_autoclose_shadow.log}"
+AC_REPOS="${OVN_BRIDGE_REPOS_DIR:-$HOME/LocalProjects}"
+: > "$TMP/outcomes.jsonl"
+if [ "$AC_MODE" != "off" ]; then
+  ssh -o ConnectTimeout=20 "$SRV" "tail -n 30000 ~/$REMOTE/state/outcomes.jsonl 2>/dev/null" > "$TMP/outcomes.jsonl" 2>/dev/null || { log "autoclose: outcomes pull failed - skipped"; : > "$TMP/outcomes.jsonl"; }
+fi
+
 # ---- Pass A: harvest 27B ceiling failures into the Claude queue ----
 if [ -s "$TMP/autoskip.tsv" ]; then
-  python3 "$BRIDGE" harvest --queue "$QUEUE" --autoskip "$TMP/autoskip.tsv" --archive "$ARCHIVE" 2>&1 | while read -r l; do log "$l"; done
+  python3 "$BRIDGE" harvest --queue "$QUEUE" --autoskip "$TMP/autoskip.tsv" --archive "$ARCHIVE" --outcomes "$TMP/outcomes.jsonl" --mode "$AC_MODE" --shadow-log "$AC_SHADOW_LOG" 2>&1 | while read -r l; do log "$l"; done
 else
   log "harvest: no AUTO-SKIP items on the server"
+fi
+
+# ---- Pass A2: autoclose [CLAUDE] lines whose [feat:] landed (shadow = log only; before Pass C/D so closed lines archive + retire normally) ----
+if [ "$AC_MODE" != "off" ] && [ -s "$TMP/outcomes.jsonl" ]; then
+  python3 "$BRIDGE" autoclose --queue "$QUEUE" --outcomes "$TMP/outcomes.jsonl" --repos-dir "$AC_REPOS" --mode "$AC_MODE" --shadow-log "$AC_SHADOW_LOG" 2>&1 | while read -r l; do log "$l"; done
 fi
 
 # ---- Pass B: schedule prework for code-able Claude items lacking a briefing ----

@@ -692,6 +692,7 @@ for repo in "${REPOS[@]}"; do
   name="$(basename "$repo")"
   [ -d "$repo/.git" ] || { log "SKIP $name (no .git at $repo)"; report "| $name | skipped (no checkout) |"; continue; }
   log "=== $name ($repo) ==="
+  log "  feature branch: $FEAT"   # 2026-11-02 (F4): ovn_hygiene_stuck_check.sh reads the LAST result per (repo, feature branch) from this log; the overnight/feature and claude/feature passes each print their own section
   # 2026-09-01 FIX: resolve $repo to ABSOLUTE so the found venv_pytest path
   # survives the `cd` into the worktree (a relative path breaks -> timeout ENOENT
   # -> gate falsely fails; this stranded every python repo off main).

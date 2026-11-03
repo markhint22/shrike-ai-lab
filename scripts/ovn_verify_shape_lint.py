@@ -322,6 +322,29 @@ def p8_mode():
     return m if m in ("off", "shadow", "enforce") else "shadow"
 
 
+# U4 (`python -c 'from backend.app... import x'` where backend/ is the package root) has its OWN promotion switch, independent of OVN_VERIFY_LINT_P5 and OVN_VERIFY_LINT:
+#   OVN_VERIFY_U4 = off | shadow | enforce; default shadow. shadow: logged like every P5 finding PLUS a `u4_would` field in verify_shape_lint.log (rewritten:<clause> | dropped = what enforce
+#   would do at item creation). enforce: an item whose findings are ONLY U4 is rewritten (`cd backend && from app...`) or dropped at item creation even while OVN_VERIFY_LINT is shadow.
+#   2026-11-02 (outcomes F7): the clause is unrunnable from the repo root; the credit-time py-root retry (kept ON) rescues it into a green credit, so refuse it at creation instead.
+def u4_mode():
+    m = (os.environ.get("OVN_VERIFY_U4", "shadow") or "shadow").strip().lower()
+    return m if m in ("off", "shadow", "enforce") else "shadow"
+
+
+def _enforce_gate(u4e):
+    """The finding codes gated away (flag-only) when enforcing: P5 + P8 unless their own switch is enforce; U4 leaves the gate when OVN_VERIFY_U4=enforce."""
+    gate = p5_mode() != "enforce"
+    codes = (P5_CODES if gate else frozenset()) | (P8_CODES if p8_mode() != "enforce" else frozenset())
+    if u4e:
+        codes = codes - {"U4"}
+    return codes or False
+
+
+def _u4_would(clause, tree, line):
+    new, left = fix_clause(clause, tree, item=line, gate=_enforce_gate(True))
+    return "dropped" if (left or new == clause) else "rewritten:" + new[:200]
+
+
 def _fn_name_shape(s):
     return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{4,}", s)) and ("_" in s or re.search(r"[a-z][A-Z]", s))
 
@@ -1114,11 +1137,16 @@ def lint_item_line(line, tree=None, md=None):
     res = lint_verify(clause, tree, line)
     if res["class"] == OK:
         return "ok", line, res
+    u4e = u4_mode() == "enforce"
+    codes = {f["code"] for f in res["findings"]}
+    if "U4" in codes and not u4e and u4_mode() != "off":
+        res["u4_would"] = _u4_would(clause, tree, line)
+    if u4e and codes == {"U4"}:
+        md = "enforce"   # OVN_VERIFY_U4=enforce promotes an item whose ONLY finding is U4, even while OVN_VERIFY_LINT is shadow
     if md != "enforce":
         return "flagged", line, res
-    # P5-only findings are logged (flagged) but never rewritten/dropped unless OVN_VERIFY_LINT_P5=enforce; P8 (A1/H1) likewise unless OVN_VERIFY_ASYNC_LINT=enforce
-    gate = p5_mode() != "enforce"
-    gate = frozenset((P5_CODES if gate else frozenset()) | (P8_CODES if p8_mode() != "enforce" else frozenset())) or False
+    # P5-only findings are logged (flagged) but never rewritten/dropped unless OVN_VERIFY_LINT_P5=enforce; P8 (A1/H1) likewise unless OVN_VERIFY_ASYNC_LINT=enforce; U4 unless OVN_VERIFY_U4=enforce
+    gate = _enforce_gate(u4e)
     if gate and lint_verify(clause, tree, line, gate)["class"] == OK:
         return "flagged", line, res
     new, left = fix_clause(clause, tree, item=line, gate=gate)
@@ -1131,7 +1159,8 @@ def log_flagged(flagged, repo, where, md, total):
     """flagged = [(line, decision, result)]: one JSON row per item to state/verify_shape_lint.log + ONE summary line to state/alerts.log."""
     rows = [{"ts": time.strftime("%F %T"), "repo": repo, "where": where, "mode": md, "decision": d, "class": r["class"],
              "codes": [f["code"] for f in r["findings"]], "reasons": [f["reason"] for f in r["findings"]],
-             "rewrite": next((f["rewrite"] for f in r["findings"] if f.get("rewrite")), None), "clause": r["clause"][:300]} for _, d, r in flagged]
+             "rewrite": next((f["rewrite"] for f in r["findings"] if f.get("rewrite")), None), "clause": r["clause"][:300],
+             **({"u4_would": r["u4_would"]} if r.get("u4_would") else {})} for _, d, r in flagged]
     if not rows or md == "off":
         return
     _append(_log_path(), "".join(json.dumps(x, sort_keys=True) + "\n" for x in rows))

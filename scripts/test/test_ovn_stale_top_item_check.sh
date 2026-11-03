@@ -5,6 +5,7 @@
 # cases and exercised once for real at the end as an integration check.
 # Hermetic: HOME is a temp dir, curl is a stub, the script copy has its PATH line patched so the stub wins.
 set -uo pipefail
+export NTFY_SERVER="http://relay.stub.test"   # 2026-11-02 (N5): scripts post to $NTFY_SERVER (default: the relay, never https://ntfy.sh); the stub curl logs this URL
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
@@ -72,7 +73,7 @@ eqv "marker holds key|age" "42:${TXT:0:60}|13.5" "$(cat "$ST/stale_top_item_aler
 chk "one curl call" test "$(grep -c -- '--CALL--' "$CURLLOG")" = 1
 chk "title: count of repos" grep -q 'Title: Stale top item: 1 repo(s) ignoring their #1 doable item' "$CURLLOG"
 chk "tags warning" grep -q 'Tags: warning' "$CURLLOG"
-chk "url has topic" grep -q 'https://ntfy.sh/tt$' "$CURLLOG"
+chk "url has topic" grep -q 'http://relay.stub.test/tt$' "$CURLLOG"
 chk "body: 'repo: stale Nh — text'" grep -qF "alpha: stale 13.5h — $TXT" "$CURLLOG"
 
 echo "== re-alert cooldown =="
@@ -132,10 +133,10 @@ chk "no topic: still logs SUSPECT" grep -q 'SUSPECT: alpha' "$LOG"
 chk "no topic: curl never called" bash -c "! test -s '$CURLLOG'"
 echo ftopic > "$ST/ntfy_topic"; rm -f "$ST"/stale_top_item_alerted_*
 runsh >/dev/null
-chk "topic from state/ntfy_topic" grep -q 'https://ntfy.sh/ftopic$' "$CURLLOG"
+chk "topic from state/ntfy_topic" grep -q 'http://relay.stub.test/ftopic$' "$CURLLOG"
 rm -f "$ST"/stale_top_item_alerted_*; : > "$CURLLOG"
 NTFY_TOPIC=etopic runsh >/dev/null
-chk "env topic wins" grep -q 'https://ntfy.sh/etopic$' "$CURLLOG"
+chk "env topic wins" grep -q 'http://relay.stub.test/etopic$' "$CURLLOG"
 
 echo "== marker key with a '|' in the item text =="
 setup

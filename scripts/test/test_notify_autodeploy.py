@@ -15,6 +15,7 @@ ST = os.path.join(T, "q", "state")
 os.makedirs(ST)
 os.environ["OVN_SUPPLY_LINE"] = "0"
 os.environ.update(OVN_NOTIFY_STATE=ST, NTFY_TOPIC="t_test", OVN_NOTIFY_DAILY_CAP="50", OVN_NOTIFY_UPSTREAM="http://127.0.0.1:9", OVN_LLM_HEALTH_URL="http://127.0.0.1:9/x")
+os.environ.pop("OVN_NOTIFY_DISABLE", None)   # ntfy_guard.sh exports OVN_NOTIFY_DISABLE=1 for the suite; these tests drive ovn_notify against a local fake upstream
 os.environ.pop("OVN_AUTODEPLOY_LINE", None)
 spec = importlib.util.spec_from_file_location("ovn_notify_ad", SRC)
 N = importlib.util.module_from_spec(spec)

@@ -22,7 +22,7 @@ mkscripts(){ # $1 dir ; $2 optional sed expression applied to the guard copy (a 
 new_repo(){ local r="$tmp/$1"; mkdir -p "$r"; ( cd "$r" && git init -q && git config user.email t@t.com && git config user.name t && printf '%s\n' "$ITEM" > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m init ) >/dev/null 2>&1; echo "$r"; }
 attempt(){ # guard repo status state id [env...]
   local g="$1" r="$2" s="$3" st="$4" id="$5"; shift 5; printf 'Tokens: 1k sent, 1 received.\n' > "$tmp/l.log"
-  env OVN_ITEM_NOOP_CAP=99 OVN_ITEM_FAIL_CAP=99 OVN_REPEAT_BREAKER=off "$@" bash "$g" "$r" "$s" "$st" "$id" "$tmp/l.log" >/dev/null 2>&1; }
+  env OVN_ITEM_DAY_CAP=3 OVN_ITEM_NOOP_CAP=99 OVN_ITEM_FAIL_CAP=99 OVN_REPEAT_BREAKER=off "$@" bash "$g" "$r" "$s" "$st" "$id" "$tmp/l.log" >/dev/null 2>&1; }
 ledger(){ ls "$1"/item_fails/*.attempts24 2>/dev/null | head -1; }
 
 # the real guard + one mutant per behaviour

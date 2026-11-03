@@ -364,7 +364,7 @@ fi
 if [ -n "$conflicts" ] && [ "$_ca_send" = 1 ]; then
   curl -fsS --max-time 8 -H "Title: 🔴 Branch reconcile CONFLICT" -H "Tags: rotating_light" -H "Priority: high" \
     -d "Branches diverged with CONFLICTING edits (auto-reconcile couldn't resolve, needs a human):$conflicts. Resolve the merge manually." \
-    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 && _ca_sent_ok=1   # persist dedupe state ONLY if the alert was actually delivered (a failed first alert must retry next pass)
+    "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 && _ca_sent_ok=1   # persist dedupe state ONLY if the alert was actually delivered (a failed first alert must retry next pass)
   [ "${_ca_sent_ok:-0}" = 1 ] && [ -n "$_ca_hash" ] && [ "$DRY" != 1 ] && { mkdir -p "$(dirname "$CA_FILE")" 2>/dev/null; printf '%s %s\n' "$_ca_hash" "$_ca_now" > "$CA_FILE" 2>/dev/null || true
     printf '%s' "$conflicts" | tr ' ' '\n' | sed '/^$/d' | sort -u > "$CA_FILE.set" 2>/dev/null || true; }
 elif [ -n "$conflicts" ]; then
@@ -374,17 +374,17 @@ elif [ -n "$skipped" ] && [ -z "$*" ] && [ -f "$CA_FILE" ]; then
 elif [ -z "$*" ] && [ "$DRY" != 1 ] && [ -f "$CA_FILE" ]; then
   curl -fsS --max-time 8 -H "Title: ✅ Branch reconcile conflict cleared" -H "Tags: white_check_mark" -H "Priority: default" \
     -d "The develop/feature reconcile conflict(s) alerted earlier have cleared: every repo is reconciled again." \
-    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true
   rm -f "$CA_FILE" "$CA_FILE.set" 2>/dev/null
 fi
 if [ -n "$directs" ]; then
   curl -fsS --max-time 8 -H "Title: Reconciled a direct-to-main commit" -H "Tags: information_source" -H "Priority: low" \
     -d "Found + back-merged a NON-promote commit sitting on main (a chat/hotfix pushed straight to main?):$directs. It's now on develop + feature too — nothing lost. Tip: commit app-repo work to overnight/feature so it rides the gated pipeline." \
-    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true
 fi
 if [ -n "$resolved" ]; then
   curl -fsS --max-time 8 -H "Title: 🤖 Branch reconcile auto-resolved a conflict" -H "Tags: robot" -H "Priority: default" \
     -d "A develop<->feature conflict was resolved automatically (LLM-assisted, independently re-verified against the repo's real test/build gate before pushing — gate=tests-green):$resolved. Worth a quick look, but no action needed." \
-    "${NTFY_SERVER:-https://ntfy.sh}/$TOPIC" >/dev/null 2>&1 || true
+    "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true
 fi
 log "reconcile complete${conflicts:+ 🔴 conflicts:$conflicts}${directs:+ ℹ direct-to-main:$directs}${resolved:+ 🤖 auto-resolved:$resolved}"

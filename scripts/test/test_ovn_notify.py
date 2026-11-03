@@ -10,6 +10,7 @@ ROOT = os.environ.get("OVN_ROOT") or os.path.abspath(os.path.join(os.path.dirnam
 SRC = os.path.join(ROOT, "scripts", "ovn_notify.py")
 T = tempfile.mkdtemp()
 os.environ.update(OVN_NOTIFY_STATE=os.path.join(T, "q", "state"), NTFY_TOPIC="t_test", OVN_NOTIFY_DAILY_CAP="5")
+os.environ.pop("OVN_NOTIFY_DISABLE", None)   # ntfy_guard.sh exports OVN_NOTIFY_DISABLE=1 for the suite; these tests drive ovn_notify against a local fake upstream
 os.makedirs(os.environ["OVN_NOTIFY_STATE"])
 posts, mode = [], {"status": 200}
 
@@ -129,7 +130,7 @@ N.ROOT = os.path.join(T, "q")
 ok("research-batch scorecard messages are dropped from the hourly update", N.classify("Research-batch scorecard: 102 batch(es) graded D/F") == "drop")
 ok("pass counts use the canonical severity axis (neutral/benign excluded)", N._pass_counts([{"severity": "good"}] * 5 + [{"severity": "bad"}] + [{"severity": "neutral"}] * 3) == (5, 1))
 ok("percent helper: 5/6 -> 83%, no data -> '-'", N._pct(5, 1) == "83%" and N._pct(0, 0) == "-")
-ok("every hourly update carries a pass-rate line (last hour + today)", "Pass rate: last hour" in b and "today" in b)
+ok("every hourly update carries a pass-rate line (last hour + today; a sample < 5 shows 'Outcomes today' since OVN_PASSRATE_MIN defaults on)", ("Pass rate: last hour" in b or "Outcomes today:" in b) and "last hour" in b and "today" in b)
 for ti, bo, pr in (("Hygiene stalled — gate red on a feature branch", "gitlark has not merged in 3h. More.", "high"), ("Hygiene stalled — gate red on a feature branch", "dup", "high"), ("Deploy failed: x (human)", "needs you", "urgent"), ("✅ Recovered: gitlark-backend", "ok", "low"), ("a", "b", "default"), ("c", "d", "default"), ("e", "f", "low")):
     N.add_note(ti, bo, pr)
 t, b, n = N.compose_update(at=now)

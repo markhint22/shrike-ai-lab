@@ -20,6 +20,7 @@ fresh() { # fresh state dir + manifest + launchctl table (all four jobs loaded, 
     echo "com.t.c | 600  | $OVN_MAC_STATE/c.log | hb/c | nokick"
     echo "com.t.d | 600  | $OVN_MAC_STATE/d.log | hb/d |"; } > "$MAN"
   table "com.t.a:-:0" "com.t.b:-:0" "com.t.c:-:0" "com.t.d:-:0"
+  mkdir -p "$T/agents"; for j in a b c d; do : > "$T/agents/com.t.$j.plist"; done   # P1: a job with no plist is 'not_installed' (never installed), not 'not_loaded'
   for j in a b c d; do hb $j 100; done; live_ok
 }
 table() { { printf 'PID\tStatus\tLabel\n'; local e; for e in "$@"; do IFS=: read -r l p s <<< "$e"; printf '%s\t%s\t%s\n' "$p" "$s" "$l"; done; } > "$T/launchctl.table"; }
@@ -28,7 +29,7 @@ setlog() { printf '%s\n' "$2" > "$OVN_MAC_STATE/$1.log"; python3 -c 'import os,s
 live_ok() { printf '{"ts": %d, "mode": "enforce", "state": "ok", "head": "abc1234", "behind": 0, "ahead": 0, "detail": "", "dir": "x"}' "$NOW" > "$OVN_MAC_STATE/live_sync.json"; }
 run_h() { # run_h <mode> [now-offset] [script]
   local m="$1" off="${2:-0}" s="${3:-$HP}"
-  OVN_MAC_JOBS="$m" MAC_JOBS_MANIFEST="$MAN" MAC_JOBS_NOW=$((NOW + off)) MAC_JOBS_UID=501 MAC_JOBS_NO_BOX=1 MAC_DISK_FREE_GIB=100 python3 "$s" --print > "$T/hout.txt" 2>&1 < /dev/null
+  OVN_MAC_JOBS="$m" MAC_JOBS_MANIFEST="$MAN" MAC_JOBS_NOW=$((NOW + off)) MAC_JOBS_UID=501 MAC_JOBS_NO_BOX=1 MAC_DISK_FREE_GIB=100 MAC_LAUNCH_AGENTS_DIR="$T/agents" python3 "$s" --print > "$T/hout.txt" 2>&1 < /dev/null
 }
 jf() { python3 -c 'import json,sys
 d=json.load(open(sys.argv[1]+"/health.json"))

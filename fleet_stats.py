@@ -44,6 +44,7 @@ from collections import defaultdict
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "scripts"))
+import ovn_supply_filter  # noqa: E402 - P5-supply-truth: the ONE doable filter (shared with ovn_notify / ovn_supply_report)
 from ovn_outcome_buckets import bucket, summarize  # noqa: E402 - canonical GOOD/BAD/BENIGN split, see scripts/ovn_outcome_buckets.py
 
 STATE_DIR = os.path.join(SCRIPT_DIR, "state")
@@ -96,28 +97,34 @@ def enabled_repos():
     return out
 
 
-def queue_counts(repo_dir):
-    """(done, doable) from OVERNIGHT_PROGRESS.md, matching the fleet-wide
-    convention used throughout the coverage-sweep sessions: an item is
-    "doable" only if it's unchecked AND not HUMAN-ONLY/AUTO-SKIP/BLOCKED/
-    already-retired."""
+def queue_detail(repo_dir):
+    """{done, open, doable, excluded:{reason:n}} from OVERNIGHT_PROGRESS.md, or None when unreadable. P5-supply-truth: 'doable' is the shared
+    ovn_supply_filter definition (unchecked AND not AUTO-SKIP / [CLAUDE] / HUMAN-ONLY / BLOCKED ITEM / (retired-)); this file used to
+    miss [CLAUDE], so it reported doable 3 where ovn_notify said 0."""
     path = os.path.join(repo_dir, "OVERNIGHT_PROGRESS.md")
-    done = doable = 0
     try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if line.startswith("- [x]"):
-                    done += 1
-                elif line.startswith("- [ ]"):
-                    low = line.lower()
-                    if not any(
-                        m in low
-                        for m in ("human-only", "human/", "auto-skip", "blocked item", "(retired-")
-                    ):
-                        doable += 1
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
     except OSError:
-        return None, None
-    return done, doable
+        return None
+    c = ovn_supply_filter.count_text(text)
+    c["done"] = sum(1 for l in text.split("\n") if l.startswith("- [x]"))
+    return c
+
+
+def queue_counts(repo_dir):
+    """(done, doable) - kept for compatibility; see queue_detail."""
+    d = queue_detail(repo_dir)
+    return (None, None) if d is None else (d["done"], d["doable"])
+
+
+def pullable_count(repo):
+    """What the fleet could pull next (ovn_supply_ledger.current_pullable; may exceed doable: backlog lines queue_refill has not copied yet). None when unknown."""
+    try:
+        import ovn_supply_ledger as led
+        return led.current_pullable(SCRIPT_DIR, [repo]).get(repo)
+    except Exception:
+        return None
 
 
 def git_unpromoted(repo_dir):
@@ -243,7 +250,8 @@ def main():
         log_name = REPO_LOG_NAME.get(dirname, dirname)
         rows_7d = stats_7d.get(log_name, [])
         rows_1d = stats_1d.get(log_name, [])
-        done, doable = queue_counts(repo_dir)
+        qd = queue_detail(repo_dir)
+        done, doable = (None, None) if qd is None else (qd["done"], qd["doable"])
         landed_7d = sum(1 for r in rows_7d if r["oc"] == "pass")
         landed_1d = sum(1 for r in rows_1d if r["oc"] == "pass")
         runway_days = round(doable / (landed_7d / 7.0), 1) if doable is not None and landed_7d > 0 else None
@@ -256,6 +264,8 @@ def main():
             "task_id": task_id,
             "done": done,
             "doable": doable,
+            "doable_excluded": None if qd is None else qd["excluded"],
+            "pullable": pullable_count(dirname),
             "landed_1d": landed_1d,
             "landed_7d": landed_7d,
             "runway_days": runway_days,

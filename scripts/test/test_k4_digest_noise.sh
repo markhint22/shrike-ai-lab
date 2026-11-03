@@ -7,6 +7,7 @@ NSRC="$OVN_ROOT/scripts/ovn_notify.py"; TSRC="$OVN_ROOT/scripts/ovn_research_tri
 rc=0
 python3 "$HERE/test_k4_digest_noise.py" || rc=1
 T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+cp "$OVN_ROOT/scripts/ovn_supply_filter.py" "$T/" 2>/dev/null   # FX-P5: ovn_notify._doable imports the shared filter from its own directory; the mutant copy lives in $T
 mutate(){  # $1=label $2=notify|trigger $3=old $4=new
   local src="$NSRC" var=OVN_NOTIFY_SRC out="$T/mutant.py"
   [ "$2" = trigger ] && { src="$TSRC"; var=OVN_TRIGGER_SRC; out="$T/ovn_research_trigger_check.py"; cp "$OVN_ROOT/scripts/ovn_chronic_alert.py" "$T/" 2>/dev/null; }
@@ -25,6 +26,7 @@ PY
 mutate "digest dedupe removed" notify 'if kind == "digest" and _mode("OVN_DIGEST_DEDUPE") != "off":' 'if False:'
 mutate "'Queue empty' always emitted (old behaviour)" notify '    return (not same), sig' '    return True, sig'
 mutate "pass-rate minimum sample removed (old behaviour)" notify 'if gd + bd < min_n and _mode("OVN_PASSRATE_MIN") != "off":' 'if False:'
+mutate "OVN_EMPTY_ONCE / OVN_PASSRATE_MIN default back to shadow (the 2026-11-02 flip undone)" notify '_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET")' '_DEFAULT_ON = ()'
 mutate "[ready] floor never fires" trigger '        if n > max_ready:' '        if n > 10**9 or True:'
 mutate "[ready] floor ignores its per-day dedupe" trigger 'if repo in skip or seen.get(repo) == today:' 'if repo in skip:'
 exit $rc

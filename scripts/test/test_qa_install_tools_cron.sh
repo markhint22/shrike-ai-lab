@@ -161,7 +161,7 @@ EOF
   mkdir -p "$SB/ovn/qa"
   for f in qa_tool_health.py soak_probe_cron.sh contract_fuzz_cron.sh phase5_cron.sh promote_manifest.py card_pilot_run.py card_pilot_report.py; do : > "$SB/ovn/qa/$f"; done
   CRON_PATH="$SB/bin:$PATH"
-  printf '%s\n' '# my crontab' 'NTFY_SERVER=http://127.0.0.1:8099' '*/10 * * * * echo hi >> /tmp/x.log' '' '# trailing comment' > "$SB/orig"
+  printf '%s\n' '# my crontab' 'NTFY_SERVER=http://127.0.0.1:8099' '*/10 * * * * echo hi >> /tmp/x.log' '' '# trailing comment' > "$SB/orig"   # ntfy-lint: allow
   cp "$SB/orig" "$SB/store"
 }
 cron(){ local s="$1"; shift; PATH="$CRON_PATH" OVN_DIR="$SB/ovn" bash "$s" "$@"; }
