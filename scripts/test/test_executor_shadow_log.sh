@@ -285,7 +285,7 @@ mut('        _ovn_doc_shadow_check_parked "$od" "$rd" "$script" "$prog" "$ere"\n
 mut('  [ -n "$(git ls-files -- \'*.gd\' 2>/dev/null | head -n 1)" ] || return 0\n', '', "m_noearlyexit.sh")
 PY
 mutrun(){ # <lib> <script body run in a fresh shell sourcing the mutated lib> -> prints its output
-  bash -c ". '$S/lib_item_select.sh'; . '$S/lib_verify_clause.sh'; . '$1'; emit_alert(){ :; }; run_repo_verification(){ echo pass; }; export STUB_CALLS='$STUB_CALLS' OVN_VERIFY_SHADOW_LOG='$W/shadow.log'; $2" 2>/dev/null
+  bash -c ". '$HERE/lib_safe_tmp.sh'; . '$S/lib_item_select.sh'; . '$S/lib_verify_clause.sh'; . '$1'; emit_alert(){ :; }; run_repo_verification(){ echo pass; }; export STUB_CALLS='$STUB_CALLS' OVN_VERIFY_SHADOW_LOG='$W/shadow.log'; $2" 2>/dev/null
 }
 mkrepo mu1 "$ITEM_DOC"; mutrun "$W/m_nolog.sh" "ovn_executor_hook doc '$OD' '$R' '$ITEM_DOC' main '$TL' '$BEFORE'" >/dev/null
 ok "MUTATION: without the persistent log call in the shadow branch no row is written (the F4 regression test would fail)" "[ ! -e '$LOG' ]"

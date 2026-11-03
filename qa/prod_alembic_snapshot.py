@@ -80,7 +80,7 @@ def refresh(repo, url="", dry=False):
             return True, "disabled (QA_PROD_ALEMBIC_SNAPSHOT=0)"
         u = health_url(repo, url)
         if not u:
-            return False, "no /health URL known for repo %s (PRODUCTION_URLS / QA_PROD_ALEMBIC_URL_*)" % repo
+            return False, "skip %s: health-has-no-revision (no /health URL known for repo %s; a product package must expose db_revision first, or set QA_PROD_ALEMBIC_URL_*)" % (repo, repo)
         j, note = fetch_health(u)
         if j is None:
             return False, "%s: %s - snapshot left untouched" % (u, note)

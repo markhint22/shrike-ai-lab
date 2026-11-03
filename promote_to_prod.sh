@@ -51,7 +51,7 @@ post_promote(){
   echo "  [prod-deploy] $pname promoted SHA ${psha:-?} (main tip; the Railway PROD deploy builds exactly this commit)"
   [ -n "$psha" ] && [ "${OVN_POSTCHECK:-on}" != "off" ] && [ -f "$DIR/qa/promote_postcheck.py" ] || return 0
   # only repos with a Railway PROD export can be watched (billwatch gitlark iptv_apps); others would log a permanent "UNVERIFIED" WARN 30 min later
-  case " ${OVN_PROD_DEPLOY_REPOS:-billwatch gitlark iptv_apps} " in *" $pname "*) ;; *)
+  case " ${OVN_PROD_DEPLOY_REPOS:-billwatch gitlark iptv_apps shrike-labs-website} " in *" $pname "*) ;; *)
     [ -f "$STATE/prod_deploys/$pname.json" ] || { echo "  [prod-deploy] no prod deploy source for $pname (no Railway prod export): post-promote check skipped"; return 0; };; esac
   local py; py="$(command -v python3.12 || command -v python3)"; [ -n "$py" ] || return 0
   mkdir -p "$DIR/logs" 2>/dev/null

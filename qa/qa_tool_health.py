@@ -178,6 +178,37 @@ def probe_broken(path):
     return None
 
 
+def _enrich(name, t):
+    """K2: installed / working / version / where-found fields for state/qa_tool_health.json (status keeps its old meaning)."""
+    t["installed"] = t.get("status") in ("ok", "broken")      # skipped: not probed -> installed False, working False
+    t["working"] = t.get("status") == "ok"
+    vd = os.path.expanduser("~/qa-venv/bin")
+    p = t.get("path")
+    t["in_qa_venv"] = bool(p) and os.path.dirname(p) == vd
+    wp = shutil.which(name)
+    t["on_path"] = bool(wp)
+    t["version"] = None
+    if t["working"] and name not in ("flock", "mutmut") and os.environ.get("OVN_QA_TOOL_HEALTH_PROBE", "1") != "0":
+        try:
+            r = subprocess.run([p, "version" if name == "gitleaks" else "--version"], capture_output=True, text=True, timeout=20)
+            line = ((r.stdout or r.stderr or "").strip().splitlines() or [""])[0]
+            t["version"] = line[:80] or None
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return t
+
+
+def write_health_json(tools, now=None):
+    """K2: state/qa_tool_health.json = {ts, qa_venv, tools:{name:{installed, working, status, version, path, in_qa_venv, on_path, gates}}}. Atomic; the gates read it
+    (qa_common.tool_health) to tag UNVERIFIED rows reason_code=tool-missing. Written on every recording run."""
+    d = qc.state_dir()
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, qc.TOOL_HEALTH_FILE)
+    doc = {"ts": now if now is not None else now_ts(), "qa_venv": os.path.expanduser("~/qa-venv"), "tools": tools}
+    atomic_write(path, json.dumps(doc, sort_keys=True))
+    return path
+
+
 def check_tools(skip):
     out = {}
     for name, gates in TOOLS.items():
@@ -557,6 +588,11 @@ def run(argv):
         return qc.verdict("NA", GATE, "all", "-", "tool health disabled (OVN_QA_TOOL_HEALTH=off)")
     skip = set(x.strip() for x in os.environ.get("OVN_QA_TOOL_HEALTH_SKIP", "").split(",") if x.strip())
     tools = check_tools(skip)
+    if "--no-record" not in argv:
+        try:
+            write_health_json({n: _enrich(n, dict(t)) for n, t in tools.items()})   # details.tools in the gate row stays compact; the file carries the rich view
+        except OSError:
+            pass
     cron_items, declared_off, cron_src = cron_status()
     state_items = check_state([i["key"][5:] for i in declared_off])
     findings = findings_of(tools, state_items, cron_items)

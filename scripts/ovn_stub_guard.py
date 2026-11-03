@@ -386,6 +386,66 @@ def _drop_uid_sidecar(repo, path):
         pass
 
 
+# S3-guards2 (2026-11-03, outcomes F8): a SUCCESSFUL implement used to keep the stub's one-line placeholder docstring/comment as line 1 of the now-real file (shrike-monitor
+# backend/tests/test_monitor_update_null_fields.py: `"""Placeholder - the implement step fills this in."""` above 33 real lines). strip_marker_text removes only WHOLE-LINE single-line
+# forms (# / // comment, one-line triple-quote docstring, <!-- -->, /* */); multi-line forms and any line carrying code are left alone.
+_M = r"Placeholder - the implement step fills (?:this )?in[^\"'\n]*?"
+_STRIP_LINE_RES = (
+    re.compile(r"^\s*(?:#|//)\s*" + _M + r"\s*$"),
+    re.compile(r'^\s*(?:"""|\'\'\')\s*' + _M + r'\s*(?:"""|\'\'\')\s*$'),
+    re.compile(r"^\s*<!--\s*" + _M + r"\s*-->\s*$"),
+    re.compile(r"^\s*/\*\s*" + _M + r"\s*\*/\s*$"),
+)
+
+
+def strip_marker_text(text):
+    """(new_text, n_removed): drop whole-line single-line placeholder markers from a FILLED file (never from a placeholder-only stub: that is `undo`'s job)."""
+    if is_placeholder_only(text):
+        return text, 0
+    out, n = [], 0
+    for ln in text.splitlines(True):
+        if MARKER_RE.search(ln) and any(rx.match(ln.rstrip("\r\n")) for rx in _STRIP_LINE_RES):
+            n += 1
+            continue
+        out.append(ln)
+    new = "".join(out)
+    if n and out and not out[0].strip():       # the marker was the first line and a blank separator followed it: drop that blank too
+        new = new.lstrip("\r\n")
+    return new, n
+
+
+def strip_filled(repo, path, branch, note, on_remote=False):
+    """Post-implement cleanup (OVN_STUB_STRIP = shadow (default) | enforce | off): remove the leftover placeholder line from a file the implement step filled."""
+    mode = os.environ.get("OVN_STUB_STRIP", "shadow").strip().lower()
+    if mode not in ("shadow", "enforce"):
+        return "strip-off"
+    rc, body = _git(repo, "show", "HEAD:" + path)
+    if rc != 0:
+        return "strip-gone"
+    new, n = strip_marker_text(body)
+    if not n:
+        return "strip-none"
+    if mode == "shadow":
+        _shadow_log("stub-strip SHADOW: would remove %d leftover placeholder line(s) from filled %s in %s (OVN_STUB_STRIP=enforce)" % (n, path, os.path.basename(os.path.abspath(repo))))
+        note("leftover placeholder in filled %s: SHADOW would strip %d line(s)" % (path, n))
+        return "strip-shadow"
+    if _git(repo, "status", "--porcelain", "-uno", "--", ":(literal)" + path)[1].strip():
+        return "strip-dirty"
+    try:
+        with open(os.path.join(repo, path), "w", encoding="utf-8", newline="") as f:
+            f.write(new)
+    except OSError:
+        return "strip-write-failed"
+    if _git(repo, "commit", "-q", "-m", "chore: strip leftover stub placeholder from %s" % path, "--", ":(literal)" + path)[0] != 0:
+        _git(repo, "checkout", "-q", "--", ":(literal)" + path)
+        return "strip-commit-failed"
+    pushed = ""
+    if on_remote and branch and _git(repo, "push", "-q", "origin", "HEAD:" + branch, timeout=40)[0] == 0:
+        pushed = ", pushed"
+    note("leftover placeholder stripped from filled %s (%d line(s))%s" % (path, n, pushed))
+    return "stripped"
+
+
 def undo(repo, pre, stub, path, branch="", task_log=""):
     if os.environ.get("OVN_STUB_UNDO", "on") == "off" or not (repo and pre and stub and path):
         return "off"
@@ -406,6 +466,8 @@ def undo(repo, pre, stub, path, branch="", task_log=""):
         if not stub:
             return "stub-not-in-head"
     rc, body = _git(repo, "show", "HEAD:" + path)
+    if rc == 0 and not is_placeholder_only(body) and MARKER_RE.search(body):
+        return strip_filled(repo, path, branch, note, bool(_git(repo, "branch", "-r", "--contains", stub)[1].strip()))
     if rc != 0 or not is_placeholder_only(body):
         return "filled-or-gone"
     if _git(repo, "status", "--porcelain", "-uno", "--", path)[1].strip():

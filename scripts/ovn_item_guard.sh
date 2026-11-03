@@ -122,7 +122,7 @@ case "$status" in
         rm -f "$state/item_fails/${id}.${_lh}.count" "$state/item_fails/${id}.${_lh}.toks" \
               "$state/item_fails/${id}.${_lh}.noopcount" "$state/item_fails/${id}.${_lh}.nooptoks" \
               "$state/item_fails/${id}.${_lh}.lastfail" "$state/item_fails/${id}.${_lh}.indet" "$state/item_fails/${id}.${_lh}.indetlands" "$state/item_fails/${id}.${_lh}.lastids" \
-              "$state/item_fails/${id}.${_lh}.ungrounded" "$state/item_fails/${id}.${_lh}.attempts24" "$state/credit_refused/$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g').${_lh}" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive"); item credited => its credit-refusal counter goes too
+              "$state/item_fails/${id}.${_lh}.ungrounded" "$state/item_fails/${id}.${_lh}.attempts24" "$state/item_fails/${id}.${_lh}.reverts24" "$state/credit_refused/$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g').${_lh}" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive"); item credited => its credit-refusal counter goes too
       done < <(grep -ohE 'item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
       # 2026-10-02 (harness-X X-a): "indet-hash <md5>" = the cycle landed green but the item's own VERIFY timed out / was not runnable, so the runner
       # could neither credit nor fail it. The commit DID land: clear its failure/no-op streaks like a credited landing, and arm a bounded allowance
@@ -420,6 +420,64 @@ if [ "$_dc_mode" != off ]; then
         _dc_prevT="$(awk -v n="$_dc_n" 'NR==n-1{print $5}' "$_dc_f" 2>/dev/null)"
         sed '$s/$/ T/' "$_dc_f" > "$_dc_f.$$" 2>/dev/null && mv -f "$_dc_f.$$" "$_dc_f" 2>/dev/null
         [ "$_dc_prevT" != T ] && echo "[$(date '+%Y-%m-%d %H:%M:%S')] info | item-guard | ${id} item ${h:0:8} SHADOW day-cap: ${_dc_n} non-landing attempts in 24h (${_dc_mix}) - would park (OVN_ITEM_DAY_CAP_MODE=enforce): ${text:0:80}" >> "$state/alerts.log" 2>/dev/null
+      fi
+      ;;
+  esac
+fi
+
+# --- Repeat-revert park (2026-11-03, package S3-guards2, outcomes F6) ----------------------------------------------------------------------------------
+# xlite item 23b23306 (T3 wiring item + its paired T4 test item, one [feat:] tag) was reverted 3x in 14h (reverted-red, reverted(build-break), reverted-red): the day cap above
+# is progress-aware / alternating-kind and the fail streak resets whenever a no-op intervenes, so ~3 GPU cycles ran for zero landing. This counts REVERTS only (reverted* and
+# no-op(reverted*)) of the SAME item hash in a rolling 24h window (state/item_fails/<id>.<hash>.reverts24, one epoch per line; a landing deletes it). At OVN_REVERT_REPEAT_N (default 2)
+# reverts the item AND every still-open sibling carrying the same [feat:] tag (the paired T3/T4 items - they would be re-picked and revert the same way) are parked with the reversible
+# AUTO-SKIP tag. OVN_REVERT_REPEAT_MODE (default shadow): shadow = log only (state/revert_repeat_shadow.log, once per tripping attempt), enforce = park + chore(queue) commit/push, off.
+_rr_mode="${OVN_REVERT_REPEAT_MODE:-shadow}"
+_rr_n="${OVN_REVERT_REPEAT_N:-2}"; case "$_rr_n" in ''|*[!0-9]*|0|1) _rr_n=2;; esac
+if [ "$_rr_mode" != off ]; then
+  case "$status" in
+    reverted*|"no-op(reverted"*)
+      _rr_f="$state/item_fails/${id}.${h}.reverts24"
+      _rr_now="$(date +%s)"
+      { [ -f "$_rr_f" ] && awk -v lo=$(( _rr_now - 86400 )) '$1 ~ /^[0-9]+$/ && $1 > lo {print $1}' "$_rr_f"; printf '%s\n' "$_rr_now"; } > "$_rr_f.$$" 2>/dev/null && mv -f "$_rr_f.$$" "$_rr_f" 2>/dev/null
+      _rr_c="$(wc -l < "$_rr_f" 2>/dev/null | tr -d ' ')"; case "$_rr_c" in ''|*[!0-9]*) _rr_c=0;; esac
+      if [ "$_rr_c" -ge "$_rr_n" ]; then
+        _rr_feat="$(printf '%s' "$text" | grep -oE '\[feat:[^]]+\]' | head -1)"
+        if [ "$_rr_mode" = enforce ]; then
+          _rr_k="$(python3 - "$prog" "$_rr_feat" "$_rr_c" "$text" <<'PYEOF'
+import sys
+path, feat, n, cur = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+marker = "[AUTO-SKIP reverted %sx in 24h - the item and its paired items of the same feature keep reverting; review] " % n
+lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+cur = cur.strip()
+if cur.startswith("- [ ] "):
+    cur = cur[len("- [ ] "):].strip()
+tagged = 0
+for i, ln in enumerate(lines):
+    if not ln.startswith("- [ ] ") or "AUTO-SKIP" in ln or "[CLAUDE]" in ln:
+        continue
+    body = ln[len("- [ ] "):]
+    if body.strip() == cur or (feat and feat in body):
+        lines[i] = "- [ ] " + marker + body
+        tagged += 1
+if tagged:
+    open(path, "w", encoding="utf-8").write("\n".join(lines))
+print(tagged)
+PYEOF
+)"
+          if [ "${_rr_k:-0}" -gt 0 ] 2>/dev/null; then
+            branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+            if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+              git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+              git -C "$repo" commit -q -m "chore(queue): park ${_rr_k} item(s) after ${_rr_c} reverts of the same item in 24h (repeat-revert guard)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
+              [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+              echo "AUTO-SKIPPED ${_rr_k} item(s) after ${_rr_c} reverts in 24h (${_rr_feat:-no feat tag}): ${text:0:70}"
+            fi
+            rm -f "$state/failures/${id}.count" "$countf" "$toksf" "$ncountf" "$ntoksf" "$lastidsf" "$_rr_f" 2>/dev/null
+            exit 0
+          fi
+        else
+          printf '%s id=%s hash=%s reverts24=%s/%s feat=%s status=%s item=%s\n' "$(date '+%F %T')" "$id" "$h" "$_rr_c" "$_rr_n" "${_rr_feat:--}" "$status" "${text:0:100}" >> "$state/revert_repeat_shadow.log" 2>/dev/null || true
+        fi
       fi
       ;;
   esac

@@ -25,6 +25,13 @@
 #       far older than any freshness window (20-40 min). In dry-run mode retention only reports counts.
 #     OVN_LOG_RETENTION=off disables both. A dir/report that is deleted while another tool reads it is a non-issue at these ages.
 #   NOTE the live-mode flip (OVN_LOG_CAP=on / --apply) is a CRON-LINE decision, see docs: until it is flipped everything above only logs 'WOULD ...'.
+#   SUMMARY LINE (K6, 2026-11-03): the last line of every run is `log_cap: SUMMARY mode=<dry-run|apply> would reclaim|reclaimed ~X MB (logs a, run dirs b, reports c, gate files d) ...` - ONE greppable
+#   line (grep 'log_cap: SUMMARY' logs/log_cap.log | tail -1) for the digest / heartbeat so a dry run that has been 'WOULD'-ing for weeks is visible as a number, not as 1400 lines.
+#   APPLY PROCEDURE (exact; the flip is a cron-line decision, nothing here changes by itself):
+#     1. read the newest dry run:   grep 'log_cap: ' ~/overnight-queue/logs/log_cap.log | tail -20   (check the SUMMARY MB and that only logs/ and reports/ names appear)
+#     2. one manual live run:       cd ~/overnight-queue && OVN_LOG_CAP=on nice -n 19 scripts/ovn_log_cap.sh | tail -15     (or: scripts/ovn_log_cap.sh --apply)
+#     3. install it:                crontab -e  and change the 17 5 * * * line to  `OVN_LOG_CAP=on nice -n 19 scripts/ovn_log_cap.sh ...`  (see scripts/cron.txt)
+#     4. rollback:                  remove `OVN_LOG_CAP=on` from that cron line (back to dry run); archived log heads stay in logs/archive/ (newest OVN_LOG_ARCHIVE_KEEP per log); deleted run dirs / reports are gone.
 # env: OVN_Q (default ~/overnight-queue). Never touches state/, repos/ or anything outside logs/ and reports/. A log whose size changes while it is being read is skipped.
 # Cron (SHADOW: dry run, writes its findings to logs/log_cap.log; switch to OVN_LOG_CAP=on after one look):
 #   17 5 * * * cd ~/overnight-queue && nice -n 19 scripts/ovn_log_cap.sh >> logs/log_cap.log 2>&1
@@ -42,6 +49,7 @@ say(){ echo "$(date '+%F %T') log_cap: $*"; }
 MODE="dry-run"; [ "$APPLY" = 1 ] && MODE="apply"
 say "mode=$MODE cap=${MB}MB keep=${KEEP}lines (ovn_planner.log: ${KEEP_PLANNER}) archives=${AKEEP}"
 LIMIT=$(( MB * 1024 * 1024 )); capped=0; saved=0
+est_logs=0; est_runs_kb=0; est_rpt_kb=0; est_gate_kb=0     # K6: bytes / KB that this run would reclaim (dry run) or reclaims (apply); only for the SUMMARY line
 for f in "$LOGS"/*.log; do
   [ -f "$f" ] || continue
   size="$(wc -c < "$f" | tr -d ' ')"
@@ -50,6 +58,7 @@ for f in "$LOGS"/*.log; do
   keep="$KEEP"; [ "$(basename "$f")" = "ovn_planner.log" ] && [ "$KEEP_PLANNER" -gt "$keep" ] && keep="$KEEP_PLANNER"
   if [ "$total" -le "$keep" ]; then say "$(basename "$f"): ${size} bytes but only $total lines (<= keep $keep; very long lines or a log whose readers need the history) - left alone"; continue; fi
   drop=$(( total - keep ))
+  est_logs=$(( est_logs + size * drop / total ))
   if [ "$APPLY" != 1 ]; then say "WOULD cap $(basename "$f"): $((size / 1048576)) MB, $total lines -> keep last $keep, archive $drop lines to logs/archive/"; capped=$((capped+1)); continue; fi
   mkdir -p "$LOGS/archive" || { say "cannot create $LOGS/archive - skipped $(basename "$f")"; continue; }
   ts="$(date -u +%Y%m%dT%H%M%SZ)"; arch="$LOGS/archive/$(basename "$f").$ts.gz"; tmp="$(mktemp "$LOGS/.log_cap.XXXXXX")" || continue
@@ -69,6 +78,7 @@ done
 if [ -d "$LOGS/hygiene_gate" ]; then
   old="$(find "$LOGS/hygiene_gate" -maxdepth 1 -type f -mtime +"$GDAYS" 2>/dev/null | wc -l | tr -d ' ')"
   if [ "$old" -gt 0 ]; then
+    est_gate_kb="$(find "$LOGS/hygiene_gate" -maxdepth 1 -type f -mtime +"$GDAYS" -exec du -sk {} + 2>/dev/null | awk '{s+=$1} END{print s+0}')"
     if [ "$APPLY" = 1 ]; then find "${LOGS:?}/hygiene_gate" -maxdepth 1 -type f -mtime +"$GDAYS" -exec rm -f {} + 2>/dev/null; say "removed $old hygiene gate file(s) older than ${GDAYS}d"
     else say "WOULD remove $old hygiene gate file(s) older than ${GDAYS}d"; fi
   fi
@@ -87,6 +97,7 @@ if [ "${OVN_LOG_RETENTION:-on}" != off ]; then
     find "$LOGS" -mindepth 1 -maxdepth 1 -type d -mtime +"$RDAYS" 2>/dev/null | sed 's#.*/##' | grep -E "$RUNDIR_ERE" | grep -vxFf "$tk" > "$tc" || true
     rd_n="$(wc -l < "$tc" | tr -d ' ')"
     if [ "$rd_n" -gt 0 ]; then
+      est_runs_kb="$(cd "$LOGS" 2>/dev/null && xargs du -sk < "$tc" 2>/dev/null | awk '{s+=$1} END{print s+0}')"
       if [ "$APPLY" = 1 ]; then
         while IFS= read -r d; do [ -n "$d" ] && [ -d "$LOGS/$d" ] && [ ! -L "$LOGS/$d" ] && rm -rf -- "${LOGS:?}/$d"; done < "$tc"
         say "removed $rd_n run dir(s) older than ${RDAYS}d (kept the newest $RNEW)"
@@ -99,6 +110,7 @@ if [ "${OVN_LOG_RETENTION:-on}" != off ]; then
       find "$RPT" -maxdepth 1 -type f -name '*.md' -mtime +"$PDAYS" 2>/dev/null | sed 's#.*/##' | grep -E "$REPORT_ERE" | grep -vxFf "$tk" > "$tc" || true
       rp_n="$(wc -l < "$tc" | tr -d ' ')"
       if [ "$rp_n" -gt 0 ]; then
+        est_rpt_kb="$(cd "$RPT" 2>/dev/null && xargs du -sk < "$tc" 2>/dev/null | awk '{s+=$1} END{print s+0}')"
         if [ "$APPLY" = 1 ]; then
           while IFS= read -r f; do [ -n "$f" ] && [ -f "$RPT/$f" ] && [ ! -L "$RPT/$f" ] && rm -f -- "${RPT:?}/$f"; done < "$tc"
           say "removed $rp_n report(s) older than ${PDAYS}d (kept the newest $PNEW)"
@@ -109,4 +121,9 @@ if [ "${OVN_LOG_RETENTION:-on}" != off ]; then
   fi
 fi
 say "done: $capped log(s) $([ "$APPLY" = 1 ] && echo capped || echo "would be capped"), ~$((saved / 1048576)) MB freed"
+# K6: the ONE line a digest / heartbeat can quote. Dry run: what an --apply would reclaim; apply: what this run reclaimed (head archives are gzipped, so the log part is the raw bytes removed from the logs).
+for v in est_logs est_runs_kb est_rpt_kb est_gate_kb; do case "${!v}" in ''|*[!0-9]*) eval "$v=0";; esac; done
+[ "$APPLY" = 1 ] && est_logs="$saved"
+tot_kb=$(( est_logs / 1024 + est_runs_kb + est_rpt_kb + est_gate_kb ))
+say "SUMMARY mode=$MODE $([ "$APPLY" = 1 ] && echo reclaimed || echo "would reclaim") ~$((tot_kb / 1024)) MB (logs $((est_logs / 1048576)), run dirs $((est_runs_kb / 1024)), reports $((est_rpt_kb / 1024)), gate files $((est_gate_kb / 1024))) in $capped capped log(s)$([ "$APPLY" = 1 ] || echo "; apply: OVN_LOG_CAP=on scripts/ovn_log_cap.sh (see header)")"
 exit 0

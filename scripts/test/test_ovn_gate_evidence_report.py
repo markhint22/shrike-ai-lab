@@ -39,6 +39,8 @@ def ok(name, cond, extra=""):
 for k in list(os.environ):
     if k.startswith("OVN_GER_") or k.startswith("OVN_QA_") or k in ("QA_STATE_DIR", "OVN_STATE_DIR", "OVN_DIR"):
         del os.environ[k]
+# hermetic: never spawn git against real clones (~/overnight-queue/repos on the box); the K1 join tests own the git-verified scenarios
+os.environ.update({"TZ": "UTC", "NTFY_SERVER": "http://127.0.0.1:9", "OVN_NOTIFY_DISABLE": "1", "OVN_GER_GIT": "off", "OVN_GER_REPOS": "/nonexistent-ger-repos", "OVN_DIR": "/nonexistent-ovn-dir"})
 T = os.path.realpath(tempfile.mkdtemp(prefix="gev-test-"))
 
 
@@ -182,6 +184,7 @@ def scen_rule(m):
 
 # ------------------------------------------------------------------------------------------------------------------------ run
 M = load(SRC, "ger")
+ok("hermetic: Git() resolves no clone root (OVN_GER_GIT=off, no real repos touched)", M.Git().root is None and M.Git("/nonexistent-ger-repos").root is None)
 print("fixtures: real rows copied from the box")
 rep = M.build(FIX, days=3650, now=float(calendar.timegm((2026, 11, 1, 20, 0, 0))))
 names = {g["gate"] for g in rep["gates"]}
@@ -221,7 +224,7 @@ m1 = mutant("m_good_wins", 'if any(k == "bad" for _, k in inwin):\n        retur
             'if any(k == "green" for _, k in inwin):\n        return "green"\n    if any(k == "bad" for _, k in inwin):\n        return "bad"')
 r1 = scen_join(m1)
 ok("MUTANT green-beats-bad: later revert no longer found -> scenario fails", not all(r1.values()) and not r1["later_revert_found_by_item_hash"], r1)
-m2 = mutant("m_nowindow", "if ev.ts - slack_s <= t <= ev.ts + window_s]", "if True]")
+m2 = mutant("m_nowindow", "if lo <= t <= hi]", "if True]")
 r2 = scen_join(m2)
 ok("MUTANT no 24h window: the 30h-late revert counts -> scenario fails", not r2["window_excludes_30h_revert"], r2)
 m3 = mutant("m_commit_only", "hs = {h for x in first for h in x[3]}", "hs = set()")

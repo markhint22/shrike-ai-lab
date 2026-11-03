@@ -73,7 +73,9 @@ fi
 
 # ---- Pass A: harvest 27B ceiling failures into the Claude queue ----
 if [ -s "$TMP/autoskip.tsv" ]; then
-  python3 "$BRIDGE" harvest --queue "$QUEUE" --autoskip "$TMP/autoskip.tsv" --archive "$ARCHIVE" --outcomes "$TMP/outcomes.jsonl" --mode "$AC_MODE" --shadow-log "$AC_SHADOW_LOG" 2>&1 | while read -r l; do log "$l"; done
+  python3 "$BRIDGE" harvest --queue "$QUEUE" --autoskip "$TMP/autoskip.tsv" --archive "$ARCHIVE" --outcomes "$TMP/outcomes.jsonl" --mode "$AC_MODE" --shadow-log "$AC_SHADOW_LOG" \
+    --repos-dir "$AC_REPOS" --done-ref "${OVN_HARVEST_DONE_REF:-origin/claude/feature}" --done-mode "${OVN_HARVEST_DONE_CHECK:-shadow}" \
+    --done-log "${OVN_HARVEST_DONE_LOG:-$SHARED/scripts/overnight-queue/state/harvest_skipped_done.log}" 2>&1 | while read -r l; do log "$l"; done   # S3-guards2: pre-harvest done-check (shadow default; OVN_HARVEST_DONE_CHECK=enforce|off)
 else
   log "harvest: no AUTO-SKIP items on the server"
 fi

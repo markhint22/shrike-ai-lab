@@ -88,7 +88,7 @@ for _ in range(3):
 CLOCK[0] += 3600 * 5; n0 = len(posts)
 t, b = N.heartbeat_text()
 ok("N8: title is 'ntfy alive YYYY-MM-DD' (local date, TZ pinned UTC)", t == "ntfy alive 2025-11-02")
-ok("N8: body counts sent/24h, capped, dropped and names the last emergency with its age", b.startswith("2 sent/24h, 2 capped, 3 dropped, last emergency Mac jobs: x 5h") and "[suppressed 2]" in b)
+ok("N8: body counts sent/24h, capped, dropped and names the last emergency with its age", b.startswith("2 sent/24h, 2 capped, 3 dropped (3 backlog-refilled), last emergency Mac jobs: x 5h") and "[suppressed 2]" in b)
 res = N.do_heartbeat()
 ok("N8: the heartbeat is pushed with priority default (3)", "-> sent" in res and len(posts) == n0 + 1 and posts[-1]["prio"] == "default" and posts[-1]["title"] == "ntfy alive 2025-11-02")
 res2 = N.do_heartbeat()

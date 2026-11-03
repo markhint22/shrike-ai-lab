@@ -44,3 +44,11 @@ sha256-verified release binary. The gates (`gate_scanners.find_tool`, `contract_
 ## Promote to enforce
 There is nothing to enforce on other gates. If you want a red exit code in a runbook: `OVN_QA_TOOL_HEALTH=enforce python3 qa/qa_tool_health.py --enforce-exit`.
 Revert: unset the variable / `off`; the file is additive (delete `qa/qa_tool_health.py` and its cron line).
+
+## K2: state/qa_tool_health.json (2026-11-03)
+
+Every recording run (no `--no-record`) also writes `state/qa_tool_health.json`:
+`{ts, qa_venv, tools: {name: {installed, working, status ok|missing|broken|skipped, version, path, in_qa_venv, on_path, gates}}}`.
+`gate_scanners.mark_tool_missing` and `gate_mutation` read it through `qa_common.tool_health()` / `tool_unavailable()` and tag UNVERIFIED rows
+`reason_code: tool-missing` even when the tool's note text does not say "not installed" (e.g. `ruff missing` after rc 127). A report older than 2 h (`OVN_QA_TOOL_HEALTH_MAX_AGE_S`, default 7200), a corrupt/absent one, and any "missing" entry whose tool exists on disk now (live probe `qa_common.tool_present`) mark nothing. Installer: `ops/install_qa_tools.sh` (dry-run by default, `--apply` installs the
+pip tools; semgrep and gitleaks need Mark's approval via `QA_TOOLS_APPROVED="semgrep gitleaks"`, otherwise the exact commands are printed).

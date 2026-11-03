@@ -128,6 +128,17 @@ def _cause_suffix(repo, now):
         return ""
 
 
+def _live_request(repo, now):
+    """(request dict, description) for a live supply-forecast research request of `repo`, else None. Never raises."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ovn_research_requests as rr
+        r = rr.active(repo, now=now, state=os.path.dirname(STATE))
+        return (r, rr.describe(r)) if r else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def floor_alerts(starving, last_backlog, now):
     """ONE alerts.log warn per lane per local day for a lane at the roadmap-feature floor (see the module docstring). `starving` rows carry the unrounded hours as `_h`.
     Returns the alert lines written. Never raises: an unwritable alerts.log/marker = no alert (and no marker), the next run retries."""
@@ -135,9 +146,10 @@ def floor_alerts(starving, last_backlog, now):
         return []
     try:
         floor_h = float(os.environ.get("OVN_FLOOR_ALERT_H", "6"))
+        req_h = float(os.environ.get("OVN_FLOOR_ALERT_REQ_H", "2"))
         max_b = int(os.environ.get("OVN_FLOOR_ALERT_MAX_BACKLOG", "0"))
     except ValueError:
-        floor_h, max_b = 6.0, 0
+        floor_h, max_b, req_h = 6.0, 0, 2.0
     today = time.strftime("%Y-%m-%d", time.localtime(now))
     try:
         with open(FLOOR_STATE) as f:
@@ -155,7 +167,11 @@ def floor_alerts(starving, last_backlog, now):
         _ca, chronic = None, False
     for r in starving:
         repo = r["repo"]
-        if r.get("_h", 0.0) <= floor_h or (seen.get(repo) == today and not chronic):
+        # 2026-11-03 (K5): a LIVE supply-forecast research request (state/research_requests/<repo>.json, mode on) says the runway is < 24h: the floor alert fires after
+        # OVN_FLOOR_ALERT_REQ_H (default 2) instead of OVN_FLOOR_ALERT_H (6). Nothing else about the alert changes (backlog <= max, daily dedupe).
+        req = _live_request(repo, now)
+        eff_h = min(floor_h, req_h) if req else floor_h
+        if r.get("_h", 0.0) <= eff_h or (seen.get(repo) == today and not chronic):
             continue
         n = last_backlog.get(repo)
         if n is None or n > max_b:
@@ -163,6 +179,8 @@ def floor_alerts(starving, last_backlog, now):
         line = "[%s] warn | ongoing-%s | roadmap-feature floor: %s has had backlog %d and no [ready] roadmap feature for %.1fh (since %s) - promote a [needs-research] feature to [ready] in roadmap/%s.md (Claude research pass)" % (
             time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), repo, repo, n, r["_h"], time.strftime("%Y-%m-%d %H:%M", time.localtime(r["starving_since"])), repo)
         line += _cause_suffix(repo, now)
+        if req:
+            line += " | supply-forecast request live (%s)" % req[1]
         try:
             if chronic:
                 # 2026-10-13 (G5): the lane's FIRST floor alert is written as before (onset); a lane that stays at the floor is folded into ONE daily

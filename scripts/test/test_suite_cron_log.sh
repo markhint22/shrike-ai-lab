@@ -13,8 +13,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 OPS="$HERE/../../ops"
 P=0; F=0
 nl_(){ wc -l < "$1" | tr -d " "; }
+nl_info(){ grep -c 'INFO | qtests | suite FAILED' "$1" 2>/dev/null; }   # S1 (2026-11-03): streak steps add WARN lines to alerts.log; B-checks count the per-run INFO lines
 ok(){ if [ "$1" = 1 ]; then P=$((P+1)); echo "  ok   $2"; else F=$((F+1)); echo "  FAIL $2"; fi; }
-export NTFY_SERVER=http://127.0.0.1:9
+export NTFY_SERVER=http://127.0.0.1:9 OVN_NOTIFY_DISABLE=1
 SB="$(safe_mktemp_dir p3suite)" || exit 1
 trap 'safe_rm_rf "$SB"' EXIT
 LOGT="$OPS/suite_run_log.py"
@@ -38,12 +39,12 @@ run_checks(){
   local s1; s1="$(python3 -I "$LOGX" alerts "$W/f.tsv" "$ST" "2026-11-02 00:17:00")"
   ok "$([ "$(grep -c 'INFO | qtests | suite FAILED' "$ST/alerts.log")" = 2 ] && grep -q 'suite FAILED test_a.sh:   FAIL A1 broke at 12:01\|suite FAILED test_a.sh: FAIL A1 broke at 12:01' "$ST/alerts.log" && echo 1 || echo 0)" "B1 first failing run: one INFO line per failing suite with its first failing check"
   printf 'test_a.sh\t  FAIL A1 broke at 18:44\ntest_b.sh\t  FAIL B2 other\n' > "$W/f2.tsv"; local s2; s2="$(python3 -I "$LOGX" alerts "$W/f2.tsv" "$ST" "2026-11-02 06:17:00")"
-  ok "$([ "$s1" = "$s2" ] && [ "$(nl_ "$ST/alerts.log")" = 2 ] && echo 1 || echo 0)" "B2 same failing set (only digits differ) -> same signature, nothing re-alerted"
+  ok "$([ "$s1" = "$s2" ] && [ "$(nl_info "$ST/alerts.log")" = 2 ] && echo 1 || echo 0)" "B2 same failing set (only digits differ) -> same signature, nothing re-alerted"
   printf 'test_a.sh\t  FAIL A1 broke at 18:44\ntest_c.sh\t  FAIL C different\n' > "$W/f3.tsv"; python3 -I "$LOGX" alerts "$W/f3.tsv" "$ST" "x" >/dev/null
-  ok "$([ "$(nl_ "$ST/alerts.log")" = 4 ] && echo 1 || echo 0)" "B3 a different failing set alerts again"
+  ok "$([ "$(nl_info "$ST/alerts.log")" = 4 ] && echo 1 || echo 0)" "B3 a different failing set alerts again"
   : > "$W/none.tsv"; local s4; s4="$(python3 -I "$LOGX" alerts "$W/none.tsv" "$ST")"
   ok "$([ "$s4" = none ] && [ ! -e "$ST/suite_alert_sig" ] && echo 1 || echo 0)" "B4 a green run clears the signature"
-  python3 -I "$LOGX" alerts "$W/f.tsv" "$ST" "y" >/dev/null; ok "$([ "$(nl_ "$ST/alerts.log")" = 6 ] && echo 1 || echo 0)" "B5 ...so the same failure recurring after a green run alerts again"
+  python3 -I "$LOGX" alerts "$W/f.tsv" "$ST" "y" >/dev/null; ok "$([ "$(nl_info "$ST/alerts.log")" = 6 ] && echo 1 || echo 0)" "B5 ...so the same failure recurring after a green run alerts again"
   echo "== C. run_all.sh capture"
   local SBX="$W/ra"; mkdir -p "$SBX/cap"
   printf '#!/usr/bin/env bash\necho "  ok   fine"\nexit 0\n' > "$SBX/test_pass.sh"
@@ -102,10 +103,11 @@ mutant "rotation via rewrite-and-mv" ops/suite_run_log.py 'f.seek(0)
         f.write(b"\n".join(new))
         f.truncate()=>open(path+".n","wb").write(b"\n".join(new)); os.replace(path+".n", path)'
 mutant "no signature dedupe" ops/suite_run_log.py 'if old != sig:=>if True:'
-mutant "green run keeps the signature" ops/suite_run_log.py '        try:
-            os.remove(sigf)
-        except OSError:
-            pass
+mutant "green run keeps the signature" ops/suite_run_log.py '        for f in (sigf, os.path.join(state, "suite_red_streak")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
         return "none"=>        return "none"'
 mutant "keep ignored" ops/suite_run_log.py 'if keep < 1 or not os.path.isfile(path):=>if True:'
 mutant "ar_run drops TZ again" lib_ar_fixture.sh '${TZ:+TZ="$TZ"} =>'

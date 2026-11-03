@@ -35,7 +35,7 @@ hit="$(grep -nE '^[[:space:]]*[A-Za-z_]+\(\) *\{' ./run_overnight.sh | head -0)"
 nx=""; for f in run_overnight.sh branch_hygiene.sh reconcile_branches.sh fleet_autofix.sh queue_refill.sh supervisor.sh ovn_planner.sh; do [ -f "$f" ] && [ ! -x "$f" ] && nx="$nx $f"; done
 ok "cron/systemd entrypoints are executable${nx:+ - NOT:$nx}" "$([ -z "$nx" ] && echo 1 || echo 0)"
 # no stray backup/scratch scripts in the pipeline dirs
-stray="$(ls ./*.bak* scripts/*.bak* ./*.orig scripts/*.orig 2>/dev/null | head -3 | tr '\n' ' ')"
+stray="$(find . \( -path ./repos -o -path ./state -o -path ./logs -o -path ./prework -o -path ./worktrees -o -path ./node_modules -o -path ./.git -o -path ./reports \) -prune -o -type f \( -name '*.bak' -o -name '*.bak.*' -o -name '*.orig' \) -print 2>/dev/null | head -3 | tr '\n' ' ')"   # whole tree (not just ./ and scripts/): a test_*.sh.bak was committed under scripts/test/ 2026-11-03
 ok "no stray .bak/.orig files next to live scripts${stray:+: $stray}" "$([ -z "$stray" ] && echo 1 || echo 0)"
 
 # test-reference gate: every script is referenced by at least one OTHER test file

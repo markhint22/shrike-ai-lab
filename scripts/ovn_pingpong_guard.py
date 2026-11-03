@@ -35,7 +35,7 @@ Action, mode OVN_PINGPONG_MODE (default 'shadow'):
   - LOG DEDUPE: the shadow row / per-run PING-PONG line is written once per (repo, line family, COMMIT SET) instead of once per run or per day.
 Safety: DRY_RUN=1 prints only; ANY infrastructure failure logs a line, changes nothing and exits 0; at most OVN_PINGPONG_MAX_PARK (10) lines per run.
 
-  ovn_pingpong_guard.py               one pass over OVN_PINGPONG_REPOS (default 'gitlark billwatch iptv_apps test-automation-agent')
+  ovn_pingpong_guard.py               one pass over OVN_PINGPONG_REPOS (default 'gitlark billwatch iptv_apps test-automation-agent xlite shrike-notify shrike-monitor')
   ovn_pingpong_guard.py --replay FILE read-only: detect on a saved `git log -p -U0 --format=@@%H|%ct|%s` dump (calibration / fixtures)
 Env: OVN_DIR OVN_REPOS_DIR OVN_STATE_DIR OVN_CHURN_REMOTE OVN_CHURN_BRANCH (shared with ovn_churn_guard.py), OVN_PINGPONG_{MODE,REPOS,WINDOW_H,MIN,MAX_PARK,MAX_FILES,PUSH_TRIES}
 """
@@ -400,7 +400,8 @@ def one_repo(repo, now, state):
         return
     findings = detect(parse_patches(out), now)
     if not findings:
-        log("%s: no literal ping-pong (window %dh, min %d commits)" % (repo, WINDOW_H, MIN_N))
+        if once("NONE|%s|%s" % (repo, time.strftime("%Y-%m-%d"))):   # S3-guards2: once per repo per day, not every 20-minute pass
+            log("%s: no literal ping-pong (window %dh, min %d commits)" % (repo, WINDOW_H, MIN_N))
         return
     today = time.strftime("%Y-%m-%d")
     ambiguous = cg.add_tree_aliases(clone, findings)   # fills f['aliases'] with same-stem test/source counterparts
@@ -411,7 +412,7 @@ def one_repo(repo, now, state):
             log("%s: PING-PONG[%s] %s n=%d revisits=%d values=%s commits=%s" % (repo, f.get("kind", "literal"), f["file"], f["n"], f["revisits"], "/".join(f["values"])[:40], ",".join(s for s, _ in f["commits"])))
         else:
             quiet += 1
-    if quiet:
+    if quiet and once("UNCH|%s|%d|%s" % (repo, quiet, "-".join(sorted(commit_set(f) for f in findings)))):   # S3-guards2: this line repeated ~5x per 20 min with identical content; log it once per distinct state
         log("%s: %d known ping-pong finding(s) unchanged (same commit set already logged)" % (repo, quiet))
     rc, text, _ = cg.git(["show", "%s:OVERNIGHT_PROGRESS.md" % cg.REF], cwd=clone)
     if rc != 0:
@@ -463,7 +464,7 @@ def main():
         return 0
     now = int(time.time())
     state = {"parked": 0}
-    for repo in os.environ.get("OVN_PINGPONG_REPOS", "gitlark billwatch iptv_apps test-automation-agent").split():
+    for repo in os.environ.get("OVN_PINGPONG_REPOS", "gitlark billwatch iptv_apps test-automation-agent xlite shrike-notify shrike-monitor").split():
         try:
             one_repo(repo, now, state)
         except Exception as e:

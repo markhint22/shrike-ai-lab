@@ -274,6 +274,7 @@ echo; echo "===== ovn notify ====="; bash test_ovn_notify.sh || rc=1
 echo; echo "===== retired filter ====="; bash test_retired_filter.sh || rc=1
 echo; echo "===== park unworkable ====="; bash test_park_unworkable.sh || rc=1
 echo; echo "===== vercel state check ====="; bash test_vercel_state_check.sh || rc=1
+echo; echo "===== S2 notify fixes (vercel escalation/noise, ESC_HYGIENE default on, drop detail, mac supervisor staleness; mutants) ====="; bash test_s2_notify_fixes.sh || rc=1
 echo; echo "===== deploy_health runs ====="; bash test_deploy_health_runs.sh || rc=1
 echo; echo "===== GUT report green check (root failures) ====="; bash test_gut_xml.sh || rc=1
 echo; echo "===== autotest base-sha (in-loop test feedback) ====="; bash test_autotest_basesha.sh || rc=1
@@ -427,6 +428,7 @@ echo; echo "===== r10: ovn supply r10 ====="; bash test_ovn_supply_r10.sh || rc=
 echo; echo "===== relocate backend/tests layout (TAA ghost root tests, 2026-10-18) ====="; bash test_relocate_backend_tests.sh || rc=1
 echo; echo "===== r10: ovn work supply filter ====="; bash test_ovn_work_supply_filter.sh || rc=1
 echo; echo "===== r10: prod alembic snapshot ====="; bash test_prod_alembic_snapshot.sh || rc=1
+echo; echo "===== K4: promote safety (prod alembic 4-state, migration note, staging URL reader, postcheck health + Vercel prod; mutants) ====="; bash test_k4_promote_safety.sh || rc=1
 echo; echo "===== r10: qa antigaming r10 ====="; bash test_qa_antigaming_r10.sh || rc=1
 echo; echo "===== r10: qa baseline gut ====="; python3 test_qa_baseline_gut.py || rc=1
 echo; echo "===== r10: qa block watch r10 ====="; bash test_qa_block_watch_r10.sh || rc=1
@@ -542,6 +544,7 @@ echo; echo "===== box recover (2026-10-16 wipe; hermetic, dry-run + restore) ===
 echo; echo "===== Phase 5: QA WIP-cap observer (shadow; OVN_QA_WIP_CAP=off|shadow|soft|hard, soft/hard not wired; mutant: raised cap) ====="; bash test_qa_wip_cap.sh || rc=1
 echo; echo "===== Phase 5: GPU-seconds-per-stage ledger (shadow; reconciles to the raw logs within 1%; mutants) ====="; bash test_qa_gpu_ledger.sh || rc=1
 echo; echo "===== Phase 5: promote manifest + rollback drill (shadow; HOLD on FAIL, prior prod tag, byte-for-byte restore; mutants) ====="; bash test_qa_promote_manifest.sh || rc=1
+echo; echo "===== K6 reliability: per-cron beats (wrapper + deadman check + manifest + heartbeat line), qtmp reaper, log-cap SUMMARY line, forecast/explorer quiet-vs-dead rows (with mutants) ====="; bash test_k6_reliability.sh || rc=1
 echo; echo "===== run all sandboxed ====="; bash test_run_all_sandboxed.sh || rc=1
 echo; echo "===== QA Phase 4: contract fuzz registry (billwatch/gitlark), tool installer, cron proposal ====="; bash test_qa_contract_fuzz_registry.sh || rc=1
 echo; echo "===== QA Phase 4: broken-deploy drill (fixtures; 4/4 classes would hold, CORS mutant) ====="; bash test_qa_deploy_drill.sh || rc=1
@@ -560,6 +563,7 @@ echo; echo "===== outcome acct ====="; bash test_outcome_acct.sh || rc=1
 echo; echo "===== verify venv fallback ====="; bash test_verify_venv_fallback.sh || rc=1
 echo; echo "===== stage order ====="; bash test_stage_order.sh || rc=1
 echo; echo "===== qa install tools cron ====="; bash test_qa_install_tools_cron.sh || rc=1
+echo; echo "===== K2 qa toolchain (tool-health report -> tool-missing, diff-scoped mutation, selftest seeds; with mutants) ====="; python3 test_qa_k2_toolchain.py || rc=1
 echo; echo "===== auto research resilience ====="; bash test_auto_research_resilience.sh || rc=1
 echo; echo "===== ovn supply report ====="; bash test_ovn_supply_report.sh || rc=1
 echo; echo "===== ovn needs research promote ====="; bash test_ovn_needs_research_promote.sh || rc=1
@@ -636,8 +640,10 @@ echo; echo "===== K4: digest noise (dedupe per hour, Queue-empty once, pass-rate
 echo; echo "===== K4: time-relative suites pinned to UTC (DST fall-back night coverage failures), mutant ====="; bash test_k4_tz_pin.sh || rc=1
 echo; echo "===== K4: test_aider_commit_rescue tmp leak (7 git repos per run left behind), mutant ====="; bash test_k4_tmp_leak.sh || rc=1
 echo; echo "===== K5 supply engine (runway forecast, explorer lens yield cap, fresh local-research evidence, small-decomposition slug, mutation repo list; 20 mutants) ====="; bash test_k5_supply_engine.sh || rc=1
+echo; echo "===== K5-supply consume (forecast real repos, research_requests consumers: local research / work supply / trigger check, explorer dead-code dialect, K8 mutation-survivor consumer; 27 mutants) ====="; bash test_k5_supply_consume.sh || rc=1
 echo; echo "===== K5 planner small-decomposition marker (GNU sed: box-only like test_ovn_planner.sh; 4 mutants) ====="; run_or_notrun test_k5_planner_small_decomp.sh
 echo; echo "===== K6: gate evidence report (shadow gates joined with later outcomes; UNVERIFIED separate; promote/HOLD rule; tool-missing codes; card_credit once-log; digest hook off by default; mutants) ====="; python3 test_ovn_gate_evidence_report.py || rc=1
+echo; echo "===== K1: gate evidence join repair (cycle/base/range/git-verified joins, join reasons, --explain, hand-label worksheet qa_flag_sample.py; 10 mutants) ====="; python3 test_ovn_gate_evidence_join.py || rc=1
 echo; echo "===== P5 supply truth (shared doable filter, report doable+pullable+excluded, bridge autoclose by feat tag, ALREADY-DONE evidence gate; 16 mutants) ====="; bash test_p5_supply_truth.sh || rc=1
 echo; echo "===== P4 pipeline guards: prod-touch sibling exclusion (outcomes F6) ====="; bash test_p4_prod_touch_siblings.sh || rc=1
 echo; echo "===== P4 pipeline guards: U4 promote flag + py-root-retry audit dedupe (outcomes F7) ====="; bash test_p4_u4_promote_and_pyroot_dedupe.sh || rc=1
@@ -645,10 +651,13 @@ echo; echo "===== P4 pipeline guards: ping-pong anchor + config-default detector
 echo; echo "===== P4 pipeline guards: progress-aware item day cap (outcomes F9) ====="; bash test_p4_day_cap_progress.sh || rc=1
 echo; echo "===== P4 pipeline guards: stage status cause tag + red-green SUSPECT policy (outcomes F5/F1) ====="; bash test_p4_status_cause_and_redgreen_suspect.sh || rc=1
 echo; echo "===== P4 pipeline guards: no-VERIFY proof credit (outcomes F10) ====="; bash test_p4_noverify_proof_credit.sh || rc=1
+echo; echo "===== S3 guards2: bridge autoclose/harvest done-check restricted to code definitions + shadow dedupe, stub placeholder strip, pingpong lane repos + log dedupe (outcomes F1/F6/F8/F9, cqueue F1/F6; 15 mutants) ====="; python3 test_s3_guards2.py || rc=1
+echo; echo "===== S3 guards2: item-guard repeat-revert park (T3+T4 pair, shadow default; 7 mutants) ====="; bash test_item_guard_revert_repeat.sh || rc=1
 echo; echo "===== P2 notify quality: OVN_NOTIFY_DISABLE in forward, separate digest/emergency budgets, heartbeat, quiet all-good digest, escalate once/day (N4/N6/N7/N8/N10), 10 mutants ====="; bash test_p2_notify_quality.sh || rc=1
 echo; echo "===== P2 N4: lint - no test can post to the live relay / ntfy.sh; guard exports closed-port NTFY_SERVER + OVN_NOTIFY_DISABLE; no script defaults NTFY_SERVER to ntfy.sh (N5 audit), mutants ====="; bash test_ntfy_lint.sh || rc=1
 echo; echo "===== P2 N5: queue_refill 'Backlog refilled' via the relay + per-repo hysteresis (6 mutants) ====="; bash test_queue_refill_hysteresis.sh || rc=1
 echo; echo "===== P2 F4/N7: hygiene-stuck recovery from the last hygiene result per feature branch + escalation at 4h (7 mutants) ====="; bash test_hygiene_stuck_f4.sh || rc=1
 echo; echo "===== P2 N7: daily promote HELD/BLOCKED escalation for billwatch/iptv_apps (5 mutants) ====="; bash test_daily_promote_escalation.sh || rc=1
+echo; echo "===== S1 suite repair: lib_fixup helper lookup + loud missing-helper warn, ntfy lint top-level prune, suite cron lock retry, red-streak digest/escalation (12 mutants) ====="; bash test_s1_suite_repair.sh || rc=1
 echo; finish || rc=1
 exit $rc

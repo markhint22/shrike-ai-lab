@@ -269,10 +269,35 @@ _ovn_fx_is_testpath() {
   return 1
 }
 
-# lib_safe_tmp.sh (fail-closed mktemp/rm helpers, 2026-10-16 HOME-deletion incident). Production sourcing: no helper => the callers below fail safe (no output / rc 0).
+# lib_safe_tmp.sh (fail-closed mktemp/rm helpers, 2026-10-16 HOME-deletion incident).
+# 2026-11-03 (S1-suite-repair, suite.json F1): the helper used to be located ONLY as "$(dirname BASH_SOURCE)/test/lib_safe_tmp.sh". A symlink/copy tree (test fixtures: lib_ro_core.sh,
+# the executor shadow-log mutation runs) has no test/ dir next to the linked lib, so safe_mktemp_dir stayed undefined, ovn_fixup_item_line returned empty and every post-commit gate
+# (doc post-check, fixup-verify, prod-touch) silently became a no-op. Locate it robustly (override > own dir > symlink target dir > $OVN_DIR / $OVN_QUEUE_DIR scripts/test) and when it is
+# STILL missing say so loudly: one stderr line + ONE alerts.log warn per run (_OVN_FX_NOHELPER_WARNED), never a silent gate disablement. Callers keep failing safe (rc 0 = keep).
+_ovn_fx_find_safe_tmp() {
+  local c d here real
+  if [ -n "${OVN_SAFE_TMP_LIB:-}" ]; then [ -f "$OVN_SAFE_TMP_LIB" ] && { printf '%s\n' "$OVN_SAFE_TMP_LIB"; return 0; }; fi
+  here="${BASH_SOURCE[0]:-$0}"
+  real="$(readlink -f "$here" 2>/dev/null)"
+  for d in "$(cd "$(dirname "$here")" 2>/dev/null && pwd)" "$( [ -n "$real" ] && cd "$(dirname "$real")" 2>/dev/null && pwd)" "${OVN_DIR:+$OVN_DIR/scripts}" "${OVN_QUEUE_DIR:+$OVN_QUEUE_DIR/scripts}"; do
+    [ -n "$d" ] || continue
+    c="$d/test/lib_safe_tmp.sh"
+    [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+_ovn_fx_warn_nohelper() {
+  [ -z "${_OVN_FX_NOHELPER_WARNED:-}" ] || return 0
+  _OVN_FX_NOHELPER_WARNED=1
+  echo "lib_fixup.sh: WARNING test/lib_safe_tmp.sh not found - safe_mktemp_dir is undefined, the post-commit fix-up gates (doc-postcheck, fixup-verify, prod-touch) are DISABLED this run" >&2
+  local al="${OVN_ALERTS_LOG:-${OVN_DIR:-${OVN_QUEUE_DIR:-}}/state/alerts.log}"
+  [ -n "${OVN_ALERTS_LOG:-}" ] || [ -n "${OVN_DIR:-}${OVN_QUEUE_DIR:-}" ] || return 0
+  [ -d "$(dirname "$al")" ] && printf '[%s] WARN | fixup-integrity | lib_fixup.sh cannot find test/lib_safe_tmp.sh: post-commit gates disabled (set OVN_SAFE_TMP_LIB)\n' "$(date '+%F %T')" >> "$al" 2>/dev/null
+  return 0
+}
 if ! declare -F safe_mktemp_dir >/dev/null 2>&1; then
-  _ovn_fx_here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-  [ -f "${_ovn_fx_here:-/nonexistent}/test/lib_safe_tmp.sh" ] && . "${_ovn_fx_here}/test/lib_safe_tmp.sh"
+  _ovn_fx_lib="$(_ovn_fx_find_safe_tmp)" && . "$_ovn_fx_lib"
+  declare -F safe_mktemp_dir >/dev/null 2>&1 || _ovn_fx_warn_nohelper
 fi
 
 # ovn_fixup_item_line <before_sha> <task_log>: prints "N:text" of the item the cycle worked, resolved against the BEFORE tree's OVERNIGHT_PROGRESS.md (the model's
@@ -281,6 +306,7 @@ ovn_fixup_item_line() {
   local before="${1:-}" tl="${2:-}" d out=""
   declare -F ovn_resolve_top_item >/dev/null 2>&1 || return 0
   [ -n "$before" ] || return 0
+  declare -F safe_mktemp_dir >/dev/null 2>&1 || { _ovn_fx_warn_nohelper; return 0; }
   d="$(safe_mktemp_dir ovnfx 2>/dev/null)" || return 0
   [ -n "$d" ] && [ -d "$d" ] || return 0   # 2026-10-16: an empty result (rc 0) must not become "$d/OVERNIGHT_PROGRESS.md" = /OVERNIGHT_PROGRESS.md
   if git show "${before}:OVERNIGHT_PROGRESS.md" > "$d/OVERNIGHT_PROGRESS.md" 2>/dev/null; then out="$(ovn_resolve_top_item "$d" "$tl" 2>/dev/null)"; fi
@@ -865,21 +891,37 @@ ovn_exhausted_clear() { rm -f "${2:-state}/exhausted_since_${1:-none}" 2>/dev/nu
 #     here, the next pass simply finds the work. Returns at once when nothing runs. DELAY: a long wait only when every lane is idle (nobody to delay); when some lane did real work this pass
 #     (lanes_idle < lanes_seen) the wait is capped at OVN_QE_WAIT_BUSY_S (default 90) because the other lanes' next pass waits for it.
 # =====================================================================================================================================================
+# K6 (2026-11-03, next.json F6): the explorer is queue-hook driven, not a cron. Its python pass logs EVERY pass (also skip-*), but the cheap shell gates below return before forking it, so a gated
+# explorer left logs/qwen_explore.log silent for 15 h and 'gated by design' looked like 'dead'. Each gated repo now writes ONE line per OVN_QE_BEAT_S (default 1800 s) saying which gate held it.
+# The line has no lens=/result= fields (ovn_supply_report.parse_qwen_log ignores it). OVN_QE_GATE_BEAT=off disables. Never fails, never prints.
+ovn_qe_gate_beat() {   # $1 od  $2 qd  $3 repo  $4 reason
+  [ "${OVN_QE_GATE_BEAT:-on}" = off ] && return 0
+  local f="$2/gate_beat_$3" now last
+  now="$(date +%s 2>/dev/null)"; last="$(cat "$f" 2>/dev/null)"
+  case "$now" in ''|*[!0-9]*) return 0 ;; esac
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  [ $((now - last)) -lt "${OVN_QE_BEAT_S:-1800}" ] && return 0
+  mkdir -p "$2" "$1/logs" 2>/dev/null || return 0
+  printf '%s\n' "$now" > "$f" 2>/dev/null || return 0
+  { printf '%s %s gate-skip: %s (explorer idle by design; one heartbeat per %ss)\n' "$(date '+%F %T' 2>/dev/null)" "$3" "$4" "${OVN_QE_BEAT_S:-1800}" >> "$1/logs/qwen_explore.log"; } 2>/dev/null
+  return 0
+}
+
 ovn_qwen_explore_kick() {
   local repo="${1:-}" sd="${2:-state}" od="${3:-.}" mode="${4:-exhausted}" qd now nxt rdy backlog_open
   [ -n "$repo" ] || return 0
   [ "${OVN_QWEN_EXPLORE:-on}" = off ] && return 0
   [ -f "$od/scripts/ovn_qwen_explore.py" ] || return 0
-  [ -e "$sd/PAUSED" ] && return 0
   qd="$sd/qwen_explore"; now="$(date +%s)"
+  [ -e "$sd/PAUSED" ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "queue paused"; return 0; }
   nxt="$(cat "$qd/next_${repo}" 2>/dev/null)"; case "$nxt" in ''|*[!0-9]*) nxt=0 ;; esac
-  [ "$now" -lt "$nxt" ] && return 0
-  if [ -e "$qd/lock_global" ] && type -P flock >/dev/null 2>&1 && ! ( flock -n 9 ) 9>"$qd/lock_global" 2>/dev/null; then return 0; fi
+  [ "$now" -lt "$nxt" ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "next pass in $((nxt - now))s"; return 0; }
+  if [ -e "$qd/lock_global" ] && type -P flock >/dev/null 2>&1 && ! ( flock -n 9 ) 9>"$qd/lock_global" 2>/dev/null; then ovn_qe_gate_beat "$od" "$qd" "$repo" "another explorer pass holds the lock"; return 0; fi
   rdy="$(grep -cE '^- \[ \] \[P[1-4]\] \[ready\]' "$od/roadmap/$repo.md" 2>/dev/null)"; case "$rdy" in ''|*[!0-9]*) rdy=0 ;; esac
-  [ "$rdy" -ge "${OVN_QE_READY_CAP:-4}" ] && return 0
+  [ "$rdy" -ge "${OVN_QE_READY_CAP:-4}" ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "$rdy [ready] features already queued"; return 0; }
   if [ "$mode" = low ]; then
     backlog_open="$(grep -cE '^- \[ \] \[T[1-5]\]' "$od/backlog/$repo.md" 2>/dev/null)"; case "$backlog_open" in ''|*[!0-9]*) backlog_open=0 ;; esac
-    [ "$backlog_open" -gt 0 ] && return 0
+    [ "$backlog_open" -gt 0 ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "$backlog_open open backlog item(s) (low-supply kick waits for an empty backlog)"; return 0; }
   fi
   mkdir -p "$qd" "$od/logs" 2>/dev/null
   printf '%s\n' "$(( now + ${OVN_QE_DEBOUNCE_S:-300} ))" > "$qd/next_${repo}" 2>/dev/null

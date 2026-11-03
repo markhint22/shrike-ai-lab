@@ -87,3 +87,12 @@ minutes and 0 catches, `weak` = at least one catch but below 0.05 catches/min (a
 mutants (M1 changed-function scoping, M2 cap clamp, M3 FAIL mapping, M4 unwrap switch, M5 iptv selection, M6 load guard, M7 per-merge exclusion; M9-M20: budget guard,
 fuser exit status, is-ancestor check, survivor cap, --no-record, repo-name filter, mid-loop load re-check, load parsing, run.lock default, baseline source / measured /
 MEASURED set; precision M5-M9: retire boundary, 0-catch-is-weak, advisory, skip-only gates, skip month filter). Without mutmut the 8 real-mutmut tests print SKIP.
+
+## K2: diff-scoped mutation (2026-11-03)
+
+* Line scope (`OVN_MUT_LINE_SCOPE`, default on, `0` = off): mutmut 3 mutates whole functions, so every mutant of a changed function still RUNS; afterwards only the mutants whose first
+  changed source line sits on a line the commit range touched are judged (read from mutmut's own `mutants/<module>.py`, orig vs mutant body). Dropped ones are counted in
+  `details.line_scope.dropped_outside_changed_lines`; a mutant whose line cannot be determined is kept. Nothing on a changed line -> NA.
+* Test selection by changed-file mapping now applies to `iptv_apps billwatch gitlark` (`OVN_MUT_SELECT_REPOS`): name convention (`test_<mod>*.py`) and mention of the module / function, changed-in-range
+  test files ranked first, truncated to 25 (`details.tests_selection.truncated`) instead of falling back to the full suite. No match -> UNVERIFIED, as before.
+* Hard wall cap unchanged (<= 600 s, `OVN_MUT_CAP_S`). Advisory/shadow only. UNVERIFIED rows for a missing mutmut carry `details.reason_code = tool-missing`.

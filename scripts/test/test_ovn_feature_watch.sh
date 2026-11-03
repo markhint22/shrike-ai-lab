@@ -33,7 +33,8 @@ exit 0
 CURLEOF
 chmod +x "$tmp/bin/curl"
 
-run_watch(){ ( cd "$tmp" && PATH="$tmp/bin:$PATH" HOME="$tmp" bash "$tmp/ovn_feature_watch.sh" >/dev/null 2>&1 ); }
+# sections 1-5 test the legacy per-feature push (OVN_FEATURE_AGGREGATE=off); section 6 (S2/F5) tests the default aggregated mode
+run_watch(){ ( cd "$tmp" && PATH="$tmp/bin:$PATH" HOME="$tmp" OVN_FEATURE_AGGREGATE="${AGG_MODE:-off}" bash "${WATCH_SCRIPT:-$tmp/ovn_feature_watch.sh}" >/dev/null 2>&1 ); }
 
 # ---- 1: first-ever run sees an ALREADY-complete feature -> baseline silently, no push ----
 cat > "$tmp/repos/demo/OVERNIGHT_PROGRESS.md" <<'EOF'
@@ -76,6 +77,45 @@ EOF
 : > "$CURLLOG"
 run_watch
 ok "a fully-checked file-based (approx) group never fires a completion push" "[ ! -s '$CURLLOG' ]"
+
+# ---- 6 (S2/F5): default mode aggregates: a burst of completions in one tick = ONE note-class push (the per-item pushes were all dropped by the relay: 51 of 53 'dropped'), at most one per flush window
+AGG_MODE=on
+mkdir -p "$tmp/repos/demo2"; echo "# roadmap" > "$tmp/roadmap/demo2.md"; : > "$tmp/backlog/demo2.md"
+: > "$tmp/repos/demo2/OVERNIGHT_PROGRESS.md"; : > "$CURLLOG"; run_watch      # baselines demo2 silently
+addfeat(){ for k in a b; do echo "- [x] [T2] \`app/f$1$k.py\` — thing. VERIFY: x. (cat:python; multifile:no) [feat:demo2-2026110$1-feat-$1]" >> "$tmp/repos/demo2/OVERNIGHT_PROGRESS.md"; done; }   # a feature needs >= 2 items to count
+for i in 1 2 3; do addfeat $i; done
+: > "$CURLLOG"; rm -f "$tmp/state/feature_complete_last_flush"
+run_watch
+ok "aggregated: 3 completions in one tick -> exactly ONE push" "[ \$(grep -c '^CALL: -fsS' '$CURLLOG') -eq 1 ]"
+ok "aggregated: the push is a note-class title that the relay does not drop ('Features ready to test: 3', no 'Feature complete')" "grep -q 'Features ready to test: 3' '$CURLLOG' && ! grep -qi 'Feature complete' '$CURLLOG'"
+ok "aggregated: the body names the features" "grep -q 'demo2-20261101-feat-1' '$CURLLOG' && grep -q 'demo2-20261103-feat-3' '$CURLLOG'"
+addfeat 4
+: > "$CURLLOG"; run_watch
+ok "aggregated: a new completion inside the flush window is buffered, no push yet" "[ ! -s '$CURLLOG' ] && grep -q 'demo2-20261104-feat-4' '$tmp/state/feature_complete_pending.log'"
+echo 1 > "$tmp/state/feature_complete_last_flush"; : > "$CURLLOG"; run_watch
+ok "aggregated: after the window the buffered completion goes out as ONE push and the buffer is cleared" "[ \$(grep -c '^CALL: -fsS' '$CURLLOG') -eq 1 ] && grep -q 'Features ready to test: 1' '$CURLLOG' && [ ! -s '$tmp/state/feature_complete_pending.log' ]"
+# mutant: aggregation ignored (per-item pushes again) must be caught by the burst check
+sed 's/^AGG="\${OVN_FEATURE_AGGREGATE:-on}"/AGG=off/' "$tmp/ovn_feature_watch.sh" > "$tmp/mut_watch.sh"
+ok "mutant anchor applies" "! cmp -s '$tmp/ovn_feature_watch.sh' '$tmp/mut_watch.sh'"
+for i in 5 6 7; do addfeat $i; done
+: > "$CURLLOG"; WATCH_SCRIPT="$tmp/mut_watch.sh" AGG_MODE=on run_watch
+ok "mutant (aggregation ignored) is caught: a 3-feature burst would send 3 pushes" "[ \$(grep -c '^CALL: -fsS' '$CURLLOG') -eq 3 ]"
+
+# ---- S2 review fix: an unreachable relay at flush time must NOT lose the buffered list or advance the flush clock ----
+for i in 8 9; do addfeat $i; done
+setcurl(){ printf '#!/usr/bin/env bash\necho "CALL: $*" >> "%s"\nexit %s\n' "$CURLLOG" "$1" > "$tmp/bin/curl"; chmod +x "$tmp/bin/curl"; }
+setcurl 7
+echo 1 > "$tmp/state/feature_complete_last_flush"; : > "$CURLLOG"; AGG_MODE=on run_watch
+ok "flush with relay down: pending buffer kept (>=2 entries) and flush clock NOT advanced" "[ \$(wc -l < '$tmp/state/feature_complete_pending.log') -ge 2 ] && [ \$(cat '$tmp/state/feature_complete_last_flush') = 1 ]"
+setcurl 0
+: > "$CURLLOG"; AGG_MODE=on run_watch
+ok "relay back: the retained list is delivered in one push and the buffer cleared" "grep -q 'demo2-20261108-feat-8' '$CURLLOG' && [ ! -s '$tmp/state/feature_complete_pending.log' ]"
+# mutant: alert() swallows failures again (old behaviour) -> buffer lost on a failed push
+sed 's#>/dev/null 2>&1; }#>/dev/null 2>\&1 || true; }#' "$tmp/ovn_feature_watch.sh" > "$tmp/mut2.sh"
+ok "mutant2 anchor applies" "! cmp -s '$tmp/ovn_feature_watch.sh' '$tmp/mut2.sh' && bash -n '$tmp/mut2.sh'"
+echo "demo2 mutfeat" >> "$tmp/state/feature_complete_pending.log"; setcurl 7
+echo 1 > "$tmp/state/feature_complete_last_flush"; WATCH_SCRIPT="$tmp/mut2.sh" AGG_MODE=on run_watch
+ok "mutant (failure swallowed, unconditional clear) is caught: buffer lost on a failed push" "[ ! -s '$tmp/state/feature_complete_pending.log' ]"
 
 echo "ovn_feature_watch.sh: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -37,6 +37,6 @@ mutate "escalate shadow mode falls through to a real push (N7)" '    if mode == 
         if seen.get("shadow:" + sig) != day and not dry:' '    if mode == "off":
         if seen.get("shadow:" + sig) != day and not dry:'
 mutate "a capped escalation consumes the day (N7)" '    if res in ("sent", "deduped") and not dry:' '    if res in ("sent", "deduped", "capped") and not dry:'
-mutate "dropped messages not counted (N8)" '            _event("dropped", "drop", clean_title(title))' '            pass'
+mutate "dropped messages not counted (N8)" '            _event("dropped", "drop", clean_title(title), body)' '            pass'
 [ "$rc" = 0 ] && echo "  p2 notify quality wrapper: all green"
 exit $rc

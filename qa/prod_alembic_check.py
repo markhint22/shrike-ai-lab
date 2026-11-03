@@ -91,6 +91,43 @@ def decide(prod_rev, revs, bad):
 
 
 # ---------------------------------------------------------------- IO
+def classify(prod_rev, revs, bad):
+    """K4 (2026-11-03): the 4-state relation written to state/prod_alembic_snapshot_<repo>.json. -> (state, head|None).
+    UNVERIFIED = no prod revision or no usable candidate graph | MATCH prod == head | BEHIND prod is a strict ancestor (pending migrations)
+    | MISMATCH prod's revision is not in the candidate's history, or the candidate graph is broken (no revision id / several heads)."""
+    if bad or not revs:
+        return ("MISMATCH" if bad else "UNVERIFIED"), None
+    hs = heads_of(revs)
+    if len(hs) != 1:
+        return "MISMATCH", None
+    head = hs[0]
+    if not prod_rev:
+        return "UNVERIFIED", head
+    if prod_rev == head:
+        return "MATCH", head
+    if prod_rev in ancestors(head, revs):
+        return "BEHIND", head
+    return "MISMATCH", head
+
+
+def verdict_path(repo):
+    return os.path.join(qc.state_dir(), "prod_alembic_snapshot_%s.json" % repo)
+
+
+def write_verdict(repo, sha, state, head, prod_rev, why):
+    """Best-effort, atomic; never raises (a state-dir problem must not touch the promote)."""
+    try:
+        path = verdict_path(repo)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"repo": repo, "state": state, "candidate_sha": sha, "candidate_head": head, "prod_revision": prod_rev,
+                       "reason": why, "checked_at": time.time()}, f, sort_keys=True)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def read_prod_rev(repo):
     """-> (rev|None, note). Never raises."""
     try:
@@ -134,7 +171,10 @@ def check_ref(repo, sha):
     v, why = decide(prod, revs, bad)
     if v == "UNVERIFIED" and prod is None:
         why += " (%s)" % note
-    return {"verdict": v, "summary": why}
+    state, head = classify(prod, revs, bad)
+    if v != "NA":
+        write_verdict(repo, sha, state, head, prod, why)
+    return {"verdict": v, "summary": why, "state": state, "head": head, "prod_revision": prod}
 
 
 def args_of(argv):

@@ -38,6 +38,7 @@ Mode resolution (2026-10-03, A3: staging_check is ENFORCING by default at promot
 """
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -240,6 +241,61 @@ def _is_ancestor_in(rd, a, b):
     return qc.git(rd, "merge-base", "--is-ancestor", a, b)[0] == 0
 
 
+
+# ---------------------------------------------------------------- K4 (2026-11-03): migration note + staging-URL reader (all additive, never crash a promote)
+VERSIONS_RE = re.compile(r"(^|/)(alembic|migrations)/versions/[^/]+\.py$")
+
+
+def migrations_in_range(git_fn, rd, base, cand):
+    """Alembic revision files ADDED between base (main) and the candidate: the promote of a migration must be visible in the digest. -> sorted [path]."""
+    rc, out, _ = git_fn(rd, "diff", "--name-only", "--diff-filter=A", base, cand)
+    if rc != 0:
+        return []
+    return sorted(p for p in out.split("\n") if p and VERSIONS_RE.search(p) and not p.endswith("__init__.py"))
+
+
+def staging_url_required():
+    return os.environ.get("OVN_STAGING_URL_REQUIRED", "0").lower() in ("1", "on", "true", "yes")
+
+
+def url_blocks(present, required, repo, repos):
+    """Pure: fail CLOSED only when the operator opted in (OVN_STAGING_URL_REQUIRED) and the repo has a smoke config but no staging URL file."""
+    return bool(required and not present and repo in repos)
+
+
+def smoke_repos():
+    """Repos that have a smoke config (those are the ones a missing state/staging_url_<repo> silently disables)."""
+    try:
+        import staging_smoke as ss
+        return set((ss.load_config(os.path.join(os.path.dirname(os.path.abspath(__file__)), "staging_smoke.conf")).get("repos") or {}))
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def staging_url_state(repo, repos=None, state_dir=None):
+    """-> (present, note). note is the ONE-TIME explanation (marker state/staging_url_explained_<repo>), '' on every later run or when the URL exists."""
+    sd = state_dir or qc.state_dir()
+    try:
+        with open(os.path.join(sd, "staging_url_" + repo)) as f:
+            if f.read().split():
+                return True, ""
+    except OSError:
+        pass
+    if repo not in (smoke_repos() if repos is None else repos):
+        return False, ""
+    mk = os.path.join(sd, "staging_url_explained_" + repo)
+    if os.path.exists(mk):
+        return False, ""
+    try:
+        os.makedirs(sd, exist_ok=True)
+        with open(mk, "w") as f:
+            f.write("explained\n")
+    except OSError:
+        pass
+    return False, ("no state/staging_url_%s: the staging smoke is SKIPPED for %s (explained once; create the file with '<backend_url> [frontend_origin]' to enable it; "
+                   "OVN_STAGING_URL_REQUIRED=1 then makes a missing file BLOCK the promote)" % (repo, repo))
+
+
 def decide_block(mode, verdict, relation, staged, evidence):
     """Pure decision (unit-tested). -> (block, unverified, reason).
     staged: the repo has a staging backend. evidence: ok | stale | missing (state of the exported staging_deploys file)."""
@@ -304,6 +360,23 @@ def _check(argv):
             out["alembic_verdict"], out["alembic_summary"] = a["verdict"], a["summary"][:240]
         except Exception as ex:  # noqa: BLE001
             out["alembic_verdict"], out["alembic_summary"] = "UNVERIFIED", "prod_alembic_check crashed: %s" % type(ex).__name__
+        try:  # K4: refresh the prod alembic snapshot from the public prod /health (read-only GET) right before the check; OVN_ALEMBIC_REFRESH=on (default off: cron does it)
+            if os.environ.get("OVN_ALEMBIC_REFRESH", "off") == "on":
+                import prod_alembic_snapshot as pas
+                pas.refresh(repo)
+                a = pac.check_ref(repo, plan["candidate"])
+                out["alembic_verdict"], out["alembic_summary"] = a["verdict"], a["summary"][:240]
+        except Exception:  # noqa: BLE001
+            pass
+        try:  # K4: alembic revisions added in the promoted range (visible in the digest) + staging URL reader
+            rd0 = qc.repo_dir(repo)
+            out["migrations_added"] = migrations_in_range(qc.git, rd0, opt(argv, "--main", "origin/main"), plan["candidate"]) if rd0 else []
+            present, note = staging_url_state(repo)
+            out["staging_url_present"], out["staging_url_note"] = present, note
+            if url_blocks(present, staging_url_required(), repo, smoke_repos()):
+                out["block"], out["unverified"], out["reason"] = True, True, "STAGING_URL_MISSING"
+        except Exception:  # noqa: BLE001
+            pass
         try:  # live-staging e2e evidence: SHADOW unless `qa_enforce.sh staging_e2e enforce`; an error here never blocks and never crashes the promote
             _apply_e2e(out, repo, plan["candidate"])
         except Exception as ex:  # noqa: BLE001
@@ -375,6 +448,10 @@ def log_lines(o):
             len(o.get("soak_new_signatures") or []), sact, (o.get("soak_summary") or "")[:140]))
     if o.get("alembic_verdict"):
         out.append("  [prod-alembic] %s (shadow): %s" % (o["alembic_verdict"], o["alembic_summary"]))
+    if o.get("migrations_added"):
+        out.append("  [migrations] +%d alembic revision(s) in the promoted range: %s" % (len(o["migrations_added"]), ", ".join(os.path.basename(m) for m in o["migrations_added"][:6])))
+    if o.get("staging_url_note"):
+        out.append("  [staging-url] " + o["staging_url_note"])
     return out
 
 

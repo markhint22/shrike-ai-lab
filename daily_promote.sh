@@ -49,8 +49,8 @@ run_repo(){  # $1=repo $2=defer-note(0|1)
   out="$(OVN_PROMOTE_DEFER_NOTE="$2" ./promote_to_prod.sh --yes "repos/$r" 2>&1)"
   # 2026-10-02: the "[candidate]" / "[staging-gate]" evidence lines promote_to_prod.sh prints are kept whole in this log (tail -6 would
   # cut them off) so the morning read shows which SHA was considered and what staging was serving.
-  echo "===== $r ====="; echo "$out" | grep -vE 'setup agent|Tip:|^  \[(candidate|staging-gate|unverified|prod-alembic|prod-deploy|transient-hold)\]' | tail -6
-  echo "$out" | grep -E '^  \[(candidate|staging-gate|unverified|prod-alembic|prod-deploy|transient-hold)\]'
+  echo "===== $r ====="; echo "$out" | grep -vE 'setup agent|Tip:|^  \[(candidate|staging-gate|unverified|prod-alembic|migrations|staging-url|prod-deploy|transient-hold)\]' | tail -6
+  echo "$out" | grep -E '^  \[(candidate|staging-gate|unverified|prod-alembic|migrations|staging-url|prod-deploy|transient-hold)\]'
   # 2026-10-03: promoted WITHOUT staging provenance (NA / unknown commit) is reported, never silent
   if echo "$out" | grep -q "PROMOTED" && echo "$out" | grep -q '^  \[unverified\]'; then unverified="$unverified $r"; fi
   if   echo "$out" | grep -q "PROMOTED";                 then promoted="$promoted $r"

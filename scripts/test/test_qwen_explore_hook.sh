@@ -185,7 +185,7 @@ EOP
 }
 fresh_calls(){ mk_od; rm -f "$QD"/next_*; }
 # 1. no next_<repo> gate => relaunched on every exhausted pass
-mutlib m_gate '  [ "$now" -lt "$nxt" ] && return 0' '  :' || { F=$((F+1)); echo "  FAIL mutation anchor 1"; }
+mutlib m_gate '  [ "$now" -lt "$nxt" ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "next pass in $((nxt - now))s"; return 0; }' '  :' || { F=$((F+1)); echo "  FAIL mutation anchor 1"; }
 ok "MUTATION: without the next_<repo> gate EVERY exhausted pass forks an explorer (2 calls from 2 passes)" "( . '$W/m_gate.sh'; fresh_calls; rm -f '$QD/next_iptv_apps'; ovn_qwen_explore_kick iptv_apps '$SD' '$OD' exhausted; waitcalls 1; ovn_qwen_explore_kick iptv_apps '$SD' '$OD' exhausted; waitcalls 2; [ \"\$(calls)\" = 2 ] )"
 # 2. no debounce stamp => two passes before the explorer finishes double-launch
 mutlib m_debounce '  printf '"'"'%s\n'"'"' "$(( now + ${OVN_QE_DEBOUNCE_S:-300} ))" > "$qd/next_${repo}" 2>/dev/null' '  :' || { F=$((F+1)); echo "  FAIL mutation anchor 2"; }
@@ -206,14 +206,13 @@ mutlib m_kill '  [ "${OVN_QWEN_EXPLORE:-on}" = off ] && return 0
   [ -f "$od/scripts/ovn_qwen_explore.py" ]' '  [ -f "$od/scripts/ovn_qwen_explore.py" ]' || { F=$((F+1)); echo "  FAIL mutation anchor 5"; }
 ok "MUTATION: without the kill-switch line the explorer is launched although OVN_QWEN_EXPLORE=off" "( . '$W/m_kill.sh'; fresh_calls; OVN_QWEN_EXPLORE=off ovn_qwen_explore_kick iptv_apps '$SD' '$OD' exhausted; waitcalls 1 )"
 # 6. fuel cap ignored
-mutlib m_fuel '  [ "$rdy" -ge "${OVN_QE_READY_CAP:-4}" ] && return 0' '  :' || { F=$((F+1)); echo "  FAIL mutation anchor 6"; }
+mutlib m_fuel '  [ "$rdy" -ge "${OVN_QE_READY_CAP:-4}" ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "$rdy [ready] features already queued"; return 0; }' '  :' || { F=$((F+1)); echo "  FAIL mutation anchor 6"; }
 ok "MUTATION: without the fuel check an explorer starts although 4 [ready] features wait" "( . '$W/m_fuel.sh'; fresh_calls; for i in 1 2 3 4; do echo '- [ ] [P3] [ready] f — x {cat: backend; size: S; multifile: no; research: none}' >> '$OD/roadmap/iptv_apps.md'; done; ovn_qwen_explore_kick iptv_apps '$SD' '$OD' exhausted; waitcalls 1 )"
 # 7. low mode ignores the backlog
-mutlib m_low '    [ "$backlog_open" -gt 0 ] && return 0' '    :' || { F=$((F+1)); echo "  FAIL mutation anchor 7"; }
+mutlib m_low '    [ "$backlog_open" -gt 0 ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "$backlog_open open backlog item(s) (low-supply kick waits for an empty backlog)"; return 0; }' '    :' || { F=$((F+1)); echo "  FAIL mutation anchor 7"; }
 ok "MUTATION: low mode without the backlog check launches with an open backlog" "( . '$W/m_low.sh'; fresh_calls; echo '- [ ] [T2] a.py — x. VERIFY: \`true\`. (cat:python; multifile:no)' > '$OD/backlog/iptv_apps.md'; ovn_qwen_explore_kick iptv_apps '$SD' '$OD' low; waitcalls 1 )"
 # 8. PAUSED ignored
-mutlib m_paused '  [ -e "$sd/PAUSED" ] && return 0
-  qd=' '  qd=' || { F=$((F+1)); echo "  FAIL mutation anchor 8"; }
+mutlib m_paused '  [ -e "$sd/PAUSED" ] && { ovn_qe_gate_beat "$od" "$qd" "$repo" "queue paused"; return 0; }' '  :' || { F=$((F+1)); echo "  FAIL mutation anchor 8"; }
 ok "MUTATION: without the PAUSED check an explorer starts while the queue is paused" "( . '$W/m_paused.sh'; fresh_calls; touch '$SD/PAUSED'; ovn_qwen_explore_kick iptv_apps '$SD' '$OD' exhausted; waitcalls 1 )"
 # 9. the wait guard neutered
 mutlib m_wait '    [ "$running" = 0 ] && return 0

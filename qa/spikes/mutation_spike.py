@@ -408,25 +408,134 @@ def show_diff(python, sp, service_dir, name, timeout=60):
     return out if rc == 0 else ""
 
 
-def select_tests(sdir, modules, names, limit=25):
-    """Diff-scoped test selection (--select-tests): test files under <service>/tests that mention a changed module's dotted path
-    or a changed function name. Returns relative paths ([] -> caller falls back to the full suite). This trades fidelity for time:
-    tests that reach the function only indirectly are not run, so survivors can be over-reported."""
-    hits = []
+def def_lines(src):
+    """{qualname: line of the `def` keyword} for top-level functions and methods of top-level classes (decorators excluded)."""
+    out = {}
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return out
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out[n.name] = n.lineno
+        elif isinstance(n, ast.ClassDef):
+            for m in n.body:
+                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    out["%s.%s" % (n.name, m.name)] = m.lineno
+    return out
+
+
+def mutant_offset(service_dir, key):
+    """K2: 0-based line offset (from the `def` line) of the FIRST source line a mutant changes, read from mutmut's own generated file mutants/<module>.py, where the
+    original body sits in <fn>__mutmut_orig and every mutant is a full copy <fn>__mutmut_<n>; None when it cannot be determined (the caller then keeps the mutant)."""
+    import difflib
+    mod, _, fname = key.rpartition(".")
+    if not mod or "__mutmut_" not in fname:
+        return None
+    base = os.path.join(service_dir, "mutants", *mod.split("."))
+    path = base + ".py" if os.path.isfile(base + ".py") else os.path.join(base, "__init__.py")
+    try:
+        src = open(path, encoding="utf-8").read()
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+    lines = src.splitlines()
+    by_name = {}
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            by_name[n.name] = n
+    mut = by_name.get(fname)
+    orig = by_name.get(fname.rsplit("__mutmut_", 1)[0] + "__mutmut_orig")
+    if mut is None or orig is None:
+        return None
+    ob = lines[orig.lineno - 1:orig.end_lineno]
+    mb = lines[mut.lineno - 1:mut.end_lineno]
+    # the `def` lines differ by name (x_f__mutmut_orig vs x_f__mutmut_<n>): compare the bodies and add the def line back
+    for tag, i1, _i2, _j1, _j2 in difflib.SequenceMatcher(None, ob[1:], mb[1:], autojunk=False).get_opcodes():
+        if tag != "equal":
+            return i1 + 1
+    return None
+
+
+def mutant_in_changed_lines(service_dir, key, fn_def_line, hs):
+    """True/False when the mutant's first changed line falls inside / outside the commit range's hunks `hs`; True (keep) when unknown."""
+    off = mutant_offset(service_dir, key)
+    if off is None:
+        return True
+    line = fn_def_line + off
+    return any(a <= line <= b for a, b in hs)
+
+
+def pragma_scope(path, fn_spans, hs):
+    """K2 PRE-mutation line scope. mutmut 3 mutates whole functions but honours `# pragma: no mutate` per line, so in the throwaway worktree copy `path` append that pragma to
+    every SINGLE-LINE simple statement inside the changed functions `fn_spans` [(first, last)] that lies outside the commit range's hunks `hs` ((a, b) inclusive): those mutants
+    are never generated, never run and cost no test time. Multi-line statements and compound-statement headers are left alone (the post-run filter still drops their
+    unchanged-line mutants), the `def` line is never marked, and no line numbers move. Returns the number of lines marked."""
+    try:
+        src = open(path, encoding="utf-8").read()
+        tree = ast.parse(src)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return 0
+    lines = src.split("\n")
+    compound = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try, ast.Match)
+    marks = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.stmt) or isinstance(node, compound):
+            continue
+        a, b = node.lineno, node.end_lineno
+        if a != b or not any(f <= a <= l for f, l in fn_spans):
+            continue
+        if any(x <= a <= y for x, y in hs):
+            continue
+        txt = lines[a - 1]
+        if "pragma: no mutate" in txt or txt.rstrip().endswith("\\") or isinstance(node, ast.Expr) and isinstance(getattr(node, "value", None), ast.Constant):
+            continue                    # already marked / continuation line / bare string (docstring): never touch
+        marks.add(a)
+    for a in marks:
+        lines[a - 1] = lines[a - 1].rstrip() + "  # pragma: no mutate"
+    if marks:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+    return len(marks)
+
+
+def select_tests(sdir, modules, names, limit=25, changed_tests=(), info=None):
+    """Diff-scoped test selection (--select-tests): the test files that cover the changed code, by changed-file mapping. A test file under <service>/tests is selected when
+    (1) its name follows the module convention (test_<mod>*.py / <mod>_test.py) or (2) its text mentions a changed module's dotted path or a changed function name;
+    being itself in the changed range (`changed_tests`, service-relative) only raises the rank. Ranked changed > name > mention and cut to `limit` (K2: it used to fall back to
+    the FULL suite above the limit, which is exactly what does not fit the wall cap on iptv/billwatch/gitlark); a cut is recorded in info['truncated'].
+    Returns relative paths ([] -> caller falls back to the full suite or says UNVERIFIED). Trades fidelity for time: tests reaching the code only indirectly
+    are not run, so survivors can be over-reported."""
+    hits = {}
     tdir = os.path.join(sdir, "tests")
     pats = [re.compile(r"\b" + re.escape(m) + r"\b") for m in modules] + [re.compile(r"\b" + re.escape(n) + r"\b") for n in names if len(n) > 3]
+    bases = {m.rsplit(".", 1)[-1] for m in modules if m}
+    chg = {c for c in changed_tests}
     for dp, _, fns in os.walk(tdir):
         for fn in fns:
             if not fn.endswith(".py") or fn == "conftest.py":
                 continue
             full = os.path.join(dp, fn)
+            rel = os.path.relpath(full, sdir)
+            score = 0
+            stem = fn[:-3]
+            if any(stem == "test_" + b or stem.startswith("test_" + b + "_") or stem == b + "_test" for b in bases):
+                score += 2
             try:
                 txt = open(full, encoding="utf-8", errors="replace").read()
             except OSError:
                 continue
             if any(p.search(txt) for p in pats):
-                hits.append(os.path.relpath(full, sdir))
-    return sorted(hits) if 0 < len(hits) <= limit else []
+                score += 1
+            if score and rel in chg:     # changed in the range ranks first, but a changed test that does not touch the module is not coverage evidence
+                score += 4
+            if score:
+                hits[rel] = score
+    ranked = sorted(hits, key=lambda r: (-hits[r], r))
+    if info is not None:
+        info["candidates"] = len(ranked)
+        info["truncated"] = max(0, len(ranked) - limit)
+    return sorted(ranked[:limit])
 
 
 def cfg_escape(s):
@@ -475,7 +584,9 @@ def check(argv):
     if not rd:
         return qc.verdict("UNVERIFIED", GATE, repo, ref, "no clone for repo %s" % repo)
     deadline = t0 + o["cap"]
-    files = [f for f in qc.changed_files(rd, base, head) if f.endswith(".py") and not is_test_path(f)]
+    all_changed = [f for f in qc.changed_files(rd, base, head) if f.endswith(".py")]
+    files = [f for f in all_changed if not is_test_path(f)]
+    files_all = [f for f in all_changed if is_test_path(f)]       # K2: test files changed in the range (selected first by select_tests)
     if o["paths"]:  # restrict a wide range (feature = several commits) to named files, comma-separated, repo-relative
         keep = [x for x in o["paths"].split(",") if x]
         files = [f for f in files if any(f == k or f.startswith(k.rstrip("/") + "/") for k in keep)]
@@ -515,8 +626,15 @@ def check(argv):
         funcs, globs, module_only, fn_names = [], [], [], []
         skipped_decorated, n_unwrapped = [], 0
         mod_files = []
+        line_hunks, def_line_of = {}, {}      # K2: per file, the commit range's changed line ranges and the `def` line of each function (for line scoping)
         for rel in rels:
             hit, modonly = changed_functions(rd, base, head, wt, os.path.join(service, rel))
+            try:
+                rc0, _, _ = qc.git(rd, "cat-file", "-e", "%s:%s" % (base, os.path.join(service, rel)))
+                line_hunks[rel] = [(1, 10 ** 9)] if rc0 != 0 else hunks(rd, base, head, os.path.join(service, rel))
+                def_line_of[rel] = def_lines(open(os.path.join(wt, service, rel), encoding="utf-8").read())
+            except (OSError, UnicodeDecodeError):
+                pass
             module = rel[:-3].replace(os.sep, ".")
             if module.endswith(".__init__"):
                 module = module[:-9]
@@ -591,7 +709,11 @@ def check(argv):
         sel = []
         if o["select_tests"]:
             mods = [(r[:-3].replace(os.sep, ".")[:-9] if r.endswith("__init__.py") else r[:-3].replace(os.sep, ".")) for r in mod_files]
-            sel = select_tests(sdir, mods, sorted({f[1][2] for f in funcs}))
+            sel_info = {}
+            svc_prefix = (service.rstrip("/") + "/") if service not in ("", ".") else ""
+            chg_tests = [f[len(svc_prefix):] for f in files_all if f.startswith(svc_prefix)]
+            sel = select_tests(sdir, mods, sorted({f[1][2] for f in funcs}), changed_tests=chg_tests, info=sel_info)
+            det["tests_selection"] = sel_info
         det["tests_selected"] = sel if sel else "all"
         if o["require_selection"] and not sel:
             return qc.verdict("UNVERIFIED", GATE, repo, ref, "no test file references the changed module(s)/function(s) and the full suite does not fit the "
@@ -600,6 +722,18 @@ def check(argv):
         if xd:
             return qc.verdict("UNVERIFIED", GATE, repo, ref, "pytest-xdist args %s are refused: workers hide mutmut's per-function test "
                               "stats and every function would look untested (measured)" % xd, det)
+        if os.environ.get("OVN_MUT_PRAGMA_SCOPE", "1") != "0":
+            n_prag = 0
+            for rel in mod_files:
+                spans = [(fn[3], fn[4]) for r2, fn in funcs if r2 == rel]
+                if rel in line_hunks and spans:
+                    try:
+                        n_prag += pragma_scope(os.path.join(sdir, rel), spans, line_hunks[rel])
+                    except OSError:
+                        pass
+            det["pragma_scope"] = {"enabled": True, "unchanged_lines_excluded_before_mutation": n_prag}
+        else:
+            det["pragma_scope"] = {"enabled": False}
         if not write_config(sdir, pkg, only, [cfg_escape(x) for x in o["pytest_arg"]], skip=set(linked), selection=sel):
             return qc.verdict("UNVERIFIED", GATE, repo, ref, "service already has a [mutmut] config; not overriding", det)
         det["cfg_written"] = True
@@ -670,6 +804,39 @@ def check(argv):
         det["mutmut_attempts"] = attempts
         det["mutmut_tail"] = re.sub(r"[\r\x1b][^\n]{0,80}", "", tail)[-300:] if (timed_out or rc not in (0,)) else ""
         res_rows = read_results(sdir, globs)
+        if os.environ.get("OVN_MUT_LINE_SCOPE", "1") != "0" and res_rows:
+            # K2 diff scope: mutmut mutates whole functions; keep only the mutants whose first changed source line lies on a line this range touched
+            mod_fn = {}
+            for rel, fn in funcs:
+                mod_fn[mangled_globs(rel[:-3].replace(os.sep, ".")[:-9] if rel.endswith("__init__.py") else rel[:-3].replace(os.sep, "."), fn)] = (rel, fn)
+            kept, outside = [], 0
+            for row in res_rows:
+                hit = next((v for g, v in mod_fn.items() if fnmatch.fnmatchcase(row[0], g)), None)
+                if hit and hit[0] in line_hunks and hit[1][0] in def_line_of.get(hit[0], {}) \
+                        and not mutant_in_changed_lines(sdir, row[0], def_line_of[hit[0]][hit[1][0]], line_hunks[hit[0]]):
+                    outside += 1
+                    continue
+                kept.append(row)
+            det["line_scope"] = {"enabled": True, "mutants_total_in_changed_functions": len(res_rows), "dropped_outside_changed_lines": outside}
+            res_rows = kept
+            if not kept and outside:
+                det["wall_s"] = round(time.time() - t0, 1)
+                return qc.verdict("NA", GATE, repo, ref, "all %d mutant(s) of the changed function(s) sit on lines this range did not touch" % outside, det)
+        else:
+            det["line_scope"] = {"enabled": False}
+        n_excl = int((det.get("pragma_scope") or {}).get("unchanged_lines_excluded_before_mutation") or 0)
+        # mutmut's documented zero-mutants condition: it prints "Stopping early, because we could not find any test case for any mutant ... If some of the
+        # mutated code should be covered by the executed tests" and exit(1)s. ONLY that signature (with exactly rc=1, and not the clean-run-red path) proves
+        # "nothing to mutate"; any other no-rows failure (crash, import/config error, unreadable results) stays UNVERIFIED below.
+        zero_sig = (rc == 1 and "could not find any test case for any mutant" in tail
+                    and not re.search(r"failed to collect stats|Failed to run clean test|BadTestExecutionCommandsException", tail))
+        if not res_rows and not timed_out and n_excl and zero_sig:
+            # K2: the pragma pre-filter excluded every unchanged single-line statement, so a comment-only / whitespace-only / non-mutable change leaves mutmut with
+            # ZERO mutants (it then prints its "should be covered" error and exits non-zero). That is "nothing to mutate on the changed lines" = NA, not UNVERIFIED.
+            det["wall_s"] = round(time.time() - t0, 1)
+            det["zero_mutants_after_scoping"] = True
+            return qc.verdict("NA", GATE, repo, ref, "no mutable code on the lines this range changed (%d unchanged single-line statement(s) were excluded before mutation, "
+                              "mutmut generated 0 mutants)" % n_excl, det)
         counts = {}
         for _, st, _c in res_rows:
             counts[st] = counts.get(st, 0) + 1
@@ -683,7 +850,7 @@ def check(argv):
         undecided = counts.get("suspicious", 0) + counts.get("skipped", 0) + counts.get("interrupted", 0)
         det["undecided_mutants"] = undecided
         det["mutation_score_pct"] = round(100.0 * killed / tested, 1) if tested else None
-        if not timed_out and "could not find any test case for any mutant" in tail:
+        if res_rows and not timed_out and "could not find any test case for any mutant" in tail:   # needs real mutant rows: with none, the message alone proves nothing (zero-mutants is handled above)
             # mutmut aborts when NO test executes any mutated code: every changed function is untested
             det["untested_functions"] = fn_names
             det["survivors_total"] = 0

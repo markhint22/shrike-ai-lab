@@ -334,6 +334,35 @@ def landed_tags(outcomes_path):
     return tags
 
 
+def landed_line_hashes(outcomes_path):
+    """{(repo, feat_tag): {item_line_hash,...}} from landed/credit-only rows (S3-guards2: the landing is keyed by the ITEM, not only the feature: siblings of one [feat:] tag are different items)."""
+    out = {}
+    try:
+        fh = open(outcomes_path, "rb")
+    except OSError:
+        return out
+    with fh:
+        for raw in fh:
+            try:
+                r = json.loads(raw.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if isinstance(r, dict) and r.get("class") in LANDED_CLASSES and r.get("feat_tag"):
+                out.setdefault((str(r.get("repo") or ""), str(r["feat_tag"])), set())
+                for k in ("item_line_hash", "item_hash"):
+                    if r.get(k):
+                        out[(str(r.get("repo") or ""), str(r["feat_tag"]))].add(str(r[k]))
+    return out
+
+
+def line_key(text):
+    """md5 of the harvested task text (the part after '[CLAUDE] <repo>/ - ', checkbox stripped): the same shape the fleet hashes (outcomes item_line_hash) when the text is unchanged."""
+    import hashlib
+    body = re.sub(r"^\s*- \[[ xX]\] ", "", text or "")
+    body = re.sub(r"^\[CLAUDE\]\s*\S+?/\s*[\u2014-]\s*", "", body)
+    return hashlib.md5(body.encode("utf-8")).hexdigest()
+
+
 def _tag_landed(tags, repo, tag):
     """True when (repo, tag) landed. An outcomes row with no repo field (legacy) matches any repo."""
     return (repo, tag) in tags or ("", tag) in tags
@@ -355,10 +384,32 @@ def named_test_ids(line):
     return ids
 
 
+# S3-guards2 (2026-11-03, outcomes F1 / cqueue F1): the old `git grep -qF <id> <ref>` searched EVERY file, so the queue's own text (OVERNIGHT_PROGRESS.md, CLAUDE_QUEUE*, docs) proved
+# "the test exists" - 3 of 7 shadow would-close lines were not justified (xlite is_valid_uses_validators exists only as queue text, the work was never done). Now: code/test paths only
+# (markdown/text/log/json/queue/doc paths are excluded) AND the id must be DEFINED (def/func/fun/function/fn/class <id>..., or it/test/describe("...<id>...")), not merely mentioned.
+CODE_PATHSPEC = ("--", ".", ":(exclude)*.md", ":(exclude)*.markdown", ":(exclude)*.txt", ":(exclude)*.log", ":(exclude)*.json", ":(exclude)*.jsonl", ":(exclude)*.csv", ":(exclude)*.rst",
+                 ":(exclude)OVERNIGHT_PROGRESS.md", ":(exclude)*OVERNIGHT_PROGRESS*", ":(exclude)*CLAUDE_QUEUE*", ":(exclude,glob)**/docs/**", ":(exclude,glob)docs/**")
+_ERE_META = set(".[]{}()*+?^$|\\")
+
+
+def _ere_escape(s):
+    return "".join("\\" + c if c in _ERE_META else c for c in s)
+
+
+def definition_regex(needle):
+    """POSIX ERE (git grep -E, portable: no \\b or \\s) that matches a DEFINITION of `needle`: `def|func|fun|function|fn|class <needle>...` (an identifier may continue after it: pytest -k is a
+    substring match) or `it|test|describe|specify(...'<...needle...>`. A bare mention (comment, queue text, string elsewhere) does not match."""
+    n = _ere_escape(needle)
+    return ("(^|[^A-Za-z0-9_])(def|func|fun|function|fn|class)[[:space:]]+" + n +
+            "|(^|[^A-Za-z0-9_.])(it|test|describe|specify)(\\.[a-z]+)?[[:space:]]*\\([[:space:]]*['\"`][^'\"`]*" + n)
+
+
 def present_on_ref(repo_dir, ref, needle):
-    """True when `needle` occurs in any file of <ref> in the clone (git grep: path-independent, so a wrong path in the line does not matter)."""
+    """True when `needle` is DEFINED in a code/test file of <ref> in the clone (git grep: path-independent, so a wrong path in the line does not matter; markdown/queue/doc files never count)."""
+    if not needle or not needle.strip():
+        return False
     try:
-        r = subprocess.run(["git", "-C", repo_dir, "grep", "-qF", "-e", needle, ref], capture_output=True, timeout=60)
+        r = subprocess.run(["git", "-C", repo_dir, "grep", "-qE", "-e", definition_regex(needle), ref] + list(CODE_PATHSPEC), capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return False
     return r.returncode == 0
@@ -401,8 +452,24 @@ def _shadow(path, msg):
         pass
 
 
-def autoclose_lines(lines, tags, repos_dir, ref, today, present=present_on_ref):
-    """(new_lines, closed:[(lineno, repo, tag, why)]). Pure apart from the git grep: only open lines that carry a [feat:] tag whose tag landed."""
+def _shadow_once(path, key, msg):
+    """Append msg unless an existing row of the same day already carries `key` (one row per (line, tag, day): the hourly pass used to repeat it up to 6x)."""
+    if not path:
+        return False
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for row in f:
+                if key in row:
+                    return False
+    except OSError:
+        pass
+    _shadow(path, msg)
+    return True
+
+
+def autoclose_lines(lines, tags, repos_dir, ref, today, present=present_on_ref, hashes=None):
+    """(new_lines, closed:[(lineno, repo, tag, why)]). Pure apart from the git grep: only open lines that carry a [feat:] tag whose tag landed AND whose named test ids are DEFINED in code on the ref.
+    `hashes` ({(repo, tag): {line hashes}} from landed_line_hashes) tags the reason with how the landing matched: 'item' (this very line landed) or 'feature' (a sibling/other wording of the tag landed)."""
     out, closed, header = [], [], ""
     for i, ln in enumerate(lines):
         h = HEADER_RE.match(ln)
@@ -414,6 +481,9 @@ def autoclose_lines(lines, tags, repos_dir, ref, today, present=present_on_ref):
             repo = infer_repo(m.group(1), header)
             if repo and _tag_landed(tags, repo, tag):
                 ok, why = verify_on_develop(os.path.join(repos_dir, repo), ref, ln, present)
+                if ok and hashes is not None:
+                    hs = hashes.get((repo, tag), set()) | hashes.get(("", tag), set())
+                    why += "; landing=%s" % ("item" if line_key(m.group(1)) in hs else "feature")
                 if ok:
                     closed.append((i + 1, repo, tag, why))
                     out.append(ln.replace("- [ ]", "- [x]", 1) + " (auto-closed %s: [feat:%s] landed, %s)" % (today, tag, why))
@@ -428,13 +498,38 @@ def cmd_autoclose(args):
         sys.stderr.write("autoclose: off\n")
         return
     lines = open(args.queue, encoding="utf-8").read().splitlines()
-    new, closed = autoclose_lines(lines, landed_tags(args.outcomes), args.repos_dir, args.ref, args.today)
+    new, closed = autoclose_lines(lines, landed_tags(args.outcomes), args.repos_dir, args.ref, args.today, hashes=landed_line_hashes(args.outcomes))
     for lineno, repo, tag, why in closed:
-        _shadow(args.shadow_log, "%s %s would-close line %d %s [feat:%s] (%s)" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", lineno, repo, tag, why))
+        _shadow_once(args.shadow_log, "%s %s would-close line %d %s [feat:%s] (" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", lineno, repo, tag),
+                     "%s %s would-close line %d %s [feat:%s] (%s)" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", lineno, repo, tag, why))
     if mode == "enforce" and closed:
         with open(args.queue, "w", encoding="utf-8") as f:
             f.write("\n".join(new) + "\n")
     sys.stderr.write("autoclose: mode=%s %s=%d\n" % (mode, "closed" if mode == "enforce" else "would-close", len(closed)))
+
+
+TEST_ITEM_RE = re.compile(r"cat:test\b|\[T\d\]\s+\S*(?:/tests?/|tests?/|test_[^/\s]*\.|\.test\.|\.spec\.|_test\.|Tests?\.(?:kt|swift)|\.test\b)", re.I)
+
+
+def done_check(repos_dir, repo, ref, task, present=present_on_ref):
+    """(done, why) for the pre-harvest check (S3-guards2, cqueue F6: 22 of 31 recent harvested lines were stale on arrival). True only for a TEST-writing item (target path or cat:test says so)
+    whose VERIFY names >= 1 test id and EVERY one is DEFINED in a code/test file of <ref> (same definition-only guard as the autoclose: queue/markdown text never counts). An implementation item that names an
+    existing (red) test is NOT judged done - the test existing proves nothing about the behaviour."""
+    if not TEST_ITEM_RE.search(task or ""):
+        return False, "not a test-writing item"
+    ids = named_test_ids(task)
+    if not ids:
+        return False, "no named test id in VERIFY"
+    clone = os.path.join(repos_dir, repo)
+    if not os.path.isdir(clone):
+        return False, "no clone"
+    missing = [i for i in ids if not present(clone, ref, i)]
+    return (not missing), ("missing on %s: %s" % (ref, ", ".join(missing)) if missing else "all %d named test id(s) defined on %s" % (len(ids), ref))
+
+
+def done_check_mode(arg=None):
+    v = (arg or os.environ.get("OVN_HARVEST_DONE_CHECK") or "shadow").strip().lower()
+    return v if v in ("shadow", "enforce", "off") else "shadow"
 
 
 def cmd_harvest(args):
@@ -442,6 +537,7 @@ def cmd_harvest(args):
     existing_sigs = {task_sig(t) for t, _ in iter_all_items(lines)}
     mode = autoclose_mode(getattr(args, "mode", None))
     closed = {("", t) for t in closed_tags(lines)} | (landed_tags(args.outcomes) if getattr(args, "outcomes", "") else set()) if mode != "off" else set()
+    dmode = done_check_mode(getattr(args, "done_mode", None)) if getattr(args, "repos_dir", "") else "off"
     new_items = []
     for ln in open(args.autoskip, encoding="utf-8").read().splitlines():
         if "\t" not in ln:
@@ -457,6 +553,14 @@ def cmd_harvest(args):
             _shadow(getattr(args, "shadow_log", ""), "%s %s would-not-reharvest %s [feat:%s]" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", repo, tag))
             if mode == "enforce":
                 continue
+        if dmode != "off":
+            done, dwhy = done_check(args.repos_dir, repo, getattr(args, "done_ref", "origin/claude/feature"), task)
+            if done:
+                sg = task_sig(task)[:24]
+                tagm = "%s %s would-skip-done %s sig=%s" % (args.today, "ENFORCED" if dmode == "enforce" else "SHADOW", repo, sg)
+                _shadow_once(getattr(args, "done_log", ""), tagm + " (", "%s (%s) %s" % (tagm, dwhy, task[:90]))
+                if dmode == "enforce":
+                    continue
         existing_sigs.add(task_sig(task))
         new_items.append((repo, task))
     if not new_items:
@@ -485,6 +589,10 @@ def main():
     hp.add_argument("--outcomes", default="")
     hp.add_argument("--mode", default="")
     hp.add_argument("--shadow-log", default="")
+    hp.add_argument("--repos-dir", default="")
+    hp.add_argument("--done-ref", default="origin/claude/feature")
+    hp.add_argument("--done-mode", default="")
+    hp.add_argument("--done-log", default="")
     ap = sub.add_parser("autoclose")
     ap.add_argument("--queue", required=True)
     ap.add_argument("--outcomes", required=True)

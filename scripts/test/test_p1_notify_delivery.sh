@@ -292,11 +292,11 @@ if pmut py-no-limit 'return not any(k == _ksafe(key) and t - ts < cd for ts, k i
 fi
 # vercel mutants run from MUT/overnight-queue (the module imports ../ovn_relay.py)
 vmut() { mutate "$VSC" "$MUT/overnight-queue/vercel_state_check.py" "$2" "$3" || { ok "mutant $1: anchor exists" 1; return 1; }; cp "$SC/ovn_relay.py" "$SC/ovn_pick_srv.py" "$MUT/"; }
-if vmut no-escalation 'n_err >= ESCALATE_POLLS and' 'False and'; then
+if vmut no-escalation 'n_err >= ESCALATE_POLLS:' 'False:'; then
   fresh; S="$T/vscm1.json"; rm -f "$S"; o="$(DRIVE_POLLS=3 vdrive "$MUT/overnight-queue/vercel_state_check.py" "$S")"
   chk "V1 (no 3-poll escalation) is caught" bash -c "[ $(cnt "$o" 'still ERROR') = 0 ]"
 fi
-if vmut lost-push-recorded 'if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), (prod[0].get("errorMessage") or "newest production deploy is not live")[:200], True, dry) is not False:' 'if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), (prod[0].get("errorMessage") or "newest production deploy is not live")[:200], True, dry) is not None or True:'; then
+if vmut lost-push-recorded 'if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), body[:200], True, dry) is not False:' 'if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), body[:200], True, dry) is not None or True:'; then
   fresh; S="$T/vscm2.json"; rm -f "$S"; o="$(DRIVE_POLLS=2 DRIVE_LOSE=1 vdrive "$MUT/overnight-queue/vercel_state_check.py" "$S")"
   chk "V2 (lost push recorded as sent) is caught: no retry" bash -c "[ $(cnt "$o" 'PRODUCTION p: ERROR') = 1 ]"
 fi

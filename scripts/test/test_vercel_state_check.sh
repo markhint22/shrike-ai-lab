@@ -76,5 +76,17 @@ st_ = run(D2("c3", "shaX", 600), state=st_)
 check("chain step 3: a third failure of the same sha is NOT redeployed (bounded) and now raises the note", redeployed == [] and len(pushed) == 1)
 st_ = run(D2("c4", "shaY", 600), state=st_)
 check("a different commit gets its own retry budget", redeployed == ["c4"])
+# ---- S2 review fix: legacy 'YYYY-MM-DD' esc_<proj> markers migrate instead of re-arming an extra urgent push on the first poll after deploy ----
+m.ESCALATE_POLLS = 1
+prodrow = lambda: D("e1", "main", "ERROR", 600, target="production", code="build_failed", msg="build broke")
+today_ = time.strftime("%Y-%m-%d", time.localtime())
+st_ = run(prodrow(), state={"prod_p": "e1", "esc_p": today_})
+check("legacy esc_<proj>=today (already escalated today by the old code) -> NO extra escalation push", pushed == [] and st_["esc_p"] >= time.time() - 5)
+st_ = run(prodrow(), state={"prod_p": "e1", "esc_p": "2020-01-01"})
+check("legacy esc_<proj>=an old date -> escalates (one urgent push)", len(pushed) == 1 and pushed[0][1] and "still ERROR" in pushed[0][0])
+st_ = run(prodrow(), state={"prod_p": "e1", "esc_p": "garbage"})
+check("unparseable esc_<proj> -> treated as unset (escalates)", len(pushed) == 1)
+_n = time.time(); check("legacy_esc_epoch(today)==now", m.legacy_esc_epoch(today_, _n) == _n)
+m.ESCALATE_POLLS = 3
 sys.exit(1 if fails else 0)
 PY

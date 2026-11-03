@@ -232,9 +232,16 @@ def mark_tool_missing(cells):
     ruff/bandit/gitleaks looked like any other UNVERIFIED row and the evidence report could not tell 'cannot run here' from 'ran and was unsure'. Text-matches the
     '<tool> not installed' notes the run_* functions emit; no behaviour change (verdicts and summaries are untouched)."""
     miss = []
+    health = qc.tool_health()        # K2: state/qa_tool_health.json (fresh only); {} when absent/stale -> text matching alone, as before
     for t, c in cells.items():
-        if c.get("status") == "UNVERIFIED" and str(c.get("note") or "").endswith(" not installed"):
+        if c.get("status") != "UNVERIFIED":
+            continue
+        by_text = str(c.get("note") or "").endswith(" not installed")
+        by_health = qc.tool_unavailable(t, health) == "missing"
+        if by_text or by_health:
             c["reason_code"] = TOOL_MISSING
+            if by_health and not by_text:
+                c["reason_source"] = "qa_tool_health"
             miss.append(t)
     return sorted(miss)
 

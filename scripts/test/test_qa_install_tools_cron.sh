@@ -55,7 +55,8 @@ new_home(){ # -> sets SB (scenario dir) and exports a sandbox HOME inside it
 }
 tools(){ # run the tools installer: SCRIPT=$1 rest=args
   local s="$1"; shift
-  QA_TOOLS_TEST_HOOKS=1 QA_TOOLS_PIP_STUB="$FX/pipstub.sh" QA_TOOLS_GITLEAKS_DIR="${GLDIR:-$FX/gl}" QA_TOOLS_GITLEAKS_SHA256="${GLSHA:-$GL_SHA}" QA_TOOLS_PYTHON="$PY" STUB_LOG="$SB/stub.log" \
+  [ $# -eq 0 ] && set -- --apply          # K2: the installer is dry-run by default; the scenarios that mean "apply" call tools "$S" with no args
+  QA_TOOLS_APPROVED="${QA_TOOLS_APPROVED-semgrep gitleaks}" QA_TOOLS_TEST_HOOKS=1 QA_TOOLS_PIP_STUB="$FX/pipstub.sh" QA_TOOLS_GITLEAKS_DIR="${GLDIR:-$FX/gl}" QA_TOOLS_GITLEAKS_SHA256="${GLSHA:-$GL_SHA}" QA_TOOLS_PYTHON="$PY" STUB_LOG="$SB/stub.log" \
     bash "$s" "$@"; }
 
 # ================================================================ scenarios (each returns 0 only when ALL its assertions hold; reused for the mutants)
@@ -127,6 +128,30 @@ sc_tools_link_conflict(){ local S="$1" bad=0 out rc
   [ $rc = 0 ] || bad=1; [ "$(cat "$HOME/bin/ruff")" = mine ] || bad=1; case "$out" in *WARNING*"ruff"*) ;; *) bad=1;; esac
   [ -L "$HOME/bin/bandit" ] || bad=1
   return $bad; }
+sc_tools_default_dry(){ # K2: no mode flag = dry-run (nothing installed); --apply installs; --apply with --dry-run/--check is refused
+  local S="$1" bad=0 out rc
+  new_home
+  out="$(QA_TOOLS_TEST_HOOKS=1 QA_TOOLS_PIP_STUB="$FX/pipstub.sh" QA_TOOLS_GITLEAKS_DIR="$FX/gl" QA_TOOLS_GITLEAKS_SHA256="$GL_SHA" QA_TOOLS_PYTHON="$PY" STUB_LOG="$SB/stub.log" bash "$S" 2>&1)"; rc=$?
+  [ $rc = 0 ] && [ ! -e "$HOME/qa-venv" ] && [ ! -s "$SB/stub.log" ] || bad=1
+  case "$out" in *"DRY RUN (default; pass --apply to install)"*) ;; *) bad=1;; esac
+  tools "$S" --apply --dry-run >/dev/null 2>&1; [ $? = 2 ] || bad=1
+  tools "$S" --apply --check >/dev/null 2>&1; [ $? = 2 ] || bad=1
+  tools "$S" --apply >/dev/null 2>&1 || bad=1; [ -x "$HOME/qa-venv/bin/ruff" ] || bad=1
+  return $bad; }
+sc_tools_approval(){ # K2: semgrep + gitleaks are Mark-approval items: --apply installs the pip tools, PRINTS the commands for those two and does not run them
+  local S="$1" bad=0 out rc
+  new_home
+  out="$(QA_TOOLS_APPROVED= tools "$S" --apply 2>&1)"; rc=$?
+  [ $rc = 0 ] || { bad=1; echo "$out" | tail -5 >&2; }
+  for t in bandit pip-audit mutmut schemathesis mypy ruff; do [ -x "$HOME/qa-venv/bin/$t" ] || bad=1; done
+  [ ! -e "$HOME/qa-venv/bin/semgrep" ] && [ ! -e "$HOME/qa-venv/bin/gitleaks" ] || bad=1
+  grep -q '^semgrep==' "$SB/stub.log" && bad=1
+  case "$out" in *"MARK-APPROVAL semgrep"*"semgrep=="*) ;; *) bad=1;; esac
+  case "$out" in *"MARK-APPROVAL gitleaks"*"releases/download/v8.18.4"*) ;; *) bad=1;; esac
+  out="$(QA_TOOLS_APPROVED= tools "$S" --dry-run 2>&1)"; case "$out" in *"MARK-APPROVAL semgrep"*) ;; *) bad=1;; esac
+  QA_TOOLS_APPROVED="gitleaks" tools "$S" --apply >/dev/null 2>&1; [ -x "$HOME/qa-venv/bin/gitleaks" ] && [ ! -e "$HOME/qa-venv/bin/semgrep" ] || bad=1     # approving one does not approve the other
+  QA_TOOLS_APPROVED="semgrep" tools "$S" --apply >/dev/null 2>&1; [ -x "$HOME/qa-venv/bin/semgrep" ] || bad=1
+  return $bad; }
 sc_tools_hooks_off(){ local S="$1" bad=0 rc fp
   new_home; fp="$SB/fakepython"
   # a fake python whose `-m venv DIR` makes DIR/bin/python = a script that always fails (so the REAL pip path fails offline and instantly)
@@ -137,7 +162,7 @@ exit 1
 FAKEPY
   chmod 755 "$fp"
   # QA_TOOLS_PIP_STUB is a test hook: WITHOUT QA_TOOLS_TEST_HOOKS=1 it is ignored (the real pip path runs and fails), so the stub is never called
-  QA_TOOLS_PIP_STUB="$FX/pipstub.sh" QA_TOOLS_PYTHON="$fp" STUB_LOG="$SB/stub.log" bash "$S" --no-link >/dev/null 2>&1; rc=$?
+  QA_TOOLS_PIP_STUB="$FX/pipstub.sh" QA_TOOLS_PYTHON="$fp" STUB_LOG="$SB/stub.log" bash "$S" --apply --no-link >/dev/null 2>&1; rc=$?
   [ $rc != 0 ] || bad=1; [ ! -s "$SB/stub.log" ] || bad=1
   return $bad; }
 
@@ -328,7 +353,7 @@ sc_cron_proposal_pins(){ local S="$1" bad=0 P PR line scope man promo r
 # ================================================================ run: real scripts
 TS="$OVN_REAL/ops/install_qa_tools.sh"; CS="$OVN_REAL/ops/install_qa_cron.sh"
 echo "--- install_qa_tools.sh"
-for s in tools_happy tools_wrong_version tools_broken tools_gitleaks_pin tools_gitleaks_release tools_refusals tools_link_conflict tools_hooks_off; do "sc_$s" "$TS" >/dev/null 2>"$ROOT/err.$s"; ok "$s" $?; [ -s "$ROOT/err.$s" ] && sed 's/^/        /' "$ROOT/err.$s" | head -8; done
+for s in tools_happy tools_wrong_version tools_broken tools_gitleaks_pin tools_gitleaks_release tools_refusals tools_link_conflict tools_hooks_off tools_default_dry tools_approval; do "sc_$s" "$TS" >/dev/null 2>"$ROOT/err.$s"; ok "$s" $?; [ -s "$ROOT/err.$s" ] && sed 's/^/        /' "$ROOT/err.$s" | head -8; done
 echo "--- pins"
 chk "every pip pin is an exact x.y.z" "$PY" -I -c "
 import re,sys
@@ -363,6 +388,8 @@ mutant gl-pin-check-removed tools tools_gitleaks_pin '[ -z "$got" ] || [ "$got" 
 mutant gl-release-check-removed tools tools_gitleaks_release '[ -z "$rel" ] || [ "$rel" != "$got" ]' 'false'
 mutant status-always-ok tools tools_wrong_version '  if [ -n "$ver" ]; then [ "$ver" = "$p" ] && echo ok || echo wrong-version' '  if [ -n "$ver" ]; then echo ok'
 mutant broken-not-detected tools tools_broken 'out="$(probe_run "$t")" || { echo broken; return; }' 'out="$(probe_run "$t")" || true'
+mutant default-is-apply tools tools_default_dry '[ "$APPLY" = 0 ] && [ "$CHECK" = 0 ] && DRY=1' 'true'
+mutant approval-not-enforced tools tools_approval 'approved(){ case " ${QA_TOOLS_APPROVED:-} " in *" $1 "*) return 0;; esac; return 1; }' 'approved(){ return 0; }'
 mutant outside-home-allowed tools tools_refusals 'case "$r" in "$HOME_REAL"/?*) ;; *) refuse "$lbl' 'case "$r" in *) ;; *) refuse "$lbl'
 mutant symlink-leaf-allowed tools tools_refusals '[ ! -L "$p" ] || refuse' 'true || refuse'
 mutant link-overwrites-files tools tools_link_conflict 'elif [ -e "$l" ]; then echo "install_qa_tools: WARNING' 'elif false; then echo "install_qa_tools: WARNING'

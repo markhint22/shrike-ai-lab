@@ -10,6 +10,9 @@ usage:
   ovn_mutation_supply.py scan   <repo_dir> [--max-mutants N] [--json]    nightly (cron, nice): run up to N mutants (default 40), write the survivors file
   ovn_mutation_supply.py scan-all [--max-mutants N] [--json]    scan EVERY repo named in OVN_MUT_REPOS (comma list of names under $OVN_DIR/repos; default `xlite`), one after the other,
                                 each with its own OVN_MUT_MAX budget; a repo that is missing or is not a Godot project is skipped with a log line, never a failure (2026-11-01, K5)
+  ovn_mutation_supply.py supply   (K8 consumer, 2026-11-03) convert the top OVN_MUTATION_TOPN (3) survivors of each repo in OVN_MUTATION_REPOS (default `xlite`) into red-before-verified test-writing
+                                backlog items via ovn_work_supply's filters/spec check. OVN_MUTATION_SUPPLY=shadow|on|off (default SHADOW: runs everything but appends nothing, logs `WOULD-APPEND` lines
+                                to state/mutation_supply_shadow.log). Caps: OVN_MUTATION_TOPN per repo per pass, OVN_MUTATION_MAX_PULLABLE (default 24) pullable. Proposed cron: scripts/cron.txt (#OFF#).
   ovn_mutation_supply.py verify <repo_dir> <test_file> <src_file> <line> <orig_token> <mutated_token> [<occurrence>]
                                 exit 0 iff the test file PASSES on the real code and FAILS BY ASSERTION on the mutant (applied to a temp copy)
   ovn_mutation_supply.py sites  <gd_file>                                list the mutation sites of one file (debug)
@@ -25,6 +28,9 @@ Cache: state/mutation_scan_<repo>.json keyed by (source sha, test sha); survivor
 env: OVN_DIR (default ~/overnight-queue), OVN_GODOT_BIN (default ~/godot/godot4), OVN_MUT_REF (default origin/overnight/feature, falls back to HEAD),
      OVN_MUT_TIMEOUT (default 30), OVN_MUT_MAX (default 40), OVN_MUTATION_SCAN=off (scan kill switch), OVN_SUPPLY_MUTATION=1 (collect() is off unless set),
      OVN_MUT_REPOS (scan-all target list, default `xlite`).
+ADDING MORE REPOS TO THE CONSUMER (K8): OVN_MUTATION_REPOS=xlite (default). To add iptv_apps / billwatch / gitlark: they need survivors first, i.e. a scanner for their language (K2 tools: mutmut for
+Python, a Stryker-style one for TypeScript) that writes state/mutation_survivors_<repo>.json in the same shape AND a collect()-compatible test/source pairing; then append the name to OVN_MUTATION_REPOS
+in the cron line (e.g. OVN_MUTATION_REPOS=xlite,iptv_apps,billwatch,gitlark). A listed repo without a survivors file simply reports `no valid survivor`. Roll out in shadow first.
 ADDING MORE REPOS (2026-11-01, K5): the scanner mutates GDScript only (GUT tests, `scripts/**/*.gd`, a project.godot), so iptv_apps / billwatch / gitlark (Python/TypeScript/Kotlin) have
 nothing to scan today: scan-all logs `skip <repo>: no project.godot` for them. To widen coverage once a repo has a Godot project (or a second scanner exists): (1) add its name to OVN_MUT_REPOS
 in the cron line; (2) add the repo to the OVN_SUPPLY_MUTATION=1 work-supply cron (collect() reads state/mutation_survivors_<repo>.json, which scan writes per repo); (3) keep OVN_MUT_MAX per-repo budget x
@@ -585,6 +591,12 @@ def collect(root):
     is dropped when its source/test changed since the scan (the fleet already moved the file) or the file is now banned. Off unless OVN_SUPPLY_MUTATION=1."""
     if os.environ.get("OVN_SUPPLY_MUTATION", "0") != "1":
         return
+    yield from survivor_specs(root)
+
+
+def survivor_specs(root):
+    """The ungated body of collect(): one spec per source file (earliest still-valid survivor), reading the survivors file only. collect() (work-supply hook, OVN_SUPPLY_MUTATION=1)
+    and the K8 consumer supply_repo() (OVN_MUTATION_SUPPLY) both use it."""
     _, surv_path = state_paths(root)
     try:
         data = json.load(open(surv_path))
@@ -611,15 +623,18 @@ def collect(root):
                "verify": verify_command(tp, src, s)}
 
 
-def mut_repos():
-    """Repo names scan-all walks: OVN_MUT_REPOS (comma list, whitespace tolerated, order kept, duplicates dropped), default `xlite`."""
-    raw = os.environ.get("OVN_MUT_REPOS")
-    names = [x.strip() for x in (raw if raw is not None else "xlite").split(",")]
+def _repo_list(raw, default):
+    names = [x.strip() for x in (raw if raw is not None else default).split(",")]
     out = []
     for n in names:
         if n and n not in out and "/" not in n and n not in (".", ".."):
             out.append(n)
     return out
+
+
+def mut_repos():
+    """Repo names scan-all walks: OVN_MUT_REPOS (comma list, whitespace tolerated, order kept, duplicates dropped), default `xlite`."""
+    return _repo_list(os.environ.get("OVN_MUT_REPOS"), "xlite")
 
 
 def scan_all(max_mutants, as_json=False):
@@ -638,6 +653,138 @@ def scan_all(max_mutants, as_json=False):
         except Exception as e:     # one repo's failure must not starve the others of their scan
             print("mutation scan-all: %s failed: %s: %s" % (name, type(e).__name__, str(e)[:160]))
     return 0
+
+
+# ---------------------------------------------------------------- K8 consumer: survivors -> verified test-writing backlog items
+def supply_repos():
+    """Repos the consumer converts survivors for: OVN_MUTATION_REPOS (comma list, order kept, deduped), default `xlite`. NOT the same list as OVN_MUT_REPOS (what the nightly scan
+    mutates): a repo needs BOTH a scan that writes state/mutation_survivors_<repo>.json AND to be named here."""
+    return _repo_list(os.environ.get("OVN_MUTATION_REPOS"), "xlite")
+
+
+def supply_mode():
+    m = os.environ.get("OVN_MUTATION_SUPPLY", "shadow").strip().lower()
+    return m if m in ("shadow", "on", "off") else "shadow"
+
+
+def _int_env(name, default):
+    try:
+        return max(0, int(os.environ.get(name, default)))
+    except ValueError:
+        return int(default)
+
+
+def supply_repo(repo, mode=None, now=None, out=None):
+    """Convert the top-N (OVN_MUTATION_TOPN, default 3) still-valid survivors of ONE repo into backlog items, through the SAME path ovn_work_supply uses for every mechanical item:
+    the seen/open/done-cooldown/held-by-file dedupe filter, the frozen-file rule, the red-before ovn_spec_check.sh run (only a `red` verdict survives: the VERIFY must fail now), the
+    verify-shape lint, then an append to backlog/<repo>.md under the work-supply lock. Caps: nothing when the lane already has >= OVN_MUTATION_MAX_PULLABLE (default OVN_SUPPLY_MIN_BACKLOG, 24)
+    pullable items, never more than OVN_MUTATION_TOPN per pass.
+    mode shadow (default): everything up to and including the red-before check runs, but NOTHING is appended and no seen-state changes; state/mutation_supply_shadow.log gets one
+    `WOULD-APPEND` line per item. mode on: appends. mode off: nothing. Returns the list of rendered lines that were (or would be) appended."""
+    mode = mode or supply_mode()
+    now = time.time() if now is None else float(now)
+    emit = out if out is not None else print
+    if mode == "off":
+        return []
+    import ovn_work_supply as ws       # sibling module: same filters, same spec check, same backlog writer
+    root = os.path.join(OVN_DIR, "repos", repo)
+    if not os.path.isdir(root):
+        emit("mutation supply: skip %s: no checkout" % repo)
+        return []
+    topn = _int_env("OVN_MUTATION_TOPN", 3)
+    if topn <= 0:
+        return []
+    bl = os.path.join(OVN_DIR, "backlog", repo + ".md")
+    prog = os.path.join(root, "OVERNIGHT_PROGRESS.md")
+    backlog_t, progress_t, done_t = read(bl), read(prog), read(os.path.join(root, "OVERNIGHT_DONE.md"))
+    have = ws.pullable_count(backlog_t, progress_t, done_t, ws._load_banned(root))
+    cap = _int_env("OVN_MUTATION_MAX_PULLABLE", ws.MIN_BACKLOG)
+    if have >= cap:
+        emit("mutation supply: %s: %d pullable >= %d - not needed" % (repo, have, cap))
+        return []
+    lock = None
+    if mode == "on":
+        lock = ws._acquire_lock(repo)
+        if lock is None:
+            emit("mutation supply: %s: another supply pass holds the lock - skip" % repo)
+            return []
+    try:
+        seen_path = ws._state("work_supply_seen_%s" % repo)
+        resup_path = ws._state("work_supply_resupplied_%s" % repo)
+        seen, resupplied = ws.load_seen(seen_path, now), ws.load_resupplied(resup_path)
+        lines_all = (backlog_t + "\n" + progress_t + "\n" + done_t).split("\n")
+        frozen = ws.frozen_paths(root) if ws.FROZEN_MODE == "on" else []
+        specs, why_n, taken = [], {}, set()
+        for sp in survivor_specs(root):
+            if len(specs) >= topn:
+                break
+            if frozen and ws.frozen_hit(sp["file"], frozen, root):
+                why_n["frozen"] = why_n.get("frozen", 0) + 1
+                continue
+            why = ws._filter(sp, lines_all, seen, resupplied, now)
+            if why not in (None, "resupply"):
+                why_n[why] = why_n.get(why, 0) + 1
+                continue
+            if sp["file"] in taken:
+                continue
+            taken.add(sp["file"])
+            sp["_resupply"] = why == "resupply"
+            specs.append(sp)
+        if not specs:
+            emit("mutation supply: %s: no candidate (%s)" % (repo, ", ".join("%s=%d" % kv for kv in sorted(why_n.items())) or "no valid survivor"))
+            return []
+        lines = [ws.render(sp, repo) for sp in specs]
+        verdicts = ws.spec_check(repo, lines)
+        keep = []
+        for i, (sp, l) in enumerate(zip(specs, lines)):
+            v = verdicts.get(i, "no-verdict") if verdicts is not None else "no-verdict"
+            if v == "red":
+                keep.append((sp, l, v))
+            else:
+                why_n["spec-" + v] = why_n.get("spec-" + v, 0) + 1
+        keep = ws._shape_lint_keep(keep, root, repo)[:topn]
+        if not keep:
+            emit("mutation supply: %s: %d candidate(s), none red-before (%s)" % (repo, len(specs), ", ".join("%s=%d" % kv for kv in sorted(why_n.items()))))
+            return []
+        rendered = [l for _, l, _ in keep]
+        if mode == "shadow":
+            try:
+                os.makedirs(os.path.join(OVN_DIR, "state"), exist_ok=True)
+                with open(os.path.join(OVN_DIR, "state", "mutation_supply_shadow.log"), "a") as f:
+                    for l in rendered:
+                        f.write("%s [shadow] %s WOULD-APPEND %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now)), repo, l[:400]))
+            except OSError:
+                pass
+            emit("mutation supply [shadow]: %s: WOULD append %d item(s)" % (repo, len(rendered)))
+            return rendered
+        with open(bl, "a") as f:
+            f.write("\n# --- mutation-survivor test supply %s (ovn_mutation_supply.py supply; VERIFY is red-before) ---\n" % time.strftime("%Y-%m-%d", time.gmtime(now)))
+            f.write("\n".join(rendered) + "\n")
+        for sp, _, _ in keep:
+            seen[ws.spec_key(sp)] = (now, "supplied")
+            if sp.get("_resupply"):
+                resupplied[ws.spec_key(sp)] = resupplied.get(ws.spec_key(sp), 0) + 1
+        ws.save_seen(seen_path, seen)
+        ws.save_resupplied(resup_path, resupplied)
+        ws._alert("info", repo, "added %d mutation-survivor test item(s)" % len(rendered))
+        ws._touch(ws._state("supply_kick"))
+        emit("mutation supply: %s: ADDED %d item(s) to backlog" % (repo, len(rendered)))
+        return rendered
+    finally:
+        if lock is not None:
+            lock.close()
+
+
+def supply_all(now=None, out=None):
+    """supply_repo() for every repo of supply_repos(); a failure in one repo never stops the next. Returns {repo: [lines]}."""
+    res = {}
+    for name in supply_repos():
+        try:
+            res[name] = supply_repo(name, now=now, out=out)
+        except Exception as e:     # best effort, like scan-all
+            print("mutation supply: %s failed: %s: %s" % (name, type(e).__name__, str(e)[:160]))
+            res[name] = []
+    return res
 
 
 def is_godot_repo(repo_dir):
@@ -670,6 +817,15 @@ def main(argv):
         for _sig in (signal.SIGTERM, signal.SIGHUP):
             signal.signal(_sig, lambda n, f: sys.exit(128 + n))
         return scan_all(mx, "--json" in argv)
+    if cmd == "supply":
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        if supply_mode() == "off":
+            print("mutation supply: OVN_MUTATION_SUPPLY=off - skip")
+            return 0
+        supply_all()
+        return 0
     if cmd == "scan":
         if len(argv) < 3:
             print("usage: scan <repo_dir> [--max-mutants N] [--json]")

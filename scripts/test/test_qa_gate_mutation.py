@@ -179,7 +179,8 @@ ok("OVN_MUT_UNWRAP=0 does not", "--unwrap-decorators" not in a2b)
 del os.environ["OVN_MUT_UNWRAP"]
 a3, _ = gm.build_argv(["--repo", "iptv_apps"], "iptv_apps")
 ok("iptv_apps (over the cap) always runs with test selection by touched module, selection required", "--select-tests" in a3 and "--require-selection" in a3)
-ok("other repos run the full suite", "--select-tests" not in gm.build_argv(["--repo", "billwatch"], "billwatch")[0])
+ok("K2: billwatch and gitlark also run with test selection (the daily pass must finish inside the cap)", all("--select-tests" in gm.build_argv(["--repo", r], r)[0] for r in ("billwatch", "gitlark")))
+ok("other repos (test-automation-agent) run the full suite", "--select-tests" not in gm.build_argv(["--repo", "test-automation-agent"], "test-automation-agent")[0])
 ok("a smaller cap is honoured, a larger one is not", gm.build_argv(["--cap", "90"], "x")[1]["--cap"] == 90 and gm.build_argv(["--cap", "601"], "x")[1]["--cap"] == 600)
 fin = gm.finish({"verdict": "FAIL", "summary": "x", "details": {}, "gate": "mutation", "mode": "shadow"}, ["--repo", "r", "--base", "a", "--head", "b"], {"--cap": 600}, time.time())
 ok("a FAIL from the harness is mapped to FLAG: the gate never returns FAIL", fin["verdict"] == "FLAG" and fin["verdict"] in VALID, str(fin))
@@ -660,7 +661,7 @@ ok("M4 (mutant: unwrap always on) is caught by the OVN_MUT_UNWRAP assertion",
    mutant_fails("M4", "gate_mutation.py", 'if os.environ.get("OVN_MUT_UNWRAP") == "1":\n        keep.append', 'if True:\n        keep.append',
                 lambda m: "--unwrap-decorators" not in m.build_argv(["--repo", "r"], "r")[0]))
 ok("M5 (mutant: iptv_apps not selection-limited) is caught",
-   mutant_fails("M5", "gate_mutation.py", 'DEFAULT_SELECT_REPOS = "iptv_apps"', 'DEFAULT_SELECT_REPOS = ""', lambda m: "--select-tests" in m.build_argv(["--repo", "iptv_apps"], "iptv_apps")[0]))
+   mutant_fails("M5", "gate_mutation.py", 'DEFAULT_SELECT_REPOS = "iptv_apps billwatch gitlark"', 'DEFAULT_SELECT_REPOS = ""', lambda m: "--select-tests" in m.build_argv(["--repo", "iptv_apps"], "iptv_apps")[0]))
 
 
 def load_assert(m):

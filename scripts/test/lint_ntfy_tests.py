@@ -56,14 +56,20 @@ def lint(d):
 
 FALLBACK = re.compile(r"""NTFY_SERVER(?::-|["']?\s*,\s*)\s*["']?https?://ntfy\.sh""")
 SKIP_DIRS = ("attic", "test", "fleet_review", "__pycache__", "proposals")
+# 2026-11-03 (S1, suite.json F2): on the box the queue root also holds product clones (repos/), snapshots/scratch (state/, logs/, prework, worktrees) and dependency trees. They are
+# not pipeline scripts (repos/iptv_apps/scripts/daily-verify.sh is a product-repo line) and must not fail the audit. Pruned at the TOP level of the root ONLY, so a legitimately named
+# nested dir (scripts/state/..., ops/repos/...) is still linted.
+TOP_PRUNE = ("repos", "state", "logs", "prework", "worktrees", "node_modules", ".git")
 
 
 def lint_scripts(root):
     """N5 audit: no pipeline script may default NTFY_SERVER to ntfy.sh (a direct publish bypasses the relay's DROP/dedupe/caps). The default is the relay (http://127.0.0.1:8099)
     or nothing. A line with `ntfy-lint: allow` is exempt (the box dead-man's DELIBERATE second channel lives in box_deadman.py and does not use this pattern)."""
     out = []
+    root_real = os.path.realpath(root)
     for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d not in SKIP_DIRS and not d.startswith("proposals")]
+        top = os.path.realpath(dp) == root_real
+        dns[:] = [d for d in dns if d not in SKIP_DIRS and not d.startswith("proposals") and not (top and d in TOP_PRUNE)]
         for fn in sorted(fns):
             if not fn.endswith((".sh", ".py")):
                 continue

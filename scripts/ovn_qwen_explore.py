@@ -1408,7 +1408,7 @@ _REL = r"(?!/)(?!.*\.\.)[\w./-]+"
 _PYTEST_PATH = re.compile(r"^(?!/)(?!.*\.\.)[\w./-]+(?:\.py)?(?:::[\w\[\]\-.:]+)?$")
 _VITEST_PATH = re.compile(r"^(?!/)(?!.*\.\.)[\w./-]+\.(?:ts|tsx|js|vue)$")
 _GODOT_FLAG = re.compile(r"^(?:--headless|--quit|-gexit|-gexit_on_success|-gdisable_colors|-glog=\d|-gtest=res://(?!.*\.\.)[\w./-]+|-gselect=[\w.]+|-gunit_test_name=\w+|-gdir=res://(?!.*\.\.)[\w./-]+|-gprefix=\w+|-gsuffix=[\w.]+)$")
-_PYTEST_FLAG = re.compile(r"^(?:-q|-qq|-x|-v|-vv|-s|-rN|-ra|--no-cov|--tb=(?:short|no|line|native|auto)|--maxfail=\d+|--no-header|--disable-warnings|-p no:cacheprovider)$")
+_PYTEST_FLAG = re.compile(r"^(?:-q|-qq|-x|-v|-vv|-s|-rN|-ra|--no-cov|--tb=(?:short|no|line|native|auto)|--maxfail=\d+|-r[a-zA-Z]{1,6}|--no-header|--disable-warnings|-p no:cacheprovider)$")
 _GREP_FLAG = re.compile(r"^-(?![A-Za-z0-9]*[fPrR])[A-Za-z0-9]+$")   # no -f (patterns from a file) / -P / -r -R (recursion follows symlinks out of the scratch copy)
 KNOWN_GODOT = {"godot", "godot4", "Godot", "~/Applications/Godot.app/Contents/MacOS/Godot", "~/godot/godot4", "/usr/local/bin/godot", "/usr/bin/godot", "/usr/local/bin/godot4", "/usr/bin/godot4"}
 VERIFY_UNSAFE_CHARS = re.compile(r"[;&|`<>(){}\\]|\$")
@@ -1441,6 +1441,92 @@ _VENV_PYTEST_HEAD = re.compile(r"^(?:\./)?(?:[\w-]+/)?\.?venv/bin/pytest$")
 _VENV_PYTHON_HEAD = re.compile(r"^(?:\./)?(?:[\w-]+/)?\.?venv/bin/python3?$")
 
 
+_TEST_CHAIN_RE = re.compile(r"^(?:cd (?P<cd>%s) && )?(?P<first>test ! -[ef] %s)(?P<more>(?: && test ! -[ef] %s)+)\s*$" % (_REL, _REL, _REL))
+_GREP_RECURSIVE_FLAG = re.compile(r"^-(?![A-Za-z0-9]*[fPe])[A-Za-z0-9]*[rR][A-Za-z0-9]*$")
+_INCLUDE_RE = re.compile(r"^--include=\*\.([A-Za-z0-9]{1,5})$")
+GREP_EXPAND_MAX_FILES = int(os.environ.get("OVN_QE_GREP_EXPAND_MAX", "12"))
+_GREP_TEXT_EXTS = (".py", ".ts", ".tsx", ".js", ".vue", ".gd", ".kt", ".swift", ".md", ".json", ".yml", ".yaml", ".toml", ".sh", ".html")
+
+
+def _merge_test_chain(v):
+    """`test ! -f A && test ! -f B` (the dead-code lens spells a 'delete both files' check as a chain; live dialect in the TAA backlog is the ONE-command form `test ! -f A -a ! -f B`) -> the one-command form.
+    Same operands, same meaning, no new capability. Anything that is not exactly a chain of negated `test -e/-f <relative path>` clauses comes back unchanged."""
+    m = _TEST_CHAIN_RE.match(v.strip())
+    if not m:
+        return v
+    clauses = [m.group("first")] + [c.strip() for c in m.group("more").split("&&") if c.strip()]
+    ops = []
+    for c in clauses:
+        mm = re.match(r"^test (! -[ef]) (\S+)$", c)
+        if not mm:
+            return v
+        ops.append("%s %s" % (mm.group(1), mm.group(2)))
+    out = "test " + " -a ".join(ops)
+    return ("cd %s && %s" % (m.group("cd"), out)) if m.group("cd") else out
+
+
+def _expand_recursive_grep(v, cd, neg, w, fset, quiet):
+    """`[! ]grep -rn PAT <dir|dir/*.ext|file> ... [--include=*.ext]` -> the same grep over the EXPLICIT files of the snapshot (`fset`) under those targets. The allow-list refuses -r/-R
+    (recursion) and globs on purpose; the dead-code lens writes exactly those. Expanding against the snapshot's own file list keeps every executed path concrete and relative (nothing is
+    resolved at run time, no symlink is followed). Not expandable (no recursion flag, an unknown flag/-e/-f, no matching file, more than GREP_EXPAND_MAX_FILES, > 300 chars) = unchanged."""
+    head, args = w[0], w[1:]
+    flags, includes, rest = [], [], []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if not a.startswith("-"):
+            rest.append(a)
+        elif _GREP_RECURSIVE_FLAG.match(a):
+            kept = re.sub(r"[rR]", "", a)
+            if kept != "-":
+                flags.append(kept)
+            flags.append("<rec>")
+        elif _INCLUDE_RE.match(a):
+            includes.append("." + _INCLUDE_RE.match(a).group(1))
+        elif _GREP_FLAG.match(a):
+            flags.append(a)
+        else:
+            return v
+        i += 1
+    fset = set(fset or ())
+    if "<rec>" not in flags and not any("*" in t for t in rest[1:]):
+        return v
+    flags = [f for f in flags if f != "<rec>"]
+    if len(rest) < 2 or not fset:
+        return v
+    pat, targets = rest[0], rest[1:]
+    pre = (cd.rstrip("/") + "/") if cd else ""
+    files = []
+    for t in targets:
+        if not re.match(r"^(?!/)(?!.*\.\.)[\w./*-]+$", t) or t.count("*") > 1 or ("*" in t and "*" in t.rsplit("/", 1)[0]):
+            return v
+        full = pre + (t[2:] if t.startswith("./") else t)
+        if "*" in full:
+            d, _, g = full.rpartition("/")
+            import fnmatch
+            hit = sorted(f for f in fset if f.rpartition("/")[0] == d and fnmatch.fnmatchcase(f.rpartition("/")[2], g))
+        elif full in fset:
+            hit = [full]
+        else:
+            d = full.rstrip("/") + "/"
+            exts = tuple(includes) or _GREP_TEXT_EXTS
+            hit = sorted(f for f in fset if f.startswith(d) and f.endswith(exts))
+        if includes:
+            hit = [f for f in hit if f.endswith(tuple(includes))]
+        files.extend(f for f in hit if f not in files)
+    if not files or len(files) > GREP_EXPAND_MAX_FILES:
+        return v
+    rel = [f[len(pre):] if pre and f.startswith(pre) else f for f in files]
+    out = " ".join([head] + flags + [shlex.quote(pat)] + [shlex.quote(r) for r in rel])
+    if neg:
+        out = "! " + out
+    if cd:
+        out = "cd %s && %s" % (cd, out)
+    if quiet:
+        out += " 2>/dev/null"
+    return out if len(out) <= 300 else v
+
+
 def normalize_verify(v, fset=()):
     """Mechanically rewrite a model-written pytest VERIFY into the one dialect verify_dialect_reason() accepts (and the red-check runner resolves), BEFORE the strict check.
     Real rejects (2026-10-18, shrike-monitor / shrike-notify / test-automation-agent: AGENTS.md says `cd backend && .venv/bin/pytest -q --no-cov`, so the 27B copied it):
@@ -1452,6 +1538,8 @@ def normalize_verify(v, fset=()):
     verify_dialect_reason(): this never widens what may run, it only fixes the spelling. Anything else comes back unchanged (and is then rejected as before)."""
     if not VERIFY_NORMALIZE or not isinstance(v, str) or "\n" in v or len(v) > 300:
         return v
+    if _TEST_CHAIN_RE.match(v.strip()):
+        return _merge_test_chain(v)
     quiet = bool(re.search(r"\s2>/dev/null\s*$", v))
     toks = _verify_tokens(v)
     if toks is None:
@@ -1459,6 +1547,8 @@ def normalize_verify(v, fset=()):
     cd, neg, w = toks
     if not w:
         return v
+    if w[0] in ("grep", "egrep", "fgrep"):
+        return _expand_recursive_grep(v, cd, neg, list(w), fset, quiet)
     head, args = w[0], list(w[1:])
     lead = ["pytest"]                                  # a plain `python3 -m pytest` keeps its spelling (the repo dialect for iptv_apps / billwatch); only a venv-path head is replaced
     if _VENV_PYTEST_HEAD.match(head):
@@ -1502,6 +1592,13 @@ def normalize_verify(v, fset=()):
     if quiet:
         out += " 2>/dev/null"
     return out
+
+
+def note_verify_reject(row, verify, cap=3):
+    """2026-11-03 (K5): the per-pass row used to say only `verify-dialect:4`; the OFFENDING text (<= `cap` x 140 chars per pass, in row.d['verify_rejects']) is what the dialect fix needs."""
+    lst = row.d.setdefault("verify_rejects", [])
+    if len(lst) < cap:
+        lst.append(one_line(verify, 140))
 
 
 def verify_dialect_reason(v):
@@ -2189,6 +2286,7 @@ def verify_items(repo, raw_items, ctx_env, row):
             row.d["normalized"] = int(row.d.get("normalized", 0)) + 1
         d_why = verify_dialect_reason(it["verify"])
         if d_why:
+            note_verify_reject(row, it["verify"])
             row.reject(d_why)                            # the VERIFY runs on this box: a closed allow-list, checked before anything else reads the item's text
             continue
         if it["file"] not in ctx_env["shown"]:

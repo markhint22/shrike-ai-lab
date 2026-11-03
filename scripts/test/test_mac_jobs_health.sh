@@ -197,7 +197,7 @@ if mutant old-log-errors 'if since is not None and st.st_mtime <= since:
   fresh; hb a 100; setlog a "Traceback old" $((NOW - 5000)); run_h enforce 0 "$MUT/mac_jobs_health.py"
   chk "M6 (old log errors count) is caught: an old error makes the job degraded" bash -c "[ \"$(jf com.t.a status)\" = degraded ]"
 fi
-if mutant no-dedupe 'if t - last < int(os.environ.get("MAC_ALERT_COOLDOWN_S", "21600")):
+if mutant no-dedupe 'if t - last < (cooldown if cooldown is not None else int(os.environ.get("MAC_ALERT_COOLDOWN_S", "21600"))):
         return False' 'pass'; then
   fresh; hb a 5000; : > "$CALLS"; run_h shadow 0 "$MUT/mac_jobs_health.py"; run_h shadow 60 "$MUT/mac_jobs_health.py"
   chk "M7 (no alert dedupe) is caught: two relay pushes for one stale job" bash -c "[ \$(grep -c '^curl' '$CALLS') -eq 2 ]"
@@ -205,6 +205,36 @@ fi
 if mutant nokick-ignored 'kickable = "nokick" not in job["flags"] and' 'kickable = True and'; then
   fresh; hb c 5000; run_h enforce 0 "$MUT/mac_jobs_health.py"
   chk "M8 (nokick ignored) is caught" bash -c "[ \"$(kicks com.t.c)\" = 1 ]"
+fi
+
+echo "== S2/F6: disabled-by-policy jobs and a silent supervisor"
+marker() { cat "$OVN_MAC_STATE/alert_sent/$1" 2>/dev/null || echo none; }
+dis_fresh() { fresh; echo "com.t.e | 600 | $OVN_MAC_STATE/e.log | hb/e | disabled" >> "$MAN"; : > "$T/agents/com.t.e.plist"; }   # plist exists, job NOT in the launchctl table (like fleet-review)
+dis_fresh; : > "$CALLS"; run_h shadow
+chk "disabled job (plist present, not loaded): status disabled, NOT not_loaded" bash -c "[ \"$(jf com.t.e status)\" = disabled ]"
+chk "... never an emergency, never kicked, health stays healthy" bash -c "! grep -q 'X-Ovn-Level: emergency' '$CALLS' && [ \"$(kicks com.t.e)\" = 0 ] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(\"$OVN_MAC_STATE/health.json\"))[\"healthy\"] else 1)'"
+chk "... summary says 'disabled by policy' and counts it as ok" bash -c "grep -q 'disabled by policy: com.t.e' '$T/hout.txt' && grep -q '6/6 ok' '$T/hout.txt'"
+m0="$(marker com.t.e_disabled)"; run_h shadow 3600
+chk "... the warn is sent once and NOT repeated an hour later" bash -c "[ '$m0' = '$NOW' ] && [ \"$(marker com.t.e_disabled)\" = '$m0' ]"
+run_h shadow $((8 * 86400))
+chk "... but reminded again after a week" bash -c "[ \"$(marker com.t.e_disabled)\" = '$((NOW + 8 * 86400))' ]"
+dis_fresh; table "com.t.a:-:0" "com.t.b:-:0" "com.t.c:-:0" "com.t.d:-:0" "com.t.e:-:0"; hb e 100; run_h shadow
+chk "a disabled-flagged job that IS loaded is evaluated normally (ok)" bash -c "[ \"$(jf com.t.e status)\" = ok ]"
+fresh; run_h shadow; run_h shadow 300
+chk "supervisor gap: a run 5 min after the previous one raises no gap warn" bash -c "[ \"$(marker supervisor_gap)\" = none ]"
+fresh; run_h shadow; run_h shadow 7200
+chk "supervisor gap: the first run after 2 h of silence records a 'supervisor was silent' warn" bash -c "[ \"$(marker supervisor_gap)\" = '$((NOW + 7200))' ] && grep -q 'supervisor was silent for 2h' '$OVN_MAC_STATE/alerts.log'"
+if mutant disabled-ignored 'elif tbl is not None and not loaded and "disabled" in job["flags"]:' 'elif False:'; then
+  dis_fresh; run_h shadow 0 "$MUT/mac_jobs_health.py"
+  chk "M9 (disabled flag ignored) is caught: the disabled job is not_loaded again" bash -c "[ \"$(jf com.t.e status)\" = not_loaded ]"
+fi
+if mutant no-weekly 'cooldown=int(os.environ.get("MAC_DISABLED_REMIND_S", str(7 * 86400))))' 'cooldown=0)'; then
+  dis_fresh; run_h shadow 0 "$MUT/mac_jobs_health.py"; run_h shadow 3600 "$MUT/mac_jobs_health.py"
+  chk "M10 (no weekly cooldown) is caught: reminded an hour later" bash -c "[ \"$(marker com.t.e_disabled)\" != '$NOW' ]"
+fi
+if mutant no-gap-warn 'if gap > int(os.environ.get("MAC_SUP_GAP_S", "3600")):' 'if False:'; then
+  fresh; run_h shadow 0 "$MUT/mac_jobs_health.py"; run_h shadow 7200 "$MUT/mac_jobs_health.py"
+  chk "M11 (no supervisor gap warn) is caught" bash -c "[ \"$(marker supervisor_gap)\" = none ]"
 fi
 
 echo; echo "mac_jobs_health: $((n-fails))/$n passed"; [ "$fails" = 0 ]

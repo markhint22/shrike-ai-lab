@@ -1,0 +1,92 @@
+# scripts/cron_beats.manifest - expected beat cadence of the box crons (package K6, 2026-11-03). One job per line: <job> <interval_minutes> <critical 0|1>.
+# Read by ops/cron_beats_check.py (08:00 heartbeat line). A job is STALE when its beat (state/beats/<job>, written by ops/cron_beat.sh) is older than interval x3.
+# Derived from the box's LIVE crontab (2026-11-03) with `python3 ops/cron_beats_check.py --derive <crontab text>`: interval = longest gap between two runs; the job name is the
+# script basename (suffixed with the next plain word / a counter when one script has several cron lines: ovn_work_supply_<repo>, ovn_notify_update, branch_hygiene_1..4).
+# branch_hygiene_1 = dev repos hourly, _2 = billwatch+website /3h, _3 = claude/feature pass dev repos, _4 = claude/feature pass prod repos.
+# critical=1: a safety net whose silence must be noticed first (hygiene, reconcile, pause/lock guards, GPU autoswap, autofix, notifier, hourly backup, queue health). Only jobs that
+# the proposed '#OFF#' lines in scripts/cron.txt can wrap are listed (compound lines such as spec_gate / mutation scan are wrapped by hand and added here afterwards).
+# Only jobs wrapped on an ACTIVE crontab line are judged (the rest read 'unwrapped'); a wrapped job with no beat is 'pending' for interval x3 after the checker first saw it wrapped, then 'never'.
+supervisor 180 0
+groom 1440 0
+branch_hygiene_1 60 1
+branch_hygiene_2 180 1
+run_suite_sandboxed_cron 360 0
+queue_health 60 1
+gpu_autoswap 1 1
+provision_test_envs 120 0
+pause_guard 15 1
+daily_promote 1440 0
+fleet_autofix 20 1
+branch_hygiene_3 60 1
+branch_hygiene_4 180 1
+fleet_stats 15 0
+ovn_test_watch 360 0
+reconcile_branches 20 1
+ovn_recover_parked 120 0
+ovn_t3_report 60 0
+ovn_toks_monitor 30 0
+lock_guard 10 1
+ovn_planner 60 0
+billwatch_summary_backfill 1440 0
+ovn_park_sweep 15 0
+ovn_hygiene_stuck_check 60 0
+ovn_git_sync 360 0
+ovn_pipeline_audit 360 0
+ovn_queue_health_sweep 240 0
+ovn_filesize_retag 240 0
+ovn_godot_report 60 0
+ovn_swift_retag 240 0
+gitlark_control_consumer 5 0
+ovn_feature_watch 15 0
+ovn_worktree_sweep 60 0
+ovn_backlog_format_check 60 0
+ovn_verify_direction_check 60 0
+ovn_fleet_health 1440 0
+ovn_citation_check 60 0
+ovn_batch_scorecard 1440 0
+ovn_research_trigger_check 30 0
+ovn_stale_top_item_check 60 0
+ovn_batch_park_stragglers 120 0
+ovn_backup_branch_sweep 15 0
+ovn_derive_legacy_logs 15 0
+ovn_failure_triage_cron 60 0
+ovn_coverage_cron 1440 0
+ovn_notify_update 60 1
+ovn_notify_check 10 1
+qa_ledger_cron 60 0
+manual_notes_cron 10 0
+qa_daily_shadow_1 1440 0
+ovn_identity_guard 60 0
+ovn_gpu_util_check 15 0
+ovn_cycle_walltime 30 0
+baseline_refresh_cron 180 0
+ovn_test_collect_canary 360 0
+ovn_churn_guard 20 0
+ovn_local_research_iptv_apps 30 0
+ovn_work_supply_iptv_apps 30 0
+qa_block_watch 60 0
+qa_daily_shadow_staging-only 60 0
+staging_e2e_run 60 0
+staging_e2e_ingest 30 0
+evidence_freshness_check 60 0
+ovn_log_cap 1440 0
+ovn_daily_fail_digest 1440 0
+box_home_backup_daily 1440 0
+box_home_backup_hourly 60 1
+ovn_work_supply_gitlark 30 0
+ovn_work_supply_billwatch 30 0
+ovn_work_supply_test-automation-agent 30 0
+ovn_work_supply_shrike-monitor 30 0
+ovn_work_supply_shrike-notify 30 0
+ovn_local_research_gitlark 30 0
+ovn_local_research_billwatch 30 0
+ovn_local_research_test-automation-agent 30 0
+ovn_local_research_shrike-monitor 30 0
+ovn_local_research_shrike-notify 30 0
+qa_tool_health 60 0
+soak_probe_cron 15 0
+phase5_cron 60 0
+ovn_pingpong_guard 20 0
+ovn_supply_forecast 30 0
+ovn_notify_heartbeat 1440 0
+qtmp_reaper 1440 0

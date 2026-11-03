@@ -21,6 +21,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -29,6 +30,7 @@ import staging_check as sc  # noqa: E402
 
 DEAD = sc.DEAD
 FINAL_OK = {"SUCCESS"}
+RAILWAY_REPOS = ("billwatch", "gitlark", "iptv_apps")
 SKEW_S = float(os.environ.get("OVN_POSTCHECK_SKEW_S", "300"))
 
 
@@ -174,6 +176,121 @@ def watch(repo, sha, timeout, interval, once=False):
     return "UNVERIFIED"
 
 
+# ---------------------------------------------------------------- K4 (2026-11-03): prod /health provenance + Vercel PRODUCTION state
+HEALTH_TIMEOUT_S = float(os.environ.get("OVN_POSTCHECK_HEALTH_TIMEOUT", "600"))
+VERCEL_TIMEOUT_S = float(os.environ.get("OVN_POSTCHECK_VERCEL_TIMEOUT", "1800"))
+PROCESS_START = None  # epoch the postcheck process started (set by main()); anchors the Vercel `since` so a long Railway wait cannot hide the promote's own ERROR deploy
+
+
+def vercel_repos():
+    try:
+        import vercel_prod_state as vps
+        return tuple(vps.PROJECTS)
+    except ImportError:
+        return ()
+
+
+def candidate_head(repo, sha):
+    """Single alembic head of the promoted tree (git only), or None (no alembic / unknown / several heads)."""
+    try:
+        import prod_alembic_check as pac
+        rd = qc.repo_dir(repo)
+        files = pac.load_files(rd, sha) if rd else None
+        if not files:
+            return None
+        revs, bad = pac.parse_versions(files)
+        hs = pac.heads_of(revs)
+        return hs[0] if (len(hs) == 1 and not bad) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def health_compare(health, sha, head):
+    """Pure. -> (state, msg). OK | MISMATCH | UNVERIFIED. Only fields /health exposes are compared; a field that is absent is UNVERIFIED, never a mismatch."""
+    if not isinstance(health, dict):
+        return "UNVERIFIED", "no /health JSON"
+    problems, seen = [], 0
+    commit = str(health.get("commit") or "").strip()
+    if commit and commit.lower() not in ("unknown", "none", "null", "dev"):
+        seen += 1
+        if not match(commit, sha):
+            problems.append("prod /health commit %s != promoted %s" % (commit[:10], sha[:10]))
+    rev = str(health.get("db_revision") or "").strip()
+    if rev and head and rev.lower() not in ("unknown", "none", "null", "error"):
+        seen += 1
+        if rev != head:
+            problems.append("prod db_revision %s != candidate head %s" % (rev, head))
+    if problems:
+        return "MISMATCH", "; ".join(problems)
+    if not seen:
+        return "UNVERIFIED", "health-has-no-revision (/health exposes neither a usable commit nor db_revision)"
+    return "OK", "prod /health matches the promoted commit%s" % (" and alembic head" if (rev and head) else "")
+
+
+def health_stage(repo, sha, timeout=None, interval=30, once=False, fetch=None, now=time.time, sleep=time.sleep):
+    """Poll prod /health until it serves the promoted SHA (a rolling deploy lags the Railway SUCCESS), else report. Shadow: WARN only (emergency needs
+    OVN_POSTCHECK_HEALTH_EMERGENCY=on). -> OK | MISMATCH | UNVERIFIED | NA."""
+    import prod_alembic_snapshot as pas
+    url = pas.health_url(repo)
+    if not url:
+        log(repo, sha, "HEALTH_NA", "health-has-no-revision: no prod /health URL known for %s" % repo)
+        return "NA"
+    head = candidate_head(repo, sha)
+    timeout = HEALTH_TIMEOUT_S if timeout is None else timeout
+    end = now() + timeout
+    fetch = fetch or pas.fetch_health
+    while True:
+        j, note = fetch(url)
+        st, msg = health_compare(j, sha, head) if j is not None else ("UNVERIFIED", "prod /health unreachable: %s" % note)
+        if st == "OK" or once or now() >= end:
+            break
+        sleep(interval)
+    log(repo, sha, "HEALTH_" + st, msg)
+    if st == "MISMATCH":
+        alerts_line("WARN", "%s %s (promote post-check, shadow)" % (repo, msg))
+        if os.environ.get("OVN_POSTCHECK_HEALTH_EMERGENCY", "off") == "on":
+            push_emergency("Prod /health does not match the promote: %s" % repo, "%s: %s" % (repo, msg))
+    return st
+
+
+def vercel_stage(repo, sha, timeout=None, interval=60, once=False, gather=None, now=time.time, sleep=time.sleep):
+    """Watch the Vercel PRODUCTION deployment of the promoted SHA. ERROR => the SAME emergency path as a Railway FAILED (alerts.log ERROR + urgent push, deduped per
+    (repo, sha)). -> SUCCESS | FAILED | UNVERIFIED | NA | SKIP."""
+    import vercel_prod_state as vps
+    if repo not in vps.PROJECTS:
+        return "NA"
+    mk = done_marker(repo, sha) + ".vercel"
+    if os.path.exists(mk):
+        log(repo, sha, "VERCEL_SKIP", "already reported for this (repo, sha)")
+        return "SKIP"
+    gather = gather or vps.gather
+    t0 = now()
+    since = (PROCESS_START if PROCESS_START is not None else t0) - SKEW_S  # anchored at process start / promote time, NOT stage start
+    end = t0 + (VERCEL_TIMEOUT_S if timeout is None else timeout)
+    note = ""
+    while True:
+        deploys, note = gather(repo)
+        st, d = vps.evaluate(deploys, sha, since) if deploys is not None else (None, None)
+        if st:
+            os.makedirs(os.path.dirname(mk), exist_ok=True)
+            open(mk, "w").write(st + "\n")
+            if st == "SUCCESS":
+                log(repo, sha, "VERCEL_SUCCESS", "vercel production deploy %s of %s READY (%s)" % (d["id"], sha[:10], note))
+            else:
+                msg = "VERCEL PRODUCTION deploy %s of promoted %s is %s - the frontend is still serving the previous build" % (d["id"], sha[:10], d["state"])
+                log(repo, sha, "VERCEL_FAILED", msg)
+                alerts_line("ERROR", "%s %s (promote post-check)" % (repo, msg))
+                push_emergency("Vercel PROD deploy FAILED after promote: %s" % repo, "%s: %s." % (repo, msg))
+            return st
+        if once or now() >= end:
+            break
+        sleep(interval)
+    msg = "no Vercel production deploy of promoted %s reached READY/ERROR within the window (%s) - UNVERIFIED" % (sha[:10], note)
+    log(repo, sha, "VERCEL_UNVERIFIED", msg)
+    alerts_line("WARN", "%s %s" % (repo, msg))
+    return "UNVERIFIED"
+
+
 def opt(argv, name, default):
     return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else default
 
@@ -187,9 +304,30 @@ def main(argv):
         print("usage: promote_postcheck.py watch --repo R --sha S")
         return 0
     try:
+        global PROCESS_START
+        PROCESS_START = time.time()
         timeout = int(opt(argv, "--timeout", os.environ.get("OVN_POSTCHECK_TIMEOUT", "1800")))
         interval = max(1, int(opt(argv, "--interval", os.environ.get("OVN_POSTCHECK_INTERVAL", "60"))))
-        print(watch(repo, sha, timeout, interval, once="--once" in argv))
+        once = "--once" in argv
+        railway = os.environ.get("OVN_POSTCHECK_RAILWAY", "auto")
+        # K4 stages: kill switches OVN_POSTCHECK_HEALTH=off / OVN_POSTCHECK_VERCEL=off; a crash in one stage never skips the other.
+        # The Vercel stage runs CONCURRENTLY with the (up to 1800s) Railway watch so its first poll is not delayed and a Railway FAILED does not postpone it.
+        def run_stage(name, fn):
+            if os.environ.get("OVN_POSTCHECK_" + name.upper(), "on") == "off":
+                return
+            try:
+                print("%s %s" % (name, fn()))
+            except Exception as ex:  # noqa: BLE001
+                log(repo, sha, "UNVERIFIED", "%s stage crashed: %s: %s" % (name, type(ex).__name__, ex))
+        vthread = threading.Thread(target=run_stage, args=("vercel", lambda: vercel_stage(repo, sha, once=once)), daemon=True)
+        vthread.start()
+        try:
+            if railway == "on" or (railway == "auto" and (repo not in vercel_repos() or repo in RAILWAY_REPOS
+                                                           or os.path.exists(sc.deploys_file(repo, "prod_deploys")))):
+                print(watch(repo, sha, timeout, interval, once=once))
+        finally:
+            run_stage("health", lambda: health_stage(repo, sha, once=once))
+            vthread.join()
     except Exception as ex:  # noqa: BLE001 - never raise into a cron
         log(repo, sha, "UNVERIFIED", "postcheck crashed: %s: %s" % (type(ex).__name__, ex))
     return 0

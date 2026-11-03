@@ -79,7 +79,9 @@ def _p(name):
 
 
 # flags whose shadow log was reviewed clean and that now default to ON (2026-11-02, N6); the env var still switches them off / back to shadow
-_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET")
+# 2026-11-03 (S2/F3): OVN_ESC_HYGIENE is ON by default (a hygiene gate stuck >= 4h sat red 6h with only a priority-3 digest line; one fire/day was the sane shadow count). Kill switch: OVN_ESC_HYGIENE=off|shadow.
+# OVN_ESC_PROMOTE_RED stays shadow (flip with env after reviewing notify_shadow.log); there is no OVN_ESC_SUITE flag in the code base.
+_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES")
 
 
 def _mode(flag):
@@ -164,11 +166,14 @@ def sent_today():
     return [r for r in _read_jsonl(_p("notify_sent.jsonl")) if r.get("ts", 0) >= cutoff and r.get("ok")]
 
 
-def _event(action, kind, key=""):
+def _event(action, kind, key="", detail=""):
     """Record that a message was capped / deduped / dropped (the heartbeat reports them; silence must be countable). Trimmed to the last 24 h when it passes 1 MB. Never raises."""
     try:
         p = _p("notify_events.jsonl")
-        _append_jsonl(p, {"ts": now(), "action": action, "kind": kind, "key": key})
+        row = {"ts": now(), "action": action, "kind": kind, "key": key}
+        if detail:
+            row["detail"] = re.sub(r"\s+", " ", detail).strip()[:200]     # S2/F5: a dropped message's body must stay auditable (what were the 7 'need attention' items?)
+        _append_jsonl(p, row)
         if os.path.getsize(p) > 1_000_000:
             cut = now() - 86400
             keep = [r for r in _read_jsonl(p) if r.get("ts", 0) >= cut]
@@ -274,7 +279,7 @@ def handle_publish(topic, headers, body, source=""):
     cls = classify(title, prio, headers.get("x-ovn-level", ""))
     if cls == "drop":
         if not os.environ.get("OVN_NOTIFY_DISABLE"):
-            _event("dropped", "drop", clean_title(title))
+            _event("dropped", "drop", clean_title(title), body)
         return "dropped"
     if cls in ("emergency", "digest"):
         res = forward(title, short(body, 200) if cls == "emergency" else body, "urgent" if cls == "emergency" else "default",
@@ -887,10 +892,50 @@ def do_update(dry=False, force=False):
 
 
 # ---------------------------------------------------------------- heartbeat / escalation (2026-11-02, P2 notify quality)
+def drop_class(key):
+    """Short class label of a dropped title for the heartbeat breakdown: 'feature-complete', 'need-attention', the DROP_RE keyword, or 'other'."""
+    k = (key or "").lower()
+    if "need attention" in k:
+        return "need-attention"
+    m = DROP_RE.search(k)
+    return m.group(0).replace(" ", "-") if m else "other"
+
+
 def heartbeat_alive(t=None):
     """True when a heartbeat was delivered within HEARTBEAT_FRESH_S (26 h)."""
     t = now() if t is None else t
     return any(r.get("kind") == "heartbeat" and r.get("ok") and t - r.get("ts", 0) < HEARTBEAT_FRESH_S for r in _read_jsonl(_p("notify_sent.jsonl")))
+
+
+def cron_beats_line(t=None):
+    """K6 (2026-11-03): ONE report line about the per-cron beats (ops/cron_beat.sh -> state/beats/<job>, judged by ops/cron_beats_check.py against scripts/cron_beats.manifest) so silent-success
+    and dead crons are distinguishable. Shadow: report only, never a push of its own. OVN_BEATS_IN_HEARTBEAT=auto (default): the line appears only once the wrappers are installed (a beat exists), so the heartbeat body is
+    unchanged before the rollout; =on always adds it (also 'not installed'); =off never. A missing checker/manifest or any error -> ''."""
+    mode = os.environ.get("OVN_BEATS_IN_HEARTBEAT", "auto").strip().lower()
+    if mode in ("off", "0", "no", "false"):
+        return ""
+    try:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        chk = os.environ.get("OVN_BEATS_CHECK") or os.path.join(here, "..", "ops", "cron_beats_check.py")
+        man = os.environ.get("OVN_BEATS_MANIFEST") or os.path.join(here, "cron_beats.manifest")
+        if not (os.path.isfile(chk) and os.path.isfile(man)):
+            return ""
+        spec = importlib.util.spec_from_file_location("_ovn_cron_beats_check", chk)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with open(man, errors="replace") as fh:
+            jobs = mod.parse_manifest(fh.read())
+        bdir = os.environ.get("OVN_BEATS_DIR") or _p("beats")
+        tt = now() if t is None else t
+        ct = mod.load_crontab()
+        wrapped = mod.wrapped_jobs(ct) if ct is not None else set()
+        res = mod.evaluate(jobs, bdir, tt, wrapped=wrapped, seen=mod.track_wrapped(bdir, wrapped, tt))
+        if not res["installed"] and mode not in ("on", "1", "yes", "true"):
+            return ""
+        return mod.summary_line(res)[:300]
+    except Exception:
+        return ""
 
 
 def heartbeat_text(t=None):
@@ -901,14 +946,24 @@ def heartbeat_text(t=None):
     cut = t - 86400
     sent = sum(1 for r in sent_rows if r.get("ok") and r.get("kind") != "heartbeat" and r.get("ts", 0) >= cut)
     capped = sum(1 for r in events if r.get("action") == "capped" and r.get("ts", 0) >= cut)
-    dropped = sum(1 for r in events if r.get("action") == "dropped" and r.get("ts", 0) >= cut)
+    drop_rows = [r for r in events if r.get("action") == "dropped" and r.get("ts", 0) >= cut]
+    dropped = len(drop_rows)
     last_hb = max([r.get("ts", 0) for r in sent_rows if r.get("kind") == "heartbeat" and r.get("ok")] or [cut])
     suppressed = sum(1 for r in events if r.get("kind") == "emergency" and r.get("action") in ("capped", "deduped") and r.get("ts", 0) > last_hb)
     em = [r for r in sent_rows if r.get("ok") and r.get("kind") == "emergency"]
     last = ("%s %s ago" % (em[-1].get("key", "?"), _dur(t - em[-1].get("ts", t)))) if em else "none"
     body = "%d sent/24h, %d capped, %d dropped, last emergency %s" % (sent, capped, dropped, last)
+    if dropped and _mode("OVN_HB_DROP_CLASSES") != "off":       # S2/F5: '53 dropped' said nothing; name the classes
+        by = {}
+        for r in drop_rows:
+            c = drop_class(r.get("key", ""))
+            by[c] = by.get(c, 0) + 1
+        body = body.replace("%d dropped" % dropped, "%d dropped (%s)" % (dropped, ", ".join("%d %s" % (n, c) for c, n in sorted(by.items(), key=lambda kv: (-kv[1], kv[0])))), 1)
     if suppressed:
         body += " [suppressed %d]" % suppressed
+    beats = cron_beats_line(t)
+    if beats:
+        body += "\n" + beats
     return "ntfy alive %s" % time.strftime("%Y-%m-%d", time.localtime(t)), body
 
 
@@ -1045,6 +1100,29 @@ def emergency_checks(dry=False):
     return out
 
 
+MAC_SUP_STALE_S = float(os.environ.get("OVN_MAC_SUP_STALE_H", "3")) * 3600
+
+
+def mac_supervisor_stale():
+    """S2/F6: the Mac mac_jobs_health supervisor (launchd, every 10 min) scp's its health.json to state/mac_jobs_health.json on every run. On 2026-11-02 it silently stopped (no plist loaded) and
+    the copy sat 15 h stale with nobody told, because every alert comes FROM the supervisor. -> (stable title, body) when the box copy is older than OVN_MAC_SUP_STALE_H (default 3 h; age from the
+    JSON `ts`, else the file mtime), None when fresh or when no copy was ever written (supervisor never deployed). The title carries NO age (a changing title defeats the relay's per-title cooldown)."""
+    path = _p("mac_jobs_health.json")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return None
+    try:
+        ts = float(json.load(open(path)).get("ts") or mt)
+    except (OSError, ValueError, AttributeError, TypeError):
+        ts = mt
+    age = now() - max(ts, 0)
+    if age < MAC_SUP_STALE_S:
+        return None
+    return ("Mac jobs supervisor silent", "No mac_jobs_health.json from the Mac for %s (limit %g h). The Mac supervisor is not running or the Mac is off/asleep: Mac job alerts (vercel-state-check, claude-queue bridge) are not being checked. "
+            "Check `launchctl list | grep mac-jobs-health` on the Mac." % (_hours(age), MAC_SUP_STALE_S / 3600))
+
+
 def mark_starved_sent():
     os.makedirs(STATE, exist_ok=True)
     open(_p("notify_starved_last"), "w").write(str(now()))
@@ -1057,6 +1135,9 @@ def do_check(dry=False):
         if r == "sent" and title.startswith("🚨 Fleet starved"):
             mark_starved_sent()
         res.append("%s -> %s" % (title, r))
+    ms = mac_supervisor_stale()
+    if ms:        # S2/F6: once per day, flag OVN_ESC_MAC_SUPERVISOR (default shadow = notify_shadow.log only; on = emergency push; off = nothing)
+        res.append("%s -> %s" % (ms[0], escalate("mac_supervisor", ms[0], ms[1], "OVN_ESC_MAC_SUPERVISOR", dry=dry)))
     return "\n".join(res) or "no emergencies"
 
 

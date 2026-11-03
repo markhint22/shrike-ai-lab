@@ -33,6 +33,7 @@ usage: ovn_work_supply.py <repo> [--dry-run] [--max N] [--no-spec-check] [--forc
 env:   OVN_DIR (default ~/overnight-queue); OVN_SUPPLY_MIN_BACKLOG (default 24: only supply when the repo's pullable items are below this)
        OVN_SUPPLY_RESUPPLY_COOLDOWN_S (7200)  OVN_SUPPLY_RUFF_RULES (F601,F811)  OVN_SUPPLY_GD_DOCS (off)  OVN_SUPPLY_MUTATION (unset: external collector off)
        OVN_WORK_SUPPLY=off kills the whole thing.
+       OVN_RESEARCH_REQUESTS=on|off (on, 2026-11-03 K5): a live state/research_requests/<repo>.json bypasses the MIN_BACKLOG early exit only (caps/filters/spec check still apply; see ovn_research_requests.py).
        OVN_SUPPLY_INFRA_ESCALATE_AFTER (12) / OVN_SUPPLY_INFRA_REALERT_EVERY (48): an unusable-verdict streak escalates to an 'error' alerts.log line (with the offending specs)
        and repeats it every N passes; OVN_INGEST_BAN_FILTER=off also drops the ban patterns from the pullable count (same switch as queue_refill).
        OVN_SUPPLY_FROZEN=on|shadow|off (on): 2026-11-01 (K3 item 3) a gap whose file is on the repo's AGENTS.md frozen list ('Legacy/frozen - do not add ...' bullets, backticked
@@ -1353,6 +1354,19 @@ def _bump_infra(repo, bad, notes=None):
     return n
 
 
+def _live_request(repo, dry=False):
+    """(ovn_research_requests module, description) when `repo` has a live state/research_requests/<repo>.json, else None. Advisory: any error = no request."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.append(here)
+        import ovn_research_requests as rr  # noqa: PLC0415
+        r = rr.active(repo, state=_state(""), remove=not dry)
+        return (rr, rr.describe(r)) if r else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _acquire_lock(repo):
     os.makedirs(_state(""), exist_ok=True)
     fd = open(_state("work_supply_%s.lock" % repo), "a+")
@@ -1402,13 +1416,21 @@ def main(argv):
         return 0
     backlog_t, progress_t, done_t = read(bl), read(prog), read(os.path.join(root, "OVERNIGHT_DONE.md"))
     have = pullable_count(backlog_t, progress_t, done_t, _load_banned(root))
+    rq = None
     if on_exh:
         if have != 0:
             print("%s: %d pullable items - lane not exhausted, nothing to kick" % (repo, have))
             return 0
     elif "--force" not in flags and have >= MIN_BACKLOG:
-        print("%s: %d pullable items >= %d - no supply needed" % (repo, have, MIN_BACKLOG))
-        return 0
+        # 2026-11-03 (K5): a LIVE research request (ovn_supply_forecast.py, mode on: runway < 24h at the observed burn) outranks the static "24 pullable is enough" floor. ONLY this early
+        # exit is bypassed: the per-pass --max, the seen/resupply filters, the red-before spec check and the lock all still apply.
+        rq = _live_request(repo, dry)
+        if not rq:
+            print("%s: %d pullable items >= %d - no supply needed" % (repo, have, MIN_BACKLOG))
+            return 0
+        print("%s: %d pullable items >= %d but a research request is live (%s) - supplying within caps" % (repo, have, MIN_BACKLOG, rq[1]))
+        if not dry:
+            rq[0].log("work-supply", repo, "bypass-min-backlog", "pullable %d; %s" % (have, rq[1]), state=_state(""))
     now = time.time()
     seen_path = _state("work_supply_seen_%s" % repo)
     resup_path = _state("work_supply_resupplied_%s" % repo)
@@ -1498,6 +1520,8 @@ def main(argv):
         _touch(_state("supply_kick"))  # the runner's idle sleep exits early on this
     save_seen(seen_path, seen)
     _touch(last_path)
+    if keep and rq:
+        rq[0].log("work-supply", repo, "consumed", "added %d item(s); %s" % (len(keep), rq[1]), state=_state(""))
     print("%s: ADDED %d deterministic item(s) to backlog (%d specs, dropped %s)" % (repo, len(keep), len(specs), dropped or "none"))
     return 0
 

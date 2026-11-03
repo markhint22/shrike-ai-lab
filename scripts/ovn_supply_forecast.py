@@ -18,19 +18,24 @@ A repo is SHORT when runway_h < OVN_FORECAST_RUNWAY_H (default 24). For a short 
   shortfall_features  ceil(shortfall_items / items_per_feature)
   priority            high when runway_h < OVN_FORECAST_HIGH_H (default 6), else normal
 
-Outputs: state/supply_forecast.json (atomic; every repo, always written unless --dry-run), one log line per short repo to logs/supply_forecast.log (rotated at 1 MB).
+Outputs: state/supply_forecast.json (atomic; every repo, always written unless --dry-run), one `hb` heartbeat row per run (K6: quiet != dead) + one log line per short repo to logs/supply_forecast.log (rotated at 1 MB).
 MODE OVN_SUPPLY_FORECAST=shadow|on|off (default shadow):
   shadow  forecast + json + log only. The json says `would_request` per short repo; NO state/research_requests file and NO digest line.
   on      additionally writes state/research_requests/<repo>.json {repo, ts, priority, shortfall_items, shortfall_features, runway_h, burn_per_day, pullable, ready, ...} (atomic, rewritten each run
           while the repo stays short, REMOVED when it is no longer short) and ovn_notify's hourly update shows ONE bullet `Supply runway < 24h: ...` (digest text only, no push of its own).
   off     does nothing.
-Nothing in the fleet consumes research_requests/ yet: it is the hand-off file for a research trigger (ovn_research_trigger_check / the Mac auto-research job) to read; writing it changes no behaviour.
+CONSUMERS (2026-11-03, K5): ovn_research_requests.py is the shared reader. ovn_local_research.py / ovn_work_supply.py bypass their "enough already" early-exit for a repo with a live request (cooldown,
+daily cap, --max and validators still apply), ovn_research_trigger_check.py raises the roadmap-feature floor alert earlier. Consumption is logged to state/research_requests_consumed.log.
+SHADOW -> ON (code default stays `shadow`): flip only after these SOAK CRITERIA hold in logs/supply_forecast.log over >= 7 consecutive days (the log first filled 2026-11-02 09:37; at review time
+it held < 1 day: 23 lines, only test-automation-agent (a TRUE starve: pullable 0 for 8h) and iptv_apps (17.8-22.6h, borderline)): (a) at most 2 distinct repos would-request on any one run,
+(b) every would-request repo is confirmed by an actual starve (pullable < 5 or an ovn_research_trigger_check starving row) within 24h, (c) no repo flaps short/not-short more than 4 times a day,
+(d) no row for a non-repo. Then set OVN_SUPPLY_FORECAST=on in the forecast cron line (rollback: back to shadow / off; the request goes stale after 6h by itself).
 
 usage:  ovn_supply_forecast.py [--print] [--json] [--dry-run] [--now EPOCH] [--repos a,b]
 cron (proposed, NOT installed; box):  7,37 * * * * cd ~/overnight-queue && python3 scripts/ovn_supply_forecast.py >> logs/supply_forecast.cron.log 2>&1
       (flip to `env OVN_SUPPLY_FORECAST=on python3 ...` after a day of shadow lines in logs/supply_forecast.log looks right)
 env:    OVN_DIR / OVN_NOTIFY_STATE, OVN_SUPPLY_FORECAST, OVN_FORECAST_RUNWAY_H (24), OVN_FORECAST_HIGH_H (6), OVN_FORECAST_TARGET_H (48), OVN_FORECAST_ITEMS_PER_FEATURE (5), OVN_FORECAST_BURN_D (7),
-        OVN_FORECAST_REPOS (comma list; default = every repo with a roadmap file under $OVN_DIR/roadmap that is not discontinued)
+        OVN_FORECAST_REPOS (comma list; default = every repo with a roadmap file under $OVN_DIR/roadmap AND a clone under $OVN_DIR/repos/<name> that is not discontinued)
 """
 import json
 import math
@@ -111,7 +116,9 @@ def default_repos(root):
         names = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md"))
     except OSError:
         names = []
-    return [n for n in names if n not in DISCONTINUED]
+    # 2026-11-03 (K5): roadmap/ also holds non-repo docs (README.md was forecast as a "repo": supply 0, runway None, one bogus row in every json). A forecast repo must have a
+    # roadmap AND a clone under repos/<name> (the only repos the fleet can actually work).
+    return [n for n in names if n not in DISCONTINUED and n.upper() != "README" and os.path.isdir(os.path.join(root, "repos", n))]
 
 
 def collect(now=None, root=None, state=None, repos=None):
@@ -196,6 +203,9 @@ def write_outputs(fc, root=None, state=None, stamp=None):
         pass
     try:
         with open(logp, "a") as f:
+            # K6 (2026-11-03): one heartbeat row per run. Before this the log only got a row per SHORT repo, so a healthy fleet (no repo short) left it silent for 15 h and
+            # 'quiet by design' looked exactly like 'cron dead'. The row deliberately carries no "[mode]" tag (the per-repo rows own that token).
+            f.write("%s hb mode=%s checked=%d short=%d floor_h=%g\n" % (stamp or time.strftime("%Y-%m-%d %H:%M:%S"), fc["mode"], len(fc["repos"]), len(short_repos(fc)), fc["runway_floor_h"]))
             for r in short_repos(fc):
                 f.write("%s [%s] %s\n" % (stamp or time.strftime("%Y-%m-%d %H:%M:%S"), fc["mode"], fc["repos"][r]["line"]))
     except OSError:

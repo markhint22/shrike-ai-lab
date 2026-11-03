@@ -35,7 +35,7 @@ GREEN="chore(overnight): reconcile overnight/feature into develop (branch-hygien
 
 setup(){
   rm -rf "${T:?}/home" "${T:?}/origin" "${T:?}/seed"; mkdir -p "$Q/state" "$Q/scripts" "$Q/qa" "$Q/repos" "$Q/logs" "$T/origin" "$T/seed"
-  for f in qa_common release_candidate staging_check promote_gate qa_timeout prod_alembic_check promote_postcheck; do cp "$QA/$f.py" "$Q/qa/"; done
+  for f in qa_common release_candidate staging_check promote_gate qa_timeout prod_alembic_check prod_alembic_snapshot vercel_prod_state promote_postcheck; do cp "$QA/$f.py" "$Q/qa/"; done
   cp "$QA/qa_enforce.sh" "$QA/qa_daily_shadow.sh" "$Q/qa/"
   cp "$OQ/promote_to_prod.sh" "$OQ/daily_promote.sh" "$OQ/staging_smoke.sh" "$Q/"; : > "$T/curl.log"; EXTRA=()
   printf 'import sys\nsys.exit(0)\n' > "$Q/scripts/check_migrations.py"
@@ -68,7 +68,7 @@ for i, sp in enumerate(specs):
 json.dump({"repo": "x", "fetched_at": time.time() - age, "deployments": deps}, open(path, "w"))
 PY
 }
-cronenv(){ env -i HOME="$HOME" PATH="$ENVPATH" NTFY_SERVER=http://127.0.0.1:9 FAKE_CURL_LOG="$T/curl.log" NTFY_TOPIC=selftest_ignore OVN_POSTCHECK_NO_CLI=1 \
+cronenv(){ env -i HOME="$HOME" PATH="$ENVPATH" NTFY_SERVER=http://127.0.0.1:9 FAKE_CURL_LOG="$T/curl.log" NTFY_TOPIC=selftest_ignore OVN_POSTCHECK_NO_CLI=1 OVN_POSTCHECK_HEALTH=off OVN_POSTCHECK_VERCEL=off \
     GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
     ${EXTRA[@]+"${EXTRA[@]}"} "$@"; }
 runp(){ cronenv bash "$Q/promote_to_prod.sh" "$@" > "$OUT" 2>&1 < /dev/null; echo $? > "$T/rc"; }

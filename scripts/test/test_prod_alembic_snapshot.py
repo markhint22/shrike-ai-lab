@@ -172,7 +172,7 @@ def suite(S, label=""):
     ok_, msg = S.refresh("iptv_apps", dry=True)
     ok(label + "S4 dry run: reports the revision, records nothing", ok_ and "0012_referral_hardening" in msg and snap() is None, (ok_, msg))
     ok_, msg = S.refresh("billwatch")
-    ok(label + "S4 repo without a known /health revision field: not recorded, says why", (not ok_) and "no /health URL known" in msg)
+    ok(label + "S4 repo without a known /health revision field: not recorded, says why", (not ok_) and "health-has-no-revision" in msg)
     os.environ["QA_PROD_ALEMBIC_SNAPSHOT"] = "0"
     hits = RESP["hits"]
     ok_, msg = S.refresh("iptv_apps")

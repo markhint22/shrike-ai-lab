@@ -126,6 +126,55 @@ def paused_repos():
     return out
 
 
+TOOL_HEALTH_FILE = "qa_tool_health.json"
+
+
+def tool_health(max_age_s=None, now=None):
+    """K2: the per-tool report qa/qa_tool_health.py writes to state/qa_tool_health.json, as {tool: {installed, working, status, ...}}; {} when the file is absent,
+    corrupt or older than max_age_s (default OVN_QA_TOOL_HEALTH_MAX_AGE_S, 7200 = 2 h: an install_qa_tools.sh --apply must not be shadowed by yesterday's "missing"; a stale
+    report must never mark anything). Read-only, never raises."""
+    try:
+        age = float(max_age_s if max_age_s is not None else os.environ.get("OVN_QA_TOOL_HEALTH_MAX_AGE_S", "7200"))
+    except ValueError:
+        age = 7200.0
+    try:
+        with open(os.path.join(state_dir(), TOOL_HEALTH_FILE)) as f:
+            d = json.load(f)
+        ts = float(d.get("ts") or 0)
+        if (now if now is not None else time.time()) - ts > age:
+            return {}
+        t = d.get("tools")
+        return {k: v for k, v in t.items() if isinstance(v, dict)} if isinstance(t, dict) else {}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+
+
+def tool_present(name):
+    """Live probe (no report): True when an executable `name` exists where the QA gates look for it - env QA_TOOL_<NAME>, ~/qa-venv/bin, ~/qa-tools/bin, PATH,
+    <OVN_DIR>/qa-tools/.venv/bin (same order as qa_tool_health.find_tool). Cheap (stat calls only), never raises."""
+    try:
+        ov = os.environ.get("QA_TOOL_" + name.upper().replace("-", "_"))
+        if ov:
+            return os.path.exists(ov)
+        for d in (os.path.expanduser("~/qa-venv/bin"), os.path.expanduser("~/qa-tools/bin"), os.path.join(ovn_dir(), "qa-tools", ".venv", "bin")):
+            p = os.path.join(d, name)
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                return True
+        return bool(shutil.which(name))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def tool_unavailable(name, health=None):
+    """'missing' | 'broken' | '' - what the (fresh) qa_tool_health report says about `name`. '' also when the report has no opinion (absent / stale / skipped).
+    A 'missing' verdict is cross-checked with a live probe: if the tool is on disk now (installed after the report was written) the report is wrong and '' is returned."""
+    h = (health if health is not None else tool_health()).get(name) or {}
+    st = h.get("status")
+    if st == "missing" and tool_present(name):
+        return ""
+    return st if st in ("missing", "broken") else ""
+
+
 def verdict(v, gate, repo, ref, summary="", details=None, ms=None):
     """Build the canonical result dict (does not write it)."""
     if v not in VERDICTS:

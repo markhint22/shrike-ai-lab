@@ -14,7 +14,7 @@ pushed several branches within seconds (reconcile pushes the same sha to develop
 Token comes from the Vercel CLI login. Alerts go through $NTFY_SERVER (the relay) so they obey the notification policy.
 usage: vercel_state_check.py [--dry-run]
 """
-import json, os, sys, time, urllib.error, urllib.request
+import json, os, re, sys, time, urllib.error, urllib.request
 
 HOME = os.path.expanduser("~")
 LOCAL = os.environ.get("OVN_CLONES_DIR", os.path.join(HOME, "LocalProjects"))
@@ -36,6 +36,37 @@ ESCALATE_POLLS = int(os.environ.get("VSC_ESCALATE_POLLS", "3"))
 RETRY = os.environ.get("VSC_RETRY", "on").lower() not in ("off", "0", "false", "no")
 VERCEL = os.environ.get("VSC_VERCEL_BIN", "vercel")
 SCOPE = os.environ.get("VSC_SCOPE", "shrikelabs")
+
+
+# 2026-11-03 (S2/F4): messages that are known fleet-identity noise, not actionable previews (gitlark: "deployment blocked because commit author lacks permission", repeated daily).
+NOISE_MSG_RE = re.compile(r"commit author|author lacks permission|author does not have permission", re.I)
+ESCALATE_EVERY_S = float(os.environ.get("VSC_ESCALATE_EVERY_S", str(24 * 3600)))   # S2/F1: rolling window between 'still ERROR' escalations (was: calendar day)
+
+
+def fmt_age(secs):
+    """'13d' / '5h' / '20m' for a duration in seconds."""
+    secs = max(0, int(secs))
+    return "%dd" % (secs // 86400) if secs >= 2 * 86400 else ("%dh" % (secs // 3600) if secs >= 3600 else "%dm" % (secs // 60))
+
+
+def legacy_esc_epoch(v, now_s):
+    """Pre-S2/F1 state stored esc_<proj> as a local 'YYYY-MM-DD' day marker. Migrate it: today's date means 'escalated now' (the old code already pushed today, and its old
+    'still ERROR (N polls)' title cannot be deduped by the relay's per-title cooldown, so treating it as unset would send one extra urgent push); an older date is that day's local midnight."""
+    try:
+        day = time.strptime(str(v), "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return 0.0
+    if time.strftime("%Y-%m-%d", time.localtime(now_s)) == str(v):
+        return now_s
+    return time.mktime(day)
+
+
+def last_ready_text(prod, now_s):
+    """'last READY production deploy 13d ago (2026-10-21)' from the newest-first production list, or an honest 'none in the listing'."""
+    for d in prod:
+        if (d.get("readyState") or d.get("state")) == "READY":
+            return "last READY production deploy %s ago (%s)" % (fmt_age(now_s - d["createdAt"] / 1000.0), time.strftime("%Y-%m-%d", time.gmtime(d["createdAt"] / 1000.0)))
+    return "no READY production deploy in the last %d deployments" % max(1, len(prod))
 
 
 def branch_of(d):
@@ -181,7 +212,9 @@ def main():
         prod = sorted([d for d in deps if (d.get("target") or "") == "production"], key=lambda d: -d["createdAt"])
         if prod and st(prod[0]) in BAD and state.get("prod_" + name) != prod[0]["uid"] and prod[0]["uid"] not in pending:
             # recorded as sent ONLY when a channel took it (a lost push used to be marked sent: the next poll stayed silent)
-            if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), (prod[0].get("errorMessage") or "newest production deploy is not live")[:200], True, dry) is not False:
+            # S2/F1: the body carries how long production has been without a good build (after a promote that failed, the first push already says "last READY 13d ago")
+            body = "%s | %s" % ((prod[0].get("errorMessage") or "newest production deploy is not live")[:120], last_ready_text(prod, now_s))
+            if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), body[:200], True, dry) is not False:
                 state["prod_" + name] = prod[0]["uid"]
         # P1 escalation: production newest state ERROR for ESCALATE_POLLS consecutive polls (a transient redeploy would have cleared it) -> ONE urgent push per day per project,
         # independent of the per-deployment dedupe above (the same ERROR deployment can sit there for days). VSC_ESCALATE_POLLS=0 disables.
@@ -190,9 +223,21 @@ def main():
         else:
             n_err = 0
         state["errpolls_" + name] = n_err
-        if ESCALATE_POLLS > 0 and n_err >= ESCALATE_POLLS and state.get("esc_" + name) != today:
-            if push("Vercel PRODUCTION %s still ERROR (%d polls)" % (name, n_err), ((prod[0].get("errorMessage") or "newest production deploy is in ERROR") + " - production has not recovered")[:200], True, dry) is not False:
-                state["esc_" + name] = today
+        if ESCALATE_POLLS > 0 and n_err >= ESCALATE_POLLS:
+            # S2/F1: STABLE title (the relay's per-title 3h cooldown keyed on 'still ERROR (3 polls)' vs '(7 polls)' never matched: two urgent pushes in 2h); age + poll count live in the body.
+            # Age comes from the newest production deployment's createdAt and the last READY one (not the poll counter, which only counts since this code deployed).
+            # Once per ROLLING 24 h (state esc_<name> = epoch of the last delivered escalation), not per calendar day (local midnight re-armed it 2h after the previous push).
+            try:
+                last_esc = float(state.get("esc_" + name, 0))
+            except (TypeError, ValueError):
+                last_esc = legacy_esc_epoch(state.get("esc_" + name), now_s)
+                if isinstance(state.get("esc_" + name), str) and last_esc:
+                    state["esc_" + name] = last_esc      # persist the migrated epoch so 'today' does not keep rolling forward with the clock
+            if now_s - last_esc >= ESCALATE_EVERY_S:
+                body = "newest production deploy ERROR for %s (%d polls); %s; %s" % (fmt_age(age_of(prod[0])), n_err, last_ready_text(prod, now_s),
+                                                                                  (prod[0].get("errorMessage") or "production has not recovered")[:80])
+                if push("Vercel PRODUCTION %s still ERROR" % name, body[:200], True, dry) is not False:
+                    state["esc_" + name] = now_s
 
         def actionable(d):
             if (d.get("target") or "preview") == "production" or st(d) not in BAD or d["createdAt"] < cutoff:
@@ -200,6 +245,10 @@ def main():
             k = key_of(d)
             if k in NOISE_BRANCHES:
                 return False          # fleet-only branch: not actionable
+            if NOISE_MSG_RE.search(d.get("errorMessage") or ""):
+                return False          # known fleet commit-identity noise (S2/F4)
+            if k and k in newest and st(newest[k]) == "READY" and newest[k] is not d:
+                return False          # S2/F4: the branch already recovered (its newest deployment is READY); a 6h-old ERROR must not keep reporting 'failing'
             if is_transient(d) and (newest.get(k) is not d or d["uid"] in pending):
                 return False          # superseded by a later deployment, or a retry is still pending
             return True

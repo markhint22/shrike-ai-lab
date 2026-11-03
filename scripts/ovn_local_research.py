@@ -18,6 +18,7 @@ drafts, and committed (that one file only). Nothing here touches code.
 usage: ovn_local_research.py <repo> [--dry-run] [--force] [--max N] [--evidence-only]
 env:   OVN_DIR (default ~/overnight-queue), LITELLM_BASE, LITELLM_MASTER_KEY, OVN_MODEL,
        OVN_LR_FRESH_EVIDENCE=shadow|on|off (default shadow; K5: extra evidence from coverage / ruff / tsc summaries / origin-tree TODOs when the normal collectors leave < 2 pieces),
+       OVN_RESEARCH_REQUESTS=on|off (default on, 2026-11-03 K5: a live state/research_requests/<repo>.json lets the pass run although the repo has a [ready] feature; cooldown + daily cap still apply),
        OVN_LR_COVERED_MODE=open|legacy (default open: evidence is covered only by an OPEN line naming the same file AND symbol/line)
 exit:  0 always (research is best-effort); prints one summary line.
 """
@@ -30,6 +31,10 @@ import subprocess
 import sys
 import time
 import urllib.request
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 OVN_DIR = os.environ.get("OVN_DIR") or os.path.expanduser("~/overnight-queue")
 LITELLM = os.environ.get("LITELLM_BASE", "http://localhost:4000")
@@ -639,10 +644,22 @@ def main(argv):
     roadmap_text = read(rm)
     marker = os.path.join(state, "local_research_%s" % repo)
     cnt = os.path.join(state, "local_research_count_%s_%s" % (repo, datetime.date.today().isoformat()))
+    # 2026-11-03 (K5): a LIVE research request (state/research_requests/<repo>.json, written by ovn_supply_forecast.py in mode on) means the repo's runway is < 24h EVEN WITH its [ready]
+    # features decomposed, so "already has a [ready] feature" no longer ends the pass. Only that early-exit is bypassed: the cooldown and the daily cap below still apply.
+    req = None
+    try:
+        import ovn_research_requests as _rr
+        req = _rr.active(repo, state=state, remove=("--dry-run" not in flags))
+    except Exception:  # noqa: BLE001 - the request reader is advisory, never a failed pass
+        _rr = None
+    bypassed = False
     if "--force" not in flags:
         if re.search(r"^- \[ \] \[P[1-4]\] \[ready\]", roadmap_text, re.M):
-            print("%s: already has a [ready] feature - skip" % repo)
-            return 0
+            if not req:
+                print("%s: already has a [ready] feature - skip" % repo)
+                return 0
+            bypassed = True
+            print("%s: has a [ready] feature but a research request is live (%s) - continuing within cooldown/cap" % (repo, _rr.describe(req)))
         try:
             if time.time() - float(read(marker) or 0) < COOLDOWN_S:
                 print("%s: in cooldown - skip" % repo)
@@ -652,6 +669,9 @@ def main(argv):
         if int(read(cnt) or 0) >= MAX_PER_DAY:
             print("%s: daily cap reached - skip" % repo)
             return 0
+    # logged only once the pass really proceeds (cooldown/cap passed) and never in a dry run, like ovn_work_supply.py
+    if bypassed and "--dry-run" not in flags:
+        _rr.log("local-research", repo, "bypass-ready-skip", _rr.describe(req), state=state)
     # 2026-10-07: covered evidence is dropped before the MAX_EVIDENCE cap - without this the same top evidence is re-proposed every pass, the validator
     # drops the duplicates, and the rest of the evidence is never reached.
     # 2026-10-09: "covered" now means an OPEN roadmap/backlog/progress line names the same file AND symbol/line; OVN_LR_COVERED_MODE=legacy restores the
@@ -736,6 +756,8 @@ def main(argv):
         print("%s: 0 items accepted (%d proposed, %d validated) - cooldown set" % (repo, len(proposed), len(accepted)))
         return 0
     append_and_commit(repo, kept, len(evidence))
+    if req and _rr:
+        _rr.log("local-research", repo, "consumed", "appended %d [ready] item(s); %s" % (len(kept), _rr.describe(req)), state=state)
     try:
         with open(os.path.join(state, "alerts.log"), "a") as f:
             f.write("[%s] info | local-research:%s | refueled %d [ready] item(s) from local-27B drafts (Claude not needed)\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), repo, len(kept)))

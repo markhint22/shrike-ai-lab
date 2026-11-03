@@ -46,7 +46,7 @@ DAILY_ONLY = ("mutation",)          # gate_*.py names that the per-merge runner 
 CAP_MAX = 600                       # seconds, spike-measured limit
 CHILDREN_MAX = 4
 SURVIVORS_MAX = 10
-DEFAULT_SELECT_REPOS = "iptv_apps"  # full suite does not fit the cap (spike: stats pass alone 552-576 s)
+DEFAULT_SELECT_REPOS = "iptv_apps billwatch gitlark"  # iptv: full suite does not fit the cap (spike: stats pass alone 552-576 s); K2: billwatch/gitlark too, so the daily pass finishes (override: OVN_MUT_SELECT_REPOS)
 DEFAULT_DAILY_REPOS = "billwatch gitlark iptv_apps test-automation-agent"
 VALID = ("PASS", "FLAG", "UNVERIFIED", "NA")
 MEASURED = ("PASS", "FLAG", "NA")   # verdicts that mean "this range was really looked at"; UNVERIFIED never advances the daily baseline
@@ -108,6 +108,15 @@ def opt(argv, name, default=""):
     return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else default
 
 
+def _mutmut_installed():
+    """Live check that mutmut is really in the QA venv (site-packages dir); False when it cannot be determined. Guards the tool-missing tag against a stale report."""
+    try:
+        sp = load_spike().qa_site_packages()[1]
+        return bool(sp and os.path.isdir(os.path.join(sp, "mutmut")))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def finish(res, argv, vals, t0):
     """Normalize the spike's result into the gate contract (never FAIL, yield block, skipped_decorated always present)."""
     det = res.setdefault("details", {})
@@ -129,6 +138,9 @@ def finish(res, argv, vals, t0):
                     "mutants": int(det.get("mutants_total") or 0), "undecided": int(det.get("undecided_mutants") or 0), "runtime_s": runtime, "cpu_s": det.get("cpu_s")}
     if det.get("survivors_shown"):
         det["survivors_shown"] = det["survivors_shown"][:SURVIVORS_MAX]
+    if res["verdict"] == "UNVERIFIED" and (re.search(r"mutmut not installed|mutmut is not installed|and no QA venv at", res.get("summary", "")) or (qc.tool_unavailable("mutmut") == "missing" and not _mutmut_installed())):
+        det["reason_code"] = "tool-missing"        # K2: same code the scanners gate uses, so the evidence report counts it
+        det["missing_tools"] = ["mutmut"]
     if qc.mode(GATE) == "enforce":
         det["enforce_note"] = "OVN_QA_MUTATION=enforce is a no-op: mutation testing is advisory only (no enforcement path exists)"
     if res["verdict"] == "UNVERIFIED" and opt(argv, "--repo") in os.environ.get("OVN_MUT_SELECT_REPOS", DEFAULT_SELECT_REPOS).split() \
@@ -213,9 +225,13 @@ def tooling_reason():
     try:
         base, sp = load_spike().qa_site_packages()
     except Exception as ex:  # noqa: BLE001
-        return "cannot locate the QA venv: %s" % ex
+        base, sp = None, None
+        if qc.tool_unavailable("mutmut") != "missing":
+            return "cannot locate the QA venv: %s" % ex
     if sp and os.path.isdir(os.path.join(sp, "mutmut")):
-        return ""
+        return ""     # really installed: a stale/wrong qa_tool_health "missing" must not skip the pass
+    if qc.tool_unavailable("mutmut") == "missing":   # K2: the report says so (fresh <= 2 h, cross-checked by a live probe in qc.tool_unavailable)
+        return "mutmut is not installed in the QA venv (qa_tool_health: missing): run ops/install_qa_tools.sh --apply (dry-run by default)"
     return "mutmut is not installed in the QA venv (%s): run ops/qa_tools_install.sh (installs it into <OVN_DIR>/qa-tools/.venv)" % base
 
 
@@ -227,7 +243,7 @@ def record_skip(reason, repo=None, record=True):
         d = qc.state_dir()
         os.makedirs(d, exist_ok=True)
         row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "gate": GATE, "reason": str(reason)[:300]}
-        if "mutmut is not installed" in str(reason) or "cannot locate the QA venv" in str(reason):
+        if "mutmut is not installed" in str(reason) or "cannot locate the QA venv" in str(reason) or "qa_tool_health: missing" in str(reason):
             row["reason_code"] = "tool-missing"        # K6: the evidence report calls this out instead of treating it as a quiet skip
         if repo:
             row["repo"] = repo

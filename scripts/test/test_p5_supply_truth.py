@@ -273,7 +273,7 @@ MUTANTS = [
     ("autoclose treats a line with no named test as proven", "claude_queue_bridge.py", 'return False, "no named test id in VERIFY"', 'return True, "no named test id in VERIFY"'),
     ("autoclose shadow enforces", "claude_queue_bridge.py", 'if mode == "enforce" and closed:', "if closed:"),
     ("autoclose default mode enforce", "claude_queue_bridge.py", 'or "shadow").strip().lower()', 'or "enforce").strip().lower()'),
-    ("harvest re-opens closed features in enforce", "claude_queue_bridge.py", '            if mode == "enforce":\n                continue\n        existing_sigs.add', '            if False:\n                continue\n        existing_sigs.add'),
+    ("harvest re-opens closed features in enforce", "claude_queue_bridge.py", '            if mode == "enforce":\n                continue\n        if dmode != "off":', '            if False:\n                continue\n        if dmode != "off":'),
     ("gate skips the no-VERIFY refusal", "scripts/ovn_already_done_gate.py", "    if not has_verify(line):", "    if False:"),
     ("gate skips the string check", "scripts/ovn_already_done_gate.py", "    missing = [s for s in strings if s not in text]", "    missing = []"),
     ("gate skips the file-mismatch check", "scripts/ovn_already_done_gate.py", "    if plan_file and not _same_file(tgt, plan_file):", "    if False:"),
