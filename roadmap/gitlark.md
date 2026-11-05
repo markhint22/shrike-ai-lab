@@ -559,3 +559,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 
 ## Local research 2026-11-02 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 9 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `redact` function — `backend/app/core/error_reporting.py:28` is a public function with zero test coverage; add unit tests in `backend/tests/` verifying that known secret patterns (API keys, tokens) are replaced with redaction markers while non-secret text remains unchanged {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-05 (ovn_local_research.py; 2 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `status_action` endpoint — `backend/app/routers/control_plane.py:119` is a public function with zero test coverage; add tests in `backend/tests/` verifying that the endpoint returns the correct fleet status payload and handles unauthorized access with 403 {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [ready] Test `promote_action` endpoint — `backend/app/routers/control_plane.py:185` is a public function with zero test coverage; add tests in `backend/tests/` verifying that promoting an action updates its state and returns 200, and that it rejects invalid action IDs with 404 {cat: test; size: S; multifile: no; research: none}
