@@ -18,7 +18,7 @@ usage:  ovn_notify.py serve [--port 8099]
         ovn_notify.py update [--dry-run] [--force]
         ovn_notify.py check  [--dry-run]
         ovn_notify.py heartbeat [--dry-run]
-        ovn_notify.py escalate --sig S --title T [--body B] --flag OVN_ESC_X [--dry-run]
+        ovn_notify.py escalate --sig S --title T [--body B] --flag OVN_ESC_X [--rolling-h N] [--dry-run]
 env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIFY_DAILY_CAP (default 40), OVN_NOTIFY_DISABLE=1 (drop all pushes)
         OVN_IDLE_LINE=0 (no "Lane idle" lines in the hourly update), OVN_IDLE_ALERT=0 (no "Fleet starved" emergency), OVN_IDLE_ALERT_H (default 6)
         OVN_STARVED_PRIORITY=off ("Fleet starved" only when EVERY lane is idle, not when the priority lanes are), OVN_PRIORITY_LANES (default iptv_apps,xlite),
@@ -33,7 +33,13 @@ env:    OVN_NOTIFY_STATE (state dir), OVN_NOTIFY_UPSTREAM, NTFY_TOPIC, OVN_NOTIF
         OVN_NOTIFY_DIGEST_CAP (default 24) / OVN_NOTIFY_EMERGENCY_CAP (default 20): SEPARATE per-24h budgets; OVN_NOTIFY_DAILY_CAP, when set explicitly, stays a total ceiling too.
         `heartbeat` : one priority-3 'ntfy alive <date>' message (never deduped, exempt from every cap) so SILENCE of the channel is detectable; carries sent/capped/dropped
                       counts, the last emergency and '[suppressed N]' for emergencies that were capped/deduped since the previous heartbeat.
-        `escalate --sig S --title T --body B --flag OVN_ESC_X`: ONE emergency-class push per signature per local day (mode shadow|on|off, default shadow = notify_shadow.log only).
+        `escalate --sig S --title T --body B --flag OVN_ESC_X [--rolling-h N]`: ONE emergency-class push per signature per local day (mode shadow|on|off, default shadow = notify_shadow.log only);
+                      with --rolling-h N the key is a rolling N-hour window (state/notify_escalated_rolling.json), not the calendar day.
+        2026-11-04 (Y6 notify fixes 2): the 'Daily prod promote' summary is NEVER dropped any more: it is folded into the next hourly digest as ONE bullet (promoted repos + UNVERIFIED/HELD/BLOCKED lists,
+                      state/notify_promote.json, cleared only after a digest was really sent); the research-batch scorecard is ONE weekly digest line (state/notify_scorecard*.json).
+                      OVN_ESC_MAC_SUPERVISOR now defaults to ON (once per day; OVN_ESC_MAC_SUPERVISOR=off|shadow is the kill switch).
+                      OVN_BULLET_ONCE (off|shadow|on, default on): 'Features ready to test' / 'Batch health' / 'Branch reconcile CONFLICT' bullets show only when their state changed or every
+                      OVN_BULLET_REPEAT_H (6) h. The reconcile bullet names repo + branch. 'Suite red' notes/escalations drop the harness's own fixture tests (test_fake_a.sh, test_fail.sh, test_does_not_exist.sh).
 """
 import base64
 import email.header
@@ -69,7 +75,13 @@ NOTE_WINDOW = 6 * 3600
 LAN = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "::1/128")]
 
 # messages the hourly update replaces - never pushed, never listed
-DROP_RE = re.compile(r"overnight queue|backlog refilled|lock contention|lock-orphan|hourly|daily prod promote|feature complete|research-batch scorecard", re.I)  # scorecard: a history of graded batches, not an action item (stays in logs/ovn_batch_scorecard.log)
+DROP_RE = re.compile(r"overnight queue|backlog refilled|lock contention|lock-orphan|hourly|feature complete", re.I)
+# Y6: these two used to be DROPPED. The prod-promote summary (promoted repos + the UNVERIFIED list) never reached the phone; it is now folded into the next digest as one bullet. The research-batch
+# scorecard (a history of graded batches, not an action item) becomes one WEEKLY digest line.
+PROMOTE_RE = re.compile(r"daily prod promote", re.I)
+SCORECARD_RE = re.compile(r"research-batch scorecard", re.I)
+# the queue test-suite's own deliberately failing fixtures: never a real "suite red" signal (Y1 fixes the leak at the source; this is the defensive filter in the naming)
+FIXTURE_TESTS = ("test_fake_a.sh", "test_fail.sh", "test_does_not_exist.sh")
 # messages that are real emergencies by content (in addition to priority urgent / explicit level header)
 EMERGENCY_RE = re.compile(r"\bDOWN\b|auto-restart FAILED|fleet stalled|model is down|disk almost full|notification relay", re.I)
 
@@ -81,7 +93,8 @@ def _p(name):
 # flags whose shadow log was reviewed clean and that now default to ON (2026-11-02, N6); the env var still switches them off / back to shadow
 # 2026-11-03 (S2/F3): OVN_ESC_HYGIENE is ON by default (a hygiene gate stuck >= 4h sat red 6h with only a priority-3 digest line; one fire/day was the sane shadow count). Kill switch: OVN_ESC_HYGIENE=off|shadow.
 # OVN_ESC_PROMOTE_RED stays shadow (flip with env after reviewing notify_shadow.log); there is no OVN_ESC_SUITE flag in the code base.
-_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES")
+# 2026-11-04 (Y6): OVN_ESC_MAC_SUPERVISOR is ON too (the Mac supervisor sat dead 2 days, its shadow line was the only trace) and so is OVN_BULLET_ONCE.
+_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES", "OVN_ESC_MAC_SUPERVISOR", "OVN_BULLET_ONCE")
 
 
 def _mode(flag):
@@ -157,8 +170,45 @@ def _append_jsonl(path, obj):
         f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
 
+def suite_red_filter(title, body=""):
+    """Y6/6: 'Suite red xN: a, b +2' without the harness's own fixture tests. -> (title, body) or None when every named test is a fixture (not a real signal).
+    Titles that are not 'Suite red' pass through unchanged."""
+    m = re.match(r"^(\W*Suite red x\d+:\s*)(.*)$", title or "", re.I)
+    if not m:
+        return title, body
+    fixture = lambda n: os.path.basename(n.strip().split(":")[0].strip()) in FIXTURE_TESTS
+    toks = [x for x in re.split(r"\s*,\s*", m.group(2).strip()) if x]
+    keep, more = [], ""
+    for tk in toks:
+        mm = re.match(r"^(.*?)\s*(\+\d+)$", tk)       # the last token may carry the ' +N' remainder
+        name, extra = (mm.group(1), mm.group(2)) if mm else (tk, "")
+        if name and not fixture(name):
+            keep.append(name)
+        if extra:
+            more = extra
+    if not keep and not more:
+        return None
+    pre, sep, rest = (body or "").partition("): ")
+    if not sep:
+        pre, rest = "", body or ""
+    segs = [x for x in rest.split("; ") if not any(fx in x for fx in FIXTURE_TESTS)]
+    nb = (pre + sep if sep else "") + "; ".join(segs)
+    return m.group(1) + ", ".join(keep) + ((" " if keep else "") + more if more else ""), nb
+
+
+RECONCILE_RE = re.compile(r"branch reconcile conflict(?! cleared)", re.I)
+
+
 def add_note(title, body, priority, source=""):
-    _append_jsonl(_p("notify_notes.jsonl"), {"ts": now(), "title": clean_title(title), "text": short(body), "prio": priority or "default", "source": source})
+    f = suite_red_filter(title, body)
+    if f is None:
+        _event("filtered", "note", clean_title(title), "only harness fixture tests named: %s" % body)
+        return
+    title, body = f
+    text = short(body)
+    if RECONCILE_RE.search(title or ""):
+        text = re.sub(r"\s+", " ", body or "").strip()[:600]     # Y6/4: keep the full conflict set (repo + branch), the 110-char cut left 'develop->overnight/...'
+    _append_jsonl(_p("notify_notes.jsonl"), {"ts": now(), "title": clean_title(title), "text": text, "prio": priority or "default", "source": source})
 
 
 def sent_today():
@@ -281,6 +331,12 @@ def handle_publish(topic, headers, body, source=""):
         if not os.environ.get("OVN_NOTIFY_DISABLE"):
             _event("dropped", "drop", clean_title(title), body)
         return "dropped"
+    if cls == "note" and PROMOTE_RE.search(title or ""):
+        fold_promote(body)
+        return "folded:promote"
+    if cls == "note" and SCORECARD_RE.search(title or ""):
+        fold_scorecard(title)
+        return "folded:scorecard"
     if cls in ("emergency", "digest"):
         res = forward(title, short(body, 200) if cls == "emergency" else body, "urgent" if cls == "emergency" else "default",
                       headers.get("tags", ""), kind=cls)
@@ -762,6 +818,156 @@ def _empty_repeat_s():
         return 6 * 3600
 
 
+# ---------------------------------------------------------------- Y6: folded daily promote / weekly scorecard / bullet gate
+PROMOTE_FILE = "notify_promote.json"
+SCORECARD_FILE = "notify_scorecard.json"
+SCORECARD_SHOWN = "notify_scorecard_shown.json"
+BULLET_STATE = "notify_bullet_state.json"
+_LAST = {}          # what the last compose_update_ex put into the digest (do_update commits it only after a REAL send)
+
+
+def _load_json(name, default):
+    try:
+        with open(_p(name)) as f:
+            v = json.load(f)
+        return v if isinstance(v, type(default)) else default
+    except (OSError, ValueError):
+        return default
+
+
+def _save_json(name, obj):
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        tmp = _p(name) + ".tmp.%d" % os.getpid()
+        with open(tmp, "w") as f:
+            json.dump(obj, f)
+        os.replace(tmp, _p(name))
+    except OSError:
+        pass
+
+
+def promote_summary(body):
+    """'Promoted: a b · UNVERIFIED (...): x' from the daily_promote body (the 'No change' lines and the dated first line are noise); (text, has_warning)."""
+    parts, warn = [], False
+    for ln in (body or "").splitlines()[1:]:
+        ln = ln.strip()
+        if re.match(r"^(Promoted:|UNVERIFIED|⚠)", ln):
+            parts.append(re.sub(r"\s+", " ", ln))
+            warn = warn or ln.startswith("⚠")
+    if not parts:
+        parts = [short(body, 200)]
+    return " · ".join(parts), warn
+
+
+def fold_promote(body):
+    """The daily promote summary is kept until a digest that carries it was really sent (never dropped; the relay used to throw it away). At most the newest 5 pending."""
+    rows = _load_json(PROMOTE_FILE, [])
+    text, warn = promote_summary(body)
+    rows.append({"ts": now(), "text": text, "warn": warn})
+    _save_json(PROMOTE_FILE, rows[-5:])
+
+
+def fold_scorecard(title):
+    """Latest research-batch scorecard headline (one weekly digest line)."""
+    _save_json(SCORECARD_FILE, {"ts": now(), "text": re.sub(r"^research-batch scorecard:\s*", "", clean_title(title), flags=re.I)})
+
+
+def scorecard_line(t):
+    """-> (line, entry ts) once per OVN_SCORECARD_EVERY_H (168) h and only for a scorecard newer than the one last shown; (None, None) otherwise."""
+    sc = _load_json(SCORECARD_FILE, {})
+    if not sc.get("ts"):
+        return None, None
+    shown = _load_json(SCORECARD_SHOWN, {})
+    try:
+        every = float(os.environ.get("OVN_SCORECARD_EVERY_H", "168")) * 3600
+    except ValueError:
+        every = 168 * 3600
+    if sc["ts"] <= float(shown.get("entry_ts", 0) or 0) or t - float(shown.get("at", 0) or 0) < every:
+        return None, None
+    return "Research batches (weekly): %s" % sc.get("text", ""), sc["ts"]
+
+
+GATED_BULLETS = (
+    ("features_ready", re.compile(r"^Features ready to test", re.I), "title"),
+    ("batch_health", re.compile(r"^Batch health", re.I), "text"),
+    ("reconcile_conflict", RECONCILE_RE, "text"),
+)
+
+
+def _feature_names(text):
+    """Sorted set of the feature names in a 'Features ready to test' body ('All sub-items landed ... for: a (id1); b (id2); +3 more') - the '+N more' tail is not a name."""
+    part = (text or "").split("for:", 1)[-1]
+    return sorted({x.strip() for x in part.split(";") if x.strip() and not re.match(r"^\+\d+ more$", x.strip())})
+
+
+def _bullet_repeat_s():
+    try:
+        return float(os.environ.get("OVN_BULLET_REPEAT_H", "6")) * 3600
+    except ValueError:
+        return 6 * 3600
+
+
+def reconcile_text(text):
+    """'billwatch develop→overnight/feature; iptv_apps main→develop' from the reconcile alert body (tokens look like 'develop→overnight/feature:billwatch')."""
+    toks = re.findall(r"([\w/.-]+(?:→|->)[\w/.-]+(?:\([^)]*\))?):([A-Za-z0-9_-]+)", text or "")
+    seen = []
+    for br, repo in toks:
+        x = "%s %s" % (repo, br)
+        if x not in seen:
+            seen.append(x)
+    return "; ".join(seen)
+
+
+def apply_bullet_gate(needs, t):
+    """Y6/4+7: reconcile bullet names repo+branch; the three repeating bullets are shown only when their signature changed or OVN_BULLET_REPEAT_H (6) h passed since the last digest that
+    carried them. Read-only (state is committed by do_update after a real send); records what it would commit in _LAST['bullets']."""
+    mode = _mode("OVN_BULLET_ONCE")
+    out, emit = [], []
+    try:
+        st = _load_json(BULLET_STATE, {})
+        for n in needs:
+            for key, rx, basis in GATED_BULLETS:
+                if rx.search(n["title"]):
+                    break
+            else:
+                out.append(n)
+                continue
+            if key == "reconcile_conflict":
+                nice = reconcile_text(n.get("text", ""))
+                if nice:
+                    n = dict(n, text=nice)
+            # the title carries only a count ('Features ready to test: 2'); the NAMES are in the body, so a changed list must change the signature
+            sig = (_digest_key(n["title"]) + "|" + "|".join(_feature_names(n.get("text")))) if basis == "title" else (n.get("text") or n["title"])
+            rec = st.get(key) or {}
+            same = rec.get("sig") == sig and t - float(rec.get("ts", 0) or 0) < _bullet_repeat_s()
+            if mode != "off" and same:
+                if mode == "on":
+                    continue
+                _shadow("OVN_BULLET_ONCE", "drop the unchanged '%s' bullet" % n["title"])
+            out.append(n)
+            emit.append((key, sig))
+    except Exception:       # noqa: BLE001 - a gate problem must never swallow the digest
+        return needs
+    _LAST["bullets"] = emit
+    return out
+
+
+def commit_digest_state(t):
+    """After a digest was REALLY sent: clear the promote rows it carried, stamp the scorecard line, record the gated bullets."""
+    if _LAST.get("promote_ts"):
+        keep = [r for r in _load_json(PROMOTE_FILE, []) if r.get("ts") not in _LAST["promote_ts"]]
+        _save_json(PROMOTE_FILE, keep)
+    if _LAST.get("scorecard_ts"):
+        _save_json(SCORECARD_SHOWN, {"at": t, "entry_ts": _LAST["scorecard_ts"]})
+    if _LAST.get("bullets"):
+        st = _load_json(BULLET_STATE, {})
+        for key, sig in _LAST["bullets"]:
+            rec = st.get(key) or {}
+            if rec.get("sig") != sig or t - float(rec.get("ts", 0) or 0) >= _bullet_repeat_s():
+                st[key] = {"sig": sig, "ts": t}
+        _save_json(BULLET_STATE, st)
+
+
 def compose_update(window=3600, at=None):
     """Return (title, body, needs_count). Pure function of state + the clock (`at` for tests)."""
     r = compose_update_ex(window, at)
@@ -798,6 +1004,8 @@ def compose_update_ex(window=3600, at=None):
         needs.append(n)
     recovered = [n["title"] for n in needs if re.search(r"recover", n["title"], re.I)]
     needs = [n for n in needs if not re.search(r"recover|start|complete|fixed|\bok\b", n["title"], re.I)]
+    _LAST.clear()
+    needs = apply_bullet_gate(needs, t)
     lines = [stats_line(t, rows)]
     tot = sum(landed.values())
     unc = " (+%d uncredited)" % uncredited if uncredited else ""
@@ -847,9 +1055,23 @@ def compose_update_ex(window=3600, at=None):
         emitted_empty = (_sig, _emit)
         if _emit:
             needs.insert(0, {"title": "Queue empty: %s" % ", ".join(empty), "text": empty_cause_text(sup, empty) or "that lane has nothing to do until the refuel adds work (work supply runs every 30 min)", "prio": "high", "ts": t})
+    promo = None
+    prow = [r for r in _load_json(PROMOTE_FILE, []) if isinstance(r, dict) and r.get("text")]
+    if prow:   # Y6/1: the daily prod promote (promoted repos, UNVERIFIED/HELD/BLOCKED) is ONE bullet in the next digest and is never dropped
+        newest = prow[-1]
+        promo = {"title": "Daily prod promote", "text": newest["text"] + (" (+%d earlier summary)" % (len(prow) - 1) if len(prow) > 1 else ""),
+                 "prio": "high" if any(r.get("warn") for r in prow) else "default", "ts": t}
+        needs.insert(0, promo)
+        _LAST["promote_ts"] = [r.get("ts") for r in prow]
+    _sc_line, _sc_ts = scorecard_line(t)
+    if _sc_line:
+        lines.append(_sc_line)
+        _LAST["scorecard_ts"] = _sc_ts
     for bn in reversed(boot_notes(t if at else None)):   # 2026-10-10: a reboot / silent queue is at least as important as an empty queue
         needs.insert(0, {"title": bn["title"], "text": bn["text"], "prio": bn["prio"], "ts": t})
     shown = needs[:3]
+    if promo is not None and promo not in shown:
+        shown[-1] = promo      # a promote summary must never be pushed into the '+N more' tail
     title = ("⚠️ Shrike hourly — %d to look at" % len(needs)) if needs else "✅ Shrike hourly — all good"
     body = "\n".join((["• %s — %s" % (n["title"], n["text"]) if n["text"] and n["text"].lower() not in n["title"].lower() else "• " + n["title"] for n in shown]) +
                      (["(+%d more, see alerts.log)" % (len(needs) - 3)] if len(needs) > 3 else []) + lines)
@@ -868,7 +1090,8 @@ def do_update(dry=False, force=False):
         return "%s\n%s" % (title, body)
     # N6: an "all good" digest is noise; send a digest only when there is something to look at. The daily heartbeat is the proof of life, so the quiet mode only applies while a
     # heartbeat went out in the last 26 h - without one (cron not enabled yet) the all-good digest is the only sign of life and is still sent.
-    if needs_n == 0 and _mode("OVN_DIGEST_QUIET") != "off" and not force:
+    # the due weekly scorecard line forces the digest out (otherwise an all-good week would never deliver it and commit_digest_state would never run)
+    if needs_n == 0 and _mode("OVN_DIGEST_QUIET") != "off" and not force and not _LAST.get("scorecard_ts"):
         if heartbeat_alive():
             if _mode("OVN_DIGEST_QUIET") == "on":
                 os.makedirs(STATE, exist_ok=True)
@@ -876,6 +1099,8 @@ def do_update(dry=False, force=False):
                 return "skipped: nothing to look at (heartbeat covers liveness)"
             _shadow("OVN_DIGEST_QUIET", "skip the all-good digest: %s" % title)
     res = forward(title, body, "default", "", kind="digest")
+    if res == "sent":
+        commit_digest_state(now())      # only a really delivered digest consumes the promote summary / scorecard line / bullet cooldowns
     if res in ("sent", "capped", "deduped"):
         if res != "deduped" and _mode("OVN_EMPTY_ONCE") != "off":
             if not empty_sig:
@@ -909,8 +1134,7 @@ def heartbeat_alive(t=None):
 
 def cron_beats_line(t=None):
     """K6 (2026-11-03): ONE report line about the per-cron beats (ops/cron_beat.sh -> state/beats/<job>, judged by ops/cron_beats_check.py against scripts/cron_beats.manifest) so silent-success
-    and dead crons are distinguishable. Shadow: report only, never a push of its own. OVN_BEATS_IN_HEARTBEAT=auto (default): the line appears only once the wrappers are installed (a beat exists), so the heartbeat body is
-    unchanged before the rollout; =on always adds it (also 'not installed'); =off never. A missing checker/manifest or any error -> ''."""
+    and dead crons are distinguishable. Shadow: report only, never a push of its own. OVN_BEATS_IN_HEARTBEAT=auto (default): once the wrappers are installed (a beat exists) the full line appears; before the rollout ONE line 'beats: not rolled out (N wrapped jobs)' says so (Y1; it used to be omitted silently); =on always adds it (also 'not installed'); =off never. A missing checker/manifest or any error -> ''."""
     mode = os.environ.get("OVN_BEATS_IN_HEARTBEAT", "auto").strip().lower()
     if mode in ("off", "0", "no", "false"):
         return ""
@@ -932,7 +1156,8 @@ def cron_beats_line(t=None):
         wrapped = mod.wrapped_jobs(ct) if ct is not None else set()
         res = mod.evaluate(jobs, bdir, tt, wrapped=wrapped, seen=mod.track_wrapped(bdir, wrapped, tt))
         if not res["installed"] and mode not in ("on", "1", "yes", "true"):
-            return ""
+            # Y1 (2026-11-04): was "" (silently omitted, indistinguishable from a broken checker). Say once, in one short line, that the beats are not rolled out.
+            return "beats: not rolled out (%d wrapped jobs%s)" % (len(wrapped), ", no beat yet" if wrapped else "")
         return mod.summary_line(res)[:300]
     except Exception:
         return ""
@@ -975,12 +1200,22 @@ def do_heartbeat(dry=False):
     return "%s: %s -> %s" % (title, body, forward(title, body, "default", "white_check_mark", kind="heartbeat"))
 
 
-def escalate(sig, title, body, flag, dry=False):
-    """ONE emergency-class push per signature per local day. `flag` is an OVN_* mode variable: off = nothing, shadow (default) = a 'would escalate' line in notify_shadow.log only, on = push.
-    The day is only consumed by a delivered push (a capped/failed one retries on the next run). -> 'off' | 'shadow' | 'already-today' | forward()'s result."""
+ROLLING_FILE = "notify_escalated_rolling.json"
+
+
+def escalate(sig, title, body, flag, dry=False, rolling_h=None):
+    """ONE emergency-class push per signature per local day (or, with rolling_h, per rolling window of that many hours: a calendar-day key re-armed 2 h after a push at 22:00).
+    `flag` is an OVN_* mode variable: off = nothing, shadow = a 'would escalate' line in notify_shadow.log only, on = push.
+    The window is only consumed by a delivered push (a capped/failed one retries on the next run). -> 'off' | 'shadow' | 'already-today' | 'already-recent' | 'fixtures-only' | forward()'s result."""
     mode = _mode(flag)
     if mode == "off":
         return "off"
+    f = suite_red_filter(title, body)      # Y6/6: a 'Suite red' naming only the harness's own fixture tests is not a signal
+    if f is None:
+        if not dry:
+            _event("filtered", "emergency", clean_title(title), "only harness fixture tests named")
+        return "fixtures-only"
+    title, body = f
     day = time.strftime("%Y-%m-%d", time.localtime(now()))
     path = _p("notify_escalated.json")
     try:
@@ -988,18 +1223,41 @@ def escalate(sig, title, body, flag, dry=False):
         seen = seen if isinstance(seen, dict) else {}
     except (OSError, ValueError):
         seen = {}
+    roll_s = float(rolling_h) * 3600 if rolling_h else 0
+    roll = _load_json(ROLLING_FILE, {}) if roll_s else {}
+
+    def _recent(key):
+        try:
+            return now() - float(roll.get(key, 0)) < roll_s
+        except (TypeError, ValueError):
+            return False
+
+    def _stamp(key):
+        roll[key] = now()
+        _save_json(ROLLING_FILE, {k: v for k, v in roll.items() if isinstance(v, (int, float)) and now() - v < 7 * 86400})
+
     if mode == "shadow":
-        if seen.get("shadow:" + sig) != day and not dry:
+        if roll_s:
+            if not _recent("shadow:" + sig) and not dry:
+                _shadow(flag, "escalate (emergency push, once per %gh) %s: %s" % (rolling_h, sig, clean_title(title)))
+                _stamp("shadow:" + sig)
+        elif seen.get("shadow:" + sig) != day and not dry:
             _shadow(flag, "escalate (emergency push, once per day) %s: %s" % (sig, clean_title(title)))
             seen["shadow:" + sig] = day
             _save_escalated(path, seen, day)
         return "shadow"
-    if seen.get(sig) == day:
+    if roll_s:
+        if _recent(sig):
+            return "already-recent"
+    elif seen.get(sig) == day:
         return "already-today"
     res = forward(title, body, "urgent", "rotating_light", kind="emergency", dry=dry)
     if res in ("sent", "deduped") and not dry:
-        seen[sig] = day
-        _save_escalated(path, seen, day)
+        if roll_s:
+            _stamp(sig)
+        else:
+            seen[sig] = day
+            _save_escalated(path, seen, day)
     return res
 
 
@@ -1136,7 +1394,7 @@ def do_check(dry=False):
             mark_starved_sent()
         res.append("%s -> %s" % (title, r))
     ms = mac_supervisor_stale()
-    if ms:        # S2/F6: once per day, flag OVN_ESC_MAC_SUPERVISOR (default shadow = notify_shadow.log only; on = emergency push; off = nothing)
+    if ms:        # S2/F6: once per day, flag OVN_ESC_MAC_SUPERVISOR (default ON since Y6 = emergency push once a day; shadow = notify_shadow.log only; off = nothing)
         res.append("%s -> %s" % (ms[0], escalate("mac_supervisor", ms[0], ms[1], "OVN_ESC_MAC_SUPERVISOR", dry=dry)))
     return "\n".join(res) or "no emergencies"
 
@@ -1161,7 +1419,11 @@ def main(argv):
         if not _arg("--sig") or not _arg("--title") or not _arg("--flag"):
             print("escalate needs --sig, --title and --flag")
             return 2
-        print(escalate(_arg("--sig"), _arg("--title"), _arg("--body"), _arg("--flag"), dry="--dry-run" in argv))
+        try:
+            _roll = float(_arg("--rolling-h")) if _arg("--rolling-h") else None
+        except ValueError:
+            _roll = None
+        print(escalate(_arg("--sig"), _arg("--title"), _arg("--body"), _arg("--flag"), dry="--dry-run" in argv, rolling_h=_roll))
     else:
         print(__doc__)
         return 2

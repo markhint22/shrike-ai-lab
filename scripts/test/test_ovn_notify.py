@@ -56,7 +56,7 @@ ok("explicit digest header", N.classify("x", "default", "digest") == "digest")
 ok("priority urgent -> emergency", N.classify("Deploy failed: x (human)", "urgent") == "emergency")
 ok("production site DOWN -> emergency", N.classify("🔴 DOWN: gitlark-backend", "default") == "emergency")
 ok("27B restart failure -> emergency", N.classify("27B auto-restart FAILED", "default") == "emergency")
-ok("routine digest/refill/cycle titles are dropped", all(N.classify(t) == "drop" for t in ("Overnight queue", "Overnight queue: 5 item(s) need attention", "Backlog refilled", "fleet lock-orphan cleared", "Daily prod promote")))
+ok("routine digest/refill/cycle titles are dropped", all(N.classify(t) == "drop" for t in ("Overnight queue", "Overnight queue: 5 item(s) need attention", "Backlog refilled", "fleet lock-orphan cleared")))   # Y6: "Daily prod promote" is folded into the digest, no longer dropped
 ok("a recovery is a NOTE, not dropped or emergency", N.classify("✅ Recovered: gitlark-backend") == "note")
 ok("hygiene/conflict style messages are NOTES", N.classify("Hygiene stalled — gate red on a feature branch", "high") == "note")
 os.environ["OVN_NOTIFY_DISABLE"] = "1"; ok("OVN_NOTIFY_DISABLE=1 drops everything", N.classify("🔴 DOWN: x", "urgent", "emergency") == "drop"); del os.environ["OVN_NOTIFY_DISABLE"]
@@ -127,7 +127,7 @@ ok("an empty ACTIVE queue turns the title into 'to look at' and is the first bul
 ok("a repo whose lanes are all disabled is not reported (billwatch at 0)", "billwatch" not in b)
 os.unlink(os.path.join(N.ROOT, "tasks.json"))
 N.ROOT = os.path.join(T, "q")
-ok("research-batch scorecard messages are dropped from the hourly update", N.classify("Research-batch scorecard: 102 batch(es) graded D/F") == "drop")
+ok("research-batch scorecard messages are no longer dropped (Y6: one weekly digest line; handle_publish folds them)", N.classify("Research-batch scorecard: 102 batch(es) graded D/F") == "note")
 ok("pass counts use the canonical severity axis (neutral/benign excluded)", N._pass_counts([{"severity": "good"}] * 5 + [{"severity": "bad"}] + [{"severity": "neutral"}] * 3) == (5, 1))
 ok("percent helper: 5/6 -> 83%, no data -> '-'", N._pct(5, 1) == "83%" and N._pct(0, 0) == "-")
 ok("every hourly update carries a pass-rate line (last hour + today; a sample < 5 shows 'Outcomes today' since OVN_PASSRATE_MIN defaults on)", ("Pass rate: last hour" in b or "Outcomes today:" in b) and "last hour" in b and "today" in b)

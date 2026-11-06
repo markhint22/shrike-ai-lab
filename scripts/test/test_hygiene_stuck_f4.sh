@@ -94,6 +94,6 @@ mutate "an infra skip counts as recovered" '      log "$name: review flag gone b
       continue;;' '      :;;'
 mutate "no escalation at 4h" '    if [ "$elapsed" -ge "$ESC_SECS" ]; then' '    if false; then'
 mutate "escalation fires from the first alert threshold (not 4h)" 'ESC_SECS=$(( ${OVN_ESC_HYGIENE_H:-4} * 3600 ))' 'ESC_SECS=0'
-mutate "escalation uses the wrong flag" '--flag OVN_ESC_HYGIENE >>' '--flag OVN_ESC_OTHER >>'
+mutate "escalation uses the wrong flag" '--flag OVN_ESC_HYGIENE --rolling-h' '--flag OVN_ESC_OTHER --rolling-h'
 echo "  hygiene stuck F4/N7: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

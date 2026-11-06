@@ -159,9 +159,14 @@ def notify_checks(N, st, ok):
     N.emergency_checks = lambda dry=False: []
     del posts[:]; out = N.do_check()
     sh = open(os.path.join(st, "notify_shadow.log")).read()
-    ok("F6: do_check: default shadow = a 'would escalate' line only, no push", not posts and "OVN_ESC_MAC_SUPERVISOR | would escalate" in sh and "Mac jobs supervisor silent -> shadow" in out)
-    os.environ["OVN_ESC_MAC_SUPERVISOR"] = "on"; N.do_check(); r2 = N.do_check()
-    ok("F6: flag on -> ONE urgent push per day", len(posts) == 1 and posts[0]["title"] == "Mac jobs supervisor silent" and posts[0]["prio"] == "urgent" and "already-today" in r2)
+    ok("F6/Y6: do_check default is now ON: ONE urgent push", len(posts) == 1 and posts[0]["title"] == "Mac jobs supervisor silent" and posts[0]["prio"] == "urgent" and "Mac jobs supervisor silent -> sent" in out)
+    r2 = N.do_check()
+    ok("F6/Y6: still ONE push per day (second check is already-today)", len(posts) == 1 and "already-today" in r2)
+    os.environ["OVN_ESC_MAC_SUPERVISOR"] = "shadow"; del posts[:]; N.do_check()
+    sh = open(os.path.join(st, "notify_shadow.log")).read()
+    ok("F6/Y6: OVN_ESC_MAC_SUPERVISOR=shadow (kill switch) = a 'would escalate' line only, no push", not posts and "OVN_ESC_MAC_SUPERVISOR | would escalate" in sh)
+    os.environ["OVN_ESC_MAC_SUPERVISOR"] = "off"; del posts[:]
+    ok("F6/Y6: OVN_ESC_MAC_SUPERVISOR=off = nothing", not posts and "-> off" in N.do_check())
     os.environ.pop("OVN_ESC_MAC_SUPERVISOR")
 
 
@@ -194,7 +199,7 @@ for name, old, new in V:
     if failed is not None:
         print(("  ok   " if failed else "  FAIL ") + "vercel mutant %s is caught (%d check(s) failed)" % (name, len(failed)))
         if not failed: FAILS.append("mutant " + name)
-Nm = [("hygiene-default-shadow", '"OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES")', '"OVN_DIGEST_QUIET", "OVN_HB_DROP_CLASSES")'),
+Nm = [("hygiene-default-shadow", '"OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES", "OVN_ESC_MAC_SUPERVISOR"', '"OVN_DIGEST_QUIET", "OVN_HB_DROP_CLASSES", "OVN_ESC_MAC_SUPERVISOR"'),
       ("no-event-detail", 'row["detail"] = re.sub', 'pass  # row["detail"] = re.sub'),
       ("no-class-breakdown", 'if dropped and _mode("OVN_HB_DROP_CLASSES") != "off":', 'if False:'),
       ("mac-sup-never-stale", 'if age < MAC_SUP_STALE_S:\n        return None', 'if True:\n        return None'),

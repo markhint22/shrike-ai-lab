@@ -130,11 +130,13 @@ def push(title, body, urgent, dry):
     """-> True when some channel took the message. 2026-11-02 (P1): the relay address was Tailscale while Tailscale was stopped and the failure was only printed (chickadee prod=ERROR
     appeared 66 times, never pushed). Now: relay via NTFY_SERVER, LAN, Tailscale in turn; an urgent message the relay did not take is also appended to the box alerts.log and posted
     directly to ntfy.sh (rate limited); every failed delivery leaves a [delivery-failed] line in ~/.ovn_mac_jobs/alerts.log. Callers record a message as sent only when this returns True."""
+    low = urgent == "low"          # Y6/5: a recovery line goes out as ONE low-priority note (urgent="low"); a bool keeps its old meaning
+    urgent = urgent is True or (bool(urgent) and not low)
     if dry:
-        print(("EMERGENCY " if urgent else "NOTE ") + title + " :: " + body)
+        print(("EMERGENCY " if urgent else ("LOW " if low else "NOTE ")) + title + " :: " + body)
         return True
     if ovn_relay is not None:
-        r = ovn_relay.deliver("emergency" if urgent else "warn", "vercel:" + title[:60], body, title=title)
+        r = ovn_relay.deliver("emergency" if urgent else "warn", "vercel:" + title[:60], body, title=title, prio="low" if low else None)
         # FX-P1: True only when a REAL push channel took it. An emergency that only reached the ssh alerts.log (digest) was NOT pushed, so it is retried next poll.
         # A non-urgent note may rely on the ssh digest line (that is its normal channel when the relay is down).
         ok = bool(r.get("relay") or r.get("direct") or (not urgent and r.get("ssh")))
@@ -143,7 +145,7 @@ def push(title, body, urgent, dry):
         return ok
     srv = (os.environ.get("NTFY_SERVER") or "http://127.0.0.1:8099")  # P2: never default to the public ntfy.sh
     req = urllib.request.Request("%s/%s" % (srv, TOPIC), data=body.encode(), method="POST",
-                                 headers={"Title": title, "Priority": "urgent" if urgent else "default"})
+                                 headers={"Title": title, "Priority": "urgent" if urgent else ("low" if low else "default")})
     try:
         urllib.request.urlopen(req, timeout=15)
         return True
@@ -216,6 +218,13 @@ def main():
             body = "%s | %s" % ((prod[0].get("errorMessage") or "newest production deploy is not live")[:120], last_ready_text(prod, now_s))
             if push("Vercel PRODUCTION %s: %s" % (name, st(prod[0])), body[:200], True, dry) is not False:
                 state["prod_" + name] = prod[0]["uid"]
+        # Y6/5: ERROR -> READY recovery. chickadee prod was ERROR for 2 days (two alerts) and went READY on 11-03 09:00 with NO message. When this project had a production alert on record (prod_<name> = the
+        # alerted deployment, or esc_<name>) and the newest production deployment is READY now: ONE low-priority line, then forget the alert state so a later failure alerts again.
+        if prod and st(prod[0]) == "READY" and (state.get("prod_" + name) or state.get("esc_" + name)) and prod[0]["uid"] != state.get("prod_" + name):
+            rbody = "production is READY again (deployment %s, %s ago); %s" % (prod[0]["uid"][:12], fmt_age(age_of(prod[0])), "it had been failing since the alerted deploy")
+            if push("Vercel PRODUCTION %s recovered: READY" % name, rbody[:200], "low", dry) is not False:
+                for kk in ("prod_" + name, "esc_" + name):
+                    state.pop(kk, None)
         # P1 escalation: production newest state ERROR for ESCALATE_POLLS consecutive polls (a transient redeploy would have cleared it) -> ONE urgent push per day per project,
         # independent of the per-deployment dedupe above (the same ERROR deployment can sit there for days). VSC_ESCALATE_POLLS=0 disables.
         if prod and st(prod[0]) == "ERROR" and prod[0]["uid"] not in pending:

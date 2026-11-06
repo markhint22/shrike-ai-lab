@@ -47,48 +47,135 @@ hyg_verdict(){
     cur && (f == "" || sf == f) && (/ MERGED / || / already in /) { v = "merged" }
     END { print (!saw ? "nolog" : (v ? v : "unknown")) }'
 }
-# N7: a hygiene gate stuck >= OVN_ESC_HYGIENE_H (4) h is escalated ONCE per day as an emergency-class push through ovn_notify.py escalate (flag OVN_ESC_HYGIENE: shadow (default) | on | off).
+# --- 2026-11-04 (Y6/3): measure from the LAST SUCCESSFUL MERGE, and name what is failing ------------------------------------------------------------------------------
+# billwatch: last merge to develop 09:02, first red gate 11:41, the stuck marker only started at the first CHECK after the red (12:05), so '4h' was ~7h real; and the alert never said
+# which tests failed. to_epoch/last_merge_epoch read the repo's last MERGED line for the stuck feature branch (same '=== repo (' section scheme as hyg_verdict); stuck_detail names
+# the first failing test ids (logs/hygiene_gate/<ts>.<repo>.<kind>.<rand>, else the failing ids in the repo's last log section) or the MERGE CONFLICT files.
+to_epoch(){ date -d "$1" +%s 2>/dev/null || date -j -f '%Y-%m-%d %H:%M:%S' "$1" +%s 2>/dev/null || true; }
+last_merge_epoch(){  # <repo> [feature-branch] -> epoch of the last MERGED line (empty when none / unreadable)
+  [ -s "$HYGIENE_LOG" ] || return 0
+  local ts
+  ts="$(tail -c "${HYGIENE_LOG_TAIL_BYTES:-4000000}" "$HYGIENE_LOG" 2>/dev/null | awk -v n="$1" -v f="${2:-}" '
+    /^\[branch-hygiene [^]]*\] === / { cur = (index($0, "=== " n " (") > 0); sf = ""; next }
+    cur && /\] +feature branch: / { sf = $NF; next }
+    cur && (f == "" || sf == f) && /^\[branch-hygiene [^]]*\] +MERGED / { t = substr($0, 17, 19) }
+    END { if (t != "") print t }')"
+  [ -n "$ts" ] && to_epoch "$ts"
+  return 0
+}
+FIXTURE_RE='(^|/)(test_fake_a|test_fail|test_does_not_exist)\.sh'
+ids_from(){  # stdin: gate/log text -> failing test ids, one per line, first-seen order, fixtures dropped
+  sed "s/$(printf '\033')\[[0-9;]*m//g" | grep -aE '^(FAILED|ERROR) [^ ]+::|^--- GUT-FAIL-ID: |^[^ ]+ > .* FAILED[[:space:]]*$' \
+    | sed -E 's/^(FAILED|ERROR) //; s/^--- GUT-FAIL-ID: //; s/ - .*$//; s/[[:space:]]+FAILED[[:space:]]*$//' | grep -avE "$FIXTURE_RE" | awk '!s[$0]++'
+}
+failing_names(){  # <repo> [feature-branch] -> 'a, b, c (+N more)' (first 3), empty when the CURRENT red streak names nothing
+  # Y6 fix: ONLY the gate output of the current red streak is read: the NEWEST gate file for the repo, and only when it is newer than the last MERGED line (an older file is an
+  # earlier, different failure). The log fallback reads the last log section of the stuck feature branch. Never walks back through older gate files.
+  local repo="$1" feat="${2:-}" dir="${OVN_HYGIENE_GATE_DIR:-logs/hygiene_gate}" f gts gep lm ids="" n
+  if [ -d "$dir" ]; then
+    f="$(ls -1 "$dir" 2>/dev/null | grep -E "^[0-9]{8}-[0-9]{6}\.${repo}\." | sort -r | head -1)"
+    if [ -n "$f" ]; then
+      gts="$(printf '%s' "$f" | sed -E 's/^([0-9]{4})([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})([0-9]{2}).*/\1-\2-\3 \4:\5:\6/')"
+      gep="$(to_epoch "$gts")"; lm="$(last_merge_epoch "$repo" "$feat")"
+      case "$gep" in ''|*[!0-9]*) gep="";; esac
+      if [ -z "$gep" ] || [ -z "$lm" ] || [ "$gep" -gt "$lm" ]; then ids="$(ids_from < "$dir/$f")"; fi
+    fi
+  fi
+  if [ -z "$ids" ] && [ -s "$HYGIENE_LOG" ]; then   # a short gate output is shown in the main log only: the failing ids of the stuck branch's LAST section for the repo
+    ids="$(tail -c "${HYGIENE_LOG_TAIL_BYTES:-4000000}" "$HYGIENE_LOG" 2>/dev/null | awk -v n="$repo" -v f="$feat" '
+      function flush() { if (cur && ok) keep = buf }
+      /^\[branch-hygiene [^]]*\] === / { flush(); cur = (index($0, "=== " n " (") > 0); buf = ""; ok = (f == ""); next }
+      cur && /\] +feature branch: / { if (f != "") ok = ($NF == f); next }
+      cur { buf = buf $0 "\n" }
+      END { flush(); printf "%s", keep }' | ids_from)"
+  fi
+  [ -n "$ids" ] || return 0
+  n="$(printf '%s\n' "$ids" | wc -l | tr -d ' ')"
+  printf '%s' "$(printf '%s\n' "$ids" | head -3 | paste -sd, - | sed 's/,/, /g')"
+  [ "$n" -gt 3 ] && printf ' (+%s more)' "$((n - 3))"
+  return 0
+}
+conflict_files(){  # <repo> -> files of the last 'MERGE CONFLICT for <repo> ... (conflicted: a b)' log line
+  [ -s "$HYGIENE_LOG" ] || return 0
+  tail -c "${HYGIENE_LOG_TAIL_BYTES:-4000000}" "$HYGIENE_LOG" 2>/dev/null | grep -a "MERGE CONFLICT for $1 " | tail -1 | sed -nE 's/.*\(conflicted: ([^)]*)\).*/\1/p'
+  return 0
+}
+stuck_detail(){  # <repo> <reason> [feature-branch] -> one sentence naming the failing tests / conflicted files ('' when nothing is known)
+  local cf nm
+  case "$2" in
+    "MERGE CONFLICT"*) cf="$(conflict_files "$1")"; [ -n "$cf" ] && { printf 'MERGE CONFLICT in: %s.' "$cf"; return 0; }; printf 'MERGE CONFLICT (conflicted files not in the log).'; return 0;;
+  esac
+  nm="$(failing_names "$1" "${3:-}")"
+  if [ -n "$nm" ]; then printf 'First failing tests: %s.' "$nm"; else printf 'Cause unknown (see logs/hygiene_gate).'; fi
+  return 0
+}
+fmt_ts(){ date -d "@$1" '+%F %H:%M' 2>/dev/null || date -r "$1" '+%F %H:%M' 2>/dev/null || echo "$1"; }
+# N7: a hygiene gate stuck >= OVN_ESC_HYGIENE_H (4) h is escalated through ovn_notify.py escalate (flag OVN_ESC_HYGIENE: on (default) | shadow | off). Y6: ONCE per ROLLING 24 h per repo
+# (--rolling-h OVN_ESC_HYGIENE_ROLL_H), not per calendar day (the 00:05 midnight roll re-armed it 8 h after the 4 h push).
 ESC_SECS=$(( ${OVN_ESC_HYGIENE_H:-4} * 3600 ))
 esc(){  # <signature> <title> <body>
-  OVN_NOTIFY_STATE="$PWD/$STATE_DIR" ${OVN_ESCALATE_CMD:-python3 scripts/ovn_notify.py escalate} --sig "$1" --title "$2" --body "$3" --flag OVN_ESC_HYGIENE >>"${OVN_ESC_LOG:-/dev/null}" 2>&1 || true
+  OVN_NOTIFY_STATE="$PWD/$STATE_DIR" ${OVN_ESCALATE_CMD:-python3 scripts/ovn_notify.py escalate} --sig "$1" --title "$2" --body "$3" --flag OVN_ESC_HYGIENE --rolling-h "${OVN_ESC_HYGIENE_ROLL_H:-24}" >>"${OVN_ESC_LOG:-/dev/null}" 2>&1 || true
 }
 
-process_stuck(){  # <repo> <reason>: age the stuck state, alert once past STUCK_HOURS, remind every REMIND_HOURS, escalate once/day past OVN_ESC_HYGIENE_H
-  local name="$1" reason="$2" since_marker alerted_marker since elapsed elapsed_h last_alert
+process_stuck(){  # <repo> <reason>: age the stuck state (from the last merge), alert once past STUCK_HOURS, remind every REMIND_HOURS, escalate once per rolling 24 h past OVN_ESC_HYGIENE_H
+  local name="$1" reason="$2" red_first red_n rn rf since_marker alerted_marker since elapsed elapsed_h last_alert feat lm detail since_txt branch_txt
   since_marker="$STATE_DIR/hygiene_stuck_since_$name"
   alerted_marker="$STATE_DIR/hygiene_stuck_alerted_$name"
+  feat="$(cat "$STATE_DIR/hygiene_stuck_feat_$name" 2>/dev/null)"
+  lm="$(last_merge_epoch "$name" "$feat")"
+  case "$lm" in ''|*[!0-9]*) lm="";; esac
+  [ -n "$lm" ] && [ "$lm" -gt "$now" ] && lm=""
 
+  # Y6 fix: debounce. A red must be seen on >= OVN_HYG_RED_PASSES (2) consecutive checks OR persist >= OVN_HYG_RED_SECS (1h) since its first sighting before ANY alert/escalation,
+  # however old the last merge is (a repo idle 10 h whose gate flaked red once 60 s ago is not 'stuck ~10h'). The since-marker still anchors the age text at the last merge.
+  red_first="$STATE_DIR/hygiene_red_first_$name"; red_n="$STATE_DIR/hygiene_red_n_$name"
   if [ ! -f "$since_marker" ]; then
-    echo "$now" > "$since_marker"
-    log "$name: newly stuck ($reason)"
+    echo "${lm:-$now}" > "$since_marker"
+    log "$name: newly stuck ($reason)${lm:+ - last successful merge $(fmt_ts "$lm")}"
+    echo "$now" > "$red_first"; echo 0 > "$red_n"
+  elif [ ! -f "$red_n" ]; then   # a marker from before the debounce existed = an earlier check already saw the red
+    echo "$now" > "$red_first"; echo 1 > "$red_n"
+  fi
+  rn="$(cat "$red_n" 2>/dev/null)"; case "$rn" in ''|*[!0-9]*) rn=0;; esac
+  rn=$((rn + 1)); echo "$rn" > "$red_n"
+  rf="$(cat "$red_first" 2>/dev/null)"; case "$rf" in ''|*[!0-9]*) rf="$now"; echo "$now" > "$red_first";; esac
+  if [ "$rn" -lt "${OVN_HYG_RED_PASSES:-2}" ] && [ $(( now - rf )) -lt "${OVN_HYG_RED_SECS:-3600}" ]; then
+    log "$name: red seen on $rn check(s), ${OVN_HYG_RED_SECS:-3600}s not elapsed since first red - debouncing, no alert yet"
     return 0
   fi
 
   since="$(cat "$since_marker" 2>/dev/null || echo "$now")"
+  case "$since" in ''|*[!0-9]*) since="$now";; esac
+  if [ -n "$lm" ] && [ "$lm" -lt "$since" ]; then since="$lm"; echo "$since" > "$since_marker"; fi   # re-anchor an existing marker to the real last merge
   elapsed=$(( now - since ))
   elapsed_h=$(( elapsed / 3600 ))
+  detail="$(stuck_detail "$name" "$reason" "$feat")"
+  branch_txt="${feat:+ ($feat)}"
+  since_txt="$(fmt_ts "$since")"
 
   if [ "$elapsed" -ge "$STUCK_SECS" ]; then
     last_alert="$(cat "$alerted_marker" 2>/dev/null || echo 0)"
     if [ "$last_alert" -eq 0 ]; then
       alert "Branch hygiene STUCK: $name" "rotating_light" \
-        "$name has not merged to develop/main in ~${elapsed_h}h. Reason: $reason. This blocks EVERY fleet item for $name from ever landing until fixed — worth a look now, not at the next digest." "high"
+        "$name${branch_txt} has not merged to develop/main since $since_txt (~${elapsed_h}h). Reason: $reason. ${detail} This blocks EVERY fleet item for $name from ever landing until fixed - worth a look now, not at the next digest." "high"
       echo "$now" > "$alerted_marker"
-      log "$name: stuck ${elapsed_h}h — ALERTED (first)"
+      log "$name: stuck ${elapsed_h}h - ALERTED (first)"
     elif [ $(( now - last_alert )) -ge "$REMIND_SECS" ]; then
       alert "Branch hygiene STILL STUCK: $name" "rotating_light" \
-        "$name has not merged in ~${elapsed_h}h (unresolved since the first alert). Reason: $reason." "high"
+        "$name${branch_txt} has not merged since $since_txt (~${elapsed_h}h, unresolved since the first alert). Reason: $reason. ${detail}" "high"
       echo "$now" > "$alerted_marker"
-      log "$name: stuck ${elapsed_h}h — ALERTED (reminder)"
+      log "$name: stuck ${elapsed_h}h - ALERTED (reminder)"
     else
-      log "$name: stuck ${elapsed_h}h — within cooldown, no alert"
+      log "$name: stuck ${elapsed_h}h - within cooldown, no alert"
     fi
     if [ "$elapsed" -ge "$ESC_SECS" ]; then
-      esc "hygiene_stuck:$name" "Branch hygiene STUCK ${elapsed_h}h: $name" "$name has not merged in ~${elapsed_h}h and nothing from it reaches develop. Reason: $reason."
-      log "$name: stuck ${elapsed_h}h >= ${OVN_ESC_HYGIENE_H:-4}h — escalation requested (OVN_ESC_HYGIENE, once per day)"
+      # stable title (no hour count: the relay's per-title cooldown keys on it); the repo, branch, age and failing tests/conflict files are in the title/body
+      esc "hygiene_stuck:$name" "Branch hygiene STUCK: $name${feat:+ $feat}" "$name${branch_txt} has not merged since $since_txt (~${elapsed_h}h) and nothing from it reaches develop. ${detail:-Reason: $reason.}"
+      echo "$now" > "$STATE_DIR/hygiene_stuck_esc_$name"
+      log "$name: stuck ${elapsed_h}h >= ${OVN_ESC_HYGIENE_H:-4}h - escalation requested (OVN_ESC_HYGIENE, once per rolling ${OVN_ESC_HYGIENE_ROLL_H:-24}h)"
     fi
   else
-    log "$name: stuck ${elapsed_h}h — below ${STUCK_HOURS}h threshold, no alert yet"
+    log "$name: stuck ${elapsed_h}h - below ${STUCK_HOURS}h threshold, no alert yet"
   fi
 }
 
@@ -123,14 +210,16 @@ for since_marker in "$STATE_DIR"/hygiene_stuck_since_*; do
   since="$(cat "$since_marker" 2>/dev/null || echo "$now")"
   elapsed_h=$(( (now - since) / 3600 ))
   alerted_marker="$STATE_DIR/hygiene_stuck_alerted_$name"
-  if [ -f "$alerted_marker" ]; then
+  _rfeat="$(cat "$STATE_DIR/hygiene_stuck_feat_$name" 2>/dev/null)"
+  if [ -f "$alerted_marker" ] || [ -f "$STATE_DIR/hygiene_stuck_esc_$name" ]; then
+    # Y6/3: ONE recovery notice (priority low), naming the repo + branch; the markers are removed right below so it cannot repeat
     alert "Branch hygiene recovered: $name" "white_check_mark" \
-      "$name merged successfully after being stuck ~${elapsed_h}h." "low"
+      "$name${_rfeat:+ ($_rfeat)} merged successfully after being stuck ~${elapsed_h}h (since $(fmt_ts "$since"))." "low"
     log "$name: recovered after ${elapsed_h}h — sent recovery note (last hygiene result: $verdict)"
   else
     log "$name: recovered after ${elapsed_h}h (never crossed the alert threshold, no note needed)"
   fi
-  rm -f "$since_marker" "$alerted_marker" "$STATE_DIR/hygiene_stuck_feat_$name"
+  rm -f "$since_marker" "$alerted_marker" "$STATE_DIR/hygiene_red_first_$name" "$STATE_DIR/hygiene_red_n_$name" "$STATE_DIR/hygiene_stuck_feat_$name" "$STATE_DIR/hygiene_stuck_esc_$name"
 done
 
 # --- QA-blocked repos (2026-10-02) -----------------------------------------------------------------------------------------------------

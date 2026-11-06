@@ -148,9 +148,9 @@ def mut(s, a, b, path):
     assert s.count(a) == 1, a
     open(path, "w").write(s.replace(a, b))
 t = sys.argv[3]
-mut(tc, '        if r.get("_h", 0.0) <= floor_h or (seen.get(repo) == today and not chronic):', '        if r.get("_h", 0.0) <= floor_h:', t + "/mut/m_nodedup.py")
+mut(tc, '        if r.get("_h", 0.0) <= eff_h or (seen.get(repo) == today and not chronic):', '        if r.get("_h", 0.0) <= eff_h:', t + "/mut/m_nodedup.py")
 mut(tc, '        if n is None or n > max_b:\n            continue\n', '', t + "/mut/m_nobacklog.py")
-mut(tc, '        if r.get("_h", 0.0) <= floor_h or (seen.get(repo) == today and not chronic):', '        if (seen.get(repo) == today and not chronic):', t + "/mut/m_nofloor.py")
+mut(tc, '        if r.get("_h", 0.0) <= eff_h or (seen.get(repo) == today and not chronic):', '        if (seen.get(repo) == today and not chronic):', t + "/mut/m_nofloor.py")
 mut(pl, '  if [ "$PLN_LOG_REPEAT_S" -gt 0 ]; then', '  if false; then', t + "/m_planner_norl.sh")
 PYEOF
 mfloor(){ "$PY" - "$1" "$2" <<'PYEOF'

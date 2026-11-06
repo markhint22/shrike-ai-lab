@@ -100,9 +100,8 @@ class H(http.server.BaseHTTPRequestHandler):
 socketserver.TCPServer.allow_reuse_address=True
 socketserver.TCPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
 EOF
-PORT_BACKEND=$((20000 + RANDOM % 20000)); PORT_APPIUM=$((PORT_BACKEND + 1))
-$PY "$FAKE/backend.py" "$PORT_BACKEND" >/dev/null 2>&1 & SERVER_PIDS="$SERVER_PIDS $!"
-sleep 1
+. "$HERE/lib_stub_server.sh"   # Y1: wait-for-port + re-pick on a bind failure instead of a fixed sleep 1
+start_stub_server "$PY" "$FAKE/backend.py" PORT_BACKEND || { echo "  FAIL: stub backend did not come up"; exit 1; }; SERVER_PIDS="$SERVER_PIDS $STUB_PID"; PORT_APPIUM=$((PORT_BACKEND + 1))
 
 # fake SDK tree so `setup_emulator.sh --check` is satisfied
 SDK="$T/home/android-sdk"
@@ -502,8 +501,7 @@ class H(http.server.BaseHTTPRequestHandler):
 socketserver.TCPServer.allow_reuse_address = True
 socketserver.TCPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 EOF
-PORT_SEED=$((PORT_BACKEND + 7)); SEED_PW="$SECRET" $PY "$FAKE/seedapi.py" "$PORT_SEED" >/dev/null 2>&1 & SERVER_PIDS="$SERVER_PIDS $!"
-sleep 1
+SEED_PW="$SECRET" start_stub_server "$PY" "$FAKE/seedapi.py" PORT_SEED || { echo "  FAIL: stub seed api did not come up"; exit 1; }; SERVER_PIDS="$SERVER_PIDS $STUB_PID"
 sd() { env -i PATH=/usr/bin:/bin CHICK_API_BASE="http://127.0.0.1:$PORT_SEED" CHICK_PREMIUM_EMAIL=p@x.test CHICK_PREMIUM_PASSWORD="$1" "$PY" "$LANE/seed_data.py"; }
 o1="$(sd "$SECRET")"; o2="$(sd "$SECRET")"
 ok "first run: creates the vod + live streams, the guide mapping and the history row" "$([ "$(echo "$o1" | field ok)" = True ] && [ "$(echo "$o1" | $PY -c 'import json,sys; print(len(json.load(sys.stdin)["actions"]))')" = 4 ] && echo 1 || echo 0)"

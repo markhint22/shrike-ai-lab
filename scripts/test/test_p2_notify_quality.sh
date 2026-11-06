@@ -32,10 +32,10 @@ mutate "'[suppressed N]' never reported (N10)" '    if suppressed:
         body +=' '    if False:
         body +='
 mutate "all-good digest sent even when the heartbeat is alive (N6)" '        if heartbeat_alive():' '        if False:'
-mutate "escalate not once per day (N7)" '    if seen.get(sig) == day:' '    if False:'
+mutate "escalate not once per day (N7)" '    elif seen.get(sig) == day:' '    elif False:'
 mutate "escalate shadow mode falls through to a real push (N7)" '    if mode == "shadow":
-        if seen.get("shadow:" + sig) != day and not dry:' '    if mode == "off":
-        if seen.get("shadow:" + sig) != day and not dry:'
+        if roll_s:' '    if mode == "off":
+        if roll_s:'
 mutate "a capped escalation consumes the day (N7)" '    if res in ("sent", "deduped") and not dry:' '    if res in ("sent", "deduped", "capped") and not dry:'
 mutate "dropped messages not counted (N8)" '            _event("dropped", "drop", clean_title(title), body)' '            pass'
 [ "$rc" = 0 ] && echo "  p2 notify quality wrapper: all green"

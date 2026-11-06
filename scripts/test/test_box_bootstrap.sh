@@ -113,6 +113,7 @@ chmod 755 "$W/qa_pipstub.sh"
 case "$(uname -s)-$(uname -m)" in Linux-x86_64) GA=linux_x64;; Linux-aarch64|Linux-arm64) GA=linux_arm64;; Darwin-arm64) GA=darwin_arm64;; Darwin-x86_64) GA=darwin_x64;; *) GA=none;; esac
 mkdir -p "$W/gl" "$W/glw"; printf '#!/bin/sh\necho 8.18.4 drill\n' > "$W/glw/gitleaks"; chmod 755 "$W/glw/gitleaks"; tar -czf "$W/gl/gitleaks_8.18.4_${GA}.tar.gz" -C "$W/glw" gitleaks
 GLSHA="$(sha256 "$W/gl/gitleaks_8.18.4_${GA}.tar.gz")"; printf '%s  gitleaks_8.18.4_%s.tar.gz\n' "$GLSHA" "$GA" > "$W/gl/gitleaks_8.18.4_checksums.txt"
+export QA_TOOLS_APPROVED="semgrep gitleaks"   # Y1: test-only approval (install_qa_tools.sh is dry-run + approval-gated since K2); the real bootstrap never sets this
 export QA_TOOLS_TEST_HOOKS=1 QA_TOOLS_PIP_STUB="$W/qa_pipstub.sh" QA_TOOLS_GITLEAKS_DIR="$W/gl" QA_TOOLS_GITLEAKS_SHA256="$GLSHA" QA_TOOLS_PYTHON="$REALPY"
 # box_verify's environment-provided facts (the drill's "box")
 export BV_BACKUPS="$DRIVE" BV_PROC_MOUNTS="$W/mounts" BV_TMP="$W/tmp" BV_DISK_MAX_PCT=101 BV_INODE_MAX_PCT=101

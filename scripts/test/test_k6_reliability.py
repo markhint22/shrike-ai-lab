@@ -240,7 +240,17 @@ CTH = os.path.join(BASE, "cth.txt"); w(CTH, "0 * * * * /q/ops/cron_beat.sh fast 
 os.environ["OVN_BEATS_CRONTAB"] = CTH
 t, b = N.heartbeat_text(NOW)
 lines = b.split("\n")
-check("H0 DEFAULT (flag unset, wrappers not installed): the heartbeat body is unchanged (one line, no beats line)", len(lines) == 1 and lines[0].startswith("0 sent/24h"))
+check("H0 DEFAULT (flag unset, wrappers wrapped but no beat yet): ONE extra line says so (Y1: no longer silently omitted)", len(lines) == 2 and lines[0].startswith("0 sent/24h") and lines[1] == "beats: not rolled out (2 wrapped jobs, no beat yet)")
+_CT0 = os.path.join(BASE, "ct0.txt"); w(_CT0, "0 * * * * /q/f.sh\n")
+os.environ["OVN_BEATS_CRONTAB"] = _CT0
+t, b = N.heartbeat_text(NOW)
+lines = b.split("\n")
+check("H0b DEFAULT, no crontab entry uses cron_beat.sh: exactly 'beats: not rolled out (0 wrapped jobs)', once", len(lines) == 2 and lines[1] == "beats: not rolled out (0 wrapped jobs)" and b.count("not rolled out") == 1)
+os.environ["OVN_BEATS_IN_HEARTBEAT"] = "off"
+t, b = N.heartbeat_text(NOW)
+check("H0c OVN_BEATS_IN_HEARTBEAT=off still omits it", "\n" not in b)
+del os.environ["OVN_BEATS_IN_HEARTBEAT"]
+os.environ["OVN_BEATS_CRONTAB"] = CTH
 os.environ["OVN_BEATS_IN_HEARTBEAT"] = "on"
 t, b = N.heartbeat_text(NOW)
 lines = b.split("\n")

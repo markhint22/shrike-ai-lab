@@ -65,7 +65,7 @@
 # N7 escalation flags (no cron line needed; once per signature per local day; kill switch / override with `env OVN_ESC_...=off|shadow|on`; shadow = a 'would escalate' line in state/notify_shadow.log):
 #   OVN_ESC_HYGIENE=on|shadow|off (ON since 2026-11-03, S2/F3)  ovn_hygiene_stuck_check.sh: a hygiene gate stuck >= OVN_ESC_HYGIENE_H (4) h -> ONE emergency-class push per repo per day (shadow showed 1 fire/day = sane)
 #   OVN_ESC_PROMOTE_RED=shadow|on|off (shadow)   daily_promote.sh: final HELD/BLOCKED promote of OVN_ESC_PROMOTE_REPOS (billwatch iptv_apps) -> ONE emergency-class push per repo per day (flip to on after reviewing notify_shadow.log)
-#   OVN_ESC_MAC_SUPERVISOR=shadow|on|off (shadow, S2/F6)  ovn_notify.py check: state/mac_jobs_health.json (copied from the Mac every 10 min by mac_jobs_health.py) older than OVN_MAC_SUP_STALE_H (3) h -> ONE 'Mac jobs supervisor silent' push per day
+#   OVN_ESC_MAC_SUPERVISOR=on|shadow|off (default ON since Y6; shadow/off = kill switch)  ovn_notify.py check: state/mac_jobs_health.json (copied from the Mac every 10 min by mac_jobs_health.py) older than OVN_MAC_SUP_STALE_H (3) h -> ONE 'Mac jobs supervisor silent' push per day
 #   (there is no OVN_ESC_SUITE flag in the code: suite failures are reported by the hourly digest only)
 #   (already ON before this package, verified, not duplicated: promote HELD EVIDENCE_STALE across > 1 day = qa/evidence_freshness_check.py OVN_EVIDENCE_ESCALATE=on; a critical Mac job NOT_LOADED/stale = scripts/mac_jobs_health.py emergency)
 # S2 knobs (no cron line): OVN_HB_DROP_CLASSES=on|off (on): the 08:00 heartbeat names the dropped classes ('53 dropped (51 feature-complete, 2 need-attention)'); notify_events.jsonl keeps 200 chars of a dropped body (`detail`).

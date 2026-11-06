@@ -72,7 +72,7 @@ build_sandbox 'echo; echo "===== Fake A ====="; bash test_fake_a.sh || rc=1
 echo; echo "===== Fake B ====="; bash test_fake_b.sh || rc=1'
 mk_pass "$tmp/sandbox/test_fake_a.sh"
 mk_pass "$tmp/sandbox/test_fake_b.sh"
-OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+OUT="$(cd "$tmp/sandbox" && env -u OVN_SUITE_CAPTURE_DIR bash run_all.sh)"; RC=$?
 ok "all-pass sandbox: exit code 0" "[ $RC -eq 0 ]"
 ok "all-pass sandbox: prints the ALL PASS banner" "echo \"$OUT\" | grep -q 'ALL QUEUE TESTS PASS'"
 ok "all-pass sandbox: both fake tests actually ran" "echo \"$OUT\" | grep -q 'test_fake_a.sh' && echo \"$OUT\" | grep -q 'test_fake_b.sh'"
@@ -84,7 +84,7 @@ build_sandbox 'echo; echo "===== Fake A (fails) ====="; bash test_fake_a.sh || r
 echo; echo "===== Fake B (after a failure) ====="; bash test_fake_b.sh || rc=1'
 mk_fail "$tmp/sandbox/test_fake_a.sh"
 mk_pass "$tmp/sandbox/test_fake_b.sh"
-OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+OUT="$(cd "$tmp/sandbox" && env -u OVN_SUITE_CAPTURE_DIR bash run_all.sh)"; RC=$?
 ok "one-fail sandbox: exit code 1" "[ $RC -eq 1 ]"
 ok "one-fail sandbox: prints the SOME FAILED banner" "echo \"$OUT\" | grep -q 'SOME QUEUE TESTS FAILED'"
 ok "one-fail sandbox: the test AFTER the failure still ran" "echo \"$OUT\" | grep -q 'test_fake_b.sh'"
@@ -96,7 +96,7 @@ ok "one-fail sandbox: does NOT also print the ALL PASS banner" "! echo \"$OUT\" 
 build_sandbox 'echo; echo "===== Missing ====="; bash test_does_not_exist.sh || rc=1
 echo; echo "===== Fake A (still runs) ====="; bash test_fake_a.sh || rc=1'
 mk_pass "$tmp/sandbox/test_fake_a.sh"
-OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+OUT="$(cd "$tmp/sandbox" && env -u OVN_SUITE_CAPTURE_DIR bash run_all.sh)"; RC=$?
 ok "missing test file sandbox: exit code 1" "[ $RC -eq 1 ]"
 ok "missing test file sandbox: prints the SOME FAILED banner" "echo \"$OUT\" | grep -q 'SOME QUEUE TESTS FAILED'"
 ok "missing test file sandbox: the next test still ran despite the missing one" "echo \"$OUT\" | grep -q 'test_fake_a.sh'"
@@ -107,7 +107,7 @@ build_sandbox 'echo; echo "===== Fake A (fails) ====="; bash test_fake_a.sh || r
 echo; echo "===== Fake B (also fails) ====="; bash test_fake_b.sh || rc=1'
 mk_fail "$tmp/sandbox/test_fake_a.sh"
 mk_fail "$tmp/sandbox/test_fake_b.sh"
-OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+OUT="$(cd "$tmp/sandbox" && env -u OVN_SUITE_CAPTURE_DIR bash run_all.sh)"; RC=$?
 ok "two-fail sandbox: exit code is exactly 1, not compounded" "[ $RC -eq 1 ]"
 
 # --- D2 (2026-10-22 PKG-A): the failure verdict names the failing suites (before the banner), only the failing ones; a missing file and a python suite count too; exit 77 (NOT RUN) is not "failed"
@@ -119,7 +119,7 @@ echo; echo "===== NR ====="; run_or_notrun test_fake_nr.sh'
 mk_pass "$tmp/sandbox/test_pass_ok.sh"; mk_fail "$tmp/sandbox/test_fake_a.sh"
 printf 'import sys\nsys.exit(1)\n' > "$tmp/sandbox/test_fake_py.py"
 printf '#!/usr/bin/env bash\nexit 77\n' > "$tmp/sandbox/test_fake_nr.sh"
-OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+OUT="$(cd "$tmp/sandbox" && env -u OVN_SUITE_CAPTURE_DIR bash run_all.sh)"; RC=$?
 LINE="$(printf '%s\n' "$OUT" | grep 'FAILED SUITES' | head -1)"
 ok "failed-suite list: exit 1 and the list line is present" "[ $RC -eq 1 ] && [ -n \"\$LINE\" ]"
 ok "failed-suite list: names the failing bash suite, the missing file and the python suite" "echo \"\$LINE\" | grep -q 'test_fake_a.sh' && echo \"\$LINE\" | grep -q 'test_does_not_exist.sh' && echo \"\$LINE\" | grep -q 'test_fake_py.py'"
@@ -127,7 +127,7 @@ ok "failed-suite list: does NOT name the passing suite or the NOT RUN (77) suite
 ok "failed-suite list is printed BEFORE the failure banner" "[ \"\$(printf '%s\n' \"\$OUT\" | grep -n 'FAILED SUITES' | head -1 | cut -d: -f1)\" -lt \"\$(printf '%s\n' \"\$OUT\" | grep -n 'SOME QUEUE TESTS FAILED' | tail -1 | cut -d: -f1)\" ]"
 build_sandbox 'echo; bash test_pass_ok.sh || rc=1'
 mk_pass "$tmp/sandbox/test_pass_ok.sh"
-OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+OUT="$(cd "$tmp/sandbox" && env -u OVN_SUITE_CAPTURE_DIR bash run_all.sh)"; RC=$?
 ok "failed-suite list: an all-pass run prints no list and exits 0" "[ $RC -eq 0 ] && ! echo \"\$OUT\" | grep -q 'FAILED SUITES'"
 
 # --- E: finish() must hold no test invocations: a suite placed inside it (after its rc check) let a failure print the green banner (2026-10-15)
@@ -139,7 +139,7 @@ FINISH_FN="$(echo "$SAVED_FN" | awk '{ print } /NOT VERIFIED/ { print "  bash te
 build_sandbox 'echo; echo "===== Fake A (fails, inside finish) ====="; true'
 FINISH_FN="$SAVED_FN"
 mk_fail "$tmp/sandbox/test_fake_a.sh"
-OUT="$(cd "$tmp/sandbox" && bash run_all.sh)"; RC=$?
+OUT="$(cd "$tmp/sandbox" && env -u OVN_SUITE_CAPTURE_DIR bash run_all.sh)"; RC=$?
 ok "finish mutant: a failing suite inside finish() gives exit code 1" "[ $RC -eq 1 ]"
 ok "finish mutant: a failing suite inside finish() does NOT print the ALL PASS banner" "! echo \"$OUT\" | grep -q 'ALL QUEUE TESTS PASS'"
 ok "finish mutant: the failure banner is printed instead" "echo \"$OUT\" | grep -q 'SOME QUEUE TESTS FAILED'"

@@ -26,7 +26,7 @@ PY
 mutate "digest dedupe removed" notify 'if kind == "digest" and _mode("OVN_DIGEST_DEDUPE") != "off":' 'if False:'
 mutate "'Queue empty' always emitted (old behaviour)" notify '    return (not same), sig' '    return True, sig'
 mutate "pass-rate minimum sample removed (old behaviour)" notify 'if gd + bd < min_n and _mode("OVN_PASSRATE_MIN") != "off":' 'if False:'
-mutate "OVN_EMPTY_ONCE / OVN_PASSRATE_MIN default back to shadow (the 2026-11-02 flip undone)" notify '_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES")' '_DEFAULT_ON = ()'
+mutate "OVN_EMPTY_ONCE / OVN_PASSRATE_MIN default back to shadow (the 2026-11-02 flip undone)" notify '_DEFAULT_ON = ("OVN_EMPTY_ONCE", "OVN_PASSRATE_MIN", "OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES", "OVN_ESC_MAC_SUPERVISOR", "OVN_BULLET_ONCE")' '_DEFAULT_ON = ()'
 mutate "[ready] floor never fires" trigger '        if n > max_ready:' '        if n > 10**9 or True:'
 mutate "[ready] floor ignores its per-day dedupe" trigger 'if repo in skip or seen.get(repo) == today:' 'if repo in skip:'
 exit $rc

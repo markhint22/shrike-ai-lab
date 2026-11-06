@@ -98,7 +98,10 @@ ok("N8: '[suppressed N]' is reported ONCE: gone from the heartbeat after the nex
 ok("N8: heartbeat rows do not count as 'sent' in the next line", b3.startswith("2 sent/24h"))
 ok("N8: --dry-run returns the text and posts nothing", N.do_heartbeat(dry=True).startswith("ntfy alive 2025-11-02:") and len(posts) == n0 + 2)
 reset(); t, b = N.heartbeat_text()
-ok("N8: a quiet day still says so ('0 sent/24h ... last emergency none')", b == "0 sent/24h, 0 capped, 0 dropped, last emergency none")
+# Y1 contract: the heartbeat is ONE message; the FIRST line is stable for old consumers, a cron-beats status line may follow (never more than 2 lines)
+b_lines = b.split("\n")
+ok("N8: a quiet day still says so ('0 sent/24h ... last emergency none' as the first line)", b_lines[0] == "0 sent/24h, 0 capped, 0 dropped, last emergency none")
+ok("N8: ... and any extra line is only the optional beats line (<= 2 lines total)", len(b_lines) <= 2 and (len(b_lines) == 1 or b_lines[1].startswith(("beats:", "cron beats:"))))
 ok("N8: CLI wires `heartbeat`", N.main(["x", "heartbeat", "--dry-run"]) == 0)
 
 # ---- N6: no 'all good' digest while the heartbeat vouches for liveness

@@ -528,6 +528,7 @@ echo; echo "===== stage precredit (D2) ====="; bash test_stage_precredit.sh || r
 echo; echo "===== qwen explore (explorer; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_explore.sh || rc=1
 echo; echo "===== qwen explore hook ====="; bash test_qwen_explore_hook.sh || rc=1
 echo; echo "===== qwen critic (second-opinion stage; mutation proofs only with QE_FULL_MUT=1) ====="; bash test_qwen_critic.sh || rc=1
+echo; echo "===== Y1: suite-red fixes (bootstrap --apply, fixture-alert pollution, test anchors, lint prune, stub-server wait; with mutants) ====="; bash test_y1_suite_fixes.sh || rc=1
 echo; echo "===== NOT RUN exit codes (unrunnable suites are reported, never green) ====="; bash test_suite_notrun_exit.sh || rc=1
 echo; [ $NOTRUN -gt 0 ] && echo "⚠️  $NOTRUN suite(s) NOT RUN on this host (see ** NOT RUN lines above) - not verified"
 # 2026-10-15: these suites used to sit INSIDE finish() (after its rc check), so a failure among them printed ALL QUEUE TESTS PASS. They run here, before the verdict.
@@ -659,5 +660,7 @@ echo; echo "===== P2 N5: queue_refill 'Backlog refilled' via the relay + per-rep
 echo; echo "===== P2 F4/N7: hygiene-stuck recovery from the last hygiene result per feature branch + escalation at 4h (7 mutants) ====="; bash test_hygiene_stuck_f4.sh || rc=1
 echo; echo "===== P2 N7: daily promote HELD/BLOCKED escalation for billwatch/iptv_apps (5 mutants) ====="; bash test_daily_promote_escalation.sh || rc=1
 echo; echo "===== S1 suite repair: lib_fixup helper lookup + loud missing-helper warn, ntfy lint top-level prune, suite cron lock retry, red-streak digest/escalation (12 mutants) ====="; bash test_s1_suite_repair.sh || rc=1
+echo; echo "===== Y6 notify fixes 2: promote folded into the digest + weekly scorecard, Mac supervisor default ON, rolling-24h escalation, reconcile bullet repo+branch, bullet cooldowns, vercel recovery, suite-red fixture filter (16 mutants) ====="; bash test_y6_notify_fixes.sh || rc=1
+echo; echo "===== Y6 hygiene-stuck: age from the last merge, names branch + failing tests/conflict files, rolling-24h escalation, one low recovery (12 mutants) ====="; bash test_y6_hygiene_stuck.sh || rc=1
 echo; finish || rc=1
 exit $rc
