@@ -340,3 +340,5 @@
 # --- 27B-decomposed from roadmap [2026-11-04]: Test `request_validation_handler` — `backend/app/main.py:96` defines public `request_valid (review + tweak) [feat:shrike-notify-20261104-test-request-validation-handler-backend-] ---
 
 # --- 27B-decomposed from roadmap [2026-11-04]: Test `max_body_bytes` middleware — `backend/app/middleware.py:9` defines public `max_body_ (review + tweak) [feat:shrike-notify-20261104-test-max-body-bytes-middleware-backend-a] ---
+
+# --- 27B-decomposed from roadmap [2026-11-06]: Test `get_current_user_scoped_sse` — `backend/app/dependencies.py:118` defines public `get (review + tweak) [feat:shrike-notify-20261106-test-get-current-user-scoped-sse-backend] ---
