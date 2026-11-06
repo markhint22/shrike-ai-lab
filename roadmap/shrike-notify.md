@@ -263,3 +263,6 @@ Roadmap had zero `[ready]` lines (every one of 74 historical features already `[
 
 ## Local research 2026-11-06 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 2 pieces of verified code evidence - Claude research was unavailable; review)
 - [ ] [P2] [decomposed] Test `get_current_user_scoped_sse` — `backend/app/dependencies.py:118` defines public `get_current_user_scoped_sse` with zero test coverage; add unit tests in `backend/tests/` verifying it correctly resolves the current user and applies topic scope restrictions for SSE connections, including rejection of unauthorized topics {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-06 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 2 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `require_topic_and_auth_sse` — `backend/app/dependencies.py:100` defines public `require_topic_and_auth_sse` with zero test coverage; add unit tests in `backend/tests/` verifying it correctly rejects invalid topics, missing auth, and mismatched scopes, and accepts valid SSE subscriptions {cat: test; size: S; multifile: no; research: none}
