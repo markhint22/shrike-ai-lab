@@ -565,4 +565,7 @@ Not near. Revisit priorities once the PWA loop (P1+P2) is testable end-to-end.
 - [ ] [P2] [decomposed] Test `promote_action` endpoint — `backend/app/routers/control_plane.py:185` is a public function with zero test coverage; add tests in `backend/tests/` verifying that promoting an action updates its state and returns 200, and that it rejects invalid action IDs with 404 {cat: test; size: S; multifile: no; research: none}
 
 ## Local research 2026-11-06 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test `list_notifications` endpoint — `backend/app/routers/notifications.py:23` is a public function with zero test coverage; add tests in `backend/tests/` verifying it returns the user's notification list and respects pagination parameters {cat: test; size: S; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test `list_notifications` endpoint — `backend/app/routers/notifications.py:23` is a public function with zero test coverage; add tests in `backend/tests/` verifying it returns the user's notification list and respects pagination parameters {cat: test; size: S; multifile: no; research: none}
+
+## Local research 2026-11-06 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `get_workspace_stats` — `backend/app/routers/collaborative_workspace.py:663` is a public function with no test coverage; add tests in `backend/tests/` verifying stats calculation {cat: test; size: S; multifile: no; research: none}
