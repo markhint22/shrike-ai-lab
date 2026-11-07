@@ -24,6 +24,21 @@ import time
 VERDICTS = ("PASS", "FAIL", "FLAG", "NA", "UNVERIFIED")
 MODES = ("off", "shadow", "enforce")
 
+# 2026-11-04 (package Y5): finding rules that are reported as their own SHADOW-ONLY FLAG sub-key (never FAIL, no mode key of their own: they cannot be enforced).
+# gate -> {rule id: sub-key}. Used by the gate (details.subkeys), ovn_gate_evidence_report.py and qa/qa_precision_sample.py.
+ANTIGAMING_SUBKEYS = {"Y_SKIP_ADDED": "skip_added", "Y_ASSERT_DROP": "assert_drop"}
+GATE_SUBKEYS = {"antigaming": ANTIGAMING_SUBKEYS}
+
+
+def subkey_counts(gate, counts):
+    """{sub-key: n} for the rules of `gate` that have a sub-key, from a {rule: n} counts dict. Empty when none fired."""
+    m = GATE_SUBKEYS.get(gate) or {}
+    out = {}
+    for rule, n in (counts or {}).items():
+        if rule in m:
+            out[m[rule]] = out.get(m[rule], 0) + n
+    return out
+
 
 class Terminated(BaseException):
     """Raised by a gate's SIGTERM handler (qa_timeout.py with QA_TIMEOUT_TERM_GRACE_S sends SIGTERM first). A BaseException so that no

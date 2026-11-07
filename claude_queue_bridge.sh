@@ -62,6 +62,7 @@ ssh -o ConnectTimeout=20 "$SRV" "
 awk '/^===AUTOSKIP===/{s=1;next} /^===PREWORKLIST===/{s=2;next} s==1{print > "'"$TMP"'/autoskip.tsv"} s==2{print > "'"$TMP"'/prework_list.txt"}' "$TMP/srv.txt"
 touch "$TMP/autoskip.tsv" "$TMP/prework_list.txt"
 
+# ENFORCE POLICY (Y2 r6): never set OVN_HARVEST_LEDGER_MODE / OVN_HARVEST_DONE_CHECK / OVN_BRIDGE_AUTOCLOSE to enforce until a 1-2 week shadow log shows zero would-skip of non-duplicates (docs/FLEET_RUNBOOK.md#bridge-harvest-ledger)
 # ---- Pass A0 (P5-supply-truth): box outcomes.jsonl for the feat_tag landed-match used by autoclose + harvest (mode OVN_BRIDGE_AUTOCLOSE: shadow default / enforce / off) ----
 AC_MODE="${OVN_BRIDGE_AUTOCLOSE:-shadow}"
 AC_SHADOW_LOG="${OVN_BRIDGE_SHADOW_LOG:-$SHARED/scripts/overnight-queue/state/bridge_autoclose_shadow.log}"
@@ -75,7 +76,8 @@ fi
 if [ -s "$TMP/autoskip.tsv" ]; then
   python3 "$BRIDGE" harvest --queue "$QUEUE" --autoskip "$TMP/autoskip.tsv" --archive "$ARCHIVE" --outcomes "$TMP/outcomes.jsonl" --mode "$AC_MODE" --shadow-log "$AC_SHADOW_LOG" \
     --repos-dir "$AC_REPOS" --done-ref "${OVN_HARVEST_DONE_REF:-origin/claude/feature}" --done-mode "${OVN_HARVEST_DONE_CHECK:-shadow}" \
-    --done-log "${OVN_HARVEST_DONE_LOG:-$SHARED/scripts/overnight-queue/state/harvest_skipped_done.log}" 2>&1 | while read -r l; do log "$l"; done   # S3-guards2: pre-harvest done-check (shadow default; OVN_HARVEST_DONE_CHECK=enforce|off)
+    --done-log "${OVN_HARVEST_DONE_LOG:-$SHARED/scripts/overnight-queue/state/harvest_skipped_done.log}" \
+    --ledger "${OVN_HARVEST_LEDGER:-$SHARED/scripts/overnight-queue/state/harvest_ledger.tsv}" --ledger-log "${OVN_HARVEST_LEDGER_LOG:-$SHARED/scripts/overnight-queue/state/harvest_ledger_skips.log}" --ledger-mode "${OVN_HARVEST_LEDGER_MODE:-shadow}" 2>&1 | while read -r l; do log "$l"; done   # S3-guards2 + Y2: pre-harvest done-check defaults to SHADOW (OVN_HARVEST_DONE_CHECK=enforce|shadow|off; ledger skip: OVN_HARVEST_LEDGER_MODE=enforce|shadow|off, default shadow; skipped lines -> state/harvest_skipped_done.log) + persisted harvest ledger (never re-harvest a harvested/ticked/archived key)
 else
   log "harvest: no AUTO-SKIP items on the server"
 fi

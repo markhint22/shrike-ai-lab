@@ -1812,14 +1812,26 @@ def check(argv):
                           "--no-record" in argv)
         except Exception as ex:  # noqa: BLE001
             notes.append("ag_n2 failed to run: %s: %s" % (type(ex).__name__, str(ex)[:80]))
+    # 2026-11-04 rules (qa/ag_y5.py): Y_SKIP_ADDED (sub-key skip_added), Y_ASSERT_DROP (sub-key assert_drop): FLAG only, shadow only, no mode key.
+    # OVN_QA_AG_Y5=off disables them. Isolated: an error becomes a note.
+    if os.environ.get("OVN_QA_AG_Y5", "on") != "off":
+        try:
+            import ag_y5
+            ag_y5.run_all(repo, name, status, st_raw, diffs, findings, notes, max(deadline, time.time()) + float(os.environ.get("QA_AG_Y5_BUDGET", "20")),
+                          "--no-record" in argv)
+        except Exception as ex:  # noqa: BLE001
+            notes.append("ag_y5 failed to run: %s: %s" % (type(ex).__name__, str(ex)[:80]))
     apply_demotions(rd, name, head, findings, notes)
     # assemble
     order = {"FAIL": 0, "FLAG": 1}
     findings.sort(key=lambda f: (order[f["sev"]], f["file"], f["line"]))
     counts = {}
     for f in findings:
+        if f.get("dup_of"):
+            continue   # 2026-11-06 (Y5 review): the same marker reported by two rules (B_SKIP_ADDED + Y_SKIP_ADDED) counts once, as the sub-key row
         counts[f["rule"]] = counts.get(f["rule"], 0) + 1
-    details = {"files_in_diff": len(status), "code_files": len(code_status), "frozen": frozen, "counts": counts,
+    subkeys = qc.subkey_counts(GATE, counts)
+    details = {"files_in_diff": len(status), "code_files": len(code_status), "frozen": frozen, "counts": counts, "subkeys": subkeys,
                "findings": findings[:MAX_FINDINGS], "notes": notes[:10], "truncated": truncated or len(findings) > MAX_FINDINGS}
     if any(f["sev"] == "FAIL" for f in findings):
         v = "FAIL"

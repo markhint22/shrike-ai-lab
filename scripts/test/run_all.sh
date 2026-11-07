@@ -563,6 +563,7 @@ echo; echo "===== check ghost tests ====="; bash test_check_ghost_tests.sh || rc
 echo; echo "===== outcome acct ====="; bash test_outcome_acct.sh || rc=1
 echo; echo "===== verify venv fallback ====="; bash test_verify_venv_fallback.sh || rc=1
 echo; echo "===== stage order ====="; bash test_stage_order.sh || rc=1
+echo; echo "===== Y4 item deps (production before test; read_file file-feed; 10 mutants) ====="; bash test_item_deps.sh || rc=1
 echo; echo "===== qa install tools cron ====="; bash test_qa_install_tools_cron.sh || rc=1
 echo; echo "===== K2 qa toolchain (tool-health report -> tool-missing, diff-scoped mutation, selftest seeds; with mutants) ====="; python3 test_qa_k2_toolchain.py || rc=1
 echo; echo "===== auto research resilience ====="; bash test_auto_research_resilience.sh || rc=1
@@ -632,6 +633,7 @@ echo; echo "===== P5 shadow evidence (stage-order journal ts/item_hash/decision_
 echo; echo "===== qwen explore feature ====="; bash test_qwen_explore_feature.sh || rc=1
 echo; echo "===== P8 VERIFY pre-flight + observability (verify-lint A1 async-AST / H1 hyphen-import under OVN_VERIFY_ASYNC_LINT, scout-guard out-of-repo abs path, item_line_hash + digest sibling split, stage item-verify rc 4/5 shadow) ====="; bash test_p8_verify_preflight.sh || rc=1
 echo; echo "===== qa antigaming noact ====="; bash test_qa_antigaming_noact.sh || rc=1
+echo; echo "===== Y5 qa antigaming skip_added / assert_drop sub-keys (replay afa62b13 + efd06bc1, evidence-report sub-keys, labelled-precision harness; 5 mutants) ====="; bash test_qa_antigaming_y5.sh || rc=1
 echo; echo "===== hygiene sigstreak ====="; bash test_hygiene_sigstreak.sh || rc=1
 echo; echo "===== item guard day cap ====="; bash test_item_guard_day_cap.sh || rc=1
 echo; echo "===== ovn pingpong guard ====="; bash test_ovn_pingpong_guard.sh || rc=1
@@ -660,6 +662,12 @@ echo; echo "===== P2 N5: queue_refill 'Backlog refilled' via the relay + per-rep
 echo; echo "===== P2 F4/N7: hygiene-stuck recovery from the last hygiene result per feature branch + escalation at 4h (7 mutants) ====="; bash test_hygiene_stuck_f4.sh || rc=1
 echo; echo "===== P2 N7: daily promote HELD/BLOCKED escalation for billwatch/iptv_apps (5 mutants) ====="; bash test_daily_promote_escalation.sh || rc=1
 echo; echo "===== S1 suite repair: lib_fixup helper lookup + loud missing-helper warn, ntfy lint top-level prune, suite cron lock retry, red-streak digest/escalation (12 mutants) ====="; bash test_s1_suite_repair.sh || rc=1
+echo; echo "===== Y2 bridge harvest: ledger (never re-harvest a harvested/ticked/archived key), done-check default ON + creation items, shadow dedupe, cron header (15 mutants) ====="; python3 test_y2_bridge_harvest.py || rc=1
+echo; echo "===== Y2 shared branch sync: ops/shared_branch_sync.sh dry-run default, --apply merge-only temp worktree, conflict abort, push-reject exit, main refused (8 mutants) ====="; bash test_y2_shared_branch_sync.sh || rc=1
+echo; echo "===== Y2 fixes: exact-identifier done-check, body_key closed-line shapes, no DeprecationWarning ====="; python3 test_y2_fixes.py || rc=1
+echo; echo "===== Y3: tsc gate pre-commit re-measure (stale baseline never reverts a non-adding commit) ====="; bash test_tsc_gate_premeasure.sh || rc=1
+echo; echo "===== Y3 review: premeasure cleanup/atomic baseline/symmetry self-check ====="; bash test_tsc_gate_y3_review.sh || rc=1
+echo; echo "===== Y3: ops/tsc_baseline_reseed.sh dry-run/apply/backup ====="; bash test_tsc_baseline_reseed.sh || rc=1
 echo; echo "===== Y6 notify fixes 2: promote folded into the digest + weekly scorecard, Mac supervisor default ON, rolling-24h escalation, reconcile bullet repo+branch, bullet cooldowns, vercel recovery, suite-red fixture filter (16 mutants) ====="; bash test_y6_notify_fixes.sh || rc=1
 echo; echo "===== Y6 hygiene-stuck: age from the last merge, names branch + failing tests/conflict files, rolling-24h escalation, one low recovery (12 mutants) ====="; bash test_y6_hygiene_stuck.sh || rc=1
 echo; finish || rc=1

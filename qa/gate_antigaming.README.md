@@ -50,6 +50,8 @@ Replay (measure flag rate on history, read-only):
 | C_HANDLER_NARROWED | FLAG | `except Exception`/bare narrowed to a specific type |
 | D_FROZEN_EDIT | FAIL | file listed in `state/qa_frozen_tests.json` edited, deleted or renamed. Manifest absent / repo absent => `details.frozen = "NA: ..."` |
 | F_COVERAGE_LOWERED / F_TESTS_EXCLUDED | FLAG | `fail_under`/`--cov-fail-under`/`coverageThreshold` lowered, `--ignore`/`--deselect`/`norecursedirs`, `-k 'not ..'`, `-m 'not ..'`, `--maxfail`, `-p no:*`, `testpaths`, `--collect-only` added in test config (pytest.ini, tox.ini, setup.cfg, pyproject.toml, package.json) |
+| Y_SKIP_ADDED (sub-key `skip_added`) | FLAG | package Y5 (qa/ag_y5.py): a skip/xfail/todo/disabled marker (`pytest.mark.skip/skipif/xfail`, `pytest.skip()`, `unittest.skip*`, `it.skip`/`xit`/`describe.skip`/`test.skip`/`.todo`, GUT `pending(`, `@Disabled`/`@Ignore`, `XCTSkip`) ADDED to an existing test that the same diff did not otherwise change (no other added code line inside the test's span). Incident billwatch afa62b13. SHADOW ONLY: always FLAG, no mode key. |
+| Y_ASSERT_DROP (sub-key `assert_drop`) | FLAG | package Y5: a MODIFIED test file with non-blank lines down >50% (base >= 20 lines), or every effective assertion gone, or assertions/tests down >50% (base >= 4), or a deletion-dominant diff (>= 50 removed lines, >= 90% of changed lines removals) netting >= 3 fewer tests / >= 5 fewer assertions. Not reported when other test files in the diff gained >= half the removed lines (a split). Incident shrike-notify efd06bc1 (381 of 382 changed lines deleted). SHADOW ONLY. |
 
 Languages: Python by `ast` (assertion units, per-function guards); ts/js/vue (vitest/jest/chai/ava), Kotlin (JUnit/kotlin.test/mockk),
 GDScript (GUT) and Swift (XCTest) by a comment/string-masking scanner with bracket matching (python files with syntax errors and files
@@ -169,3 +171,14 @@ Replay 2026-10-10 (qa_replay.py, ALL 4,186 xlite / 4,167 iptv_apps non-merge com
 * `OVN_FIXUP_GUTSKIP=enforce` only resets files that were GUT-valid before the cycle (or are new); files already ignored at `BEFORE_SHA` are skipped, so a pre-existing helper/emptied file the cycle merely touched is never reset.
 
 Related (not in this gate): `-ginclude_subdirs` on every GUT command site (per-cycle verify in `run_overnight.sh`, hygiene gate, stage runner, test-watch, collect canary; one definition: `gut_subdirs_flag` in `scripts/lib_gut_xml.sh`; `OVN_GUT_SUBDIRS=off` disables), `scripts/lib_new_tests.sh` explicit run of a cycle's new/changed tests in the stage runner (`OVN_RUN_NEW_TESTS=off` disables), `scripts/ovn_test_collect_canary.sh` (ghost-test canary, cron line in `scripts/cron.txt`, not installed), `proposals-2026-10-04/iptv-ovn-verify-collect-app-tests.patch` (opt-in `OVN_COLLECT_APP_TESTS=on` -> also `pytest app`; default OFF until the app/** cleanup lands).
+
+## Sub-keys and labelled precision (package Y5)
+
+`details.subkeys` = `{skip_added: n, assert_drop: n}` (map in `qa_common.GATE_SUBKEYS`); `OVN_QA_AG_Y5=off` disables ag_y5. `ovn_gate_evidence_report.py` prints a
+`sub-key` line per sub-key (events, proxy outcome buckets; shadow only, never a blocker). The proxy cannot judge them: use hand labels.
+
+    python3 qa/qa_precision_sample.py sample [--subkey K] [--n 10]   # N recent unlabelled rows per sub-key: sha, finding, diff excerpt, one-line label command
+    python3 scripts/ovn_gate_governor.py label qa:antigaming <key> tp|fp --note "why"
+    python3 qa/qa_precision_sample.py read                           # labelled precision per sub-key; unlabelled rows are never tp or fp
+
+A governor label is per row (run), so a row carrying both sub-keys has one verdict that counts for both (the worksheet marks it `shared_label`).

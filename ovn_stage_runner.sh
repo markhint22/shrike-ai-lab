@@ -131,6 +131,18 @@ _so_item_filter(){   # stdin = candidate queue lines -> stdout = the lines the p
   if _out="$(printf '%s\n' "$_in" | python3 "$_SO_PY" item-filter --mode "$_SO_MODE" --progress "$rd/OVERNIGHT_PROGRESS.md" --repo "$repo" --log "$_SO_LOG" 2>/dev/null)"; then printf '%s\n' "$_out"; else printf '%s\n' "$_in"; fi
 }
 # <<< d3 step-ordering helpers
+# >>> y4 item-deps helpers
+# 2026-11-05 (Y4): behaviour-dependency gate (scripts/ovn_item_deps.py): a test-only line whose assertion/name/file depends on an OPEN sibling [feat:] production line (iptv wipe-the-shared: 111 min,
+# 61 test-declared steps touched source) must wait for it. OVN_ITEM_DEPS=off|shadow|enforce, default SHADOW: the picker is unchanged, would-defer rows go to state/item_deps_shadow.log. Fail-open.
+_ID_MODE="${OVN_ITEM_DEPS:-shadow}"; case "$_ID_MODE" in off|shadow|enforce) ;; *) _ID_MODE=shadow ;; esac
+_ID_PY="scripts/ovn_item_deps.py"; [ -f "$_ID_PY" ] || _ID_MODE=off
+_ID_LOG="${OVN_ITEM_DEPS_LOG:-state/item_deps_shadow.log}"
+_id_item_filter(){   # stdin = candidate queue lines -> stdout = the lines the picker may take (all of them unless enforce)
+  local _in _out; _in="$(cat)"
+  if [ "$_ID_MODE" = off ] || [ -z "$_in" ]; then printf '%s\n' "$_in"; return 0; fi
+  if _out="$(printf '%s\n' "$_in" | python3 "$_ID_PY" item-filter --mode "$_ID_MODE" --progress "$rd/OVERNIGHT_PROGRESS.md" --repo "$repo" --log "$_ID_LOG" --tree "$rd" 2>/dev/null)"; then printf '%s\n' "$_out"; else printf '%s\n' "$_in"; fi
+}
+# <<< y4 item-deps helpers
 
 # HARD SELF-WATCHDOG: a hung git/aider/LLM call must NEVER leave a runner alive forever — it holds the
 # lock + contends on the 27B (this exact runaway crashed tok/s to 4 and had a 58-min zombie). Recursively
@@ -247,6 +259,7 @@ _pick_item(){
   # picked set is bug items the python-preference below is skipped - a Kotlin/GDScript bug must not queue behind a python roadmap item.
   _doable="$(grep -E '^- \[ \] ' "$rd/OVERNIGHT_PROGRESS.md" | grep -vE 'AUTO-SKIP|HUMAN-ONLY|BLOCKED|\[CLAUDE\]' | ovn_bug_first_order | grep -E '\[T[345]\]|·T[345]·' \
               | grep -vE '\btests?/[A-Za-z0-9_./-]*\.gd\b|\btest_[A-Za-z0-9_]*\.gd\b')"
+  _doable="$(printf '%s\n' "$_doable" | _id_item_filter | grep -E '^- \[ \] ')"   # Y4: behaviour dependencies (shadow journals only)
   _doable="$(printf '%s\n' "$_doable" | _so_item_filter | grep -E '^- \[ \] ')"   # D3: drop items whose feature-group prerequisites are not done (enforce); shadow journals only
   if printf '%s\n' "$_doable" | ovn_has_bug_line; then
     item="$(printf '%s\n' "$_doable" | head -1 | sed -E 's/^- \[ \] //')"
@@ -1055,7 +1068,10 @@ stage_feed_filter(){   # $1=worktree $2=files already loaded $3=max; stdin = can
   return 0
 }
 # the phrases an architect uses to ask for files (2026-10-22 PKG-C: also 'Please add these files', 'provide the following files', 'share these files')
-STAGE_FEED_ASK_RE='(add|provide|share) (these|the following) files?'
+# 2026-11-05 (Y4): the 27B architect often answers with a pseudo tool call ('<tool_call> <function=read_file> <parameter=path> iptv-backend/tests/conftest.py') instead of the prose ask; aider
+# cannot run it, the editor never starts and a declared NEW test file stays 0 bytes (12 empty-file step failures in 32h, iptv_apps-20261104-202409 s2: 4 read_file turns, no edit, no file-feed line).
+# Treat read_file tool calls as a file ask (the named path is on the SAME line / the next ones, so the scan below starts at the ask line itself for this form).
+STAGE_FEED_ASK_RE='(add|provide|share) (these|the following) files?|<function=read_file>'
 stage_feed_asked(){ grep -qiE "$STAGE_FEED_ASK_RE" "${1:-/dev/null}" 2>/dev/null; }
 stage_feed_files(){   # $1=aider log of the attempt $2=worktree $3=files already loaded (space-sep, may include --file/--read words) $4=max -> up to $4 repo-relative paths, one per line
   local log="$1" w="$2" loaded="$3" max="${4:-3}"
@@ -1069,7 +1085,7 @@ except OSError:
 out = []
 for i, ln in enumerate(lines):
     if re.search(os.environ.get("STAGE_FEED_ASK_RE") or r"(?i)add the following files?\b", ln, re.I):
-        for nx in lines[i + 1:i + 25]:
+        for nx in lines[(i if "function=read_file" in ln else i + 1):i + 25]:
             if nx.startswith("Tokens:"):
                 break
             for tok in re.findall(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}", nx):

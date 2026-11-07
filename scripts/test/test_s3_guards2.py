@@ -3,7 +3,7 @@
 
   1. bridge present_on_ref/autoclose: a test id that appears ONLY in OVERNIGHT_PROGRESS.md / CLAUDE_QUEUE / docs markdown / a code comment is NOT present (the xlite 23b23306 false positive);
      a real `def`/`func`/`it("...")` definition in a code file IS; the landing is tagged item|feature; shadow rows are deduped per (line, tag, day)
-  2. bridge harvest done-check: a test-writing item whose named tests are already defined on the ref is logged (shadow, default) / skipped (enforce); an implementation item or an
+  2. bridge harvest done-check: a test-writing item whose named tests are already defined on the ref is skipped (Y2: default on = enforce) / logged (shadow); an implementation item or an
      item whose test is only mentioned in markdown is never judged done; mode off / unknown mode never enforces by accident
   3. ovn_stub_guard: a FILLED file's leftover one-line placeholder is stripped (enforce) / only logged (shadow default); a pure stub and multi-line forms are untouched
   4. ovn_pingpong_guard: default repo list covers every lane repo; the 'unchanged' and 'no literal ping-pong' lines are logged once, not every pass
@@ -144,7 +144,7 @@ qp, cp = run_ac("shadow", QUEUE, LOG)
 run_ac("shadow", QUEUE, LOG)
 run_ac("shadow", QUEUE, LOG)
 slog = rd(LOG)
-chk("autoclose shadow: three hourly passes the same day leave ONE row (dedupe per line, tag, day), only for the really-defined line", slog.count("\n") == 1 and "would-close line 4 xlite" in slog and "1732" not in slog and "validators" not in slog, slog)
+chk("autoclose shadow: three hourly passes the same day leave ONE row (dedupe per line, tag, day), only for the really-defined line", slog.count("\n") == 1 and "would-close xlite" in slog and "(line 4;" in slog and "1732" not in slog and "validators" not in slog, slog)
 chk("autoclose shadow: the queue is untouched", rd(qp) == QUEUE)
 qp, cp = run_ac("shadow", QUEUE, LOG.replace("autoclose", "autoclose2"))
 cp2 = subprocess.run([sys.executable, os.path.join(Q, "claude_queue_bridge.py"), "autoclose", "--queue", qp, "--outcomes", OUT, "--repos-dir", clones, "--mode", "shadow", "--shadow-log", LOG, "--today", "2026-11-04"],
@@ -159,6 +159,7 @@ bw = os.path.join(clones, "billwatch")
 mkgit(bw, "claude/feature")
 w(os.path.join(bw, "tests", "test_geocoder_retry.py"), "def test_is_retryable_error():\n    pass\n")
 w(os.path.join(bw, "OVERNIGHT_PROGRESS.md"), "test_only_in_progress_file\n")
+w(os.path.join(bw, "backend", "app", "services", "geocoder.py"), "def test_is_retryable_error():\n    pass\n")   # impl file that also defines the named id: only the item-kind gate keeps T_IMPL not-done
 g(bw, "add", "-A")
 g(bw, "commit", "-q", "-m", "x")
 g(bw, "update-ref", "refs/remotes/origin/claude/feature", "HEAD")
@@ -191,7 +192,7 @@ def run_harvest(mode, extra_env=None):
 
 
 qtxt, dlog, cp = run_harvest(None)
-chk("harvest default = shadow: all four lines still harvested, ONE would-skip-done row for the already-done test item", qtxt.count("[CLAUDE]") == 4 and dlog.count("would-skip-done") == 1 and "SHADOW" in dlog and "all 1 named test id(s) defined" in dlog, (qtxt, dlog, cp.stderr))
+chk("harvest default (Y2 r3 D4) = SHADOW: nothing skipped (all four harvested), the already-done test item is logged as a SHADOW row", qtxt.count("[CLAUDE]") == 4 and dlog.count("would-skip-done") == 1 and "SHADOW" in dlog and "ENFORCED" not in dlog and "all 1 named test id(s) defined" in dlog, (qtxt, dlog, cp.stderr))
 qtxt, dlog, cp = run_harvest("enforce")
 chk("harvest enforce: the already-done test item is NOT harvested; md-only, implementation and new-test items are", qtxt.count("[CLAUDE]") == 3 and "geocoder-retry-tests" not in qtxt and "md-only" in qtxt and "impl-item" in qtxt and "new-test" in qtxt and "ENFORCED" in dlog, (qtxt, dlog))
 qtxt, dlog, cp = run_harvest("off")
@@ -299,15 +300,15 @@ chk("pingpong: 'no literal ping-pong' is logged once per repo per day", n1.count
 
 # ------------------------------------------------------------------------------------------------ 5. mutants
 MUTANTS = [
-    ("present greps every path (markdown/queue text counts)", "claude_queue_bridge.py", '"-qE", "-e", definition_regex(needle), ref] + list(CODE_PATHSPEC)', '"-qE", "-e", definition_regex(needle), ref]'),
-    ("present matches a bare mention, not a definition", "claude_queue_bridge.py", '    n = _ere_escape(needle)\n    return ("(^|', '    n = _ere_escape(needle)\n    return n\n    return ("(^|'),
+    ("present greps every path (markdown/queue text counts)", "claude_queue_bridge.py", 'if paths else list(CODE_PATHSPEC)', 'if paths else []'),
+    ("present matches a bare mention, not a definition", "claude_queue_bridge.py", '    n = _ere_escape(needle)\n    return (DEF_LEAD', '    n = _ere_escape(needle)\n    return n\n    return (DEF_LEAD'),
     ("metacharacters not escaped", "claude_queue_bridge.py", 'return "".join("\\\\" + c if c in _ERE_META else c for c in s)', "return s"),
     ("shadow rows not deduped", "claude_queue_bridge.py", "            if key in row:", "            if False:"),
     ("landing never tagged item/feature", "claude_queue_bridge.py", "                if ok and hashes is not None:", "                if False:"),
-    ("done-check judges implementation items done", "claude_queue_bridge.py", 'if not TEST_ITEM_RE.search(task or ""):', "if False:"),
-    ("done-check ignores missing tests", "claude_queue_bridge.py", "    missing = [i for i in ids if not present(clone, ref, i)]\n    return (not missing), (\"missing on", "    missing = []\n    return (not missing), (\"missing on"),
-    ("done-check default enforce", "claude_queue_bridge.py", 'os.environ.get("OVN_HARVEST_DONE_CHECK") or "shadow"', 'os.environ.get("OVN_HARVEST_DONE_CHECK") or "enforce"'),
-    ("done-check enforce never skips", "claude_queue_bridge.py", '                if dmode == "enforce":\n                    continue\n        existing_sigs.add', '                if False:\n                    continue\n        existing_sigs.add'),
+    ("done-check judges implementation items done", "claude_queue_bridge.py", '    if TEST_ITEM_RE.search(task or ""):\n        ids = named_test_ids(task) or', '    if True:\n        ids = named_test_ids(task) or'),
+    ("done-check ignores missing tests", "claude_queue_bridge.py", "        missing = [i for i in ids if not all(present(clone, ref, i, paths=[f]) for f in files)]\n        done = not missing\n        return done, (done and len(files) == 1),", "        missing = []\n        done = not missing\n        return done, (done and len(files) == 1),"),
+    ("done-check default enforce", "claude_queue_bridge.py", 'os.environ.get("OVN_HARVEST_DONE_CHECK") or "shadow"', 'os.environ.get("OVN_HARVEST_DONE_CHECK") or "on"'),
+    ("done-check enforce never skips", "claude_queue_bridge.py", '                if dmode == "enforce":\n                    if dstrong and key not in ledger:', '                if False:\n                    if dstrong and key not in ledger:'),
     ("strip default enforce", "scripts/ovn_stub_guard.py", 'os.environ.get("OVN_STUB_STRIP", "shadow")', 'os.environ.get("OVN_STUB_STRIP", "enforce")'),
     ("strip also eats a pure stub", "scripts/ovn_stub_guard.py", "    if is_placeholder_only(text):\n        return text, 0\n    out, n", "    out, n"),
     ("strip never wired into undo", "scripts/ovn_stub_guard.py", "if rc == 0 and not is_placeholder_only(body) and MARKER_RE.search(body):", "if False:"),

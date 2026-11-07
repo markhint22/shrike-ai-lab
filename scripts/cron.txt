@@ -1,4 +1,6 @@
-# scripts/cron.txt - crontab lines SHIPPED but NOT INSTALLED (the integrator installs after review; nothing here runs by itself).
+# scripts/cron.txt - crontab lines SHIPPED but NOT necessarily INSTALLED (the integrator installs after review; nothing here runs by itself).
+# 2026-11-04 (Y2): STATUS CORRECTION - the literal ping-pong guard, the supply-runway forecast and the daily ntfy heartbeat ARE installed in the box crontab (verified read-only with `crontab -l`:
+# pingpong */20 with OVN_PINGPONG_REPOS="gitlark billwatch iptv_apps test-automation-agent", forecast 7,37, heartbeat 0 8). Their commented/#OFF# copies below are the shipped TEMPLATES - do NOT re-install them (duplicate lines).
 # Install on the box:  (crontab -l; grep -v '^#' ~/overnight-queue/scripts/cron.txt) | crontab -
 # Remove a line again with `crontab -e`. All paths are the box's (/home/mhintermeister/overnight-queue).
 
@@ -25,7 +27,7 @@
 # commits on a FILE). ovn_pingpong_guard.sh reads the last 24h of origin/overnight/feature (FETCH ONLY) and flags a line whose literals (numbers/strings/true/false/None) were set to a
 # different value by >=3 fleet commits with at least one REVISIT (A->B->A). Default mode is SHADOW (state/pingpong_shadow.log + one alerts.log info line; nothing written to any branch);
 # OVN_PINGPONG_MODE=enforce parks the open items naming the file ([AUTO-SKIP pingpong: ...; recovery:none]) and adds ONE [CLAUDE] follow-up (citing the likely failing test + the competing
-# commits) that claude_queue_bridge.sh harvests into CLAUDE_QUEUE.md. Shipped OFF (not installed): enable by removing '#OFF# '.  Kill switch: OVN_PINGPONG_GUARD=off.  DRY_RUN=1 prints only.
+# commits) that claude_queue_bridge.sh harvests into CLAUDE_QUEUE.md. INSTALLED on the box since 2026-11-01 (shadow mode, 4 repos; the line below is the 7-repo template, installing it again would duplicate the job).  Kill switch: OVN_PINGPONG_GUARD=off.  DRY_RUN=1 prints only.
 #OFF# (off by default) */20 * * * * OVN_PINGPONG_REPOS="gitlark billwatch iptv_apps test-automation-agent xlite shrike-notify shrike-monitor" NTFY_SERVER=http://127.0.0.1:8099 /home/mhintermeister/overnight-queue/scripts/ovn_pingpong_guard.sh
 
 # --- K3 flags that need no cron line (all default to SHADOW or the safe side; shipped with the code):
@@ -48,7 +50,7 @@
 # MAC crontab (NOT the box): ships the auto-research run.log + bridge status to the box so the report can name auto-research causes (lane excluded / rc=124 / parser reject / cap).
 # 17 * * * * python3 $HOME/LocalProjects/shared/scripts/overnight-queue/scripts/ovn_supply_report.py --export-ar | ssh -o BatchMode=yes mhintermeister@100.79.64.64 'cat > overnight-queue/state/.ar_status.tmp && mv overnight-queue/state/.ar_status.tmp overnight-queue/state/auto_research_status.json'
 
-# --- 2026-11-01 K5 supply engine (PROPOSED, NOT INSTALLED; every new behaviour defaults to shadow)
+# --- 2026-11-01 K5 supply engine (the forecast line IS INSTALLED on the box crontab, 7,37, shadow mode; the commented copy is the template; every new behaviour defaults to shadow)
 # supply-runway forecast (ovn_supply_forecast.py): per repo burn (landed/day, trailing 7d) vs pullable + [ready] x ~5 -> runway hours; < 24h writes state/research_requests/<repo>.json
 # (mode on only) and adds ONE hourly-update bullet. Shadow = json + logs/supply_forecast.log only. Flip to on with `env OVN_SUPPLY_FORECAST=on` after a day of sane shadow lines.
 # 7,37 * * * * cd /home/mhintermeister/overnight-queue && python3 scripts/ovn_supply_forecast.py >> logs/supply_forecast.cron.log 2>&1
@@ -57,7 +59,7 @@
 # mutation scan for more repos (GDScript-only scanner: today only xlite has a project.godot; replaces the 02:30 xlite line when a second Godot repo exists):
 # 30 2 * * * cd /home/mhintermeister/overnight-queue && [ ! -e state/PAUSED ] && flock -n state/mutation_scan.lock nice -n 19 timeout 5400 env OVN_MUT_MAX=60 OVN_MUT_REPOS=xlite python3 scripts/ovn_mutation_supply.py scan-all >> logs/mutation_scan.log 2>&1
 
-# --- 2026-11-02 P2 notify quality (PROPOSED, NOT INSTALLED: enable by removing '#OFF# ')
+# --- 2026-11-02 P2 notify quality (the 08:00 heartbeat line IS INSTALLED on the box crontab since 2026-11-02; the #OFF# copy is the template - do not install twice)
 # N8 delivery heartbeat: ONE priority-3 message a day at 08:00 box time (America/Chicago = CST/CDT): 'ntfy alive YYYY-MM-DD' + 'N sent/24h, M capped, K dropped, last emergency <title> <age>' (+ '[suppressed N]' for
 # emergencies that were capped/deduped since the previous heartbeat). Never deduped, exempt from every cap: no message by 09:00 = the channel (relay, ntfy.sh quota, phone) is the problem, not the fleet.
 # While NO heartbeat went out in the last 26 h the hourly 'all good' digest keeps being sent (OVN_DIGEST_QUIET only silences it once the heartbeat is alive), so enabling this line is what quiets the all-good hours.

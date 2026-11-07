@@ -219,7 +219,7 @@ mutlib m_wait '    [ "$running" = 0 ] && return 0
     sleep "$step"' '    return 0
     sleep "$step"' || { F=$((F+1)); echo "  FAIL mutation anchor 9"; }
 if [ "$HAVE_FLOCK" = 1 ]; then
-  ok "MUTATION: a wait guard that returns at once lets the pass exit under a running explorer (waited < 1 s instead of >= 2 s)" "( . '$W/m_wait.sh'; mk_od; mkdir -p '$QD'; ( exec 9> '$QD/lock_global'; flock 9; sleep 3 ) & H=\$!; sleep 0.4; t0=\$(date +%s); OVN_QE_WAIT_STEP_S=1 ovn_qwen_explore_wait '$SD' 30; t1=\$(date +%s); wait \$H; [ \$((t1 - t0)) -lt 1 ] )"
+  ok "MUTATION: a wait guard that returns at once lets the pass exit under a running explorer (waited < 1 s instead of >= 2 s)" "( . '$W/m_wait.sh'; mk_od; mkdir -p '$QD'; ( exec 9> '$QD/lock_global'; flock 9; sleep 3 ) & H=\$!; sleep 0.4; t0=\$(date +%s.%N); OVN_QE_WAIT_STEP_S=1 ovn_qwen_explore_wait '$SD' 30; t1=\$(date +%s.%N); wait \$H; python3 -c \"import sys; sys.exit(0 if \$t1 - \$t0 < 1.0 else 1)\" )"
 fi
 # 9b. the busy cap removed
 mutlib m_busy '  if [ "$seen" -gt "$idle" ] && [ "$max" -gt "${OVN_QE_WAIT_BUSY_S:-90}" ]; then max="${OVN_QE_WAIT_BUSY_S:-90}"; fi' '  :' || { F=$((F+1)); echo "  FAIL mutation anchor 9b"; }

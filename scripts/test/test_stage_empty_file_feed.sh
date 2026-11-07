@@ -39,7 +39,7 @@ done
 printf 'I looked at bill_service.py and it is fine.\n' > "$tmp/noask.log"
 nok "U2 no request -> nothing fed, not asked" "[ -n \"\$(stage_feed_files '$tmp/noask.log' '$W' '' 3)\" ] || stage_feed_asked '$tmp/noask.log'"
 printf 'Please add these files to the chat:\n\n 1 backend/app/services/bill_service.py\nTokens: 1 sent\n' > "$tmp/arch.log"
-mutate "STAGE_FEED_ASK_RE='(add|provide|share) (these|the following) files?'" "STAGE_FEED_ASK_RE='add the following files?'" "$tmp/m_re.sh" \
+mutate "STAGE_FEED_ASK_RE='(add|provide|share) (these|the following) files?|<function=read_file>'" "STAGE_FEED_ASK_RE='add the following files?'" "$tmp/m_re.sh" \
   && nok "U-MUTANT the OLD ask regex ('add the following files') misses 'Please add these files' (caught by U1)" "( . '$tmp/m_re.sh'; [ \"\$(stage_feed_files '$tmp/arch.log' '$W' '' 3)\" = backend/app/services/bill_service.py ] )"
 echo "== U: symbol context"
 ITEM='[T3] backend/app/routers/bills.py — Make `upvote_bill` idempotent. VERIFY: `pytest backend/tests/test_bill_service.py`'

@@ -249,7 +249,7 @@ write_rec(d, commit=sha)
 res = gate(d, repo)
 fs = res["details"]["findings"]
 ok("GATE: a matching demotion record turns that (rule, file) FAIL into FLAG (verdict FLAG), finding still reported and labelled",
-   res["verdict"] == "FLAG" and fs and fs[0]["sev"] == "FLAG" and "demoted" in fs[0]["msg"], str(res["verdict"]) + str(fs))
+   res["verdict"] == "FLAG" and fs and any(f["sev"] == "FLAG" and "demoted" in f["msg"] for f in fs), str(res["verdict"]) + str(fs))
 write_rec(d, commit=sha, files=["tests/other.gd"])
 ok("GATE NEGATIVE: a record for another file does not demote", gate(d, repo)["verdict"] == "FAIL")
 write_rec(d, commit=sha, rules=["A_VACUOUS"])

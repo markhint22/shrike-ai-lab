@@ -147,6 +147,23 @@ _ovn_so_slice_filter() {
   return 0
 }
 # <<< d3 scout-slice filter
+# >>> y4 scout item-deps filter
+# 2026-11-05 (Y4): same behaviour-dependency gate as the stage runner picker (scripts/ovn_item_deps.py), applied to the scout's slice. OVN_ITEM_DEPS=off|shadow|enforce, default SHADOW (input
+# unchanged, would-defer rows -> state/item_deps_shadow.log). Fail-open; a filter that would EMPTY a non-empty slice returns the input.
+_ovn_id_slice_filter() {
+  local _in _out _m="${OVN_ITEM_DEPS:-shadow}" _py="${SCRIPT_DIR:-.}/scripts/ovn_item_deps.py"
+  local _to=(); command -v timeout >/dev/null 2>&1 && _to=(timeout "${OVN_ITEM_DEPS_TIMEOUT:-5}")
+  _in="$(cat)"
+  [ -n "$_in" ] || return 0
+  if [ "$_m" = off ] || [ ! -f "$_py" ] || [ ! -f OVERNIGHT_PROGRESS.md ]; then printf '%s\n' "$_in"; return 0; fi
+  if _out="$(printf '%s\n' "$_in" | ${_to[@]+"${_to[@]}"} python3 "$_py" item-filter --mode "$_m" --progress OVERNIGHT_PROGRESS.md --repo "$(basename "$PWD")" --log "${STATE_DIR:-${SCRIPT_DIR:-.}/state}/item_deps_shadow.log" --tree "$PWD" 2>/dev/null)" && [ -n "$_out" ]; then
+    printf '%s\n' "$_out"
+  else
+    printf '%s\n' "$_in"
+  fi
+  return 0
+}
+# <<< y4 scout item-deps filter
 command -v ovn_has_bug_line >/dev/null 2>&1 || ovn_has_bug_line() { return 1; }
 command -v ovn_is_manual_bug_text >/dev/null 2>&1 || ovn_is_manual_bug_text() { return 1; }
 command -v ovn_open_bug_count >/dev/null 2>&1 || ovn_open_bug_count() { printf '0'; }
@@ -2075,7 +2092,7 @@ STUB
           grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null \
             | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' \
             | ovn_bug_first_order \
-            | _ovn_so_slice_filter \
+            | _ovn_so_slice_filter | _ovn_id_slice_filter \
             | python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" head "$DOABLE_BUDGET" \
             | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
           echo

@@ -31,6 +31,13 @@ by claude_queue_bridge.sh as Passes A-D each cycle:
              That is a PRESENCE proof, not an execution of the VERIFY. Mode OVN_BRIDGE_AUTOCLOSE (default `shadow`): shadow only logs what it would close
              (state/bridge_autoclose_shadow.log), `enforce` flips the line to [x], `off` skips. harvest uses the same tag match so a closed feature is not re-opened.
 
+Y2 (2026-11-04): harvest also keeps a persisted LEDGER (--ledger, state/harvest_ledger.tsv) of stable item keys (body_key: repo + full normalized text, feat tag/metadata/checkbox/prefix removed): a key that was
+ever harvested, or is ticked/archived, is never harvested again, whatever the 12-word signature or feat tag of its re-surfacing. The pre-harvest done-check (OVN_HARVEST_DONE_CHECK, default ON) skips a line
+whose named test/new class/def is already DEFINED in code (never markdown/queue text). Autoclose stays shadow; OVN_BRIDGE_AUTOCLOSE_REQUIRE_ITEM=on makes enforce additionally require that the line ITSELF landed (landing=item).
+
+ENFORCE POLICY (Y2 r6): do NOT enable OVN_HARVEST_LEDGER_MODE=enforce, OVN_HARVEST_DONE_CHECK=enforce or OVN_BRIDGE_AUTOCLOSE=enforce until a 1-2 week SHADOW log (state/harvest_ledger_skips.log,
+state/harvest_skipped_done.log, state/bridge_autoclose_shadow.log) shows ZERO would-skip of non-duplicates. body_key is a heuristic; a false collision in enforce silently loses a task.
+
 IMPORTANT — dedup relies on task_sig(), not bare norm_sig(): a queue-formatted line carries a
 "[CLAUDE] <repo>/ — " prefix that the raw AUTO-SKIP task text never has, so norm_sig()'s
 first-12-words comparison would silently never match across that boundary (this was the actual
@@ -50,7 +57,7 @@ Usage:
   claude_queue_bridge.py autoclose  --queue CLAUDE_QUEUE.md --outcomes <outcomes.jsonl> --repos-dir <dir with <repo>/ clones> [--archive ...] [--mode shadow|enforce|off]
   claude_queue_bridge.py retire     --progress <repo's OVERNIGHT_PROGRESS.md> --signatures <file: one normsig per line>
 """
-import argparse, json, os, re, subprocess, sys, datetime
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, datetime
 
 # canonical repo basenames + aliases seen in CLAUDE_QUEUE headers/inline text
 REPO_ALIASES = {
@@ -207,6 +214,46 @@ def checked_signatures_by_repo(lines):
             yield repo, task_sig(text)
 
 
+def read_text(path):
+    """Read-only text read: an invalid byte (hand edit, truncated box transfer) becomes U+FFFD instead of killing the whole pass (Y2 r3 D5)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def read_text_raw(path):
+    """Text read for files that are REWRITTEN: invalid bytes become lone surrogates so write_text_atomic round-trips them byte-for-byte."""
+    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as f:   # newline="": no CRLF/CR -> LF translation on read (Y2 r5 N2: the rewrite must be byte-exact)
+        return f.read()
+
+
+def clean_text(s):
+    """Surrogate-escaped text -> display-safe text (replacement chars): for regexes, hashing, git args and logs."""
+    return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
+def write_text_atomic(path, text):
+    """Y2 r3 D6: temp file in the same directory + fsync + os.replace, so a crash / ENOSPC mid-write can never truncate the target. Keeps the target's mode. Y2 r5: resolves symlinks first; the temp file is removed on ANY failure."""
+    path = os.path.realpath(path)   # Y2 r5: write THROUGH a symlink (os.replace on the link path would swap the link for a regular file and leave the real target stale)
+    d = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix="." + os.path.basename(path) + ".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            shutil.copymode(path, tmp)
+        except OSError:
+            pass
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def read_lines_optional(path):
     """Read a file's lines, or return [] if path is falsy/missing.
 
@@ -217,7 +264,7 @@ def read_lines_optional(path):
     if not path:
         return []
     try:
-        return open(path, encoding="utf-8").read().splitlines()
+        return read_text(path).splitlines()
     except FileNotFoundError:
         return []
 
@@ -230,7 +277,7 @@ def cmd_signatures(args):
     (and therefore un-retirable on the server) just because they moved out
     of the live queue file.
     """
-    lines = open(args.queue, encoding="utf-8").read().splitlines() + read_lines_optional(args.archive)
+    lines = read_text(args.queue).splitlines() + read_lines_optional(args.archive)
     seen = set()
     for repo, sig in checked_signatures_by_repo(lines):
         key = (repo, sig)
@@ -248,34 +295,35 @@ def cmd_retire(args):
     Prints RETIRED=<n>.
     """
     sigs = {
-        s.strip() for s in open(args.signatures, encoding="utf-8").read().splitlines() if s.strip()
+        s.strip() for s in read_text(args.signatures).splitlines() if s.strip()
     }
-    lines = open(args.progress, encoding="utf-8").read().splitlines()
+    raw_lines = read_text_raw(args.progress).split("\n")   # Y2 r5 (N2): split on "\n" ONLY (str.splitlines also splits on \x0b \x0c \x1c-\x1e \x85 U+2028/9 and eats \r\n), so rewriting never alters an untouched byte
     retired = 0
     out = []
-    for ln in lines:
+    for raw in raw_lines:
+        cr = "\r" if raw.endswith("\r") else ""
+        ln = clean_text(raw[:-1] if cr else raw)
         task = strip_autoskip_task(ln)
         if task and len(task) >= 20 and task_sig(task) in sigs:
             m = AUTOSKIP_LINE_RE.match(ln)
             indent = m.group(1)
             out.append(
                 f"{indent}- [x] {m.group(2)} "
-                f"(retired {args.today}: resolved via Claude, see shared/CLAUDE_QUEUE.md)"
+                f"(retired {args.today}: resolved via Claude, see shared/CLAUDE_QUEUE.md)" + cr
             )
             retired += 1
         else:
-            out.append(ln)
+            out.append(raw)   # untouched lines keep their original bytes (CRLF, form feeds, a missing final newline)
     if retired:
-        with open(args.progress, "w", encoding="utf-8") as f:
-            f.write("\n".join(out) + "\n")
+        write_text_atomic(args.progress, "\n".join(out))
     sys.stderr.write(f"RETIRED={retired}\n")
 
 
 def cmd_prework(args):
-    lines = open(args.queue, encoding="utf-8").read().splitlines()
+    lines = read_text(args.queue).splitlines()
     existing = set()
     if args.prework_list:
-        for b in open(args.prework_list, encoding="utf-8").read().splitlines():
+        for b in read_text(args.prework_list).splitlines():
             b = b.strip()
             if b.endswith(".md"):
                 existing.add(b[:-3])  # strip .md -> "<repo>-<slug>"
@@ -396,23 +444,53 @@ def _ere_escape(s):
     return "".join("\\" + c if c in _ERE_META else c for c in s)
 
 
+# Y2 r3 D3: a definition must START its line (after indentation and declaration modifiers). A `# def test_x():` comment, a one-line docstring `"""def test_x"""` or a `// function x` comment is not a definition.
+DEF_LEAD = "^[[:space:]]*((async|export|default|public|private|protected|internal|static|final|abstract|open|override|pub|suspend|data|sealed|inline|const|declare|unsafe|extern)[[:space:]]+)*"
+TEST_LEAD = "^[[:space:]]*(\\}\\)?;?[[:space:]]*)?"
+
+
 def definition_regex(needle):
     """POSIX ERE (git grep -E, portable: no \\b or \\s) that matches a DEFINITION of `needle`: `def|func|fun|function|fn|class <needle>...` (an identifier may continue after it: pytest -k is a
     substring match) or `it|test|describe|specify(...'<...needle...>`. A bare mention (comment, queue text, string elsewhere) does not match."""
     n = _ere_escape(needle)
-    return ("(^|[^A-Za-z0-9_])(def|func|fun|function|fn|class)[[:space:]]+" + n +
-            "|(^|[^A-Za-z0-9_.])(it|test|describe|specify)(\\.[a-z]+)?[[:space:]]*\\([[:space:]]*['\"`][^'\"`]*" + n)
+    return (DEF_LEAD + "(def|func|fun|function|fn|class)[[:space:]]+" + n +
+            "|" + TEST_LEAD + "(it|test|describe|specify)(\\.[a-z]+)?[[:space:]]*\\([[:space:]]*['\"`][^'\"`]*" + n)
 
 
-def present_on_ref(repo_dir, ref, needle):
+def exact_definition_regex(needle):
+    """Like definition_regex but the identifier must match EXACTLY (Y2 fix): `class ConfigLoader` does not match `class ConfigLoaderBase`, `test_retry` does not match `test_retry_backoff_policy`.
+    POSIX ERE (no \\b): the name must be followed by a non-identifier char (or end of line) and, in the it/test('...') form, delimited on both sides."""
+    n = _ere_escape(needle)
+    nb = "($|[^A-Za-z0-9_])"
+    return (DEF_LEAD + "(def|func|fun|function|fn|class)[[:space:]]+" + n + nb +
+            "|" + TEST_LEAD + "(it|test|describe|specify)(\\.[a-z]+)?[[:space:]]*\\([[:space:]]*['\"`]([^'\"`]*[^A-Za-z0-9_])?" + n + "([^A-Za-z0-9_]|['\"`])")
+
+
+def present_on_ref(repo_dir, ref, needle, exact=False, paths=None):
     """True when `needle` is DEFINED in a code/test file of <ref> in the clone (git grep: path-independent, so a wrong path in the line does not matter; markdown/queue/doc files never count)."""
     if not needle or not needle.strip():
         return False
     try:
-        r = subprocess.run(["git", "-C", repo_dir, "grep", "-qE", "-e", definition_regex(needle), ref] + list(CODE_PATHSPEC), capture_output=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):
+        r = subprocess.run(["git", "-C", repo_dir, "grep", "-qE", "-e", (exact_definition_regex if exact else definition_regex)(needle), ref] + (["--"] + list(paths) if paths else list(CODE_PATHSPEC)), capture_output=True, timeout=60)
+    except (OSError, UnicodeError, subprocess.SubprocessError):
         return False
     return r.returncode == 0
+
+
+def present_exact_on_ref(repo_dir, ref, needle, paths=None):
+    """present_on_ref with an EXACT identifier match (the done-check must never judge new work done because a longer/prefixed name exists). `paths`: restrict to these files."""
+    return present_on_ref(repo_dir, ref, needle, exact=True, paths=paths)
+
+
+def def_files_on_ref(repo_dir, ref, needle):
+    """Set of code files of <ref> that EXACTLY define `needle` (repo-wide)."""
+    if not needle or not needle.strip():
+        return set()
+    try:
+        r = subprocess.run(["git", "-C", repo_dir, "grep", "-lE", "-e", exact_definition_regex(needle), ref] + list(CODE_PATHSPEC), capture_output=True, text=True, timeout=60)
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        return set()
+    return {ln.split(":", 1)[1] if ":" in ln else ln for ln in r.stdout.splitlines() if ln.strip()} if r.returncode == 0 else set()
 
 
 def verify_on_develop(repo_dir, ref, line, present=present_on_ref):
@@ -422,6 +500,180 @@ def verify_on_develop(repo_dir, ref, line, present=present_on_ref):
         return False, "no named test id in VERIFY"
     missing = [i for i in ids if not present(repo_dir, ref, i)]
     return (not missing), ("missing on %s: %s" % (ref, ", ".join(missing)) if missing else "all %d named test id(s) present on %s" % (len(ids), ref))
+
+
+# ---------------------------------------------------------------------------------------------- harvest ledger (Y2, 2026-11-04)
+# Root cause of the "27B ceiling" re-harvest flood (cqueue 2026-11-04: 109 fragment lines, 88 stale): dedup was ONLY task_sig() = first 12 words (+ feat tag) matched against the queue+archive
+# of THIS pass. (1) The AUTO-SKIP lines on the box are never retired when the work lands, so every cycle surfaces fresh fragments of already-landed features; (2) a re-worded / re-tagged
+# re-surfacing of a line that was ticked or archived has a different 12-word+tag signature, so it was appended again; (3) the only landed-tag guard was shadow (logged, not enforced), and
+# nothing remembered what had ever been harvested once a line left the queue file (hand edit, archive rewrite). The ledger gives every item a STABLE key (repo + full normalized text, with
+# [feat:] tag, trailing (cat:..; multifile:..) metadata, checkbox and [CLAUDE] repo/ prefix removed) that is persisted: a key that was ever harvested, or is ticked/archived, is never
+# harvested again. The ledger is rebuilt from queue+archive on every pass, so losing the file loses nothing about closed lines.
+# Y2 round 5 (N1): body_key strips only TRAILING annotation groups from the END of the line. A closed/annotated line is `<task text> <annotation>*`; every annotation is a recognised, SHAPE-BOUNDED unit that must
+# run to the end of the (remaining) text, and body_key peels them one at a time from the right (a loop), never cutting from a mid-text marker. Prose that merely contains a marker word
+# ("status DONE, then emit X in a.py", "Add a - TRIAGE column ...", "Remove the (retired flag) handling ... (see line 12)", "_(HOME-TITLE)_ keys in a.vue") is not a unit because (1) each unit needs its real
+# opener shape (date, `(verified`, `, no action`, `)_` closer ...), (2) bracketed units are bounded (no unbalanced parens) and must end the line, (3) the weaker word markers (DONE, NOTE:, (done D)) must also
+# sit right after a closing token ( `)` `]` `>` `_` `*` `-` ), and (4) text after a marker is never discarded unless the unit is an explicit free-text tail (ALREADY DONE / STALE TICKET / TRIAGE D / (done D ...) / NOTE:).
+# Y2 round 6 (R1/N1 residual): peeling is LINEAR (token starts only, last TAIL_WINDOW chars only, whitespace collapsed first) and units are typed b/f/w (see below); a free-text tail is peeled only behind a proven
+# opener / closing token and never when it names a file path. Prefer false-DISTINCT over false-collision.
+# ENFORCE WARNING: body_key is a heuristic. OVN_HARVEST_LEDGER_MODE and the done-check / autoclose enforce modes MUST NOT be switched to `enforce` until a 1-2 week SHADOW log
+# (state/harvest_ledger_skips.log, harvest_skipped_done.log, bridge_autoclose_shadow.log) shows ZERO would-skip lines that are not true duplicates. In enforce a false collision silently and permanently loses a task.
+_D = r"\d{4}-\d\d-\d\d"
+_P2 = r"(?:[^()]|\((?:[^()]|\([^()]*\))*\))*"      # paren-balanced text, 2 levels deep: the `id(s)` in the real auto-closed suffix holds a ")"
+_VER = r"(?:re-)?verified\b"
+# Y2 round 6 (R1 linear time + N1 residual). Every unit is tried ONLY at a token start (never searched from every offset), only inside the last TAIL_WINDOW chars, on whitespace-collapsed text, so the cost
+# of a peel is O(window), not O(n^2) (round 5: 100 KB of spaces = timeout, `DONE (` + "verified "*11000 = 7 s). Each entry is (regex matched AT the token start, kind):
+#   b = BOUNDED unit: a fixed shape that must end the line (`(cat:..)`, `(auto-closed D ..)`, `<!-- closed .. -->`, `_(..)_`): no further task prose can follow it.
+#   f = FREE-TEXT tail behind a STRONG opener (date/`verified`/`no action`/em-dash+date+verdict): peeled only when a sentence/closing token ends the text before it.
+#   w = FREE-TEXT tail behind a WEAK opener (DONE, NOTE:, check mark, bold): peeled only after a closing token AND only when the swallowed tail names no file path (a tail that names a path is task prose).
+# Anything that is not a recognised end-anchored group is NOT peeled: a false-DISTINCT pair only costs one re-harvest, a false collision silently loses a task (enforce mode), so every doubt resolves to "distinct".
+_BOUNDARY = ")]>_*-—"
+_SENT = _BOUNDARY + ".!?`:;"
+TAIL_WINDOW = 2000
+MAX_PEELS = 40
+_PATH_RE = re.compile(r"[\w.@~-]+/[\w./@~-]*[\w]\.[A-Za-z0-9]{1,6}\b|\b[\w-]+\.(?:py|js|jsx|ts|tsx|vue|md|json|sh|swift|kt|kts|gd|html|css|yml|yaml|toml|txt|sql|cfg|ini|xml|plist|gradle)\b")
+_TAIL_DATE = r"(?=.{0,100}?(?:\b" + _VER + r"\s*\(?\s*" + _D + r"|\b" + _D + r"))"
+TAIL_UNITS = (
+    (re.compile(r"\((?:cat|coverage):[^()]*\)$"), "b"),                                                   # `(cat:impl; multifile:no)` / `(coverage:x)`
+    (re.compile(r"\((?:auto-closed|retired)\s+" + _D + _P2 + r"\)$"), "b"),                               # `(auto-closed D: [feat:T] landed, all N named test id(s) present on REF; landing=item)` / `(retired D: ...)`
+    (re.compile(r"\(REOPENED\b" + _P2 + r"\)$"), "b"),
+    (re.compile(r"(?:SKIPPED\s*)?\(" + _D + r"\b" + _P2 + r"\)$"), "b"),                                  # dated parenthetical `(2026-10-01)` / `SKIPPED (2026-10-01)`
+    (re.compile(r"SKIPPED\s*\((?:re-)?verified\s+" + _D + r"\).*$", re.S), "f"),                              # `SKIPPED (verified D) - reason ...`
+    (re.compile(r"<!--\s*(?:(?:closed|landed|DONE|STOPPED|retagged|reviewed|verified|reopened|resolved|decided|obsolete|skipped|already)\b|[^\n]{0,40}?" + _D + r")(?:(?!-->).)*-->$", re.S | re.I), "b"),   # `<!-- closed D by claude: done -->`; a plain `<!-- markers -->` in task prose is not one
+    (re.compile(r"_\((?:ALREADY-SATISFIED|DONE|RESOLVED|UPDATED|SKIPPED|IMPLEMENTED|REVIEWED|duplicate\b|" + _D + r").*\)_$", re.S), "b"),   # `_(ALREADY-SATISFIED D: ...)_`: a known opener AND the `)_` closer at the very end
+    (re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}" + _TAIL_DATE + r".*$", re.S), "f"),               # ALREADY DONE only with a verified-date / date in its first 100 chars
+    (re.compile(r"(?:[—-]\s*)?\*\*STALE TICKET\*\*.*$", re.S), "f"),
+    (re.compile(r"(?:[—-]\s*)?STALE TICKET,\s*no action\s*\((?:re-)?verified\b[^()]*\).*$", re.S), "f"),
+    (re.compile(r"[—-]\s+\*{0,2}TRIAGE\s+" + _D + r"(?:\*{0,2}:|\s+[A-Z]{3,}\b).*$", re.S), "f"),   # ` — TRIAGE 2026-10-12 DONE: ...`
+    (re.compile(r"\(done\s+" + _D + r"\s*:\s*claude\b.*$", re.S), "f"),                                      # `(done 2026-09-12: claude ...) tests pass`
+    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}DONE\*{0,2}\s*\([^()]*(?:\b" + _VER + r"|@)[^()]*\).*$", re.S), "w"),   # `DONE (shrike-monitor @ H, verified D)`
+    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}DONE\*{0,2}\s*(?:\(" + _D + r"|" + _D + r"\b|$).*$", re.S), "w"),   # `DONE (D, repo @ H)` / `DONE D repo@H: ...` / bare trailing `DONE`
+    (re.compile(r"\*{0,2}DONE\*{0,2}\s*\(.*$", re.S), "w"),                                                  # `(cat:impl) DONE (shipped abc)`
+    (re.compile(r"\*\*DONE\*\*.*$", re.S), "w"),                                                              # bold `**DONE** (D)`
+    (re.compile(r"✅\s*DONE\b.*$", re.S), "w"),
+    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}NOTE:.*$", re.S), "w"),
+)
+# a feat tag / AUTO-SKIP tag is a bracketed token wherever it sits (leading or trailing) and never part of the task identity (bounded bodies: no quadratic scan on a run of unclosed `[feat:`)
+BODY_STRIP_RES = (re.compile(r"\[feat:[^\]\n]{0,200}\]"), re.compile(r"\[AUTO-SKIP[^\]\n]{0,200}\]"))
+
+
+def _peel_tail(body):
+    """Remove ONE trailing annotation group from `body` (None if the end of the text is not one). Linear in the tail window: units are matched only at token starts inside the last TAIL_WINDOW chars."""
+    t = " ".join(body.split())
+    n = len(t)
+    lo = max(0, n - TAIL_WINDOW)
+    if lo and not t[lo - 1].isspace():
+        sp = t.find(" ", lo)
+        lo = n if sp < 0 else sp + 1
+    pos = lo
+    while pos < n:
+        if pos == 0 or t[pos - 1] == " ":
+            before = t[:pos].rstrip()
+            if before:
+                bch = before[-1]
+                for rx, kind in TAIL_UNITS:
+                    m = rx.match(t, pos)
+                    if not m:
+                        continue
+                    if not _tail_ok(kind, bch, m.group(0)):
+                        continue
+                    return before
+        pos += 1
+    return None
+
+
+_BARE_DONE_RE = re.compile(r"(?:[—-]\s+|✅\s*)?\*{0,2}DONE\*{0,2}\s*(?:\([^()]{0,120}\)|" + _D + r"\S{0,40})?\.?")
+_DONE_PROOF_RE = re.compile(r"\([^()]*(?:@|\b" + _VER + r"|" + _D + r")")
+_EM_TRIAGE_RE = re.compile(r"—\s+\*{0,2}TRIAGE\s+" + _D)
+_PROVEN_RE = re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}\b[^\n]{0,60}?\b" + _VER + r"\s*\(?\s*" + _D + r"|STALE TICKET,\s*no action\s*\(" + _VER + r"|SKIPPED\s*\(" + _VER + r"|\*\*STALE TICKET\*\*|\(done\s+" + _D)
+
+
+_STRONG_DONE_RE = re.compile(r"\*{0,2}DONE\*{0,2}\s*\([^()]*@\s*[0-9a-f]{6,}[^()]*\b" + _VER + r"\s*" + _D + r"[^()]*\)")   # `DONE (repo @ 9b68488, verified 2026-09-08) - <free note naming files>`: commit AND dated verification inside the opener
+
+
+def _tail_ok(kind, bch, g):
+    """May the unit text `g` (match from its token start to the end) be peeled, given the last char `bch` of the text before it?"""
+    if kind == "b":
+        return True
+    if kind == "f":
+        if bch in _SENT:
+            return True
+        if _EM_TRIAGE_RE.match(g):          # an em-dash TRIAGE <date> VERDICT group is a deliberate annotation (its tail names files by design)
+            return True
+        return bool(_PROVEN_RE.match(g)) and not _PATH_RE.search(g)   # date+`verified` proof in the opener, no path in the tail
+    if bch in _BOUNDARY and not _PATH_RE.search(g):
+        return True
+    if bch in _SENT and _STRONG_DONE_RE.match(g):
+        return True
+    return bool(_BARE_DONE_RE.fullmatch(g)) and (bch in _SENT or g[:1] in ("—", "-", "✅", "*") or bool(_DONE_PROOF_RE.search(g)))   # bare `DONE` / `DONE (D, repo @ H)` closing
+
+
+def body_key(repo, text):
+    """Stable item key: sha1(repo + the whitespace-normalized task body). Independent of checkbox state, the harvest prefix, the feat tag and every TRAILING annotation group (cat/coverage metadata, auto-closed/retired,
+    ALREADY DONE, DONE, TRIAGE, _(..)_, (done D ..), <!-- closed -->, dated parentheticals): they are peeled one at a time from the END of the line, never cut from a mid-text match. Case, operators and punctuation
+    are KEPT (`==` vs `!=`, `>` vs `>=`, `class foo` vs `class Foo` are different tasks). Linear time (R1): only the last TAIL_WINDOW chars can hold annotations; the rest of a very long line is simply hashed."""
+    import hashlib
+    body = " ".join((text or "").split())   # one linear pass: whitespace runs collapse before anything else looks at the text
+    body = re.sub(r"^- \[[ xX]\] ", "", body)
+    for rx in BODY_STRIP_RES:
+        body = rx.sub(" ", body)
+    for _ in range(MAX_PEELS):
+        nb = _peel_tail(body)
+        if nb is None:
+            break
+        body = nb
+    body = LEADING_TAGS_RE.sub("", body)
+    body = REPO_PREFIX_RE.sub("", body)
+    body = LEADING_TAGS_RE.sub("", body)
+    body = " ".join(body.split()).rstrip(" .")
+    return hashlib.sha1((repo + "|" + body).encode("utf-8", "replace")).hexdigest()[:20]
+
+
+def load_ledger(path):
+    """{key: state} from the ledger TSV (key, state, repo, feat_tag, date). Missing/unreadable file = empty. LATEST row wins (Y2 r3 D1): harvested -> closed is a state transition, so a key that was
+    harvested and later ticked reads as `closed` and is not re-appended every pass."""
+    out = {}
+    if not path:
+        return out
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for row in f:
+                parts = row.rstrip("\n").split("\t")
+                if len(parts) >= 2 and parts[0]:
+                    out[parts[0]] = parts[1]
+    except OSError:
+        pass
+    return out
+
+
+def append_ledger(path, rows):
+    """Append (key, state, repo, tag, date) rows (no-op without a path; never raises)."""
+    if not path or not rows:
+        return
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            for key, state, repo, tag, day in rows:
+                f.write("%s\t%s\t%s\t%s\t%s\n" % (key, state, repo, tag or "", day))
+    except OSError:
+        pass
+
+
+def closed_keys(lines):
+    """{(key, repo, tag)} of every CHECKED line (queue + archive) whose repo can be inferred."""
+    out, header = set(), ""
+    for ln in lines:
+        h = HEADER_RE.match(ln)
+        if h:
+            header = h.group(1).strip()
+            continue
+        m = CHECKED_ITEM_RE.match(ln)
+        if not m:
+            continue
+        repo = infer_repo(m.group(1), header)
+        if repo:
+            out.add((body_key(repo, m.group(1)), repo, feat_tag_of(m.group(1))))
+    return out
 
 
 def closed_tags(lines):
@@ -467,7 +719,7 @@ def _shadow_once(path, key, msg):
     return True
 
 
-def autoclose_lines(lines, tags, repos_dir, ref, today, present=present_on_ref, hashes=None):
+def autoclose_lines(lines, tags, repos_dir, ref, today, present=present_on_ref, hashes=None, require_item=False):
     """(new_lines, closed:[(lineno, repo, tag, why)]). Pure apart from the git grep: only open lines that carry a [feat:] tag whose tag landed AND whose named test ids are DEFINED in code on the ref.
     `hashes` ({(repo, tag): {line hashes}} from landed_line_hashes) tags the reason with how the landing matched: 'item' (this very line landed) or 'feature' (a sibling/other wording of the tag landed)."""
     out, closed, header = [], [], ""
@@ -483,7 +735,11 @@ def autoclose_lines(lines, tags, repos_dir, ref, today, present=present_on_ref, 
                 ok, why = verify_on_develop(os.path.join(repos_dir, repo), ref, ln, present)
                 if ok and hashes is not None:
                     hs = hashes.get((repo, tag), set()) | hashes.get(("", tag), set())
-                    why += "; landing=%s" % ("item" if line_key(m.group(1)) in hs else "feature")
+                    item_landed = line_key(m.group(1)) in hs
+                    why += "; landing=%s" % ("item" if item_landed else "feature")
+                    if require_item and not item_landed:
+                        out.append(ln)   # Y2: enforce only closes the line that itself landed; a sibling landing under the same [feat:] tag proves nothing about this line
+                        continue
                 if ok:
                     closed.append((i + 1, repo, tag, why))
                     out.append(ln.replace("- [ ]", "- [x]", 1) + " (auto-closed %s: [feat:%s] landed, %s)" % (today, tag, why))
@@ -497,49 +753,155 @@ def cmd_autoclose(args):
     if mode == "off":
         sys.stderr.write("autoclose: off\n")
         return
-    lines = open(args.queue, encoding="utf-8").read().splitlines()
-    new, closed = autoclose_lines(lines, landed_tags(args.outcomes), args.repos_dir, args.ref, args.today, hashes=landed_line_hashes(args.outcomes))
+    raw_lines = read_text_raw(args.queue).split("\n")   # Y2 r5 (N2): "\n" only, see cmd_retire
+    final_nl = bool(raw_lines) and raw_lines[-1] == ""
+    if final_nl:
+        raw_lines.pop()
+    crs = [("\r" if x.endswith("\r") else "") for x in raw_lines]
+    raw_cores = [x[:-1] if cr else x for x, cr in zip(raw_lines, crs)]
+    lines = [clean_text(x) for x in raw_cores]
+    req = os.environ.get("OVN_BRIDGE_AUTOCLOSE_REQUIRE_ITEM", "off").strip().lower() == "on"
+    new, closed = autoclose_lines(lines, landed_tags(args.outcomes), args.repos_dir, args.ref, args.today, hashes=landed_line_hashes(args.outcomes), require_item=(mode == "enforce" and req))
     for lineno, repo, tag, why in closed:
-        _shadow_once(args.shadow_log, "%s %s would-close line %d %s [feat:%s] (" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", lineno, repo, tag),
-                     "%s %s would-close line %d %s [feat:%s] (%s)" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", lineno, repo, tag, why))
+        # Y2: dedupe per (repo, line text hash, tag, day): the line NUMBER shifts every pass (appends/archives), which is why the old key repeated rows 20+ times a day
+        ltxt = lines[lineno - 1] if 0 < lineno <= len(lines) else ""
+        k = "%s %s would-close %s [feat:%s] k=%s " % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", repo, tag, body_key(repo, ltxt))
+        _shadow_once(args.shadow_log, k, "%s(line %d; %s)" % (k, lineno, why))
     if mode == "enforce" and closed:
-        with open(args.queue, "w", encoding="utf-8") as f:
-            f.write("\n".join(new) + "\n")
+        out = []
+        for raw, raw_core, cr, c, n in zip(raw_lines, raw_cores, crs, lines, new):   # unchanged lines keep their original bytes; a closed line = original + the appended auto-closed suffix (before its CR)
+            out.append(raw if n == c else raw_core.replace("- [ ]", "- [x]", 1) + n[len(c):] + cr)
+        write_text_atomic(args.queue, "\n".join(out) + ("\n" if final_nl else ""))
     sys.stderr.write("autoclose: mode=%s %s=%d\n" % (mode, "closed" if mode == "enforce" else "would-close", len(closed)))
 
 
 TEST_ITEM_RE = re.compile(r"cat:test\b|\[T\d\]\s+\S*(?:/tests?/|tests?/|test_[^/\s]*\.|\.test\.|\.spec\.|_test\.|Tests?\.(?:kt|swift)|\.test\b)", re.I)
 
 
-def done_check(repos_dir, repo, ref, task, present=present_on_ref):
-    """(done, why) for the pre-harvest check (S3-guards2, cqueue F6: 22 of 31 recent harvested lines were stale on arrival). True only for a TEST-writing item (target path or cat:test says so)
-    whose VERIFY names >= 1 test id and EVERY one is DEFINED in a code/test file of <ref> (same definition-only guard as the autoclose: queue/markdown text never counts). An implementation item that names an
-    existing (red) test is NOT judged done - the test existing proves nothing about the behaviour."""
-    if not TEST_ITEM_RE.search(task or ""):
-        return False, "not a test-writing item"
-    ids = named_test_ids(task)
-    if not ids:
-        return False, "no named test id in VERIFY"
+CREATE_VERB_RE = re.compile(r"^\s*(?:\[[^\]]+\]\s*)*(?:\S+\s+[\u2014-]\s+)?(?:add|create|define|introduce|write)\b", re.I)
+OTHER_VERB_RE = re.compile(r"\b(?:modify|replace|update|change|wire|call|rename|remove|delete|fix|make|extend|refactor|import)\b", re.I)
+NEW_DEF_RES = (re.compile(r"`(?:class|def|func|function|fun)\s+([A-Za-z_][A-Za-z0-9_]*)"), re.compile(r"`(test_[A-Za-z0-9_]+)"))
+
+
+def named_new_defs(task):
+    """Identifiers a PURE creation item ('Add/Create ... `class X` / `test_y`', no modify/replace/update verb before its VERIFY) says it introduces ([] for any other item)."""
+    body = re.split(r"\bVERIFY:", task or "", maxsplit=1)[0]
+    if not CREATE_VERB_RE.search(body) or OTHER_VERB_RE.search(body):
+        return []
+    ids = []
+    for rx in NEW_DEF_RES:
+        for g in rx.findall(body):
+            if g not in ids:
+                ids.append(g)
+    return ids
+
+
+GENERIC_NAMES = {"config", "settings", "main", "app", "base", "test", "tests", "model", "models", "client", "util", "utils", "helper", "helpers", "handler", "manager", "service", "router", "index", "item", "data", "error", "result", "schema"}
+TARGET_PATH_RE = re.compile(r"(?<![\w./-])((?:[\w.-]+/)*[\w.-]+\.(?:py|ts|tsx|js|jsx|mjs|kt|java|swift|gd|go|rs|rb|sh|sql|cs|cpp|c|h))(?![\w/-])")
+
+
+def is_generic_name(name):
+    return len(name) <= 6 or name.lower() in GENERIC_NAMES
+
+
+REFERENCE_CTX_RE = re.compile(r"(?:modell?ed|based|similar|same as|\blike\b|\bsee\b|copy|copied|mirror|follow|pattern|\bper\b|\bfrom\b|imitat|as in|reference|\bref\b|derived|inspired|compare|\bvs\b)[^.;]*$", re.I)
+
+
+def target_files(task):
+    """File path(s) the item names as its OWN target: the leading `[Tn] path -` one when present, else the code paths named before VERIFY that are not REFERENCE files (Y2 r3 D3: a path introduced by
+    'modelled on / based on / like / see / copied from ...' is where the pattern lives, not where the item's work goes, so a definition there proves nothing)."""
+    body = re.split(r"\bVERIFY:", task or "", maxsplit=1)[0]
+    m = re.match(r"^\s*(?:\[[^\]]+\]\s*)*(?:\S+/\s+[\u2014-]\s+)?(?:\[[^\]]+\]\s*)*`?(" + TARGET_PATH_RE.pattern[len("(?<![\\w./-])"):-len("(?![\\w/-])")] + r")`?\s+[\u2014-]\s", body)
+    if m:
+        return [m.group(1)]
+    out = []
+    for pm in TARGET_PATH_RE.finditer(body):
+        g = pm.group(1)
+        if g in out or REFERENCE_CTX_RE.search(body[max(0, pm.start() - 40):pm.start()]):
+            continue
+        out.append(g)
+    return out
+
+
+def has_named_paths(task):
+    body = re.split(r"\bVERIFY:", task or "", maxsplit=1)[0]
+    return bool(TARGET_PATH_RE.search(body))
+
+
+def done_evidence(repos_dir, repo, ref, task, present=present_exact_on_ref):
+    """(done, strong, why). done: the item's named identifiers are all DEFINED where the item says they live. strong: the evidence is a named TARGET FILE of the item holding the EXACT definition (only
+    strong evidence may be remembered in the ledger). With no named file: every id must be non-generic (> 6 chars, not Config/Settings/main/...) and defined in exactly ONE file repo-wide, and the result
+    is never strong (skip this pass only). Generic names without a named file are never done."""
+    if TEST_ITEM_RE.search(task or ""):
+        ids = named_test_ids(task) or named_new_defs(task)
+        if not ids:
+            return False, False, "no named test id in VERIFY"
+    else:
+        ids = named_new_defs(task)   # Y2: a pure creation item whose named new class/def/test already exists in code
+        if not ids:
+            return False, False, "not a test-writing or pure creation item"
     clone = os.path.join(repos_dir, repo)
     if not os.path.isdir(clone):
-        return False, "no clone"
-    missing = [i for i in ids if not present(clone, ref, i)]
-    return (not missing), ("missing on %s: %s" % (ref, ", ".join(missing)) if missing else "all %d named test id(s) defined on %s" % (len(ids), ref))
+        return False, False, "no clone"
+    files = target_files(task)
+    if not files and has_named_paths(task):
+        return False, False, "only reference file(s) named (modelled on/based on ...), no target file of its own"
+    if files:
+        # every id must be defined in EVERY target file (never the union: a def in one file says nothing about another); more than one target file is never strong evidence
+        missing = [i for i in ids if not all(present(clone, ref, i, paths=[f]) for f in files)]
+        done = not missing
+        return done, (done and len(files) == 1), ("missing in %s on %s: %s" % (",".join(files), ref, ", ".join(missing)) if missing else "all %d named test id(s) defined in target file %s on %s" % (len(ids), ",".join(files), ref))
+    generic = [i for i in ids if is_generic_name(i)]
+    if generic:
+        return False, False, "no target file named and generic/short name(s) never judged done: %s" % ", ".join(generic)
+    for i in ids:
+        if len(def_files_on_ref(clone, ref, i)) != 1:
+            return False, False, "no target file named and %s is not defined in exactly one file repo-wide" % i
+    return True, False, "no target file named; each id uniquely defined repo-wide on %s (weak evidence: skip this pass only)" % ref
+
+
+def done_check(repos_dir, repo, ref, task, present=present_exact_on_ref):
+    """(done, why) for the pre-harvest check (S3-guards2, cqueue F6). See done_evidence for the rules; an implementation item that names an existing (red) test is NOT judged done."""
+    d, _s, why = done_evidence(repos_dir, repo, ref, task, present)
+    return d, why
 
 
 def done_check_mode(arg=None):
+    """Y2 r3 D4: default SHADOW (log what would be skipped, skip nothing, write no `done` ledger rows) until the done log has been reviewed; enforce is opt-in (`enforce` or its alias `on`).
+    An unknown value falls back to shadow (never enforces by accident)."""
     v = (arg or os.environ.get("OVN_HARVEST_DONE_CHECK") or "shadow").strip().lower()
+    if v == "on":
+        v = "enforce"
+    return v if v in ("shadow", "enforce", "off") else "shadow"
+
+
+def ledger_mode(arg=None):
+    """Y2 r3 D4: ledger-skip mode. Default SHADOW (log `would-skip`, harvest anyway); `enforce` (alias `on`) skips a key that was ever harvested/ticked/archived; `off` disables the ledger skip AND its writes.
+    Unknown values fall back to shadow."""
+    v = (arg or os.environ.get("OVN_HARVEST_LEDGER_MODE") or "shadow").strip().lower()
+    if v == "on":
+        v = "enforce"
     return v if v in ("shadow", "enforce", "off") else "shadow"
 
 
 def cmd_harvest(args):
-    lines = open(args.queue, encoding="utf-8").read().splitlines() + read_lines_optional(args.archive)
+    lines = read_text(args.queue).splitlines() + read_lines_optional(args.archive)
     existing_sigs = {task_sig(t) for t, _ in iter_all_items(lines)}
+    ledger_path = getattr(args, "ledger", "") or ""
+    lmode = ledger_mode(getattr(args, "ledger_mode", None))
+    if lmode == "off":
+        ledger_path = ""
+    ledger = load_ledger(ledger_path)
+    new_closed = [(k, "closed", r, t, args.today) for k, r, t in sorted(closed_keys(lines), key=lambda x: x[0]) if ledger.get(k) != "closed"]
+    for k, _, _, _, _ in new_closed:
+        ledger[k] = "closed"
+    append_ledger(ledger_path, new_closed)
+    new_rows = []
     mode = autoclose_mode(getattr(args, "mode", None))
     closed = {("", t) for t in closed_tags(lines)} | (landed_tags(args.outcomes) if getattr(args, "outcomes", "") else set()) if mode != "off" else set()
     dmode = done_check_mode(getattr(args, "done_mode", None)) if getattr(args, "repos_dir", "") else "off"
     new_items = []
-    for ln in open(args.autoskip, encoding="utf-8").read().splitlines():
+    for ln in read_text(args.autoskip).splitlines():
         if "\t" not in ln:
             continue
         repo, task = ln.split("\t", 1)
@@ -548,22 +910,34 @@ def cmd_harvest(args):
             continue
         if task_sig(task) in existing_sigs:
             continue
+        key = body_key(repo, task)
+        if key in ledger and lmode != "off":   # Y2: ever harvested, or ticked/archived: never again (even re-worded sig / re-tagged / line since deleted) -- enforce only; shadow logs and harvests as before
+            _shadow_once(getattr(args, "ledger_log", ""), "%s %s ledger-skip %s k=%s " % (args.today, "ENFORCED" if lmode == "enforce" else "SHADOW", repo, key), "%s %s ledger-skip %s k=%s state=%s %s" % (args.today, "ENFORCED" if lmode == "enforce" else "SHADOW", repo, key, ledger[key], task[:90]))
+            if lmode == "enforce":
+                continue
         tag = feat_tag_of(task)
         if tag and _tag_landed(closed, repo, tag):      # P5: a feature already closed (or landed by the fleet) is not re-opened under different wording
-            _shadow(getattr(args, "shadow_log", ""), "%s %s would-not-reharvest %s [feat:%s]" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", repo, tag))
+            _wk = "%s %s would-not-reharvest %s [feat:%s] k=%s" % (args.today, "ENFORCED" if mode == "enforce" else "SHADOW", repo, tag, key)
+            _shadow_once(getattr(args, "shadow_log", ""), _wk, _wk)
             if mode == "enforce":
                 continue
         if dmode != "off":
-            done, dwhy = done_check(args.repos_dir, repo, getattr(args, "done_ref", "origin/claude/feature"), task)
+            done, dstrong, dwhy = done_evidence(args.repos_dir, repo, getattr(args, "done_ref", "origin/claude/feature"), task)
             if done:
-                sg = task_sig(task)[:24]
-                tagm = "%s %s would-skip-done %s sig=%s" % (args.today, "ENFORCED" if dmode == "enforce" else "SHADOW", repo, sg)
-                _shadow_once(getattr(args, "done_log", ""), tagm + " (", "%s (%s) %s" % (tagm, dwhy, task[:90]))
+                tagm = "%s %s would-skip-done %s tag=%s k=%s" % (args.today, "ENFORCED" if dmode == "enforce" else "SHADOW", repo, tag or "-", key)   # one row per (repo, line, tag, day)
+                _shadow_once(getattr(args, "done_log", ""), tagm, "%s (%s) %s" % (tagm, dwhy, task[:90]))
                 if dmode == "enforce":
-                    continue
+                    if dstrong and key not in ledger:   # target file + exact definition only: remembered so a done-skipped line is not re-checked against git every hour
+                        ledger[key] = "done"
+                        new_rows.append((key, "done", repo, tag, args.today))
+                    continue      # weak evidence: skipped THIS pass only, never ledgered
         existing_sigs.add(task_sig(task))
+        if key not in ledger:   # shadow mode can reach here with a known key: never overwrite/duplicate its state (closed must stay closed)
+            ledger[key] = "harvested"
+            new_rows.append((key, "harvested", repo, tag, args.today))
         new_items.append((repo, task))
     if not new_items:
+        append_ledger(ledger_path, new_rows)
         sys.stderr.write("harvest: nothing new to add\n")
         return
     today = args.today
@@ -572,6 +946,7 @@ def cmd_harvest(args):
         block.append(f"- [ ] [CLAUDE] {repo}/ — {task}\n")
     with open(args.queue, "a", encoding="utf-8") as f:
         f.write("".join(block))
+    append_ledger(ledger_path, new_rows)
     sys.stderr.write(f"harvest: appended {len(new_items)} new items to {args.queue}\n")
 
 
@@ -593,6 +968,9 @@ def main():
     hp.add_argument("--done-ref", default="origin/claude/feature")
     hp.add_argument("--done-mode", default="")
     hp.add_argument("--done-log", default="")
+    hp.add_argument("--ledger", default="")
+    hp.add_argument("--ledger-log", default="")
+    hp.add_argument("--ledger-mode", default="")
     ap = sub.add_parser("autoclose")
     ap.add_argument("--queue", required=True)
     ap.add_argument("--outcomes", required=True)

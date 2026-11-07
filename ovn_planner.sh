@@ -281,6 +281,17 @@ PROMPT_END
     [ -s "$_sg_log" ] && say "$r: $(tr '\n' ' ' < "$_sg_log" | cut -c1-600)"
     rm -f "$_sg_log"
   fi
+  # 2026-11-05 (Y4): production before test. The model lists items in the order it thought of them (a test item for `clear_cache` ahead of the item that adds the admin dependency made the
+  # 27B invent the production change from a test item: 61 test-declared steps touched source). scripts/ovn_item_deps.py order = stable topological reorder so each production item precedes
+  # the test item that depends on it (name/stem/new-file/VERIFY rules + ovn_stage_order symbol edges). OVN_PLANNER_ITEM_ORDER=off disables; any failure keeps the input order.
+  _iorder="$HOME/overnight-queue/scripts/ovn_item_deps.py"
+  if [ "${OVN_PLANNER_ITEM_ORDER:-on}" != off ] && [ -f "$_iorder" ]; then
+    _io_log="$(mktemp)"
+    _io_out="$(printf '%s\n' "$items" | timeout 30 python3 "$_iorder" order 2>"$_io_log")"
+    [ -n "$_io_out" ] && [ "$(printf '%s\n' "$_io_out" | grep -c '^- \[ \]')" = "$(printf '%s\n' "$items" | grep -c '^- \[ \]')" ] && items="$_io_out"
+    [ -s "$_io_log" ] && say "$r: $(tr '\n' ' ' < "$_io_log" | cut -c1-200)"
+    rm -f "$_io_log"
+  fi
   fi   # end of the model-decomposition region (skipped when the deterministic delete plan above produced the items)
   # 2026-09-20 feature tracking: tag every item this feature decomposes into with a durable
   # [feat:ID] marker so a % complete / completion notification can be computed later (see

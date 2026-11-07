@@ -65,6 +65,17 @@ BAD_FAIL_REASONS = {"build-red", "ts-regression", "test-red"}
 GREEN_CLASSES = {"landed", "landed-late", "credit-only", "landed-uncredited"}
 TOOL_RE = re.compile(r"\b([A-Za-z][\w.-]*) (?:is )?not installed")
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+# 2026-11-04 (package Y5): rules reported as their own shadow-only FLAG sub-key. MIRRORS qa/qa_common.GATE_SUBKEYS (a test asserts they are equal).
+GATE_SUBKEYS = {"antigaming": {"Y_SKIP_ADDED": "skip_added", "Y_ASSERT_DROP": "assert_drop"}}
+
+
+def event_subkeys(ev):
+    """Sub-keys of ev's gate that fired in this FLAG/FAIL row (from details.counts), as a set; empty for other gates / rows."""
+    m = GATE_SUBKEYS.get(ev.gate)
+    det = (ev.row or {}).get("details") if isinstance((ev.row or {}).get("details"), dict) else {}
+    if not m or not isinstance(det.get("counts"), dict):
+        return set()
+    return set(m[r] for r in det["counts"] if r in m)
 
 
 def fnum(name, default):
@@ -543,11 +554,19 @@ def build(sd, days=30, only=None, now=None, strict=False, git=None):
         # UNVERIFIED rows are listed as notes; they block promotion through clean_days (a day with one is not clean), never by being counted as clean
         hard = [r for r in reasons if "UNVERIFIED" not in r and not r.startswith("tool missing") and "daily-pass skip" not in r]
         rec = "HOLD" if hard else "PROMOTE-CANDIDATE"
+        subkeys = {}
+        for sk in sorted(set(GATE_SUBKEYS.get(g, {}).values())):
+            sel = [e for e in ff if sk in event_subkeys(e)]
+            rs = collections.Counter(resolve(e, outs, now, window_s, slack_s, strict) for e in sel)
+            sb, sg = rs["bad"], rs["green"]
+            # proxy only (reverted/parked vs landed): hand labels are the real precision, see qa/qa_precision_sample.py
+            subkeys[sk] = {"events": len(sel), "reverted_parked": sb, "green": sg, "unresolved": rs["unresolved"], "unjoined": rs["unjoined"],
+                           "proxy_precision": None if not (sb + sg) else round(float(sb) / (sb + sg), 3), "shadow_only": True}
         gates.append({"gate": g, "rows": len(ge), "verdicts": dict(total), "classes": classes, "flag_fail_events": len(ff),
                       "flag_fail_decided": b + gr, "flag_fail_reverted_parked": b, "flag_fail_green": gr, "flag_fail_unresolved": res_all["unresolved"],
                       "flag_fail_unjoined": res_all["unjoined"], "flag_fail_joined_by": dict(joined_by), "flag_fail_unjoined_why": dict(unjoined_why), "flag_fail_cycle_time_only": unjoined_why.get("cycle-time-only", 0), "proxy_precision": None if prec is None else round(prec, 3), "clean_days": cd,
                       "unverified": {"n": len(unv), "reason_codes": dict(codes), "tools_missing": tools}, "skips": sk,
-                      "recommendation": rec, "reasons": reasons})
+                      "recommendation": rec, "reasons": reasons, **({"subkeys": subkeys} if subkeys else {})})
     return {"generated": time.strftime(TS_FMT, time.gmtime(now)), "days": days, "strict": bool(strict), "git_verified_joins": bool(outs.git is not None and outs.git.root),
             "commits_era_start": None if outs.commits_era_start is None else time.strftime(TS_FMT, time.gmtime(outs.commits_era_start)), "window_h": window_s / 3600.0,
             "rule": {"min_clean_days": min_days, "min_flag_fail_events": min_events, "min_proxy_precision": min_prec},
@@ -608,6 +627,9 @@ def render(rep):
             L.append("    join: %d of %d FLAG/FAIL joined by %s; %d unjoined%s" % (
                 g["flag_fail_events"] - g["flag_fail_unjoined"], g["flag_fail_events"], json.dumps(g["flag_fail_joined_by"], sort_keys=True), g["flag_fail_unjoined"],
                 (" (" + json.dumps(g["flag_fail_unjoined_why"], sort_keys=True) + ")") if g["flag_fail_unjoined"] else ""))
+        for sk, v in sorted((g.get("subkeys") or {}).items()):
+            L.append("    sub-key %-12s (shadow only) events=%d  reverted/parked=%d green=%d unresolved=%d unjoined=%d  proxy precision %s" % (
+                sk, v["events"], v["reverted_parked"], v["green"], v["unresolved"], v["unjoined"], "n/a" if v["proxy_precision"] is None else v["proxy_precision"]))
         for r in g["reasons"]:
             L.append("    - " + r)
     L += ["", "Known facts (computed from the data above):"] + ["  * " + x for x in rep["known_facts"]]
@@ -631,6 +653,9 @@ def explain(rep):
         L.append("  proxy precision   %s (needs %g, over >= %d decided)" % ("n/a" if g["proxy_precision"] is None else g["proxy_precision"], R["min_proxy_precision"], R["min_flag_fail_events"]))
         if g["unverified"]["n"]:
             L.append("  UNVERIFIED rows   %d %s (a day with one is not clean)" % (g["unverified"]["n"], json.dumps(g["unverified"]["reason_codes"], sort_keys=True)))
+        for sk, v in sorted((g.get("subkeys") or {}).items()):
+            L.append("  sub-key %s (shadow only, not a blocker)  %d event(s); proxy decided %d (reverted/parked %d, green %d); hand labels: qa/qa_precision_sample.py read" % (
+                sk, v["events"], v["reverted_parked"] + v["green"], v["reverted_parked"], v["green"]))
         for r in g["reasons"]:
             L.append("  blocker: " + r)
         if not g["reasons"]:

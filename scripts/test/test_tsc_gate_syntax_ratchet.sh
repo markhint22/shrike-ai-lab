@@ -3,6 +3,7 @@
 # syntax errors exist (tsc drops all semantic errors on a syntax error: billwatch 67 -> 3). Also the
 # shadow collected-test check. Uses a FAKE vue-tsc/vitest; no TypeScript toolchain needed.
 set -uo pipefail
+export OVN_TSC_PREMEASURE=0   # 2026-11-04 (Y3): these cases drive a tree-independent fake tsc via a global file; they pin the STATIC-baseline logic (see test_tsc_gate_premeasure.sh for the pre-commit re-measure)
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GATE="$HERE/../ovn_tsc_gate.sh"; [ -f "$GATE" ] || GATE="$HERE/ovn_tsc_gate.sh"

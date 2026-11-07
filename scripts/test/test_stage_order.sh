@@ -39,7 +39,7 @@ sed 's/ && \[ -n "\$_out" \]//' "$SD/slice.sh" > "$SD/mut_nofailopen.sh"
 t "S7 mutant (no empty-result fail-open) is caught by S3" test "$(printf '%s\n' "$TESTS" | slice "$SD/mut_nofailopen.sh" enforce)" != "$TESTS"
 sed 's/item-filter --mode "\$_m"/item-filter --mode shadow/' "$SD/slice.sh" > "$SD/mut_noenforce.sh"
 t "S8 mutant (mode ignored: never enforces) is caught by S2" test "$(printf '%s\n' "$ALL" | slice "$SD/mut_noenforce.sh" enforce | wc -l | tr -d ' ')" != 2
-t "S9 the slice filter sits between ovn_bug_first_order and ovn_progress_slice.py in run_overnight.sh" bash -c "grep -B1 -A1 '_ovn_so_slice_filter \\\\' '$RO' | tr -d '\n' | grep -q 'ovn_bug_first_order .*_ovn_so_slice_filter .*ovn_progress_slice.py'"
+t "S9 the slice filter sits between ovn_bug_first_order and ovn_progress_slice.py in run_overnight.sh" bash -c "grep -B1 -A1 '_ovn_so_slice_filter | _ovn_id_slice_filter \\\\' '$RO' | tr -d '\n' | grep -q 'ovn_bug_first_order .*_ovn_so_slice_filter | _ovn_id_slice_filter .*ovn_progress_slice.py'"
 # --- D3 repair 2: shell default, off / missing-progress guards, --repo argument, timeout (a stub python3 on PATH records argv; empty stdout => the wrapper falls back to the input)
 STUB="$W/stub"; mkdir -p "$STUB"; printf '#!/bin/sh\necho "$@" >> "%s/argv.log"\ncat >/dev/null\n' "$W" > "$STUB/python3"; chmod +x "$STUB/python3"
 stubslice(){ # $1 = function file, $2 = mode ("unset" = OVN_STAGE_ORDER not set at all), extra env via remaining args; stdin = lines
