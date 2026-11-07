@@ -38,9 +38,22 @@ seen_repos=""
 # merged (a MERGED line or 'already in <target>'), stuck (gate FAILED / NOT merging / MERGE CONFLICT / FLAG-ONLY), unknown (the repo ran but nothing conclusive for that branch since)
 # or nolog (no log / no section for the repo: the old flag-only behaviour).
 HYGIENE_LOG="${HYGIENE_LOG:-logs/branch_hygiene.log}"
+# Z4 2026-11-07: the claude/feature lane logs to a SEPARATE file (logs/branch_hygiene_claude.log, "<branch> already in develop - nothing to land"); this check only read branch_hygiene.log, whose
+# last section for the repo is the overnight/feature lane -> a stuck claude/feature flag could never be confirmed recovered ("recovery UNCONFIRMED" every hour, xlite 11-06 12:05 -> 11-07).
+# When the main log has no conclusive result for the stuck branch, the claude-lane log is consulted too.
+HYGIENE_LOG_CLAUDE="${HYGIENE_LOG_CLAUDE:-$(dirname "$HYGIENE_LOG")/branch_hygiene_claude.log}"
 hyg_verdict(){
-  [ -s "$HYGIENE_LOG" ] || { echo nolog; return; }
-  tail -c "${HYGIENE_LOG_TAIL_BYTES:-4000000}" "$HYGIENE_LOG" 2>/dev/null | awk -v n="$1" -v f="${2:-}" '
+  local v; v="$(hyg_verdict_in "$HYGIENE_LOG" "$@")"
+  if { [ "$v" = unknown ] || [ "$v" = nolog ]; } && [ -n "${2:-}" ]; then   # only for a NAMED branch: with no branch the claude lane's lines would match anything (F4 bogus-recovery class)
+    local v2; v2="$(hyg_verdict_in "$HYGIENE_LOG_CLAUDE" "$@")"
+    case "$v2" in merged|stuck) v="$v2";; esac
+  fi
+  echo "$v"
+}
+hyg_verdict_in(){ # <logfile> <repo> [feature-branch]
+  local lg="$1"; shift
+  [ -s "$lg" ] || { echo nolog; return; }
+  tail -c "${HYGIENE_LOG_TAIL_BYTES:-4000000}" "$lg" 2>/dev/null | awk -v n="$1" -v f="${2:-}" '
     /^\[branch-hygiene [^]]*\] === / { cur = (index($0, "=== " n " (") > 0); if (cur) saw = 1; sf = ""; next }
     cur && /\] +feature branch: / { sf = $NF; next }
     cur && (f == "" || sf == f) && /NOT merging|MERGE CONFLICT|FLAG-ONLY/ { v = "stuck" }

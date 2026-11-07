@@ -160,7 +160,9 @@ fi
 
 log "claude_queue_bridge pass complete (commit rc=$commit_rc)"
 # L2-mac-jobs: success heartbeat (supervisor scripts/mac_jobs_health.py): the whole pass worked AND the queue docs are pushed (or there was nothing to push)
-if [ "$commit_rc" = 0 ]; then
+# Z4: rc 6 = the helper deliberately refused (interactive checkout on a feature branch, already a once-per-day WARN there): the pass itself worked, so it stays a healthy pass
+# (no launchd exit 1 -> no `claudequeuebridge failed` emergency, heartbeat kept fresh); the docs simply are not pushed from this checkout.
+if [ "$commit_rc" = 0 ] || [ "$commit_rc" = 6 ]; then
   mkdir -p "${OVN_MAC_STATE:-$HOME/.ovn_mac_jobs}/hb" 2>/dev/null && date +%s > "${OVN_MAC_STATE:-$HOME/.ovn_mac_jobs}/hb/claudequeuebridge" 2>/dev/null
 fi
-[ "$commit_rc" = 0 ] || exit 1
+[ "$commit_rc" = 0 ] || [ "$commit_rc" = 6 ] || exit 1

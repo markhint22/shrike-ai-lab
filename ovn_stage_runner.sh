@@ -112,6 +112,10 @@ GUT_SUBDIRS="$(gut_subdirs_flag)"
 source scripts/lib_new_tests.sh 2>/dev/null || true
 # 2026-10-13 (package stage): deterministic guards (mis-targeted Verify steps / items, class_name conflicts, named tests, item-VERIFY red-before, web verify). Lib missing => every guard is a no-op.
 source scripts/lib_stage_guards.sh 2>/dev/null || true
+# Z3 (2026-11-07) landing gates (step-diff / tone / repair-route / test-item scope / call-dropped / editor leak); all SHADOW by default, see scripts/lib_landing_gates.sh
+source scripts/lib_landing_gates.sh 2>/dev/null || true
+declare -F z3_step_gate >/dev/null 2>&1 || z3_step_gate(){ Z3_REFUSE=""; return 0; }
+declare -F z3_leak_gate >/dev/null 2>&1 || z3_leak_gate(){ return 0; }
 source scripts/lib_outcome_acct.sh 2>/dev/null || true   # 2026-10-18 (D4): ovn_oa_commits for the outcome row (absent => commits=[])
 source scripts/lib_p4_outcomes.sh 2>/dev/null || true   # 2026-10-21 (P4): ovn_stage_fail_tag (OVN_STAGE_FAILTAG=on)
 declare -F stage_step_mistarget >/dev/null 2>&1 || { stage_step_mistarget(){ return 1; }; stage_item_mistarget(){ return 1; }; stage_class_conflict(){ return 1; }
@@ -907,18 +911,57 @@ stage_path_denied(){   # $1=worktree $2=repo-relative path -> rc 0 + reason on s
   done
   return 1
 }
-stage_scope_ext_list(){   # $1=item hash -> the files the item's scope was extended by (ON mode only), one per line
+# 2026-11-07 (Z2, bugfix, OVN_STAGE_SCOPE_TOKEN_CHECK=off restores the old accept-anything behaviour): billwatch 20261107-141251-196899 logged `scope_learn ... files: "a"` - the model left a stray file
+# named `a` and 'scope extended' declared it for the next attempt. A learnable scope token must look like a path: a basename of >= 2 chars that either carries a recognised source/config
+# extension, or is an existing TRACKED file with a directory component (or a >= 3-char name such as Makefile/Dockerfile). Single letters / bare words / odd characters are junk and never learned.
+stage_scope_token_ok(){   # $1=worktree (may be empty) $2=repo-relative token -> rc 0 plausible, rc 1 junk
+  [ "${OVN_STAGE_SCOPE_TOKEN_CHECK:-on}" = off ] && return 0
+  local w="$1" f="$2" b="${2##*/}" tracked=0
+  [ "${#b}" -ge 2 ] || return 1
+  case "$f" in /*|*..*|*/) return 1;; esac
+  # review fix: ANY tracked file path is a plausible token (Next/SvelteKit `[id].tsx`, `(group)/page.tsx`, `$types.ts`, non-ASCII names ...); the charset screen is only for names that are not tracked
+  [ -n "$w" ] && git -C "$w" cat-file -e "HEAD:$f" 2>/dev/null && tracked=1
+  case "$f" in *[!A-Za-z0-9_./@+-]*) [ "$tracked" = 1 ] || return 1;; esac
+  case "$b" in
+    *[!A-Za-z0-9_.@+-]*) ;;   # odd characters: only the tracked branch below may accept
+    *.py|*.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.vue|*.gd|*.kt|*.kts|*.java|*.go|*.rb|*.rs|*.c|*.cc|*.cpp|*.h|*.hpp|*.cs|*.php|*.scala|*.sql|*.sh|*.bash|*.json|*.toml|*.cfg|*.ini|*.conf|*.txt|*.xml|*.html|*.css|*.scss|*.md|*.gradle|*.properties|*.tscn|*.tres) return 0;;
+    *.yml|*.yaml) return 0;;
+  esac
+  [ "$tracked" = 1 ] || return 1
+  case "$f" in */*) return 0;; esac
+  [ "${#b}" -ge 3 ]
+}
+# Z2 round-2: the touched-file list from `git status --porcelain -z` (NUL-delimited, never quoted: non-ASCII and spaces survive; a rename/copy record carries the new path then the original path, both are touches).
+# one path per line, sorted unique. (The old `--porcelain | awk '{print $2}'` yielded the quoted octal "app/caf\303\251.ts" and cut names at a space.)
+stage_touched_files(){   # $1=worktree
+  local _rec _st _skip=0
+  while IFS= read -r -d '' _rec; do
+    if [ "$_skip" = 1 ]; then _skip=0; printf '%s\n' "$_rec"; continue; fi
+    _st="${_rec:0:2}"
+    case "$_st" in R*|C*|?R|?C) _skip=1;; esac
+    printf '%s\n' "${_rec:3}"
+  done < <(git -C "$1" status --porcelain -z -uall 2>/dev/null) | sort -u
+}
+stage_scope_ext_list(){   # $1=item hash -> the files the item's scope was extended by (ON mode only), one per line (implausible tokens, e.g. one persisted by the pre-Z2 code, are ignored)
   [ "${OVN_STAGE_SCOPE_LEARN:-shadow}" = on ] || return 0
-  cat "state/item_fails/stage-${repo}.${1}.scopeext" 2>/dev/null
+  local _ef
+  while IFS= read -r _ef; do
+    [ -n "$_ef" ] || continue
+    stage_scope_token_ok "${wt:-}" "$_ef" && printf '%s\n' "$_ef"
+  done < <(cat "state/item_fails/stage-${repo}.${1}.scopeext" 2>/dev/null)
   return 0
 }
-stage_scope_learn(){   # $1=worktree $2=undeclared files (space-sep) $3=step idx -> sets STAGE_SL_DECISION = first|extend|escalate|shadow-extend|shadow-escalate|off
+_stage_scope_learn_body(){   # $1=worktree $2=undeclared files (NEWLINE-separated) $3=step idx -> sets STAGE_SL_DECISION = first|extend|escalate|shadow-extend|shadow-escalate|off
   local w="$1" extra="$2" idx="$3" mode="${OVN_STAGE_SCOPE_LEARN:-shadow}" h key f n=0 why="" seenf extf
   STAGE_SL_DECISION=off
   case "$mode" in off|OFF|0) return 0;; on|ON|1) mode=on;; *) mode=shadow;; esac
-  extra="$(printf '%s\n' $extra | grep -v '^$' | sort -u | tr '\n' ' ')"; extra="${extra% }"
-  [ -n "$extra" ] || return 0
-  h="$(ovn_item_hash "$item" 2>/dev/null)"; key="${extra// /|}"
+  # the undeclared set is NEWLINE separated (paths may contain spaces, `[`, `*`, `$`): it is only ever split with `read`, never by the shell, so there is no word-splitting or globbing to guard against
+  # (round 2: the old space-separated `for f in $extra` needed `set -f`, which no test could trigger - the glob was evaluated in the runner's cwd, not the worktree)
+  local list
+  list="$(printf '%s\n' "$extra" | grep -v '^$' | sort -u)"
+  [ -n "$list" ] || return 0
+  extra="$(printf '%s' "$list" | tr '\n' ' ')"; extra="${extra% }"
+  h="$(ovn_item_hash "$item" 2>/dev/null)"; key="$(printf '%s' "$list" | tr '\n' '|')"
   mkdir -p state/item_fails 2>/dev/null
   seenf="state/item_fails/stage-${repo}.${h}.scopeseen"; extf="state/item_fails/stage-${repo}.${h}.scopeext"
   if ! grep -qxF -- "$key" "$seenf" 2>/dev/null; then
@@ -927,16 +970,18 @@ stage_scope_learn(){   # $1=worktree $2=undeclared files (space-sep) $3=step idx
     jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg m "$mode" --arg f "$extra" '{run:$r,step:$i,event:"scope_learn",mode:$m,decision:"first",files:$f}')"
     return 0
   fi
-  for f in $extra; do
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
     n=$((n+1))
+    stage_scope_token_ok "$w" "$f" || { why="$f is not a plausible scope token (junk name)"; break; }
     git -C "$w" cat-file -e "HEAD:$f" 2>/dev/null || { why="$f is not an existing tracked file"; break; }
     why="$(stage_path_denied "$w" "$f")" && { why="$f: $why"; break; }
     why=""
-  done
+  done <<< "$list"
   [ -z "$why" ] && [ "$n" -gt 3 ] && why="${n} files (limit 3)"
   if [ -z "$why" ]; then
     if [ "$mode" = on ]; then
-      for f in $extra; do grep -qxF -- "$f" "$extf" 2>/dev/null || printf '%s\n' "$f" >> "$extf"; done
+      while IFS= read -r f; do [ -n "$f" ] || continue; grep -qxF -- "$f" "$extf" 2>/dev/null || printf '%s\n' "$f" >> "$extf"; done <<< "$list"
       STAGE_SL_DECISION=extend; STAGE_SCOPE_EXTENDED=1
       say "  step $idx scope extended: the same undeclared set recurred (${extra}) - declared for the next attempt"
     else
@@ -955,7 +1000,50 @@ stage_scope_learn(){   # $1=worktree $2=undeclared files (space-sep) $3=step idx
   jlog "$(jq -nc --arg r "$RUNID" --argjson i "$idx" --arg m "$mode" --arg d "$STAGE_SL_DECISION" --arg f "$extra" --arg w "$why" '{run:$r,step:$i,event:"scope_learn",mode:$m,decision:$d,files:$f,why:$w}')"
   return 0
 }
+stage_scope_learn(){ _stage_scope_learn_body "$@"; }   # $2 = NEWLINE-separated undeclared files
 # <<< n4-stage-waste helpers: scope-learn (Part 3)
+
+# >>> z2 helpers: timeout park + empty-file whole-edit retry
+# 2026-11-07 (Z2). nov7 outcomes RC5: 12 step timeouts in 24h cost 70 min (iptv tests/test_stream_update_nulls.py x4, monitor test_console_single_fetch.py x3, ...): the same files time out again and again across
+# attempts, re-decompositions and cycles (zero_landing cap 3). OVN_STAGE_TIMEOUT_PARK=off|shadow|on (default SHADOW): every step timeout is remembered per item+file set
+# (state/item_fails/stage-<repo>.<hash>.timeouts); at the OVN_STAGE_TIMEOUT_PARK_AT-th (default 2) timeout of the same file set the step is abandoned (no more attempts, no re-decomposition) and, when the
+# run then lands 0 steps, the item is escalated at once (zero-landing cap 1) instead of two more cycles. SHADOW only logs `would_park_timeout`.
+STAGE_TO_DECISION=""; STAGE_TIMEOUT_PARKED=0
+stage_timeout_track(){   # $1=step files $2=step idx -> sets STAGE_TO_DECISION = off|first|park|shadow-park
+  local mode="${OVN_STAGE_TIMEOUT_PARK:-shadow}" at="${OVN_STAGE_TIMEOUT_PARK_AT:-2}" key h tf n
+  STAGE_TO_DECISION=off
+  case "$mode" in off|OFF|0) return 0;; on|ON|1) mode=on;; *) mode=shadow;; esac
+  case "$at" in ''|*[!0-9]*|0) at=2;; esac
+  key="$(printf '%s\n' $1 | grep -v '^$' | sort -u | tr '\n' '|')"; [ -n "$key" ] || key="(no-files)"
+  h="$(ovn_item_hash "$item" 2>/dev/null)"
+  mkdir -p state/item_fails 2>/dev/null
+  tf="state/item_fails/stage-${repo}.${h}.timeouts"
+  printf '%s\n' "$key" >> "$tf"
+  n="$(grep -cxF -- "$key" "$tf" 2>/dev/null)"; n="${n:-0}"
+  if [ "$n" -lt "$at" ]; then STAGE_TO_DECISION=first; return 0; fi
+  if [ "$mode" = on ]; then
+    STAGE_TO_DECISION=park; STAGE_TIMEOUT_PARKED=1
+    say "  step $2 timeout-park: ${n} timeouts on the same file set (${key%|}) - abandoning the step, the item is escalated if nothing lands"
+  else
+    STAGE_TO_DECISION=shadow-park
+    say "  step $2 timeout-park (shadow): would abandon the step after ${n} timeouts on the same file set (${key%|}) and escalate the item"
+  fi
+  jlog "$(jq -nc --arg r "$RUNID" --argjson i "$2" --arg m "$mode" --arg k "${key%|}" --argjson n "$n" --arg e "$([ "$mode" = on ] && echo park_timeout || echo would_park_timeout)" '{run:$r,step:$i,event:$e,mode:$m,files:$k,timeouts:$n}')"
+  return 0
+}
+# OVN_STAGE_EMPTY_WHOLE=off|shadow|on (default SHADOW): after an `empty-file` failure (the model left the declared new file at 0 bytes - always in att1+att2 pairs: 25 attempts / 50 min in 24h) the retry
+# is run with aider's WHOLE-file edit format and no architect turn (the architect/udiff pair is what produced the empty file twice); SHADOW only logs `would_whole_retry` and keeps udiff + architect.
+STAGE_EW_DECISION=""
+stage_emptyfile_whole(){   # $1=step idx $2=declared empty files -> sets STAGE_EW_DECISION = off|shadow|whole
+  local mode="${OVN_STAGE_EMPTY_WHOLE:-shadow}"
+  STAGE_EW_DECISION=off
+  case "$mode" in off|OFF|0) return 0;; on|ON|1) mode=on;; *) mode=shadow;; esac
+  if [ "$mode" = on ]; then STAGE_EW_DECISION=whole; say "  step $1 empty-file: the retry uses aider --edit-format whole (no architect turn) for ${2}"
+  else STAGE_EW_DECISION=shadow; say "  step $1 empty-file (shadow): would retry with --edit-format whole instead of udiff+architect for ${2}"; fi
+  jlog "$(jq -nc --arg r "$RUNID" --argjson i "$1" --arg m "$mode" --arg f "$2" --arg e "$([ "$mode" = on ] && echo whole_retry || echo would_whole_retry)" '{run:$r,step:$i,event:$e,mode:$m,files:$f}')"
+  return 0
+}
+# <<< z2 helpers: timeout park + empty-file whole-edit retry
 
 # >>> pkgC helpers: semantic candidates
 # 2026-10-22 (PKG-C): the SEMANTIC wire check took ONE symbol (the first bare backtick token, or the last call-syntax token) and demanded the target file reference it. For 'Refactor `get_webhook_deliveries`
@@ -1176,6 +1264,8 @@ ${_tgtctx}
   local slog="state/stage_runs/${repo}-${RUNID}-s${idx}.log"   # per-step aider session log for review
   # adaptive context: start rich (repo-map + architect + AGENTS.md), SHRINK if we blow the 27B window
   local mt=3072; local rdargs=(--read AGENTS.md); local archargs=(--architect --auto-accept-architect)
+  # Z3 root-cause lever (default OFF = aider's own editor-whole): the editor-whole few-shot ("Change the greeting to be more casual") is replayed when the architect hands the editor nothing actionable
+  [ -n "${OVN_STAGE_EDITOR_FORMAT:-}" ] && archargs+=(--editor-edit-format "$OVN_STAGE_EDITOR_FORMAT")
   # GODOT: hand the model the Godot-4 rules file (kills the Godot-3 syntax the 27B defaults to). The
   # per-step ovn_autotest gdparse/godot --check-only loop then makes it fix any residual mistakes.
   local _gd4="$HOME/overnight-queue/assets/GODOT4.md"; local _is_godot=0
@@ -1200,6 +1290,7 @@ ${_tgtctx}
       fargs=("${_nf[@]+"${_nf[@]}"}")
     fi
   fi
+  local _efmt=udiff   # Z2: aider edit format; becomes 'whole' (no architect) after an empty-file failure when OVN_STAGE_EMPTY_WHOLE=on
   local _fed_n=0   # N4 Part 4: files fed to this step's retries (max 3 per step)
   local _fb="" _fb_next=""   # N4: per-attempt retry feedback appended to the step prompt (reset each attempt; the failing branch sets _fb_next for the NEXT attempt)
   for att in $(seq 1 "$MAX_ATT"); do
@@ -1225,11 +1316,12 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
     # ran, git-diff was empty and ovn_autotest exited 0 WITHOUT testing anything (a T4 test with an
     # ImportError slipped through). Keeping the change uncommitted lets the scoped gate actually run the
     # step's tests; we commit ONLY after it's green.
+    local _archuse=(${archargs[@]+"${archargs[@]}"}); [ "$_efmt" = whole ] && _archuse=()
     ( cd "$wt" && timeout "$STEP_TIMEOUT" aider \
-        --yes-always --no-check-update --no-detect-urls --no-auto-commits --edit-format udiff \
+        --yes-always --no-check-update --no-detect-urls --no-auto-commits --edit-format "$_efmt" \
         --model "openai/$MODEL" --openai-api-base "$LITELLM/v1" --openai-api-key "$LKEY" \
         --model-metadata-file "$HOME/overnight-queue/model-metadata.json" --map-tokens "$mt" \
-        ${archargs[@]+"${archargs[@]}"} \
+        ${_archuse[@]+"${_archuse[@]}"} \
         --auto-test --test-cmd "bash $HOME/overnight-queue/scripts/ovn_autotest.sh $wt" \
         ${rdargs[@]+"${rdargs[@]}"} "${fargs[@]}" --message "$msg" ) > "$atmp" 2>&1
     cat "$atmp" >> "$slog"
@@ -1275,6 +1367,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
         fa="empty-file"; rc=1
         excerpt="declared file is empty - write the full content: ${STAGE_EF_DECLARED}"
         _fb_next=$'\n\n'"YOUR PREVIOUS ATTEMPT FAILED: you left ${STAGE_EF_DECLARED} EMPTY (0 bytes). Write the COMPLETE content of that file this time (every import, function and test), not just its name."
+        stage_emptyfile_whole "$idx" "$STAGE_EF_DECLARED"; [ "$STAGE_EW_DECISION" = whole ] && _efmt=whole
       else fa="no-edit"; rc=1; fi
     elif [ "$_bg_on" = 1 ] && _bgdup="$(python3 "$_bg_py" dupes --wt "$wt" 2>/dev/null)" && [ -n "$_bgdup" ]; then
       # 2026-10-03 (A8): a NEW .kt file re-declaring a type that already exists (GroupedCategories.kt vs CategoryModels.kt, DiscoverModels.kt vs ChickadeeApi.kt)
@@ -1297,7 +1390,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
               printf '%s' "$item" | sed -E 's/^\[T[0-9]\] //' | grep -oE '^[A-Za-z0-9_./-]+\.[A-Za-z0-9]+'
               stage_scope_ext_list "$(ovn_item_hash "$item" 2>/dev/null)"   # N4 Part 3: files this item's scope was extended by (OVN_STAGE_SCOPE_LEARN=on only)
             } | grep -vE '^$' | sort -u)"
-          _touched="$(git -C "$wt" status --porcelain -uall 2>/dev/null | awk '{print $2}' | sort -u)"
+          _touched="$(stage_touched_files "$wt")"
           _extra=""
           while IFS= read -r _tf; do
             [ -z "$_tf" ] && continue
@@ -1311,21 +1404,31 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
               _base="$(basename "$_df" | sed -E 's/\.[A-Za-z0-9]+$//; s/^test_//; s/_test$//; s/\.(spec|test)$//')"
               if [ -n "$_tb" ] && [ "$_tb" = "$_base" ]; then _ok=1; break; fi
             done <<< "$_declared"
-            [ "$_ok" -eq 0 ] && _extra="$_extra $_tf"
+            [ "$_ok" -eq 0 ] && _extra="$_extra"$'\n'"$_tf"
           done <<< "$_touched"
           if [ -n "$(printf '%s' "$_extra" | tr -d '[:space:]')" ]; then
             fa="scope-violation"; rc=1
-            excerpt="multifile:no step touched undeclared file(s):${_extra} (declared: $(printf '%s' "$_declared" | tr '\n' ' '))"
-            say "  step $idx REJECTED (scope): touched undeclared file(s):${_extra}"
+            excerpt="multifile:no step touched undeclared file(s):$(printf '%s' "$_extra" | tr '\n' ' ') (declared: $(printf '%s' "$_declared" | tr '\n' ' '))"
+            say "  step $idx REJECTED (scope): touched undeclared file(s):$(printf '%s' "$_extra" | tr '\n' ' ')"
             stage_scope_learn "$wt" "$_extra" "$idx"   # N4 Part 3 (shadow by default): remember U; a recurrence extends the scope (on) or is only logged (shadow)
             [ "$STAGE_SL_DECISION" = escalate ] && _abandon=1
           fi
+        fi
+        # Z3 landing gates on the uncommitted step diff (shadow journal by default; an ENFORCED gate fails the step like a scope violation). Fail-open.
+        if [ "$rc" = 0 ] && ! z3_step_gate "$wt" step "$desc" "$item" "$files" "$atmp" state "${repo}:s${idx}"; then
+          fa="landing-gate"; rc=1
+          excerpt="Z3 gate refused the step: ${Z3_REFUSE:0:200}"
+          say "  step $idx REJECTED (landing gate): ${Z3_REFUSE:0:140}"
         fi
       else
         fa="$(bash "$HOME/overnight-queue/ovn_classify_fail.sh" "$atmp" reverted 2>/dev/null)"; rc=1
         excerpt="$(grep -iE 'error|fail|assert|expected|traceback|<failure|cannot|not found|no attribute|no such' "$atmp" 2>/dev/null | tail -4 | tr '\n' ' ' | cut -c1-320)"
       fi
     fi
+    # Z3 B0 (D-review 2026-11-07): the editor replays its few-shot most often when the FINAL architect message is not an instruction (tool call / file ask), i.e. in attempts that end no-edit / empty-file /
+    # reverted, never reaching the post-edit gate above. Journal the leak on EVERY non-successful attempt (a gate that already ran on this attempt, fa=landing-gate, journalled it). Never changes the outcome here.
+    if [ "$rc" != 0 ] && [ "$fa" != "landing-gate" ]; then z3_leak_gate "$atmp" state "${repo}:s${idx}" step >/dev/null 2>&1 || true; fi
+    if [ "$fa" = "timeout" ]; then stage_timeout_track "$files" "$idx"; [ "$STAGE_TO_DECISION" = park ] && _abandon=1; fi   # Z2 (shadow by default): park a step after its 2nd timeout on the same files
     # 2026-10-13 (N4 Part 4): a no-edit attempt whose architect reply asked for files ('Please add the following files to the chat') - add the repo paths it named to the retry (see stage_feed_files)
     # 2026-10-22 (PKG-C): also an EMPTY-FILE attempt (same stall, the declared file was left empty), a broader ask regex, and the symbol-context additions (OVN_STAGE_SYMBOL_CONTEXT, default shadow).
     if { [ "$fa" = "no-edit" ] || [ "$fa" = "empty-file" ]; } && [ "${OVN_STAGE_FILE_FEED:-on}" != off ] && [ "$att" -lt "$MAX_ATT" ] && [ "$_fed_n" -lt 3 ]; then
@@ -1900,6 +2003,12 @@ $reason"
           --auto-test --test-cmd "bash $HOME/overnight-queue/scripts/ovn_autotest.sh $wt" \
           ${repair_fargs[@]+"${repair_fargs[@]}"} --message "$rmsg" ) >> "$local_vlog" 2>&1
       if full_verify; then
+        # Z3 B3/B2/B4 on the repair round's uncommitted diff: a repair may not add a route to satisfy a stray test (shadow by default; enforce discards the round)
+        if ! z3_step_gate "$wt" repair "" "$item" "" "" state "${repo}:repair${_rr}"; then
+          say "repair round $_rr REJECTED (landing gate): ${Z3_REFUSE:0:160}"
+          git -C "$wt" reset -q --hard HEAD >/dev/null 2>&1; git -C "$wt" clean -fdq >/dev/null 2>&1
+          continue
+        fi
         VERIFIED=1; passed="$NSTEPS"
         git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "fix($repo): repair staged item to pass verification (round $_rr)" 2>/dev/null
         say "REPAIR PASSED (round $_rr) — verified after fixing the flagged failure"
@@ -2002,7 +2111,7 @@ for i,ln in enumerate(lines):
             else: lines[i]=ln.replace("- [ ] ","- [ ] [AUTO-SKIP staged {}/{} — {} step(s) blocked; recover/review] ".format(p,n,n-p),1)
         open(f,"w",encoding="utf-8").write("\n".join(lines)); break
 PY
-  [ "${passed:-0}" -gt 0 ] && rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").zerocount" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").lastsig" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").scopeseen" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").scopeext"
+  [ "${passed:-0}" -gt 0 ] && rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").zerocount" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").priorfail" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").lastsig" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").scopeseen" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").scopeext" "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").timeouts"
   if [ "$_is_bug" = 1 ]; then
     if [ "$passed" -ge "$NSTEPS" ] && [ "${STAGE_PARTIAL:-0}" = 0 ] && [ "${STAGE_NOCREDIT:-0}" = 0 ]; then rm -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ${_bg_plan_f:+"$_bg_plan_f"}
     else stage_bug_attempt "staged ${passed} of ${NSTEPS} landed"; fi
@@ -2038,6 +2147,7 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   # recorded and fed into the next decomposition - and only the cap routes it to Claude. OVN_STAGE_ZERO_CAP=1 = the old immediate escalation.
   _zh="$(ovn_item_hash "$item")"; _zf="state/item_fails/stage-${repo}.${_zh}.zerocount"; mkdir -p state/item_fails 2>/dev/null
   _zcap="${OVN_STAGE_ZERO_CAP:-3}"; case "$_zcap" in ''|*[!0-9]*|0) _zcap=3;; esac
+  [ "${STAGE_TIMEOUT_PARKED:-0}" = 1 ] && _zcap=1   # Z2: a step abandoned after repeated timeouts on the same files (OVN_STAGE_TIMEOUT_PARK=on): escalate now, not after 3 cycles of 350s timeouts
   [ "${STAGE_MISTARGET_ITEM:-0}" = 1 ] && _zcap=1   # 2026-10-13 (xlite F3): a mis-targeted item can never land; retrying only re-plans the same wrong path - escalate at once
   _zc=$(( $(cat "$_zf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$_zc" > "$_zf"
   jlog "$(jq -nc --arg r "$RUNID" --argjson c "$_zc" --argjson m "$_zcap" '{run:$r,event:"zero_landing_attempt",attempt:$c,cap:$m}')"
@@ -2073,7 +2183,7 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
     ./queue.sh release "$repo" >/dev/null 2>&1
     say "staged pipeline landed 0/$NSTEPS - attempt ${_zc}/${_zcap}: item stays OPEN for another try (NOT routed to Claude yet)"
   else
-  rm -f "$_zf" "state/item_fails/stage-${repo}.${_zh}.priorfail" "state/item_fails/stage-${repo}.${_zh}.lastsig" "state/item_fails/stage-${repo}.${_zh}.scopeseen" "state/item_fails/stage-${repo}.${_zh}.scopeext"
+  rm -f "$_zf" "state/item_fails/stage-${repo}.${_zh}.priorfail" "state/item_fails/stage-${repo}.${_zh}.lastsig" "state/item_fails/stage-${repo}.${_zh}.scopeseen" "state/item_fails/stage-${repo}.${_zh}.scopeext" "state/item_fails/stage-${repo}.${_zh}.timeouts"
   OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" python3 - <<'PY'
 import os
 f=os.environ["OVN_F"]; item=os.environ["OVN_ITEM"]

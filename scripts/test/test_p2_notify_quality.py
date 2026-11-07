@@ -1,6 +1,6 @@
 """P2 notify quality (2026-11-02): ovn_notify.py - OVN_NOTIFY_DISABLE honoured by forward (N4), separate digest / emergency budgets (N10), the `heartbeat` subcommand (N8),
 the quiet 'all good' digest (N6) and the once-per-day `escalate` (N7). Local fake upstream, injected clock, TZ pinned; nothing touches a real channel."""
-import importlib.util, io, json, os, sys, tempfile, threading, time
+import importlib.util, io, json, os, shutil, sys, tempfile, threading, time
 import os as _tt_os, sys as _tt_sys
 _tt_sys.path.insert(0, _tt_os.path.dirname(_tt_os.path.abspath(__file__)))
 import tmp_track
@@ -43,8 +43,12 @@ def ok(label, cond):
 
 def reset(**caps):
     del posts[:]
-    for f in os.listdir(ST):
-        os.remove(os.path.join(ST, f))
+    for f in os.listdir(ST):   # Z4 2026-11-07: state/ now holds directories too (state/beats/ from cron_beat) - os.remove raised IsADirectoryError in the coverage run
+        fp = os.path.join(ST, f)
+        if os.path.isdir(fp) and not os.path.islink(fp):
+            shutil.rmtree(fp)
+        else:
+            os.remove(fp)
     N.DIGEST_CAP = caps.get("digest", 24); N.EMERGENCY_CAP = caps.get("emergency", 20); N.DAILY_CAP_EXPLICIT = False; N.DAILY_CAP = 40
     os.environ.pop("OVN_NOTIFY_DISABLE", None); os.environ["OVN_DIGEST_DEDUPE"] = "off"
 
@@ -53,6 +57,15 @@ def shadow():
     try: return open(os.path.join(ST, "notify_shadow.log")).read()
     except OSError: return ""
 
+
+# ---- Z4: reset() must cope with sub-directories in state/ (cron_beat's state/beats/), a plain file and a symlink alike
+os.makedirs(os.path.join(ST, "beats", "sub")); open(os.path.join(ST, "beats", "x.json"), "w").write("{}"); open(os.path.join(ST, "plain.txt"), "w").write("x")
+os.symlink(os.path.join(ST, "plain.txt"), os.path.join(ST, "lnk"))
+try:
+    reset(); _rs_err = None
+except Exception as e:  # noqa: BLE001
+    _rs_err = e
+ok("Z4: reset() removes a state/beats/ directory tree, a file and a symlink without raising (was IsADirectoryError in the coverage run)", _rs_err is None and os.listdir(ST) == [])
 
 # ---- N4: OVN_NOTIFY_DISABLE is honoured by forward itself (not only by the relay's classify)
 reset(); os.environ["OVN_NOTIFY_DISABLE"] = "1"

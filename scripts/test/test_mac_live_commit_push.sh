@@ -70,7 +70,10 @@ cp_ "$INT" enforce
 chk "mid-rebase interactive checkout, mode=enforce: REFUSED rc 4, rebase dir + HEAD untouched, origin unchanged" bash -c "[ $RC -eq 4 ] && [ -d '$INT/.git/rebase-merge' ] && [ \"\$(git -C '$INT' rev-parse HEAD)\" = '$ih' ] && [ '$(ohead)' = '$od' ]"
 fresh; git -C "$INT" checkout -q -b feature/someone-elses-work; printf 'wip\n' > "$INT/wip.txt"; git -C "$INT" add -A; git -C "$INT" commit -q -m wip; edit_q "$INT" "tick F"; od="$(ohead)"
 cp_ "$INT" enforce
-chk "interactive checkout on a feature branch: REFUSED (would push unrelated commits to develop), origin unchanged" bash -c "[ $RC -eq 4 ] && [ '$(ohead)' = '$od' ]"
+chk "interactive checkout on a feature branch: REFUSED (would push unrelated commits to develop), origin unchanged; deliberate refusal = rc 6 (Z4)" bash -c "[ $RC -eq 6 ] && [ '$(ohead)' = '$od' ] && grep -q 'REFUSED (deliberate)' '$T/out.txt'"
+chk "Z4: that refusal is a WARN (no X-Ovn-Level: emergency, no urgent priority) in alerts.log and the delivered call" bash -c "grep -q '\[warn\] commit-push-branch' '$OVN_MAC_STATE/alerts.log' && ! grep -q '\[emergency\]' '$OVN_MAC_STATE/alerts.log' && ! grep -q 'X-Ovn-Level: emergency' '$CALLS'"
+n1="$(wc -l < "$CALLS" | tr -d ' ')"; cp_ "$INT" enforce; cp_ "$INT" enforce
+chk "Z4: repeated hourly refusals are deduped to ONE delivery per day (cooldown), every one still logged" bash -c "[ \"\$(wc -l < '$CALLS' | tr -d ' ')\" = '$n1' ] && [ \"\$(grep -c 'commit-push-branch' '$OVN_MAC_STATE/alerts.log')\" -ge 3 ]"
 fresh; edit_q "$INT" "tick L"; cp_ "$INT" enforce
 chk "interactive checkout on develop (legacy bridge location) still works normally" bash -c "[ $RC -eq 0 ] && git --git-dir='$ORIGIN' show develop:CLAUDE_QUEUE.md | grep -q 'tick L'"
 
@@ -127,6 +130,16 @@ if mutant no-merge-abort '    git -C "$R" merge --abort >/dev/null 2>&1; mac_git
   fresh; mf_up_commit CLAUDE_QUEUE.md "queue UPSTREAM MG" "mg up"; printf 'queue LOCAL MG\n' > "$LIVE/CLAUDE_QUEUE.md"
   cp_ "$LIVE" shadow "$MUT/mac_live_commit_push.sh"
   chk "MG (conflict left unaborted) is caught: MERGE_HEAD survives" bash -c "[ -f '$LIVE/.git/MERGE_HEAD' ]"
+fi
+# MH (Z4): the deliberate refusal escalated to an emergency again (the 14-refusals-2-phone-pushes incident)
+if mutant deliberate-emergency 'mac_alert warn commit-push-branch' 'mac_alert emergency commit-push-branch'; then
+  fresh; git -C "$INT" checkout -q -b claude/feature; edit_q "$INT" "tick MH"; : > "$CALLS"; cp_ "$INT" enforce "$MUT/mac_live_commit_push.sh"
+  chk "MH (refusal is an emergency) is caught: emergency delivered" bash -c "grep -q 'X-Ovn-Level: emergency' '$CALLS'"
+fi
+# MI (Z4): old behaviour rc 4 for the deliberate refusal (launchd exit 1 -> claudequeuebridge failed)
+if mutant deliberate-rc4 'MAC_REFUSAL_REMIND_S:-86400}"; exit 6' 'MAC_REFUSAL_REMIND_S:-86400}"; exit 4'; then
+  fresh; git -C "$INT" checkout -q -b claude/feature; edit_q "$INT" "tick MI"; cp_ "$INT" enforce "$MUT/mac_live_commit_push.sh"
+  chk "MI (rc 4 instead of 6) is caught: rc is not 6" bash -c "[ $RC -ne 6 ]"
 fi
 
 echo; echo "mac_live_commit_push: $((n-fails))/$n passed"; [ "$fails" = 0 ]

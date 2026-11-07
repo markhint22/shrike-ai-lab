@@ -1,0 +1,17 @@
+"""Placeholder - the implement step fills this in."""
+"""Tests for favorites rate limiting."""
+import pytest
+
+pytestmark = pytest.mark.usefixtures("limiter_on")
+
+
+def test_favorites_delete_rate_limit(authenticated_client):
+    """DELETE /api/favorites/{id} should allow 60 requests then return 429 on the 61st."""
+    # Make 60 requests - all should succeed (non-429)
+    for i in range(60):
+        response = authenticated_client.delete("/api/favorites/999999")
+        assert response.status_code != 429, f"Request {i + 1} unexpectedly got 429"
+
+    # 61st request should be rate limited
+    response = authenticated_client.delete("/api/favorites/999999")
+    assert response.status_code == 429, f"Expected 429 on 61st request, got {response.status_code}"

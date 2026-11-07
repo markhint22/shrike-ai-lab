@@ -18,6 +18,9 @@ P8 (2026-10-26) shapes, own switch OVN_VERIFY_ASYNC_LINT=off|shadow|enforce (def
 in the tree/item (IndexError on every run: gitlark 8, billwatch 4, iptv 14, TAA 8 items all-time), H1 `python -c 'from iptv-backend.app... import x'` (a hyphen in a module path is a SyntaxError
 at the clause itself: iptv 16, billwatch 8).
 
+Z1 (2026-11-07) shapes, per-rule switches (see "Z1" below): Q1 `grep -q X f | wc -l | grep -q N` (a quiet producer feeding a pipe), G1 `grep -n A f | grep -A2 -B2 B` (the second grep
+can only match the first grep's own output lines), P1 one-line `python -c "...; try: ..."` (SyntaxError at the clause itself), R1 `python -c "from app..."` where the import root exists nowhere in the repo.
+
 with a REASON and, where it can be done mechanically, a REWRITE (a full replacement clause). The linter is PURE: it parses text (quote-aware) and, when given a repo tree,
 READS files to confirm a finding; it never executes a VERIFY. Every rule only fires on evidence; with no tree the tree-dependent rules (S2, U2, S5) stay silent.
 
@@ -45,6 +48,7 @@ import shlex
 import signal
 import sys
 import threading
+import warnings
 import time
 import tokenize
 
@@ -154,6 +158,11 @@ def _grep_parse(argv):
     if not _is_grep(argv):
         return None
     flags, long_, ctx, pat, files = set(), set(), {}, None, []
+    prog = os.path.basename(argv[0])
+    if prog in ("egrep", "rg"):
+        flags.add("E")      # Z1 round 2: egrep and ripgrep take ERE-style patterns: `egrep -q '2|0'` is satisfiable (matches "0"), never BRE
+    elif prog == "fgrep":
+        flags.add("F")
     i, a = 1, argv
     endopts = False
     while i < len(a):
@@ -167,6 +176,8 @@ def _grep_parse(argv):
                 ctx["A"] = int(t.split("=", 1)[1] or 0) if t.split("=", 1)[1].isdigit() else 0
             elif t.startswith("--before-context="):
                 ctx["B"] = int(t.split("=", 1)[1] or 0) if t.split("=", 1)[1].isdigit() else 0
+            elif t == "--file" or t.startswith("--file="):
+                return None
             else:
                 long_.add(t)
         elif not endopts and t.startswith("-") and len(t) > 1:
@@ -195,7 +206,12 @@ def _grep_parse(argv):
                         pat = a[i + 1]
                         i += 1
                     break
-                if ch in "mf":
+                if ch == "f":
+                    return None   # Z1 review-fix: the pattern list lives in a FILE we cannot see: no rule may reason about this grep
+                if ch == "m":
+                    flags.add("m")      # Z1 round 2: recorded so `-m1` / `-m 1` is not treated as a plain flag by the Q1 rewrite
+                    if not t[j + 1:] and i + 1 < len(a):
+                        i += 1          # `-m 1`: the count is its own argv word, not the pattern
                     break
                 flags.add(ch)
                 j += 1
@@ -207,7 +223,7 @@ def _grep_parse(argv):
         i += 1
     if pat is None:
         return None
-    return {"flags": flags, "long": long_, "pattern": pat, "files": files, "ctx": ctx}
+    return {"flags": flags, "long": long_, "pattern": pat, "files": files, "ctx": ctx, "prog": prog}
 
 
 # a group that repeats AND itself contains a quantifier or an alternation: the classic catastrophic-backtracking shapes ((a+)+, (a|aa)+, (a*)*). Such a model-written pattern is
@@ -226,8 +242,14 @@ def _py_regex(pat, flags, long_):
             rx = re.sub(r"\\([|(){}+?])|([|(){}+?])", lambda m: m.group(1) if m.group(1) else "\\" + m.group(2), pat)
         if _REDOS.search(rx) or len(rx) > 500:
             return None
-        return re.compile(rx, re.I if "i" in flags else 0)
-    except re.error:
+        # Z1 review-fix: constructs python does not translate faithfully (POSIX bracket classes [[:space:]] / [[.x.]] / [[=x=]], GNU word-boundary escapes, backrefs) => no regex at all, so
+        # no rule can claim "provably unsatisfiable" from a wrong translation. A python "Possible nested set" style FutureWarning is treated the same way.
+        if re.search(r"\[\[[:.=]|\\[<>`'B]|\\[1-9]", rx) and "F" not in flags and "--fixed-strings" not in long_:
+            return None
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            return re.compile(rx, re.I if "i" in flags else 0)
+    except (re.error, Warning):
         return None
 
 
@@ -331,10 +353,31 @@ def u4_mode():
     return m if m in ("off", "shadow", "enforce") else "shadow"
 
 
+# Z1 shapes (Q1 G1 P1 R1) have PER-RULE switches: OVN_VERIFY_Z1_<CODE> = off|shadow|enforce, else the group switch OVN_VERIFY_Z1 (same values, when set), else the rule's default below.
+# Policy (2026-11-07): a rule defaults to ENFORCE only when its audit over the last 7 days of real VERIFY clauses (docs/VERIFY_LINT_Z1.md) found ZERO false positives and every hit is a
+# clause that provably cannot pass; everything else defaults to shadow. Enforce = the item is rewritten (when a rewrite exists) or dropped to the quarantine file, ALWAYS with a row in
+# verify_shape_lint.log, an alerts.log summary and a stderr line - never a silent drop. An enforced Z1 rule acts even while OVN_VERIFY_LINT itself is shadow (like U4).
+Z1_CODES = frozenset(("Q1", "G1", "P1", "R1"))
+# Q1 is SHADOW by default (review 2026-11-07: regex-translation FP + rewrite-meaning defects, 1 corpus hit is thin evidence); P1 (a python grammar fact, compile()-confirmed) stays ENFORCE.
+Z1_DEFAULT = {"Q1": "shadow", "G1": "shadow", "P1": "enforce", "R1": "shadow"}
+
+
+def z1_mode(code):
+    for var in ("OVN_VERIFY_Z1_" + code, "OVN_VERIFY_Z1"):
+        m = (os.environ.get(var, "") or "").strip().lower()
+        if m in ("off", "shadow", "enforce"):
+            return m
+    return Z1_DEFAULT.get(code, "shadow")
+
+
+def z1_enforced():
+    return frozenset(c for c in Z1_CODES if z1_mode(c) == "enforce")
+
+
 def _enforce_gate(u4e):
     """The finding codes gated away (flag-only) when enforcing: P5 + P8 unless their own switch is enforce; U4 leaves the gate when OVN_VERIFY_U4=enforce."""
     gate = p5_mode() != "enforce"
-    codes = (P5_CODES if gate else frozenset()) | (P8_CODES if p8_mode() != "enforce" else frozenset())
+    codes = (P5_CODES if gate else frozenset()) | (P8_CODES if p8_mode() != "enforce" else frozenset()) | (Z1_CODES - z1_enforced())
     if u4e:
         codes = codes - {"U4"}
     return codes or False
@@ -1048,9 +1091,215 @@ def _rule_hyphen_import(clause, stages, pls, tree, item=None):
     return out
 
 
+# ---------------------------------------------------------------- Z1 rules (2026-11-07)
+def _stage_ops_plain(stages):
+    """True when the clause joins its stages only with `|` and `&&` (no `||`, no `;`): then a failing pipeline fails the whole clause (nothing rescues or overrides its status)."""
+    return all(st[0] in ("", "|", "&&") for st in stages)
+
+
+def _rule_quiet_pipe(clause, stages, pls, tree, item=None):
+    """Q1: a `grep -q` (prints NOTHING, only an exit status) that feeds a pipe: `grep -q X f | wc -l | grep -q 2`. The consumer sees empty input (or the single line `0` after `wc`), so
+    a final `grep` can never match it - unless its pattern matches `0` itself (`| grep -q 0`), or it is `-v` / `-L` (those are satisfiable on empty input and are left alone). Only fires when
+    the clause has no `||` / `;` and no leading `!`, i.e. when the pipeline status decides the clause. Rewrite (the common counting shape): `test "$(grep -c X f)" -eq N`."""
+    out = []
+    if not _stage_ops_plain(stages):
+        return out
+    for pl in pls:
+        if len(pl) < 3 and not (len(pl) == 2 and _is_grep(_argv(pl[1][1]))):
+            continue
+        a0 = _argv(pl[0][1])
+        g0 = _grep_parse(a0)
+        if not g0 or not ("q" in g0["flags"] or g0["long"] & {"--quiet", "--silent"}):
+            continue
+        last = _grep_parse(_argv(pl[-1][1]))
+        if not last or last["files"] or last["flags"] & set("vL") or last["long"] & {"--invert-match", "--files-without-match"}:
+            continue
+        mid = [_argv(st[1]) for st in pl[1:-1]]
+        wc_seen = False
+        okmid = True
+        for a in mid:
+            b = os.path.basename(a[0]) if a else ""
+            if b == "wc" and not [x for x in a[1:] if not x.startswith("-")]:
+                wc_seen = True
+            elif b in ("cat", "head", "tail", "sort", "uniq", "tee") and not [x for x in a[1:] if not x.startswith("-")]:
+                if wc_seen:
+                    okmid = False   # after wc the stream is the line `0`, not empty: keep the reasoning simple, stay silent
+            else:
+                okmid = False
+        if not okmid:
+            continue
+        if wc_seen:
+            rx = _py_regex(last["pattern"], last["flags"], last["long"])
+            if rx is None or rx.search("0") or rx.search(" 0") or rx.search("0\n"):
+                continue
+        rw = None
+        pat = last["pattern"]
+        # Rewrite ONLY the plain case: `grep -q [-i|-E|-F|-s|-n] X onefile | wc -l | grep -q N` with N a plain integer. The rewrite asserts EXACTLY N matching lines (`grep -c` counts LINES);
+        # the original `grep -q N` was a substring match of the count, so the rewrite is documented as "exactly N". Anything with -o/-c/-f/-w/-x/-m/-v/-r/-l or other options is flagged only.
+        plain_flags = g0["flags"] <= set("qiEFsn") and g0["long"] <= {"--quiet", "--silent", "--ignore-case", "--extended-regexp", "--fixed-strings"}
+        if len(pl) == 3 and wc_seen and mid[0][:2] in (["wc", "-l"], ["wc"]) and re.fullmatch(r"[0-9]+", pat) and len(g0["files"]) == 1 and plain_flags and g0["prog"] == "grep" and "m" not in g0["flags"]:
+            s1 = re.sub(r"(?<=\s)(?:-q|--quiet|--silent)(?=\s)", "-c", pl[0][1], count=1)
+            if s1 != pl[0][1] and not re.search(r"\s-[A-Za-z]*q", s1):
+                rw = clause[:pl[0][2]] + 'test "$(%s)" -eq %s' % (s1.strip(), pat) + clause[pl[-1][3]:]
+        out.append(_find(clause, UNSAT, "Q1", "`grep -q` prints nothing, so the pipe after it carries %s: the final `grep %s` can never match (use `grep -c` and test the count; a rewrite, when offered, asserts EXACTLY that many matching lines)" % ("the single line `0`" if wc_seen else "no input", pat), rw))
+        break
+    return out
+
+
+def _rule_grep_context(clause, stages, pls, tree, item=None):
+    """G1: `grep -n A f | grep -A2 -B2 B` (context flags on the SECOND grep of a pipe). The second grep reads only the lines the first one printed, so -A/-B/-C add no context from the file:
+    B can match only on a line that also matches A. Fires ONLY with tree evidence: A and B both compile as regexes, the file is readable and NO line of it matches both (and the item does not
+    ask to add B onto a line carrying A). Flagged, never rewritten (the intended `grep -A N B f | grep A` window depends on the file)."""
+    out = []
+    if not tree or not _stage_ops_plain(stages):
+        return out
+    for pl in pls:
+        for k in range(len(pl) - 1):
+            g1, g2 = _grep_parse(_argv(pl[k][1])), _grep_parse(_argv(pl[k + 1][1]))
+            if not g1 or not g2 or g2["files"] or len(g1["files"]) != 1:
+                continue
+            if not (g2["ctx"].get("A") or g2["ctx"].get("B")):
+                continue
+            if (g2["flags"] & set("vcLl")) or (g2["long"] & {"--invert-match", "--count", "--files-without-match", "--files-with-matches"}) or (g1["flags"] & set("vcLl")):
+                continue
+            if _multi_path_grep(g1, tree) or g1["ctx"].get("A") or g1["ctx"].get("B"):
+                continue
+            p1, p2 = g1["pattern"], g2["pattern"]
+            if re.match(r"\^?\d|\^", p2) or not p1 or not p2:
+                continue   # anchored / digit-led second pattern could be matching grep -n's `N:` prefix
+            rx1, rx2 = _py_regex(p1, g1["flags"], g1["long"]), _py_regex(p2, g2["flags"], g2["long"])
+            lines = _read(tree, g1["files"][0])
+            if not rx1 or not rx2 or not lines:
+                continue
+            if any(rx1.search(l) and rx2.search(l) for l in lines):
+                continue
+            if item is not None and _item_pairs(item, clause, p1, p2):
+                continue
+            out.append(_find(clause, UNSAT, "G1", "the second grep (`-A/-B` context) reads only the lines the first grep printed; no line of %s matches both `%s` and `%s`, so it cannot match" % (g1["files"][0], p1, p2)))
+            return out
+    return out
+
+
+_COMPOUND_KW = frozenset(("try", "for", "while", "with", "if", "def", "class", "async", "elif", "else", "except", "finally"))
+
+
+def _py_c_source(stage):
+    try:
+        parts = shlex.split(stage)
+    except ValueError:
+        return None
+    for i, a in enumerate(parts):
+        if a == "-c" and i + 1 < len(parts):
+            return parts[i + 1]
+    return None
+
+
+def _semicolon_compound(src):
+    """The compound keyword that directly follows a `;` in python source (outside strings), else None. `a; try: b` is a SyntaxError in every python version: a compound statement cannot follow a
+    semicolon. Tokenizer based, so a `;` inside a string literal never counts."""
+    toks = []
+    try:
+        for t in tokenize.generate_tokens(io.StringIO(src).readline):
+            toks.append(t)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    sig = [t for t in toks if t.type not in (tokenize.COMMENT, tokenize.NL, tokenize.ENCODING)]
+    for i, t in enumerate(sig[:-1]):
+        if t.type == tokenize.OP and t.string == ";":
+            n = sig[i + 1]
+            if n.type == tokenize.NAME and n.string in _COMPOUND_KW:
+                return n.string
+    return None
+
+
+def _rule_semicolon_compound(clause, stages, pls, tree, item=None):
+    """P1: `python -c "import x; try: ...; except E: ..."` (also `; for`, `; with`, `; if`, ...): SyntaxError at the clause itself on every run. Confirmed by compile() before it fires. No rewrite
+    (a multi-line -c body cannot live on a one-line item); the item is dropped to quarantine under enforce and the author re-expresses it as a pytest node."""
+    out = []
+    for st in stages:
+        if not _PY_C.search(st[1]):
+            continue
+        src = _py_c_source(st[1])
+        if not src:
+            continue
+        kw = _semicolon_compound(src)
+        if not kw:
+            continue
+        try:
+            compile(src, "<string>", "exec")
+            continue
+        except SyntaxError:
+            pass
+        except Exception:
+            continue
+        out.append(_find(clause, UNRUN, "P1", "`; %s` inside `python -c`: a compound statement cannot follow a semicolon, so the clause dies with SyntaxError before it tests anything (use a pytest node / a here-doc / separate `-c` calls)" % kw))
+        break
+    return out
+
+
+_R1_ROOTS = frozenset(("app", "src", "backend", "server", "api"))
+
+
+def _py_root_exists(tree, root):
+    """True when a package/module named `root` exists anywhere (depth <= 4) in the tree; None when the tree has no python at all (no judgement possible)."""
+    seen_py = False
+    base = os.path.realpath(tree)
+    for dp, dns, fns in os.walk(base):
+        depth = os.path.relpath(dp, base).count(os.sep) + (0 if dp == base else 1)
+        dns[:] = [d for d in dns if not d.startswith(".") and d not in ("node_modules", "__pycache__", ".venv", "venv", "site-packages", "dist", "build")]
+        if depth >= 4:
+            dns[:] = []
+        if root in dns or (root + ".py") in fns:
+            return True
+        if any(f.endswith(".py") for f in fns):
+            seen_py = True
+    return False if seen_py else None
+
+
+def _import_roots(src):
+    roots = []
+    try:
+        import ast as _ast
+        for n in _ast.walk(_ast.parse(src)):
+            if isinstance(n, _ast.ImportFrom) and n.level == 0 and n.module:
+                roots.append(n.module.split(".")[0])
+            elif isinstance(n, _ast.Import):
+                roots += [a.name.split(".")[0] for a in n.names]
+    except SyntaxError:
+        for m in re.finditer(r"(?:^|[;\n])[ \t]*(?:from|import)[ \t]+([A-Za-z_]\w*)", src):
+            roots.append(m.group(1))
+    return roots
+
+
+def _rule_import_root_missing(clause, stages, pls, tree, item=None):
+    """R1: `python -c "from app.x import y"` (first-party-looking root: app / src / backend / server / api) where that package/module exists NOWHERE in the repo tree (so neither a `cd` nor the
+    runner's py-root retry can find it). Tree-dependent; silent when the tree has no python, when the clause touches sys.path / PYTHONPATH, or when the item itself creates the root."""
+    out = []
+    if not tree or re.search(r"sys\.path|PYTHONPATH|importlib", clause):
+        return out
+    for st in stages:
+        if not _PY_C.search(st[1]):
+            continue
+        src = _py_c_source(st[1])
+        if not src:
+            continue
+        for root in dict.fromkeys(_import_roots(src)):
+            if root not in _R1_ROOTS:
+                continue
+            ex = _py_root_exists(tree, root)
+            if ex is not False:
+                continue
+            if item and re.search(r"(?<![\w./-])(?:[\w.-]+/)*%s(?:/|\.py\b)" % re.escape(root), item.replace(clause, "")):
+                continue   # the item names a path under that root outside its VERIFY: it creates the package
+            out.append(_find(clause, UNRUN, "R1", "the import root `%s` does not exist anywhere in this repo (no `%s/` or `%s.py`), so the clause dies with ModuleNotFoundError wherever it runs" % (root, root, root)))
+            return out
+    return out
+
+
 _RULES = (_rule_tail, _rule_grepn_fn, _rule_window, _rule_double_prefix, _rule_pytest_root, _rule_import, _rule_signature,
           _rule_decorator_def, _rule_raises_polarity, _rule_conftest_target, _rule_bare_instantiation, _rule_backend_prefix)
 _RULES = _RULES + (_rule_async_ast, _rule_hyphen_import)   # P8 (own switch OVN_VERIFY_ASYNC_LINT)
+_RULES = _RULES + (_rule_quiet_pipe, _rule_grep_context, _rule_semicolon_compound, _rule_import_root_missing)   # Z1 (per-rule switches OVN_VERIFY_Z1_<CODE>)
 
 
 def _gate_p5(findings, codes=None):
@@ -1083,6 +1332,7 @@ def lint_verify(clause, tree=None, item=None, gate=None):
         return {"class": OK, "findings": [], "clause": clause, "error": "%s: %s" % (type(e).__name__, e)}
     if p8_mode() == "off":
         findings = [f for f in findings if f["code"] not in P8_CODES]
+    findings = [f for f in findings if f["code"] not in Z1_CODES or z1_mode(f["code"]) != "off"]
     if gate:
         findings = _gate_p5(findings, None if gate is True else gate)
     cls = max((f["class"] for f in findings), key=lambda c: _RANK[c], default=OK)
@@ -1141,7 +1391,9 @@ def lint_item_line(line, tree=None, md=None):
     codes = {f["code"] for f in res["findings"]}
     if "U4" in codes and not u4e and u4_mode() != "off":
         res["u4_would"] = _u4_would(clause, tree, line)
-    if u4e and codes == {"U4"}:
+    z1e = z1_enforced()
+    bad_codes = {f["code"] for f in res["findings"] if f["class"] != OK}
+    if (u4e and codes == {"U4"}) or (z1e and bad_codes and bad_codes <= (z1e | ({"U4"} if u4e else frozenset()))):
         md = "enforce"   # OVN_VERIFY_U4=enforce promotes an item whose ONLY finding is U4, even while OVN_VERIFY_LINT is shadow
     if md != "enforce":
         return "flagged", line, res
@@ -1155,17 +1407,50 @@ def lint_item_line(line, tree=None, md=None):
     return "rewritten", line[:s] + new + line[e:], res
 
 
+def _quarantine_path():
+    return os.environ.get("OVN_VERIFY_QUARANTINE") or os.path.join(os.path.dirname(_log_path()), "verify_lint_quarantine.md")
+
+
+def announce(ln, d, res, repo="", where=""):
+    """Z1 round 2: the stderr line only (no quarantine row): for callers that keep their own quarantine (queue_refill) so a Z1 rewrite/drop is still announced there."""
+    try:
+        codes = ",".join(f["code"] for f in res["findings"])
+        if d in ("dropped", "rewritten") and any(f["code"] in Z1_CODES for f in res["findings"]):
+            sys.stderr.write("verify-lint(Z1): %s item (%s) [%s %s]: %s\n" % (d.upper(), codes, repo or "-", where or "-", ln[:160]))
+    except Exception:
+        pass
+
+
+def note_decision(ln, d, res, repo="", where=""):
+    """Z1 review-fix (defect 5): a dropped item is quarantined and a Z1 rewrite/drop is announced on stderr on EVERY path (filter, work_supply, generate_items, mutation supply), never silently.
+    The quarantine row carries the whole item line, the codes and where it happened; the stderr line is appended to the hook's task log."""
+    try:
+        codes = ",".join(f["code"] for f in res["findings"])
+        announce(ln, d, res, repo, where)
+        if d == "dropped":
+            _append(_quarantine_path(), "%s  <!-- verify-lint:%s %s %s %s -->\n" % (ln, codes, repo or "-", where or "-", time.strftime("%F %T")))
+    except Exception:
+        pass
+
+
 def log_flagged(flagged, repo, where, md, total):
-    """flagged = [(line, decision, result)]: one JSON row per item to state/verify_shape_lint.log + ONE summary line to state/alerts.log."""
-    rows = [{"ts": time.strftime("%F %T"), "repo": repo, "where": where, "mode": md, "decision": d, "class": r["class"],
+    """flagged = [(line, decision, result)]: one JSON row per item to state/verify_shape_lint.log + ONE summary line to state/alerts.log.
+    A row whose decision is rewritten/dropped says mode=enforce (that is what acted, whatever OVN_VERIFY_LINT says) and carries the item line, not just the clause."""
+    rows = [{"ts": time.strftime("%F %T"), "repo": repo, "where": where, "mode": "enforce" if d in ("rewritten", "dropped") else md, "decision": d, "class": r["class"],
              "codes": [f["code"] for f in r["findings"]], "reasons": [f["reason"] for f in r["findings"]],
-             "rewrite": next((f["rewrite"] for f in r["findings"] if f.get("rewrite")), None), "clause": r["clause"][:300],
-             **({"u4_would": r["u4_would"]} if r.get("u4_would") else {})} for _, d, r in flagged]
+             "rewrite": next((f["rewrite"] for f in r["findings"] if f.get("rewrite")), None), "clause": r["clause"][:300], "item": ln[:400],
+             **({"u4_would": r["u4_would"]} if r.get("u4_would") else {})} for ln, d, r in flagged]
     if not rows or md == "off":
         return
     _append(_log_path(), "".join(json.dumps(x, sort_keys=True) + "\n" for x in rows))
-    _append(_alerts_path(), "%s info | verify-lint | %s %s: %d of %d item VERIFY clause(s) flagged (mode=%s: %s)\n" % (
-        time.strftime("%F %T"), repo or "-", where or "-", len(rows), total, md, ",".join(sorted({c for x in rows for c in x["codes"]}))))
+    acted = [x for x in rows if x["decision"] in ("rewritten", "dropped")]
+    if acted:
+        nrw, ndr = sum(1 for x in acted if x["decision"] == "rewritten"), sum(1 for x in acted if x["decision"] == "dropped")
+        _append(_alerts_path(), "%s warn | verify-lint | %s %s: %d of %d item VERIFY clause(s) flagged (mode=enforce: %d rewritten, %d dropped, %d shadow-flagged; codes %s)\n" % (
+            time.strftime("%F %T"), repo or "-", where or "-", len(rows), total, nrw, ndr, len(rows) - len(acted), ",".join(sorted({c for x in rows for c in x["codes"]}))))
+    else:
+        _append(_alerts_path(), "%s info | verify-lint | %s %s: %d of %d item VERIFY clause(s) flagged (mode=%s: %s)\n" % (
+            time.strftime("%F %T"), repo or "-", where or "-", len(rows), total, md, ",".join(sorted({c for x in rows for c in x["codes"]}))))
 
 
 def process_lines(lines, tree=None, repo="", where="", md=None):
@@ -1178,6 +1463,7 @@ def process_lines(lines, tree=None, repo="", where="", md=None):
             kept.append(out)
             continue
         flagged.append((ln, d, res))
+        note_decision(ln, d, res, repo, where)
         if d == "dropped":
             dropped.append((ln, res))
         else:

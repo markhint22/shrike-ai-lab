@@ -78,7 +78,7 @@
 #   (separate daily budgets; an explicit OVN_NOTIFY_DAILY_CAP is still a total ceiling). QR_REFILL_MIN_DRY_S=21600 / QR_REFILL_QUIET_S=43200: queue_refill 'Backlog refilled' hysteresis (per repo).
 
 # 2026-11-03 (S1-suite-repair, suite.json F3) PROPOSAL ONLY - not installed; needs Mark's approval. The 06:17 suite slot ('17 */6') loses to the nightly coverage run
-# ('30 3 * * *', ~3 h, same run_all lock) every day. ops/run_suite_sandboxed_cron.sh now retries once after OVN_SUITE_LOCK_RETRY_MIN (default 20) min, which does NOT outlast a 3 h
+# ('30 3 * * *', ~3 h, same run_all lock) every day. ops/run_suite_sandboxed_cron.sh retried once after 20 min (Z4 2026-11-07: now polls every 10 min up to 90 min), which did NOT outlast a 3 h
 # coverage run, so also move coverage to a slot that ends before 06:17 and starts after the 00:17 suite (~1h49m): e.g. 02:15 (done ~05:15):
 #OFF# 15 2 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=shrike_ovn_311380987a ./scripts/ovn_coverage_cron.sh >> logs/ovn_coverage_cron.log 2>&1
 # (and remove the current '30 3 * * *' coverage line when enabling it)
@@ -205,3 +205,8 @@
 # (4) quiet-vs-dead for the 30-min supply crons (no cron change; shipped with the code): ovn_supply_forecast.py appends ONE 'hb' row per run to logs/supply_forecast.log (it used to write a row only per SHORT repo, so a healthy
 #     fleet left the log silent while the cron ran fine: cron.log was written 08:37 the day it looked 15 h dead). The explorer is hook-driven, not a cron: its gated passes now write ONE 'gate-skip: <gate>' row per
 #     repo per OVN_QE_BEAT_S (1800 s) to logs/qwen_explore.log (OVN_QE_GATE_BEAT=off disables). ovn_research_trigger_check.log is written only when a decision is logged (see the cron_beat wrapper for liveness).
+
+# --- 2026-11-06 INSTALLED on the box crontab (Claude, delegated by Mark; backup ~/qtmp/state_backups/crontab.pre-20261106T221629Z)
+#   INSTALLED: qtmp_reaper DRY RUN only (47 5, cron_beat-wrapped; live OVN_QTMP_REAP=on is NOT safe as-is: it would reap ~/qtmp/state_backups and deploy.*.stage rollback dirs, 34 GB / 120 dirs in the dry run - add them to OVN_QTMP_KEEP first),
+#              prod_alembic_snapshot iptv_apps (*/30 + 55 8, read-only GET), mutation_supply SHADOW (50 3), cron_beat wrapping of ONLY ovn_supply_forecast and ovn_notify_heartbeat.
+#   NOT installed: the other ~55 cron_beat wrappers (wrap incrementally), ovn_log_cap live flip (deletes ~41k reports and truncates live logs; keep dry run), coverage move 30 3 -> 15 2 (not shadow; live job, lock/CPU overlap with 02:30 mutation scan).

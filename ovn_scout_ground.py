@@ -23,6 +23,14 @@ existing test file) unless the scout already planned them. Bounded: at most OVN_
 <= OVN_SCOUT_EXTRA_TOTAL_BYTES (default 120000) AND planned + extras <= OVN_SCOUT_TOTAL_BYTES (default 160000, so the whole force-loaded set cannot
 overflow the model context: lowest-priority extras - tests, then bare-name definitions - are dropped first), never a hard-banned file
 (same banned_list/size rule as the scout guard in ovn_park_unworkable.py).
+
+Fixture grounding (2026-11-07, Z2; OVN_SCOUT_FIXTURES=off disables): when the item involves a test that needs DB fixtures (the planned/named test
+touches db_session/fixture/model words, or a loaded file is a SQLAlchemy model), the model files the test must construct rows from are ALSO loaded:
+the files defining the `ForeignKey("<table>.<col>")` / `relationship("<Class>")` parents of every loaded model, the model classes the item text / test
+names, and the nearest + parent `conftest.py` of the test. Evidence (2026-11-06/07): billwatch test_bill_chat_filter_cap.py failed ~12 rows / 2.5h on
+`users.password_hash NOT NULL`, `'username' is an invalid keyword argument for User`, `bills.congress_number NOT NULL` because only bill_chat.py was loaded;
+gitlark control_plane tests inserted `Workspace(id='<str>')` (UUID column) and mis-mocked async sessions. Same bounds as symbol resolution (shared
+OVN_SCOUT_MAX_EXTRA count + byte budgets), admitted AFTER the symbol extras so they never displace them.
 """
 import difflib
 import os
@@ -199,6 +207,97 @@ def nearest_test(def_file, files):
     return sorted(cands, key=lambda f: (-_dir_overlap(def_file, f), len(f), f))[0]
 
 
+# ---- fixture grounding (Z2) ------------------------------------------------------------------------------------------------------------------
+DB_HINT_RE = re.compile(r"\b(db_session|async_session|AsyncSession|sessionmaker|sqlalchemy|SQLAlchemy|session\.(add|commit|execute|query)|create_all|conftest|fixtures?|"
+                        r"database|persist(?:ed|s)?|foreign[ _]key|rows?|db)\b|\bdb_[a-z]+\b|\bmodels?\b", re.I)
+FK_RE = re.compile(r"ForeignKey\(\s*[\"']([A-Za-z_][\w.]*)[\"']")
+REL_RE = re.compile(r"relationship\(\s*[\"']([A-Za-z_]\w*)[\"']")
+CLASS_RE = re.compile(r"^class\s+([A-Za-z_]\w*)\s*\(", re.M)
+TABLE_RE = re.compile(r"__tablename__\s*=\s*[\"']([A-Za-z_]\w*)[\"']")
+CAPWORD_RE = re.compile(r"\b[A-Z][A-Za-z0-9]{2,}\b")
+
+
+def _read(root, path, limit=400000):
+    try:
+        if os.path.getsize(os.path.join(root, path)) > limit:
+            return ""
+        return open(os.path.join(root, path), encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+
+
+def model_index(root, files):
+    """({table: file}, {Class: file}, {file: text}) over tracked non-test .py files that declare a SQLAlchemy `__tablename__`."""
+    tables, classes, texts = {}, {}, {}
+    for f in files:
+        if not f.endswith(".py") or VENDOR_RE.search(f) or TEST_RE.search(f):
+            continue
+        txt = _read(root, f)
+        if "__tablename__" not in txt and "ForeignKey(" not in txt:
+            continue
+        texts[f] = txt
+        cms = list(CLASS_RE.finditer(txt))
+        for i, m in enumerate(cms):
+            seg = txt[m.end(): cms[i + 1].start() if i + 1 < len(cms) else len(txt)]
+            tm = TABLE_RE.search(seg)
+            if tm:
+                classes.setdefault(m.group(1), f)
+                tables.setdefault(tm.group(1), f)
+    return tables, classes, texts
+
+
+def fixture_candidates(root, files, workable, item_text):
+    """[(priority, path, why)] model parents / named models / conftest files that a DB-fixture test needs (see the module docstring); [] when not needed."""
+    fileset = set(files)
+    tests = [w for w in workable if TEST_RE.search(w)]
+    for tok in PATH_RE.findall(item_text):
+        tok = tok[2:] if tok.startswith("./") else tok
+        if TEST_RE.search(tok) and tok.endswith(SRC_EXT) and tok not in tests:
+            tests.append(tok)
+    if not tests:
+        return []
+    tables, classes, mtexts = model_index(root, files)
+    loaded_models = [w for w in workable if w in mtexts]
+    test_txt = "\n".join(_read(root, t) for t in tests if t in fileset)
+    needs = bool(loaded_models) or bool(DB_HINT_RE.search(item_text)) or bool(DB_HINT_RE.search(test_txt))
+    if not needs:
+        return []
+    cands = []
+    seeds = list(loaded_models)
+    seen_p = set()
+    # 1) FK / relationship parents of every loaded model, transitively one more hop is NOT followed (bounded)
+    for mf in seeds:
+        txt = mtexts[mf]
+        for tgt in FK_RE.findall(txt):
+            tbl = tgt.rsplit(".", 1)[0].split(".")[-1]
+            pf = tables.get(tbl)
+            if pf and pf != mf and pf not in seen_p:
+                seen_p.add(pf); cands.append((1.5, pf, "fixture: defines table `%s`, ForeignKey parent of %s" % (tbl, mf)))
+        for cls in REL_RE.findall(txt):
+            pf = classes.get(cls)
+            if pf and pf != mf and pf not in seen_p:
+                seen_p.add(pf); cands.append((1.5, pf, "fixture: defines `%s`, relationship parent of %s" % (cls, mf)))
+    # 2) nearest + parent conftest.py of each test target
+    for t in tests:
+        d, found = os.path.dirname(t), 0
+        while found < 2:
+            cf = (d + "/conftest.py") if d else "conftest.py"
+            if cf in fileset and cf not in seen_p:
+                seen_p.add(cf); cands.append((1.6, cf, "fixture: %s conftest.py of %s" % ("nearest" if found == 0 else "parent", t))); found += 1
+            elif cf in fileset:
+                found += 1
+            if not d:
+                break
+            d = os.path.dirname(d)
+    # 3) model classes the item / test names (User, Bill, Workspace): at most 3, defined in exactly the indexed model files
+    named = 0
+    for w in CAPWORD_RE.findall(item_text + "\n" + test_txt):
+        pf = classes.get(w)
+        if pf and pf not in seen_p and pf not in workable and named < 3:
+            seen_p.add(pf); named += 1; cands.append((1.7, pf, "fixture: defines model `%s` named by the item/test" % w))
+    return cands
+
+
 def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total=120000, total_budget=160000):
     files = tracked_files(root)
     fileset = set(files)
@@ -278,6 +377,20 @@ def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total
         extras.append((path, why)); admitted.add(path); extra_bytes += sz
     for path, why in extras:
         out.append(("ADD", path, why)); workable.append(path)
+
+    # fixture grounding (Z2): AFTER the symbol extras so it never displaces them; shares the extra-file count and both byte budgets
+    if workable and os.environ.get("OVN_SCOUT_FIXTURES", "on") != "off":
+        added_bytes = 0
+        for _prio, path, why in sorted(fixture_candidates(root, files, workable, item_text)):
+            if path in workable or len(extras) >= max_extra or too_big_or_banned(path):
+                continue
+            sz = fsize(path)
+            if extra_bytes + sz > budget_left:
+                continue
+            extras.append((path, why)); extra_bytes += sz; added_bytes += sz
+            out.append(("ADD", path, why)); workable.append(path)
+        if added_bytes:
+            sys.stderr.write("--- scout-grounding fixtures: +%d file(s), +%d bytes (~%d tokens) ---\n" % (len([1 for r in out if r[0] == "ADD" and r[2].startswith("fixture:")]), added_bytes, added_bytes // 4))
 
     if planned and not workable:
         out.append(("UNGROUNDED", "every planned file is fictional/ambiguous (%s)" % ", ".join(planned[:4])))

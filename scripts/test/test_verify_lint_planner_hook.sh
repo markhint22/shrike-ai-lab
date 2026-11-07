@@ -55,7 +55,14 @@ U3='- [ ] [T1] scripts/q3.py — and this. VERIFY: `grep -n "_xx.call" scripts/q
 W1='- [ ] [T1] scripts/w1.py — add foo. VERIFY: `grep -n "foo" scripts/w1.py | wc -l`. (cat:python; multifile:no)'
 C1='- [ ] [T1] scripts/c1.py — add bar. VERIFY: `grep -q "bar" scripts/c1.py`. (cat:python; multifile:no)'
 
+Q1P='- [ ] [T1] scripts/q4.py — count it. VERIFY: `grep -q "_zq.call" scripts/q4.py | wc -l | grep -q 2`. (cat:python; multifile:no)'
+
 cases(){
+  # N (Z1 round 2): the filter's stderr line for a Z1 rewrite is KEPT in the planner log (it used to go to /dev/null)
+  mk_repo repoN; printf '%s\n%s\n%s\n' "$Q1P" "$C1" "$U2" > "$tmp/resp.txt"; : > "$WD/logs/ovn_planner.log"
+  OVN_VERIFY_LINT=shadow OVN_VERIFY_Z1_Q1=enforce run repoN
+  ok "N: the Q1 item was rewritten (Z1 acts even in shadow)" "grep -q -- '-eq 2' '$WD/backlog/repoN.md'"
+  ok "N: the planner log keeps the Z1 stderr line" "grep -q 'verify-lint(Z1): REWRITTEN' '$WD/logs/ovn_planner.log'"
   # H: enforce, 1 dropped + 1 rewritten + 1 clean -> 2 appended, the unfixable quarantined, n recounted to 2, roadmap [decomposed]
   mk_repo repoH; printf '%s\n%s\n%s\n' "$U1" "$W1" "$C1" > "$tmp/resp.txt"; : > "$WD/logs/ovn_planner.log"
   OVN_VERIFY_LINT=enforce run repoH
@@ -125,9 +132,10 @@ mut "all-dropped feature not marked [decomposed]" '      if [ "${n:-0}" -le 0 ];
         say "$r: verify-lint dropped' '      if [ "${n:-0}" -le 0 ]; then
         say "$r: verify-lint dropped'
 mut "lint timeout removed" 'timeout "${OVN_VERIFY_LINT_TIMEOUT:-30}" python3' 'python3'
-mut "failing lint python no longer falls through" '2>/dev/null)"; then
-      _vsl_n=' '2>/dev/null; true)"; then
+mut "failing lint python no longer falls through" '2>>"$LOG")"; then
+      _vsl_n=' '2>>"$LOG"; true)"; then
       _vsl_n='
 mut "hook runs even when OVN_VERIFY_LINT=off" 'if [ "${OVN_VERIFY_LINT:-shadow}" != off ] && [ -f "$_vsl_py" ]; then' 'if [ -f "$_vsl_py" ]; then'
+mut "planner discards the lint stderr again" '--dropped "$(dirname "$bl")/quarantine/$r.md" 2>>"$LOG")"' '--dropped "$(dirname "$bl")/quarantine/$r.md" 2>/dev/null)"'
 echo "test_verify_lint_planner_hook: $P passed, $F failed"
 [ "$F" -eq 0 ]

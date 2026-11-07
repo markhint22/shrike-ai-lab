@@ -24,6 +24,10 @@ MODEL="${OVN_MODEL:-qwen-dflash-27B}"
 MAX_PER_RUN="${OVN_RECOVER_MAX:-4}"      # decompose at most this many parked items per pass (cost control)
 REPOS="${*:-billwatch gitlark iptv_apps test-automation-agent xlite shrike-notify shrike-monitor}"
 LOG="logs/ovn_recover_parked.log"; say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
+# >>> z2 parent-hash (must stay byte-identical in effect to _lin_phash in scripts/ovn_item_guard.sh; test_z2_feature_budget.sh asserts it)
+# the guard's recovery-lineage key is md5 of the FULL normalised parent text; the header below cuts the text at 70 chars, so the hash travels in the header as ph:<md5>
+_ovn_parent_hash(){ printf '%s' "$(printf '%s' "$1" | sed -E 's/^- \[[ xX]\] //' | tr -s '[:space:]' ' ' | sed -E 's/^ //; s/ $//')" | md5sum | cut -d' ' -f1; }
+# <<< z2 parent-hash
 did=0
 
 for r in $REPOS; do
@@ -351,7 +355,7 @@ print(tmpl.replace("##TARGET_FILE_CONTENT##", note), end="")
   if [ -n "$lnno2" ]; then
     # pass items + header via FILES (never interpolate multi-line data into python source)
     items_file="$(mktemp)"; printf '%s\n' "$items" > "$items_file"
-    hdr_file="$(mktemp)"; printf '# --- recovered from a parked item [%s]: %s (review) ---\n' "$(date '+%F')" "${task:0:70}" > "$hdr_file"
+    hdr_file="$(mktemp)"; printf '# --- recovered from a parked item [%s ph:%s]: %s (review) ---\n' "$(date '+%F')" "$(_ovn_parent_hash "$task")" "${task:0:70}" > "$hdr_file"
     OVN_F="$wf" OVN_LN="$lnno2" OVN_ITEMS="$items_file" OVN_HDR="$hdr_file" python3 - <<'PY'
 import os
 f, ln = os.environ["OVN_F"], int(os.environ["OVN_LN"])

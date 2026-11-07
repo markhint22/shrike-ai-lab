@@ -13,6 +13,6 @@ new="$(git -C "$T" status --porcelain -uall 2>/dev/null | awk '{print $2}' | sor
 ok "CHARACTERISATION: plain porcelain collapses the new directory ('$old')" "$([ "$old" = "tests/ " ] && echo 1 || echo 0)"
 ok "-uall lists the individual new files ('$new')" "$([ "$new" = "tests/new_pkg/helper.py tests/new_pkg/test_x.py " ] && echo 1 || echo 0)"
 RUN="$Q/ovn_stage_runner.sh"
-ok "stage runner scope guard uses status --porcelain -uall (the _touched list)" "$(grep -q "_touched=.*status --porcelain -uall" "$RUN" && echo 1 || echo 0)"
+ok "stage runner scope guard uses status --porcelain -uall (the _touched list; Z2 round-2 reads it NUL-delimited via status --porcelain -z -uall)" "$({ grep -q "_touched=.*status --porcelain -uall" "$RUN" || grep -q 'git -C "\$1" status --porcelain -z -uall' "$RUN"; } && echo 1 || echo 0)"
 ok "stage runner empty-tree check uses -uall too" "$(grep -q 'git -C "\$wt" status --porcelain -uall 2>/dev/null)" ]; then' "$RUN" || grep -q 'status --porcelain -uall 2>/dev/null)" \]; then' "$RUN" && echo 1 || echo 0)"
 echo "  $P passed, $F failed"; [ "$F" = 0 ]

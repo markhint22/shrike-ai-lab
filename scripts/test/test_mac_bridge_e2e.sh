@@ -65,6 +65,12 @@ MAC_PUSH_TRIES=2 bridge enforce
 chk "push rejected every time: exit 1 and no success heartbeat" bash -c "[ $RC -eq 1 ] && [ ! -e '$OVN_MAC_STATE/hb/claudequeuebridge' ]"
 rm -f "$ORIGIN/hooks/pre-receive"
 
+echo "== Z4: interactive checkout on claude/feature = deliberate refusal, a healthy pass (no emergency, no failed job)"
+newq eleven; fresh; rm -f "$LIVE/.git/ovn_live_checkout"; git -C "$LIVE" checkout -q -B claude/feature; : > "$CALLS"
+( export PATH="$T/bin:$PATH" OVN_MAC_JOBS=shadow MAC_LIVE_DIR="$T/no-such-live" MAC_LIVE_ORIGIN="$ORIGIN" TMPDIR="$T"; bash "$LIVE/scripts/overnight-queue/claude_queue_bridge.sh" > "$T/out.txt" 2>&1 < /dev/null ); RC=$?
+chk "rc 0 (launchd last exit 0), success heartbeat written, deliberate refusal logged" bash -c "[ $RC -eq 0 ] && test -s '$OVN_MAC_STATE/hb/claudequeuebridge' && grep -q 'REFUSED (deliberate)' '$T/out.txt'"
+chk "no emergency to the relay; origin did not receive the queue docs" bash -c "! grep -q 'X-Ovn-Level: emergency' '$CALLS' && ! git --git-dir='$ORIGIN' show develop:CLAUDE_QUEUE_DONE.md | grep -q 'done item eleven'"
+
 echo "== mutants"
 MUT="$T/mut"; mkdir -p "$MUT"
 mutate "$QDIR/claude_queue_bridge.sh" "$MUT/m1.sh" 'commit_rc="${PIPESTATUS[0]}"' 'commit_rc=0' && {
@@ -78,5 +84,9 @@ mutate "$QDIR/claude_queue_bridge.sh" "$MUT/m2.sh" 'if [ -f "$COMMIT_HELPER" ]; 
 mutate "$QDIR/claude_queue_bridge.sh" "$MUT/m3.sh" 'SHARED="${SHARED_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"' 'SHARED="${SHARED_DIR:-$HOME/LocalProjects/shared}"' && {
   newq ten; fresh; mkdir -p "$T/home/LocalProjects/shared"; SD="" bridge enforce "$MUT/m3.sh"
   chk "M3 (hard-coded interactive default) is caught: the live checkout was not used (no push)" bash -c "! git --git-dir='$ORIGIN' show develop:CLAUDE_QUEUE_DONE.md | grep -q 'done item ten'"; }
+mutate "$QDIR/claude_queue_bridge.sh" "$MUT/m4.sh" '[ "$commit_rc" = 0 ] || [ "$commit_rc" = 6 ] || exit 1' '[ "$commit_rc" = 0 ] || exit 1' && {
+  newq twelve; fresh; rm -f "$LIVE/.git/ovn_live_checkout"; git -C "$LIVE" checkout -q -B claude/feature; rm -f "$OVN_MAC_STATE/hb/claudequeuebridge"
+  ( export PATH="$T/bin:$PATH" OVN_MAC_JOBS=shadow MAC_LIVE_DIR="$T/no-such-live" MAC_LIVE_ORIGIN="$ORIGIN" TMPDIR="$T" SHARED_DIR="$LIVE"; bash "$MUT/m4.sh" > "$T/out.txt" 2>&1 < /dev/null ); RC=$?
+  chk "M4 (rc 6 still exits 1) is caught: launchd would show a failed job" bash -c "[ $RC -eq 1 ]"; }
 
 echo; echo "mac_bridge_e2e: $((n-fails))/$n passed"; [ "$fails" = 0 ]

@@ -1027,6 +1027,7 @@ def _shape_lint_keep(keep, root, repo):
             d, l2, res = vsl.lint_item_line(l, root, md)
             if d != "ok":
                 flagged.append((l, d, res))
+                vsl.note_decision(l, d, res, repo, "work_supply")   # Z1 review-fix: quarantine row + stderr line on this path too
             if d != "dropped":
                 out.append((s, l2, v))
         vsl.log_flagged(flagged, repo, "work_supply", md, len(keep))

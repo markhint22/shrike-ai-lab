@@ -61,6 +61,126 @@ _elib="$(dirname "$0")/lib_bug_escalate.sh"; [ -f "$_elib" ] && . "$_elib"
 # portable in-place sed (GNU on the box, BSD on the Mac where the tests run): GNU sed accepts `-i` alone, BSD sed needs `-i ''`
 _ig_sedi() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
 
+# --- Feature-level token budget inheritance (2026-11-07, Z2; OVN_FEATURE_TOKEN_INHERIT=shadow|on|off, DEFAULT shadow) -----------------------------------------------------
+# A park resets the item's own token tally (rm $toksf below), and recovery decomposition then writes CHILD items with new text = new hash = a fresh TOKCAP. nov7 iptv discover rate-limit test:
+# the parent was AUTO-SKIPped at 206k tokens, then 3 recovery children each started from 0 and burned 737k tokens in total, still with no landing. So when an item is parked for 'tokens with no
+# landing', its spend goes into a per-LINEAGE ledger (state/item_fails/<id>.lineage.<key>.<file>.toks) and a later item of the SAME lineage starts its tally at that spend.
+# LINEAGE (review fix: the bare first-path-in-text key parked every UNRELATED later item on a hot file such as routers/streams.py): two items share a lineage only when they share
+#   (a) the same [feat:<tag>] (date stamp stripped, = ovn_item_hash identity) - the planner gives all children of one decomposed feature one tag, or
+#   (b) a recovery child (text carries 'recovery:decomposed') whose '# --- recovered from a parked item [date]: <parent text>' header names the parent: key = md5 of the FULL parent text (the header carries it as ph:<md5>).
+#   both combined with the file. No tag and no recovery header = no lineage = no inheritance and no ledger.
+# Ledger file: line 1 = cumulative lineage spend (own + what it inherited, never more than lineage items spent), line 2 = hashes of member items (landing of any member clears it).
+# The TTL (OVN_FEATURE_TOKEN_TTL_H, default 24) is FIXED from the first write: an inherited-only park (child parked purely by the inherited budget) never refreshes mtime and its new ledger
+# copies the mtime of the ledger it inherited from. A child never inherits more than FEATCAP. A landing of any item of the lineage (aider item-hash path or staged) clears the ledger.
+# Modes: off = disabled; shadow (default) = ledger kept and the would-be park is only logged ('would_park_inherited' in state/feature_budget_shadow.log); on = enforce.
+_lib_pn="$(dirname "$0")/lib_path_normalize.sh"; [ -f "$_lib_pn" ] && . "$_lib_pn"
+_lin_mode(){ case "${OVN_FEATURE_TOKEN_INHERIT:-shadow}" in off|OFF|0) echo off;; on|ON|1) echo on;; *) echo shadow;; esac; }
+_lin_txt(){ printf '%s' "$1" | sed -E 's/^- \[[ xX]\] //'; }
+_lin_filepart(){   # $1=item text -> sanitized (normalized) first path of the item's edit text, '_' when none
+  local lf
+  lf="$(printf '%s' "${1%%VERIFY:*}" | sed -E 's/^- \[[ xX]\] //' | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | head -1)"
+  if [ -n "$lf" ] && command -v ovn_normalize_path >/dev/null 2>&1; then lf="$(ovn_normalize_path "$repo" "$lf" | head -1)"; fi
+  [ -n "$lf" ] || lf=_
+  printf '%s' "$lf" | tr -c 'A-Za-z0-9_.-' '_'
+}
+# Z2 round-2: the txt key is the hash of the FULL normalised parent text (checkbox stripped, whitespace collapsed). The first 40 chars were just "[Tn] <path>" for most parents (~20% of parent keys on
+# the box were shared by 2-4 unrelated parents). The recovery header cuts the parent at 70 chars, so ovn_recover_parked.sh writes the full-text hash into the header ('[date ph:<md5>]', same
+# pipeline: _ovn_parent_hash there) and a recovery child reads it back. A legacy header without ph: has no lineage (no inheritance: the safe direction).
+_lin_norm(){ printf '%s' "$1" | sed -E 's/^- \[[ xX]\] //' | tr -s '[:space:]' ' ' | sed -E 's/^ //; s/ $//'; }
+_lin_phash(){ printf '%s' "$(_lin_norm "$1")" | md5sum | cut -d' ' -f1; }
+_lin_keys(){   # $1=item text $2=role: rec (the item's OWN lineage keys) | look (keys of the lineage a recovery child descends from + its own feat) $3=line number in $prog (optional) -> ledger paths, one per line
+  local t ft k fp hdr ln="${3:-}"; t="$(_lin_txt "$1")"; fp="$(_lin_filepart "$1")"
+  ft="$(printf '%s' "$t" | grep -oE '\[feat:[^]]+\]' | head -1)"
+  if [ -n "$ft" ]; then ft="$(printf '%s' "$ft" | sed -E 's/-[0-9]{8}-/-/; s/-[0-9]{6}-/-/')"; k="$(printf '%s' "$ft" | md5sum | cut -d' ' -f1)"; printf '%s/item_fails/%s.lineage.feat-%s.%s.toks\n' "$state" "$id" "$k" "$fp"; fi
+  if [ "$2" = rec ]; then
+    k="$(_lin_phash "$t")"; printf '%s/item_fails/%s.lineage.txt-%s.%s.toks\n' "$state" "$id" "$k" "$fp"
+  else
+    case "$t" in *"recovery:decomposed"*)
+      [ -n "$ln" ] || ln="$(grep -nF -- "$t" "$prog" 2>/dev/null | head -1 | cut -d: -f1)"
+      if [ -n "$ln" ]; then
+        hdr="$(awk -v n="$ln" 'NR<=n && /^# --- recovered from a parked item \[/ {h=$0} END{print h}' "$prog" 2>/dev/null)"
+        k="$(printf '%s' "$hdr" | sed -nE 's/^# --- recovered from a parked item \[[^]]* ph:([0-9a-f]{32})\].*$/\1/p')"
+        if [ -n "$k" ]; then printf '%s/item_fails/%s.lineage.txt-%s.%s.toks\n' "$state" "$id" "$k" "$fp"; fi
+      fi;;
+    esac
+  fi
+}
+_lin_val(){   # $1=ledger -> tokens (0 and the file removed when expired)
+  local f="$1" ttl="${OVN_FEATURE_TOKEN_TTL_H:-24}" v
+  [ -f "$f" ] || { echo 0; return 0; }
+  [ -n "$(find "$f" -mmin "-$((ttl * 60))" 2>/dev/null)" ] || { rm -f "$f" 2>/dev/null; echo 0; return 0; }
+  v="$(sed -n 1p "$f" 2>/dev/null)"; case "$v" in ''|*[!0-9]*) v=0;; esac; echo "$v"
+}
+_LIN_SRC=""
+_INH_V=0
+_lin_inherited(){   # $1=item text $2=line number -> sets _INH_V = tokens spent by earlier items of the SAME lineage parked for tokens (capped at FEATCAP; 0 when none/expired/off) and _LIN_SRC = the ledger it came from. NOT run in a subshell.
+  local f v best=0 cap="${OVN_FEATURE_TOKEN_CAP:-${TOKCAP:-200000}}"; _LIN_SRC=""; _INH_V=0
+  [ "$(_lin_mode)" != off ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    v="$(_lin_val "$f")"; if [ "$v" -gt "$best" ]; then best="$v"; _LIN_SRC="$f"; fi
+  done < <(_lin_keys "$1" look "${2:-}")
+  [ "$best" -gt "$cap" ] && best="$cap"
+  _INH_V="$best"
+}
+_lin_write(){   # $1=ledger $2=tokens $3=member hash $4=mtime reference file (optional: copy its mtime instead of refreshing)
+  local f="$1" members="" tref=""
+  [ -f "$f" ] && members="$(sed -n 2p "$f" 2>/dev/null)"
+  case " $members " in *" $3 "*) ;; *) members="$members $3";; esac
+  if [ -n "${4:-}" ] && [ -f "$4" ]; then tref="$f.mtref"; touch -r "$4" "$tref" 2>/dev/null || tref=""; fi
+  printf '%s\n%s\n' "$2" "${members# }" > "$f" 2>/dev/null
+  [ -n "$tref" ] && { touch -r "$tref" "$f" 2>/dev/null; rm -f "${f:?}.mtref"; }
+  return 0
+}
+_lin_record(){   # $1=item text $2=line $3=tokens (own + inherited) $4=item hash $5=refresh (1 = own-cap park, 0 = inherited-only park: mtime never refreshed)
+  local f ref=""
+  [ "$(_lin_mode)" != off ] || return 0
+  [ "$5" = 0 ] && ref="${_LIN_SRC:-}"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ "$5" = 0 ]; then
+      if [ -f "$f" ]; then ref="$f"; fi          # an existing ledger keeps its mtime
+      [ -n "$ref" ] || continue                   # nothing to anchor the expiry to: write nothing
+      _lin_write "$f" "$3" "$4" "$ref"
+    else
+      _lin_write "$f" "$3" "$4"
+    fi
+  done < <(_lin_keys "$1" rec "${2:-}")
+  return 0
+}
+_lin_member(){   # $1=ledger (the one this item inherited from) $2=item hash: remember the item so ITS landing clears the ledger; mtime preserved
+  [ -n "$1" ] && [ -f "$1" ] && _lin_write "$1" "$(_lin_val "$1")" "$2" "$1"
+  return 0
+}
+_lin_clear_text(){   # $1=item text of a landed item -> remove every ledger of its lineage
+  local f
+  while IFS= read -r f; do [ -n "$f" ] && rm -f "$f" 2>/dev/null; done < <( { _lin_keys "$1" rec; _lin_keys "$1" look; } 2>/dev/null )
+}
+_lin_clear_hash(){   # $1=hash of a landed item (aider item-hash marker) -> remove ledgers named for it (feat lineage) or listing it as a member
+  local f
+  rm -f "$state/item_fails/${id}.lineage.feat-${1}."*.toks 2>/dev/null
+  for f in "$state/item_fails/${id}.lineage."*.toks; do
+    [ -f "$f" ] || continue
+    case " $(sed -n 2p "$f" 2>/dev/null) " in *" $1 "*) rm -f "$f" 2>/dev/null;; esac
+  done
+}
+_lin_clear_landed_texts(){   # $1=space-separated landed item hashes -> clear the lineage ledgers of the checked-off recovery-child/feat lines with those hashes (only when a ledger exists; newest 400 lines)
+  local _hs="$1" _ln _hh
+  [ -n "${_hs// /}" ] || return 0
+  ls "$state/item_fails/${id}.lineage."*.toks >/dev/null 2>&1 || return 0
+  command -v ovn_item_hash >/dev/null 2>&1 || return 0
+  while IFS= read -r _ln; do
+    [ -n "$_ln" ] || continue
+    _hh="$(ovn_item_hash "$_ln")"
+    case " $_hs " in *" $_hh "*) _lin_clear_text "$_ln";; esac
+  done < <(grep -aE '^- \[[xX]\] .*(recovery:decomposed|\[feat:)' "$prog" 2>/dev/null | tail -n 400)
+  return 0
+}
+_lin_shadow(){   # $1=toks $2=inherited $3=hash $4=cap
+  printf '%s %s hash=%s would_park_inherited own=%s inherited=%s cap=%s src=%s\n' "$(date '+%F %T')" "$id" "$3" "$1" "$2" "$4" "$(basename "${_LIN_SRC:-?}")" >> "$state/feature_budget_shadow.log" 2>/dev/null
+  echo "feature-budget (shadow): would park $3 on inherited budget ($1 own + $2 inherited >= $4)"
+}
+
 # --- Credit-refusal park (2026-10-09, harness-credit-integrity item 6) ---------------------------------------------------------------------------
 # lib_auto_credit.sh bumps state/credit_refused/<repo>.<item hash> ("<count>\n<reason>\n<item line>") whenever a green commit touched an item's OWN file but the credit was
 # refused (placeholder / no VERIFY clause / unsafe VERIFY / VERIFY failed). The cycle still pushes, so the item stays open and is re-faced. At OVN_REFUSED_PARK_AT
@@ -143,6 +263,30 @@ case "$status" in
               "$state/item_fails/${id}.${_ih}.lastfail" "$state/item_fails/${id}.${_ih}.ungrounded" "$state/item_fails/${id}.${_ih}.attempts24" 2>/dev/null
         printf '0' > "$state/item_fails/${id}.${_ih}.indet" 2>/dev/null
       done < <(grep -ohE 'indet-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
+    fi
+    # Z3 B6 (2026-11-07): per-item LANDING cap. An item that lands >= OVN_Z3_LANDING_CAP_N (3) times in 24h without closing is the monitor-console 7x / xlite save-codec 7x churn.
+    # OVN_Z3_LANDING_CAP=off|shadow|enforce (default shadow: journal to state/landing_gates_shadow.log). Staged landings only (they name the item in the task log). Fail-open.
+    if [ -n "$task_log" ] && [ -f "$task_log" ] && [ -f "$(dirname "$0")/lib_landing_gates.sh" ]; then
+      _z3h="$(grep -aoE 'stage-item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | tail -1 | awk '{print $2}')"
+      _z3t="$(grep -a '^stage-item-line ' "$task_log" 2>/dev/null | tail -1 | sed 's/^stage-item-line //')"
+      # keyed on the whole item LINE (sibling items of one [feat:] tag share $_z3h and legitimately land many times); falls back to the feat-level hash only when md5sum is missing
+      _z3lh=""; command -v ovn_item_line_hash >/dev/null 2>&1 && [ -n "$_z3t" ] && _z3lh="$(ovn_item_line_hash "$_z3t" 2>/dev/null)"
+      if [ -n "${_z3lh:-$_z3h}" ]; then
+        # shellcheck source=lib_landing_gates.sh
+        . "$(dirname "$0")/lib_landing_gates.sh" 2>/dev/null && z3_landing_cap "$state" "$repo" "${_z3lh:-$_z3h}" "$_z3t" "$id" 0 || true   # pending=0: record_outcome already wrote this landing's row; stdout (PARKED n) + stderr notice reach the cycle log like the sibling guards
+      fi
+    fi
+    # Z2: ANY landing (aider item-hash path above or staged) of an item of a lineage clears that lineage's ledger
+    if [ -n "$task_log" ] && [ -f "$task_log" ]; then
+      _zhs=""
+      while IFS= read -r _zh; do [ -n "$_zh" ] && { _lin_clear_hash "$_zh"; _zhs="$_zhs $_zh"; }; done < <(grep -ohE '(item-hash|indet-hash) [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
+      # round-2: a recovery child that landed first try never failed, so it is in no ledger's member list; resolve its text from the progress file (hash -> checked-off line) and clear its lineage by text
+      _lin_clear_landed_texts "$_zhs"
+    fi
+    # Z2: a staged landing of an item of a lineage clears that lineage's inherited-token ledger (stage-item-line = the item the runner worked)
+    if [ -n "$task_log" ] && [ -f "$task_log" ]; then
+      _sl_line="$(grep -a '^stage-item-line ' "$task_log" 2>/dev/null | tail -1 | sed 's/^stage-item-line //')"
+      if [ -n "$_sl_line" ]; then _lin_clear_text "$_sl_line"; fi
     fi
     # 2026-10-02 (bugs-first): the higher-tier staged runner checks its items off itself and emits no item-hash marker (KNOWN GAP above), so a
     # landed step of a manual bug's brief would leave that bug's attempt counter standing and the NEXT step would inherit it. While a manual bug
@@ -257,6 +401,9 @@ fi
 countf="$state/item_fails/${id}.${h}.count"; toksf="$state/item_fails/${id}.${h}.toks"
 ncountf="$state/item_fails/${id}.${h}.noopcount"; ntoksf="$state/item_fails/${id}.${h}.nooptoks"
 lastfailf="$state/item_fails/${id}.${h}.lastfail"
+
+FEATCAP="${OVN_FEATURE_TOKEN_CAP:-$TOKCAP}"
+_lmode="$(_lin_mode)"; _lin_inherited "$text" "$lineno"; _inh="$_INH_V"; _inh_src="$_LIN_SRC"; [ "$_inh" -gt 0 ] && _lin_member "$_inh_src" "$h"
 
 # --- Repeat circuit-breaker (2026-10-02, harness Y1) ---------------------------------------------------------
 # The SAME failing test-id set on N=2 (OVN_REPEAT_BREAKER_N) consecutive attempts of the same item is a deterministic failure, not bad luck: more
@@ -558,8 +705,11 @@ if [ "$_ig_fixup_fail" = 0 ] && [[ "$status" == no-op* || "$status" == "<none>"*
   # 2026-10-13 (intake package, xlite night F5): the no-op park once fired on the 10th ALREADY-DONE row, not the 5th, and the per-hash counter files were gone so the miscount could not be
   # explained. One line per no-op (item id, hash, counter, tokens, caps, status) makes the next one diagnosable. Best effort, never blocks the guard.
   printf '%s id=%s hash=%s nc=%s/%s ntoks=%s/%s status=%s\n' "$(date '+%F %T')" "$id" "$h" "$nc" "$NCAP" "$ntoks" "$TOKCAP" "$status" >> "$state/item_noop_counter.log" 2>/dev/null || true
-  if [ "$nc" -ge "$NCAP" ] || [ "$ntoks" -ge "$TOKCAP" ]; then
+  _ftrip=0; [ "$_inh" -gt 0 ] && [ $((ntoks + _inh)) -ge "$FEATCAP" ] && { if [ "$_lmode" = on ]; then _ftrip=1; elif [ "$nc" -lt "$NCAP" ] && [ "$ntoks" -lt "$TOKCAP" ]; then _lin_shadow "$ntoks" "$_inh" "$h" "$FEATCAP"; fi; }
+  if [ "$nc" -ge "$NCAP" ] || [ "$ntoks" -ge "$TOKCAP" ] || [ "$_ftrip" = 1 ]; then
     trigger="${NCAP} no-op cycles"; [ "$ntoks" -ge "$TOKCAP" ] && [ "$nc" -lt "$NCAP" ] && trigger="${ntoks} tokens with no landing (only ${nc}/${NCAP} cycles — caught by spend, not attempt count)"
+    if [ "$_ftrip" = 1 ] && [ "$ntoks" -lt "$TOKCAP" ] && [ "$nc" -lt "$NCAP" ]; then trigger="$((ntoks + _inh)) tokens with no landing (feature budget: ${_inh} inherited from an earlier item of the same feature lineage parked for tokens)"; fi
+    if [ "$ntoks" -ge "$TOKCAP" ]; then _lin_record "$text" "$lineno" $((ntoks + _inh)) "$h" 1; elif [ "$_ftrip" = 1 ]; then _lin_record "$text" "$lineno" $((ntoks + _inh)) "$h" 0; fi
     branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
     # AUTO-SKIP is in the runner's doable-exclude grep, so this drops the item
     # from rotation while staying visible (unchecked) for a human/Claude to
@@ -583,8 +733,11 @@ toks=$(( $(cat "$toksf" 2>/dev/null || echo 0) + cur_toks ))
 printf '%s' "$c" > "$countf"
 printf '%s' "$toks" > "$toksf"
 
-if [ "$c" -ge "$CAP" ] || [ "$toks" -ge "$TOKCAP" ]; then
+_ftrip=0; [ "$_inh" -gt 0 ] && [ $((toks + _inh)) -ge "$FEATCAP" ] && { if [ "$_lmode" = on ]; then _ftrip=1; elif [ "$c" -lt "$CAP" ] && [ "$toks" -lt "$TOKCAP" ]; then _lin_shadow "$toks" "$_inh" "$h" "$FEATCAP"; fi; }
+if [ "$c" -ge "$CAP" ] || [ "$toks" -ge "$TOKCAP" ] || [ "$_ftrip" = 1 ]; then
   trigger="${CAP} failed-to-land cycles"; [ "$toks" -ge "$TOKCAP" ] && [ "$c" -lt "$CAP" ] && trigger="${toks} tokens with no landing (only ${c}/${CAP} cycles — caught by spend, not attempt count)"
+  if [ "$_ftrip" = 1 ] && [ "$toks" -lt "$TOKCAP" ] && [ "$c" -lt "$CAP" ]; then trigger="$((toks + _inh)) tokens with no landing (feature budget: ${_inh} inherited from an earlier item of the same feature lineage parked for tokens)"; fi
+  if [ "$toks" -ge "$TOKCAP" ]; then _lin_record "$text" "$lineno" $((toks + _inh)) "$h" 1; elif [ "$_ftrip" = 1 ]; then _lin_record "$text" "$lineno" $((toks + _inh)) "$h" 0; fi
   branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
   # tag the item so the model skips it next cycle
   _ig_sedi "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP after ${trigger} — kept reverting (already-done, too hard for the 27B, or a sibling-file gate fail); review — NOT necessarily human-only] #" "$prog"

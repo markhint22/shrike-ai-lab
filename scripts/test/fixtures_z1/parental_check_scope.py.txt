@@ -1,0 +1,132 @@
+"""Placeholder - the implement step fills this in."""
+"""Tests for parental check scope: ensuring checks don't leak across users."""
+import pytest
+from fastapi.testclient import TestClient
+from app.models.user import User
+from app.models.stream import Stream
+from app.models.parental import ParentalSettings
+from app.database import get_db
+from app.main import app
+
+
+@pytest.fixture
+def setup_users_and_streams(db_session):
+    """Create two users, a stream for user2, and parental settings for user1 blocking 'Horror'."""
+    # Create User 1 (the one making the request)
+    user1 = User(
+        email="user1@example.com",
+        username="user1",
+        hashed_password="fake-hash-1"
+    )
+    db_session.add(user1)
+
+    # Create User 2 (owner of the external stream)
+    user2 = User(
+        email="user2@example.com",
+        username="user2",
+        hashed_password="fake-hash-2"
+    )
+    db_session.add(user2)
+    db_session.commit()
+    db_session.refresh(user1)
+    db_session.refresh(user2)
+
+    # Create a stream owned by User 2 with category "Horror"
+    stream = Stream(
+        user_id=user2.id,
+        name="External Horror Stream",
+        url="http://example.com/stream.m3u8",
+        category="Horror"
+    )
+    db_session.add(stream)
+    db_session.commit()
+    db_session.refresh(stream)
+
+    # Create parental settings for User 1, blocking "Horror"
+    settings = ParentalSettings(
+        user_id=user1.id,
+        restrictions_enabled=True,
+        blocked_categories=["Horror"]
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    return user1, stream
+
+
+def test_check_content_allowed_ignores_external_streams(authenticated_client, db_session, setup_users_and_streams):
+    """Verify that POST /api/parental/check returns allowed: true for a stream owned by a different user."""
+    user1, stream = setup_users_and_streams
+
+    # We need to ensure the authenticated client is actually User 1.
+    # The `authenticated_client` fixture registers "fixture-user@example.com".
+    # Our `setup_users_and_streams` creates "user1@example.com".
+    # This mismatch means the test as planned won't work directly with the standard fixture 
+    # unless we override the user or use a different approach.
+
+    # However, looking at the task: "sets up a user... blocks category... creates a stream owned by a different user".
+    # The `authenticated_client` is User A. We need User A to have the settings.
+    # So we should modify the fixture or the test to use the authenticated user's ID.
+
+    pass
+"""Tests for parental check scope: ensuring checks don't leak across users."""
+import pytest
+from app.models.user import User
+from app.models.stream import Stream
+from app.models.parental import ParentalSettings
+
+
+def test_check_content_allowed_ignores_external_streams(authenticated_client, db_session):
+    """
+    Verify that POST /api/parental/check returns allowed: true for a stream owned by a different user,
+    even if the category is blocked in the current user's parental settings.
+    """
+    # 1. Identify the authenticated user (User 1)
+    # The authenticated_client fixture logs in as "fixture-user@example.com"
+    user1 = db_session.query(User).filter(User.email == "fixture-user@example.com").first()
+    assert user1 is not None, "Authenticated user not found in DB"
+
+    # 2. Create a second user (User 2)
+    user2 = User(
+        email="user2@example.com",
+        username="user2",
+        hashed_password="fake-hash-2"
+    )
+    db_session.add(user2)
+    db_session.commit()
+    db_session.refresh(user2)
+
+    # 3. Create a stream owned by User 2 with category "Horror"
+    stream = Stream(
+        user_id=user2.id,
+        name="External Horror Stream",
+        url="http://example.com/stream.m3u8",
+        category="Horror"
+    )
+    db_session.add(stream)
+    db_session.commit()
+    db_session.refresh(stream)
+
+    # 4. Create parental settings for User 1, blocking "Horror"
+    settings = ParentalSettings(
+        user_id=user1.id,
+        restrictions_enabled=True,
+        blocked_categories=["Horror"]
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    # 5. Call the endpoint with the external stream's ID
+    response = authenticated_client.post(
+        "/api/parental/check",
+        json={"stream_id": stream.id}
+    )
+
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    data = response.json()
+
+    # The stream is owned by User 2, so User 1's category block on "Horror" 
+    # should not apply because the router only looks up streams owned by current_user.
+    assert data["allowed"] is True, f"Expected allowed: true, got {data}"
+    reason = data.get("reason") or ""
+    assert "Horror" not in reason, "Reason should not mention Horror for external stream"

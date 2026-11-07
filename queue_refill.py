@@ -140,6 +140,7 @@ def _shape_lint_item(l2, orig, repo_root, quarantined, flagged):
         if d == "ok":
             return l2
         flagged.append((l2, d, res))
+        _VSL.announce(l2, d, res, os.path.basename(os.path.abspath(repo_root)), "queue_refill")   # Z1 round 2: the stderr line on this path too
         if d == "dropped":
             quarantined.append((orig, "VL", ",".join(f["code"] for f in res["findings"])))
             return None

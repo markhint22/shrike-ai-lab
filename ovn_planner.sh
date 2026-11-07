@@ -328,9 +328,10 @@ PROMPT_END
   fi
   # 2026-10-18 (package D1): VERIFY SHAPE lint on the decomposed items (unsatisfiable grep -n|grep fn, short -A window, `| wc -l`, double cd prefix, wrong pytest root, billwatch_backend.app).
   # OVN_VERIFY_LINT=off|shadow|enforce (default shadow: log + alerts count only; enforce rewrites a mechanically fixable VERIFY or drops the item into backlog/quarantine/<repo>.md).
+  # Z1 round 2: the filter's stderr (`verify-lint(Z1): REWRITTEN|DROPPED ...`) is appended to the planner log instead of /dev/null.
   _vsl_py="$HOME/overnight-queue/scripts/ovn_verify_shape_lint.py"
   if [ "${OVN_VERIFY_LINT:-shadow}" != off ] && [ -f "$_vsl_py" ]; then
-    if _vsl_out="$(printf '%s\n' "$items" | timeout "${OVN_VERIFY_LINT_TIMEOUT:-30}" python3 "$_vsl_py" filter --tree "repos/$r" --repo "$r" --dropped "$(dirname "$bl")/quarantine/$r.md" 2>/dev/null)"; then
+    if _vsl_out="$(printf '%s\n' "$items" | timeout "${OVN_VERIFY_LINT_TIMEOUT:-30}" python3 "$_vsl_py" filter --tree "repos/$r" --repo "$r" --dropped "$(dirname "$bl")/quarantine/$r.md" 2>>"$LOG")"; then
       _vsl_n="$(printf '%s\n' "$_vsl_out" | grep -c '^- \[ \]')"
       if [ "${_vsl_n:-0}" -lt "${n:-0}" ] || [ "$_vsl_out" != "$items" ]; then
         say "$r: verify-lint (mode ${OVN_VERIFY_LINT:-shadow}) kept ${_vsl_n:-0} of ${n:-0} decomposed item(s)"

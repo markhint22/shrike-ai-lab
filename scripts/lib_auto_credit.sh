@@ -109,11 +109,21 @@ ovn_ac_has_real_diff() {
   [ "${add:-0}" -gt 0 ] || [ "${del:-0}" -gt 0 ]
 }
 
-# true when the file AT <after> is only the harness placeholder stub
+# true when the file AT <after> is only the harness placeholder stub.
+# 2026-11-07 (package Z1): used to be "the first 4000 bytes contain the placeholder text", which REFUSED credit for files that hold real tests plus a leftover placeholder docstring
+# (3 iptv landed-uncredited rows: test_bulk_action_limits.py is 577 bytes = the docstring on line 1 followed by real tests). Now: placeholder text present AND, once every line
+# carrying it is removed, no real content remains. Review-fix: for a TEST file (py, ts/js spec, gd, kt, swift) REAL = a non-skipped test function holding a real assertion (not `assert True`,
+# not pass-only, not skip-marked, not the vitest `describe.skip`+`it('placeholder')` stub, not junk assignments); other files: >= OVN_AC_PLACEHOLDER_REAL_LINES (default 3) substantive lines.
 ovn_ac_is_placeholder() {
-  local _head; _head="$(git show "$1:$2" 2>/dev/null | head -c 4000)"   # capture first: `| grep -q` under pipefail is flaky (SIGPIPE on the writer)
-  case "$_head" in *"$OVN_AC_PLACEHOLDER_TEXT"*) return 0 ;; esac
-  return 1
+  local _all _head _n
+  _all="$(git show "$1:$2" 2>/dev/null | head -c 200000)"   # capture first: `| grep -q` under pipefail is flaky (SIGPIPE on the writer)
+  _head="$(printf '%s' "$_all" | head -c 4000)"
+  case "$_head" in *"$OVN_AC_PLACEHOLDER_TEXT"*) ;; *) return 1 ;; esac
+  # Z1 review-fix: delegated to ovn_placeholder_scan.py (markers stripped FIRST; test files need a non-skipped test fn with a real assertion; see its docstring).
+  # No python3 / scan error => treated as a placeholder (refuse credit; fail closed).
+  _n="$(printf '%s\n' "$_all" | python3 "$(dirname "${BASH_SOURCE[0]}")/ovn_placeholder_scan.py" "$2" "$OVN_AC_PLACEHOLDER_TEXT" 2>/dev/null)"
+  [ "$_n" = real ] && return 1
+  return 0
 }
 
 # CREDIT-REFUSAL COUNTER (2026-10-09, harness-credit-integrity item 6). A refusal that happens AFTER the path matched (placeholder stub / no VERIFY clause / VERIFY not

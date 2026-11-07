@@ -551,6 +551,9 @@ echo; echo "===== QA Phase 4: contract fuzz registry (billwatch/gitlark), tool i
 echo; echo "===== QA Phase 4: broken-deploy drill (fixtures; 4/4 classes would hold, CORS mutant) ====="; bash test_qa_deploy_drill.sh || rc=1
 echo; echo "===== QA Phase 4: soak probe + summary + shadow promote_gate read ====="; bash test_qa_soak_probe.sh || rc=1
 echo; echo "===== D1: VERIFY shape linter (shadow default; OVN_VERIFY_LINT=off|shadow|enforce; real box items, tree-confirmed rules, hooks, audit, mutants) ====="; bash test_verify_shape_lint.sh || rc=1
+echo; echo "===== Z1: VERIFY lint rules Q1 G1 P1 R1 (per-rule switches; Q1+P1 enforce by default, G1+R1 shadow; behavioural + policy + mutants) ====="; bash test_z1_verify_lint.sh || rc=1
+echo; echo "===== Z1: ovn_ac_is_placeholder keeps real tests + leftover docstring creditable (3 real iptv files + mutants) ====="; bash test_z1_placeholder.sh || rc=1
+echo; echo "===== Z1 round 2: retire_vague VERIFY-spelling/phrasing, ast placeholder scanner (tautology/hidden/dead/skip, per-language), Q1 egrep/rg/-m, mutation-supply lint, queue_refill stderr (with mutants) ====="; bash test_z1_r2.sh || rc=1
 echo; echo "===== D1 repair: ovn_planner.sh verify-lint hook (recount, [decomposed] marking, quarantine, fail-open fall-through + timeout; planner mutants) ====="; bash test_verify_lint_planner_hook.sh || rc=1
 echo; echo "===== qa tool health (P1 gate tool sentinel + installer; hermetic, with mutants) ====="; bash test_qa_tool_health.sh || rc=1
 echo; echo "===== P6a: limiter-order lint (ast; limiter above route = never enforced; shadow hook; mutant) ====="; bash test_limiter_order_lint.sh || rc=1
@@ -670,5 +673,13 @@ echo; echo "===== Y3 review: premeasure cleanup/atomic baseline/symmetry self-ch
 echo; echo "===== Y3: ops/tsc_baseline_reseed.sh dry-run/apply/backup ====="; bash test_tsc_baseline_reseed.sh || rc=1
 echo; echo "===== Y6 notify fixes 2: promote folded into the digest + weekly scorecard, Mac supervisor default ON, rolling-24h escalation, reconcile bullet repo+branch, bullet cooldowns, vercel recovery, suite-red fixture filter (16 mutants) ====="; bash test_y6_notify_fixes.sh || rc=1
 echo; echo "===== Y6 hygiene-stuck: age from the last merge, names branch + failing tests/conflict files, rolling-24h escalation, one low recovery (12 mutants) ====="; bash test_y6_hygiene_stuck.sh || rc=1
+echo; echo "===== Z4: hygiene-stuck recovery for the claude/feature lane (reads logs/branch_hygiene_claude.log; 1 mutant) ====="; bash test_z4_hygiene_stuck_claude_lane.sh || rc=1
+echo; echo "===== Z4: mac-native-build-check timestamps + first-error cause (2 mutants) ====="; bash test_z4_native_build_check.sh || rc=1
+echo; echo "===== Z4: suite cron lock poll (10 min x 90 min, cron mode only; 3 mutants) ====="; bash test_z4_suite_cron_poll.sh || rc=1
+echo; echo "===== Z3 landing gates: B0 editor-example-leak, B1 step-diff, B2 tone, B3 repair-route, B4 test-item scope, B5 dropped call, B6 landing cap - all SHADOW by default (23 mutants) ====="; bash test_z3_landing_gates.sh || rc=1
+echo; echo "===== Z3 wiring: gates in the real stage runner (shadow journals, enforce refuses, editor-format knob; box only) ====="; bash test_z3_stage_runner_wiring.sh || rc=1
+echo; echo "===== Z2: scout fixture grounding (FK parents + conftest + named models for DB tests; bounded; 7 mutants) ====="; bash test_z2_scout_fixtures.sh || rc=1
+echo; echo "===== Z2: feature-level token budget inheritance in ovn_item_guard.sh (same-lineage recovery/feat children only; shadow default; 11 mutants) ====="; bash test_z2_feature_budget.sh || rc=1
+echo; echo "===== Z2: stage runner junk scope tokens (bugfix) + timeout park + empty-file whole retry (shadow-first) ====="; bash test_z2_stage.sh || rc=1
 echo; finish || rc=1
 exit $rc

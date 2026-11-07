@@ -61,6 +61,86 @@ CREATE_INTENT_MARKER = re.compile(r"\(NEW\)|\bNEW\b")  # case-sensitive: the fle
 def _has_create_intent(body):
     return bool(CREATE_INTENT.search(body) or CREATE_INTENT_MARKER.search(body))
 
+# 2026-11-07 (package Z1): TEST-creation items. "`tests/x.py` - Add test verifying ..." names a test file that does not exist yet BY DEFINITION, but matched none of the
+# CREATE_INTENT phrases above (no "create", no "add a new") so the sanitizer retired it as dead-path (366 retired in 24h); the sibling implementation items kept a VERIFY pointing at the
+# never-created test file (pytest rc=4 "file or directory not found", landed-uncredited + ALREADY-DONE loops). A missing TEST-FILE path is therefore never dead when the item's own text
+# (before its VERIFY clause) says add/write/create ... test(s), or when a sibling item of the same feature creates that path (see process()).
+TEST_PATH = re.compile(
+    r"(?:^|/)(?:tests?|__tests__|spec|specs)/"
+    r"|(?:^|/)test_[^/]*$"
+    r"|(?:^|/)[^/]*_test\.[A-Za-z]+$"
+    r"|\.(?:test|spec)\.[A-Za-z]+$"
+)
+TEST_CODE_EXT = re.compile(r"\.(?:py|ts|tsx|js|jsx|mjs|kt|kts|swift|gd)$")
+
+def _is_test_path(p):
+    """a test FILE path: test-shaped AND a code extension AND not under docs/ (so `docs/spec/old.md` is a doc, never a test)"""
+    return bool(TEST_PATH.search(p)) and bool(TEST_CODE_EXT.search(p)) and not re.search(r"(?:^|/)docs?/", p)
+
+# review-fix (Z1 defect 2): the verb must DIRECTLY govern a test FILE/case as its object (only a few adjectives may sit between), so "Add a missing assertion to the existing test",
+# "add a docstring to the test module", "Adding retries makes the tests stable" and "Implement caching so tests run faster" are NOT test-creation. ("implement" dropped as a verb.)
+_TC_VERB = r"(?:add|adds|adding|write|writes|writing|create|creates|creating|author|introduce|introduces)"
+_TC_MOD = (r"(?:(?:a|an|the|new|missing|failing|regression|unit|pytest|vitest|jest|gut|integration|e2e|focused|small|basic|minimal|dedicated|additional|more|some|\d+"
+           r"|table[- ]driven|parametri[sz]ed|parameteri[sz]ed|edge[- ]cases?|boundary|happy[- ]path|negative|error[- ]path|async|snapshot|property[- ]based|component|api|end[- ]to[- ]end)\s+)*")
+_TC_OBJ = r"(?:test\s+files?|test[ -]cases?|test[ -]suite|test[ -]module|unit[ -]tests?|tests|test|spec\s+files?|specs?)\b"
+_TC_NOT = (r"(?!\s+(?:cases?|files?|suite|module)\b)"   # the object matched only a PREFIX of `test case(s)` / `test file`: let the full alternative decide (so the existing-guard below applies to it)
+           r"(?!\s+(?:plan|plans|docs?|documentation|runner|helpers?|fixtures?|run|runs|runtime|speed|stability|data|datas?|utils?|utilities|harness|infra|setup|config)\b)"
+           # review r2: `Add a test case to <file>'s existing TestX class` modifies an EXISTING test (the named file is expected to exist): up to three words between the preposition and `existing`
+           r"(?!\s+(?:to|in|into|for|of|on)\s+(?:[^\s]+\s+){0,3}?existing\b)")
+TEST_CREATE_INTENT = re.compile(r"\b" + _TC_VERB + r"\s+" + _TC_MOD + _TC_OBJ + _TC_NOT, re.I)
+FEAT_TAG = re.compile(r"\[feat:([^\]]+)\]")
+
+def _head(body):
+    """the item text before its VERIFY clause (the VERIFY names files to RUN, it is not the item's own statement of intent)"""
+    return re.split(r"VERIFY:", body, maxsplit=1)[0]
+
+def _head_slash_paths(head):
+    return [m.group(0) for m in SLASH_FILE.finditer(head)]
+
+def _test_creation_paths(body):
+    """missing-test paths this item CREATES: test-file paths named in the item's own head (not its VERIFY) when the head has a test-creation phrase (verb directly governing a test file/case)"""
+    head = _head(body)
+    if not TEST_CREATE_INTENT.search(head):
+        return set()
+    return set(p for p in _head_slash_paths(head) if _is_test_path(p))
+
+def _same_path(p, q):
+    """review r2 (defect A): two spellings of one path: equal, or one is a `/`-suffix of the other (`backend/tests/t.py` vs `tests/t.py`, which is what a `cd backend &&` VERIFY says)"""
+    p, q = p.lstrip("./"), q.lstrip("./")
+    return p == q or p.endswith("/" + q) or q.endswith("/" + p)
+
+def _excuse_spellings(paths, excused):
+    """the paths of `paths` that are excused directly or only differ from an excused path by an app-root / `cd <dir>` prefix"""
+    return set(p for p in paths if p in excused or any(_same_path(p, e) for e in excused))
+
+def _test_creation(body, missing):
+    """kept for callers/tests: True when some missing path is a test file this item creates"""
+    return bool(set(missing) & _test_creation_paths(body))
+
+# sibling "creates" a path only when the path is the object of the sibling's OWN create-intent head: the path directly follows a create verb / NEW marker, or is the item's FIRST
+# named path (its primary target, `<path> - Create ...`) while the head carries a create-intent phrase; or it is a test file the sibling's head test-creates (_test_creation_paths).
+# "Create new retry helper" does NOT make every other path the sibling names (dead or not) "created".
+_CREATE_VERB_PATH = re.compile(
+    r"(?:\bcreate[sd]?|\badd(?:s|ing)?(?:\s+(?:a|an|the))?\s+new|\bwrite(?:s)?(?:\s+a)?\s+new|\bscaffold|\bNEW|\bintroduce[s]?)\s+(?:file\s+|module\s+|component\s+)?`?(" + SLASH_FILE.pattern + r")"
+)
+_PATH_NEW_MARK = re.compile("(" + SLASH_FILE.pattern + r")`?\s*\(NEW\)")
+
+def _creation_paths(line):
+    """slash paths a still-open sibling item creates (see the rules above)"""
+    body = line[len("- [ ]"):]
+    head = _head(body)
+    if SKIP.search(body):
+        return set()
+    out = set(_test_creation_paths(body))
+    paths = _head_slash_paths(head)
+    for m in _CREATE_VERB_PATH.finditer(head):
+        out.add(m.group(1))
+    for m in _PATH_NEW_MARK.finditer(head):
+        out.add(m.group(1))
+    if paths and _has_create_intent(head) and not out:
+        out.add(paths[0])
+    return out
+
 # 2026-09-17: many items (and, critically, RAW PYTEST OUTPUT quoted verbatim
 # into an item's text, e.g. "Failing: FAILED tests/test_broker.py::...") are
 # authored/emitted relative to an app subdirectory (backend/, app/, src/,
@@ -114,7 +194,8 @@ def _already_gone(body):
                 return False
     return True
 
-def classify(line):
+def classify(line, sibling_creates=None):
+    """sibling_creates: {feat_tag: {path,...}} built by process() from the OTHER open items; None = no sibling knowledge (single-line callers)"""
     body = line[len("- [ ]"):]
     if SKIP.search(body):
         return None
@@ -127,6 +208,16 @@ def classify(line):
         if _has_create_intent(body):
             return None  # create-new-file item: missing path is expected, not dead
         if not any(_path_exists(p) for p in slash_paths):
+            # Z1: paths this item legitimately names before they exist: the test file(s) it creates (head only), and paths a sibling item of the same feature creates.
+            # Anything else still missing (a dead non-test path listed beside a test path, docs/spec/*.md ...) keeps the item dead.
+            made = set(_test_creation_paths(body))
+            if sibling_creates:
+                m = FEAT_TAG.search(body)
+                if m:
+                    made |= sibling_creates.get(m.group(1), set())
+            excused = _excuse_spellings(slash_paths, made)
+            if not (set(slash_paths) - excused):
+                return None
             return "dead-path"
     return None  # keep
 
@@ -138,8 +229,21 @@ def process(path):
         return (0, 0)
     lines = open(path).read().splitlines()
     out, vague, dead, gone = [], [], [], []
-    for ln in lines:
-        cls = classify(ln) if ln.startswith("- [ ]") else None
+    # Z1: path -> creators among the OTHER open items of the same feature ([feat:] tag). Built per item below so an item never counts as its own sibling.
+    by_feat = {}
+    for i, ln in enumerate(lines):
+        if ln.startswith("- [ ]"):
+            m = FEAT_TAG.search(ln)
+            cp = _creation_paths(ln) if (m and classify(ln, None) is None) else set()   # a sibling that itself gets retired (vague/gone/dead) must not shield
+            if cp:
+                by_feat.setdefault(m.group(1), []).append((i, cp))
+    for i, ln in enumerate(lines):
+        sib = None
+        if ln.startswith("- [ ]"):
+            m = FEAT_TAG.search(ln)
+            if m and m.group(1) in by_feat:
+                sib = {m.group(1): set().union(*[cp for j, cp in by_feat[m.group(1)] if j != i])}
+        cls = classify(ln, sib) if ln.startswith("- [ ]") else None
         if cls == "vague":
             vague.append(ln[len("- [ ] "):])
         elif cls == "dead-path":

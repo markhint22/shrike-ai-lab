@@ -237,4 +237,27 @@ if mutant no-gap-warn 'if gap > int(os.environ.get("MAC_SUP_GAP_S", "3600")):' '
   chk "M11 (no supervisor gap warn) is caught" bash -c "[ \"$(marker supervisor_gap)\" = none ]"
 fi
 
+echo "== Z4: box-deadman false STALE (deployed script predates its heartbeat; launchd log is the only liveness evidence)"
+alt_fresh() { fresh; echo "com.t.e | 600 | $OVN_MAC_STATE/e.log | hb/e | critical,hbalt=$OVN_MAC_STATE/e.alt" >> "$MAN"; : > "$T/agents/com.t.e.plist"; table "com.t.a:-:0" "com.t.b:-:0" "com.t.c:-:0" "com.t.d:-:0" "com.t.e:-:0"; }
+setalt() { : > "$OVN_MAC_STATE/e.alt"; python3 -c 'import os,sys; os.utime(sys.argv[1], (int(sys.argv[2]), int(sys.argv[2])))' "$OVN_MAC_STATE/e.alt" "$1"; }
+alt_fresh; setalt $((NOW - 60)); : > "$CALLS"; run_h shadow
+chk "hbalt: no heartbeat file but the alt file is fresh -> ok (the job is healthy), no emergency" bash -c "[ \"$(jf com.t.e status)\" = ok ] && ! grep -q 'com.t.e STALE' '$OVN_MAC_STATE/alerts.log'"
+alt_fresh; setalt $((NOW - 5000)); run_h shadow
+chk "hbalt: alt file older than max_age -> still stale (a really dead job is still caught)" bash -c "[ \"$(jf com.t.e status)\" = stale ]"
+alt_fresh; setalt $((NOW - 60)); hb e 5000; run_h shadow
+chk "hbalt: an existing heartbeat file wins over the alt file (stale hb stays stale)" bash -c "[ \"$(jf com.t.e status)\" = stale ]"
+alt_fresh; rm -f "$OVN_MAC_STATE/e.alt"; run_h shadow; run_h shadow 3600
+chk "hbalt: neither file exists -> still the 'no success heartbeat ever recorded' stale" bash -c "[ \"$(jf com.t.e status)\" = stale ] && python3 -c 'import json; d=json.load(open(\"$OVN_MAC_STATE/health.json\")); print([j[\"detail\"] for j in d[\"jobs\"] if j[\"label\"]==\"com.t.e\"][0])' | grep -q 'no success heartbeat ever'"
+python3 - "$MF_SCRIPTS" > "$T/dm.txt" 2>&1 <<'PYEOF'
+import os, sys, importlib.util
+spec = importlib.util.spec_from_file_location("hp", os.path.join(sys.argv[1], "mac_jobs_health.py")); hp = importlib.util.module_from_spec(spec); spec.loader.exec_module(hp)
+j = [x for x in hp.parse_manifest(os.path.join(sys.argv[1], "mac_jobs.manifest")) if x["label"] == "com.shrike.box-deadman"][0]
+print("hbalt=%s" % j["hbalt"]); sys.exit(0 if j["hbalt"] and j["hbalt"].endswith("box-deadman.launchd.log") else 1)
+PYEOF
+ok "real manifest: box-deadman carries hbalt= the launchd log the installed plist really writes ($(tail -1 "$T/dm.txt"))" $?
+if mutant hbalt-ignored '    if hb is None and job.get("hbalt"):' '    if False:'; then
+  alt_fresh; setalt $((NOW - 60)); run_h shadow 0 "$MUT/mac_jobs_health.py"
+  chk "M12 (hbalt ignored) is caught: the healthy job is no longer ok (pending, then stale)" bash -c "[ \"$(jf com.t.e status)\" != ok ]"
+fi
+
 echo; echo "mac_jobs_health: $((n-fails))/$n passed"; [ "$fails" = 0 ]

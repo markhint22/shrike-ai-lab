@@ -1,0 +1,19 @@
+"""Placeholder - the implement step fills this in."""
+"""Tests for bulk action limits."""
+import pytest
+
+
+def test_bulk_action_max_stream_ids(authenticated_client):
+    """Test that bulk actions with more than 1000 stream IDs are rejected with 422."""
+    # Create a list of 1001 stream IDs (exceeds the max_length=1000 limit)
+    stream_ids = list(range(1, 1002))
+
+    response = authenticated_client.post(
+        "/api/streams/bulk",
+        json={
+            "stream_ids": stream_ids,
+            "action": "delete"
+        }
+    )
+
+    assert response.status_code == 422
