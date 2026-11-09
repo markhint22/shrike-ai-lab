@@ -428,4 +428,7 @@ Verified live against the real repo (not just the scratchpad snapshot). Rounds 1
 - [ ] [P2] [decomposed] Test `approve_visual_diff` state transition — Add unit tests for `backend/app/routers/visual_diffs.py:143` (`approve_visual_diff`) to verify that approving a diff updates its status correctly and prevents re-approval; ensure the test asserts the database state change and API response {cat: backend; size: S; multifile: no; research: none}
 
 ## Local research 2026-11-09 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 14 pieces of verified code evidence - Claude research was unavailable; review)
-- [ ] [P2] [ready] Test webhook CRUD endpoints — Add unit tests for `list_webhooks`, `get_webhook`, and `update_webhook` in `backend/app/routers/webhooks.py:127,156,175` to verify listing order, retrieval by ID, and update persistence {cat: test; size: M; multifile: no; research: none}
+- [ ] [P2] [decomposed] Test webhook CRUD endpoints — Add unit tests for `list_webhooks`, `get_webhook`, and `update_webhook` in `backend/app/routers/webhooks.py:127,156,175` to verify listing order, retrieval by ID, and update persistence {cat: test; size: M; multifile: no; research: none}
+
+## Local research 2026-11-09 (ovn_local_research.py; 1 item(s) drafted by the local 27B from 8 pieces of verified code evidence - Claude research was unavailable; review)
+- [ ] [P2] [ready] Test `switch_org` context switching logic — Add unit tests for `backend/app/routers/orgs.py:150` (`switch_org`) to verify that the active organization context is correctly updated in the session or user state and that invalid org IDs are rejected with 404, preventing silent context drift. {cat: backend; size: S; multifile: no; research: none}
