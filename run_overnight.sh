@@ -121,6 +121,7 @@ STATE_DIR="$SCRIPT_DIR/state"
 # 2026-09-28: shared "which item did this cycle actually work on" resolver — see
 # scripts/lib_item_select.sh for the full root-cause writeup. record_outcome() below uses
 # this instead of its own independent top-of-file re-grep.
+type ovn_hto >/dev/null 2>&1 || . "$SCRIPT_DIR/scripts/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; ovn_hto_restore_file(){ :; }; ovn_hto_git_recover(){ :; }; ovn_hto_snapshot_untracked(){ :; }; ovn_hto_sentinel(){ :; }; ovn_hto_recover_done(){ :; }; }   # helper wall-clock cap (hotfix-scout-hang)
 # shellcheck source=scripts/lib_item_select.sh
 source "$SCRIPT_DIR/scripts/lib_item_select.sh" 2>/dev/null || true
 # shellcheck source=scripts/lib_stage_credit.sh
@@ -414,7 +415,7 @@ record_outcome(){  # $1=id $2=repo $3=status $4=prompt $5=type $6=attempt $7=tas
   # pain points are visible + addressable. Only bother when it's not a clean land.
   local fail_reason=""
   if [ "$cls" != "landed" ] && [ -n "$tl" ] && [ -x "$SCRIPT_DIR/ovn_classify_fail.sh" ]; then
-    fail_reason="$("$SCRIPT_DIR/ovn_classify_fail.sh" "$tl" "$3" 2>/dev/null)"
+    fail_reason="$(ovn_hto 60 classify_fail "$SCRIPT_DIR/ovn_classify_fail.sh" "$tl" "$3" 2>/dev/null)"
     # 2026-10-21 (P4): the stage caller's own cause tag for a stage-unverified row (only written when OVN_STAGE_FAILTAG=on)
     if [ "${OVN_STAGE_FAILTAG-on}" = on ] && [ -s "$tl.stagefr" ]; then
       case "$3" in *"no-op(stage-unverified)"*) _sfr="$(head -1 "$tl.stagefr" 2>/dev/null | tr -cd 'a-z0-9-')"; [ -n "$_sfr" ] && fail_reason="$_sfr";; esac
@@ -1571,7 +1572,7 @@ STUB
     # every cycle (no-op(BLOCKED), the dominant no-op class). Deterministic;
     # runs BEFORE the scout picks an item. Commits so the retirement sticks.
     if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_retire_vague.py" ]; then
-      _RV="$(python3 "$SCRIPT_DIR/scripts/ovn_retire_vague.py" OVERNIGHT_PROGRESS.md 2>>"$task_log" | grep -E "retired [1-9]" || true)"
+      _RV="$(ovn_hto 60 retire_vague python3 "$SCRIPT_DIR/scripts/ovn_retire_vague.py" OVERNIGHT_PROGRESS.md 2>>"$task_log" | grep -E "retired [1-9]" || true)"
       if [ -n "$_RV" ] && ! git diff --quiet -- OVERNIGHT_PROGRESS.md 2>/dev/null; then
         echo "--- sanitizer: ${_RV} ---" >> "$task_log"
         git add OVERNIGHT_PROGRESS.md
@@ -1582,7 +1583,7 @@ STUB
     # Fold a "create migration" item into its model-column sibling (2026-10-02, harness Y1): the alembic autogen hook generates the migration in
     # the same step that edits the model, so a separate migration item can only fork the chain. See scripts/ovn_fold_migration_items.py.
     if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" ]; then
-      _FM="$(python3 "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" OVERNIGHT_PROGRESS.md "$PWD" "$(basename "$PWD")" 2>>"$task_log" | grep -E 'folded [1-9]' || true)"
+      _FM="$(ovn_hto 60 fold_migration python3 "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" OVERNIGHT_PROGRESS.md "$PWD" "$(basename "$PWD")" 2>>"$task_log" | grep -E 'folded [1-9]' || true)"
       if [ -n "$_FM" ] && ! git diff --quiet -- OVERNIGHT_PROGRESS.md 2>/dev/null; then
         echo "--- sanitizer: ${_FM} migration item(s) folded into the model item (autogen hook creates the migration) ---" >> "$task_log"
         git add OVERNIGHT_PROGRESS.md
@@ -1598,7 +1599,7 @@ STUB
     if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_generate_items.py" ]; then
       _DOABLE="$(grep -E '^- \[ \]' OVERNIGHT_PROGRESS.md 2>/dev/null | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|BLOCKED ITEM|\(retired-|\[CLAUDE\]' | wc -l | tr -d ' ')"
       if [ "${_DOABLE:-9}" -le 3 ]; then
-        _GEN="$(python3 "$SCRIPT_DIR/scripts/ovn_generate_items.py" . 12 2>>"$task_log")"
+        _GEN="$(ovn_hto 120 generate_items python3 "$SCRIPT_DIR/scripts/ovn_generate_items.py" . 12 2>>"$task_log")"
         if echo "$_GEN" | grep -qE 'GENERATED=[1-9]'; then
           echo "--- self-gen: $_GEN (repo low on work, deterministic top-up) ---" >> "$task_log"
           git add OVERNIGHT_PROGRESS.md
@@ -1759,7 +1760,7 @@ STUB
         # with an embedded target file + a cat: tag) without needing cycle_summary.log at all.
         _stage_item="$(printf '%s' "$_STAGE_JSONL" | xargs -r grep -m1 '"event":"decomposed"' | grep -oE '"item":"[^"]*"' | sed -E 's/^"item":"//; s/"$//')"
         _stage_file="$(printf '%s' "$_stage_item" | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}' | grep -vE '\.md$' | head -1)"
-        _stage_tag="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "${_stage_item:-$_stage_file}" 2>/dev/null || echo '{?}')"
+        _stage_tag="$(ovn_hto 60 classify python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "${_stage_item:-$_stage_file}" 2>/dev/null || echo '{?}')"
         # 2026-10-09 (harness-credit-integrity item 8): the stage runner picks ITS OWN item (not the top-of-file one record_outcome / ovn_item_guard.sh resolve),
         # so a stage cycle used to be billed to whatever item happened to be on top. Record which item the runner actually decomposed (full text from the journal,
         # JSON-decoded) as 'stage-item-hash <md5>' + 'stage-item-line <text>'; record_outcome() and ovn_item_guard.sh bill THAT item. OVN_STAGE_BILLING=off disables.
@@ -2006,7 +2007,7 @@ STUB
               echo "--- CREATE-EXISTS (shadow): line ${_ce_ln} is a Create item whose target ${_ce_path} already exists with its test function(s) - would short-circuit to ALREADY-DONE ---" >> "$task_log"
             else
               echo "--- CREATE-EXISTS: line ${_ce_ln} is a Create item whose target ${_ce_path} already exists with its test function(s) - ALREADY-DONE, no model call ---" >> "$task_log"
-              _ce_pg="$(python3 "$SCRIPT_DIR/scripts/ovn_path_gate.py" OVERNIGHT_PROGRESS.md "$_ce_ln" "$PWD" 2>/dev/null)"
+              _ce_pg="$(ovn_hto 60 path_gate python3 "$SCRIPT_DIR/scripts/ovn_path_gate.py" OVERNIGHT_PROGRESS.md "$_ce_ln" "$PWD" 2>/dev/null)"
               case "${_ce_pg%% *}" in
                 MISSING|STILL_EXISTS) echo "--- CREATE-EXISTS credit REFUSED (path gate: ${_ce_pg}) - left open ---" >> "$task_log"; echo "no-op(ALREADY-DONE)"; return ;;
               esac
@@ -2093,7 +2094,7 @@ STUB
             | grep -viE 'HUMAN-ONLY|AUTO-SKIP|HARD FILE BAN|\[CLAUDE\]' \
             | ovn_bug_first_order \
             | _ovn_so_slice_filter | _ovn_id_slice_filter \
-            | python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" head "$DOABLE_BUDGET" \
+            | ovn_hto 60 progress_slice python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" head "$DOABLE_BUDGET" \
             | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
           echo
           echo "## Recent history (older entries omitted to fit budget)"
@@ -2104,7 +2105,7 @@ STUB
           # byte-count cut but decodes with errors='ignore' so a boundary-split sequence is
           # dropped instead of raising - never changes output when the file was already
           # valid UTF-8 within budget.
-          python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" tail "$HIST_BUDGET" OVERNIGHT_PROGRESS.md \
+          ovn_hto 60 progress_slice python3 "$SCRIPT_DIR/scripts/ovn_progress_slice.py" tail "$HIST_BUDGET" OVERNIGHT_PROGRESS.md \
             | sed 's/OVERNIGHT_PROGRESS\.md/the overnight progress log/g'
         } > "$PROGRESS_TAIL_FILE"
         PROGRESS_READ_ARGS=(--read "$PROGRESS_TAIL_FILE")
@@ -2533,7 +2534,7 @@ PYEOF
     # lang_of() reads the extension directly and handles a bare path fine)
     # instead of an empty string.
     _CS_ITEM="${_CS_ITEM:-${_CS_PF:-$_CS_TOP}}"
-    _CS_TAG="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "$_CS_ITEM" 2>/dev/null || echo '{?}')"
+    _CS_TAG="$(ovn_hto 60 classify python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "$_CS_ITEM" 2>/dev/null || echo '{?}')"
     # 2026-09-18 FIX: top_item= always logged the STATIC top-of-OVERNIGHT_PROGRESS.md
     # backtick snippet (_CS_TOP), even for "ongoing-*" cycles that don't work items
     # from that queue at all - so it silently repeated the SAME label for many
@@ -2588,7 +2589,7 @@ PYEOF
           if [ -n "$_ad_ln" ]; then
             # 2026-09-30: same target-path sanity check as the any-verdict credit (scripts/ovn_path_gate.py): an "already done" claim for a
             # create/modify item whose target file does not exist (or a delete item whose target still exists) is refused, not credited.
-            _pg="$(python3 "$SCRIPT_DIR/scripts/ovn_path_gate.py" OVERNIGHT_PROGRESS.md "$_ad_ln" "$PWD" 2>/dev/null)"
+            _pg="$(ovn_hto 60 path_gate python3 "$SCRIPT_DIR/scripts/ovn_path_gate.py" OVERNIGHT_PROGRESS.md "$_ad_ln" "$PWD" 2>/dev/null)"
             case "${_pg%% *}" in
               MISSING|STILL_EXISTS) echo "--- scout ALREADY-DONE credit REFUSED at line ${_ad_ln} (path gate: ${_pg}) - left open ---" >> "$task_log"; continue ;;
             esac
@@ -2596,7 +2597,7 @@ PYEOF
             # asks for must exist in the target (scripts/ovn_already_done_gate.py). OVN_ALREADY_DONE_STRICT=shadow (default: log 'would be REFUSED' to state/already_done_gate_shadow.log, credit as before) | enforce | off.
             _adg_mode="${OVN_ALREADY_DONE_STRICT:-shadow}"
             if [ "$_adg_mode" != off ] && [ -f "$SCRIPT_DIR/scripts/ovn_already_done_gate.py" ]; then
-              _adg="$(python3 "$SCRIPT_DIR/scripts/ovn_already_done_gate.py" OVERNIGHT_PROGRESS.md "$_ad_ln" "$PWD" "$_df" 2>>"$task_log")"
+              _adg="$(ovn_hto 60 already_done_gate python3 "$SCRIPT_DIR/scripts/ovn_already_done_gate.py" OVERNIGHT_PROGRESS.md "$_ad_ln" "$PWD" "$_df" 2>>"$task_log")"
               if [ "${_adg%% *}" = REFUSE ]; then
                 echo "$(date -u +%FT%TZ) $(basename "$PWD") line ${_ad_ln} ${_adg}" >> "$SCRIPT_DIR/state/already_done_gate_shadow.log" 2>/dev/null
                 if [ "$_adg_mode" = enforce ]; then
@@ -2629,7 +2630,7 @@ PYEOF
       # reasoning. Run the credit helper against the scout log so such items get
       # checked off instead of clean-skipping forever.
       if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" ]; then
-        _SKC="$(bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
+        _SKC="$(ovn_hto "${OVN_CREDIT_HTO:-900}" credit_already_satisfied bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"; [ $? -eq 124 ] && ovn_hto_restore_file OVERNIGHT_PROGRESS.md   # killed mid-loop: drop its uncommitted ticks
         if echo "$_SKC" | grep -qE 'CREDITED=[1-9]'; then
           git add OVERNIGHT_PROGRESS.md
           if git commit -q -m "chore(queue): credit already-satisfied item (scout verdict path)" -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then   # 2026-09-30: was 2>> only - "nothing to commit" went to stdout and became the status string
@@ -2655,14 +2656,14 @@ PYEOF
       _sg_top=""; command -v ovn_resolve_top_item >/dev/null 2>&1 && _sg_top="$(ovn_resolve_top_item "." "$task_log" 2>/dev/null)"
       printf '%s\n%s\n' "${_sg_top#*:}" "$prompt" > "$_sg_item_f"
       _sg_out="$( { echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}"; echo "$OVN_SCOUT_FILES"; } | grep -v '^$' | sort -u \
-        | python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --scout-guard "$PWD" "${OVN_MAX_FILE_BYTES:-120000}" "$_sg_item_f" 2>>"$task_log")"
+        | ovn_hto 60 park_unworkable python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --scout-guard "$PWD" "${OVN_MAX_FILE_BYTES:-120000}" "$_sg_item_f" 2>>"$task_log")"
       rm -f "$_sg_item_f"
       # ...and the files ALREADY queued for aider: scan_for_new_files() ran right after the scout and loads every existing file named anywhere in the
       # scout reply (its echoed FILES: list included), alphabetically, BEFORE this guard - so a banned/oversize file in the reply is already in
       # FILE_ARGS. Same rules, drop-only (these were not "planned", so they never make the item unworkable).
       if [ "${#FILE_ARGS[@]}" -gt 0 ]; then
         _sg_out="${_sg_out}"$'\n'"$(printf '%s\n' "${FILE_ARGS[@]}" | grep -vxF -e '--file' | grep -v '^$' \
-          | python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --scout-guard "$PWD" "${OVN_MAX_FILE_BYTES:-120000}" /dev/null 2>>"$task_log" | grep '^DROP')"
+          | ovn_hto 60 park_unworkable python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --scout-guard "$PWD" "${OVN_MAX_FILE_BYTES:-120000}" /dev/null 2>>"$task_log" | grep '^DROP')"
       fi
       _sg_why=""
       while IFS=$'\t' read -r _sg_kind _sg_a _sg_b; do
@@ -2693,7 +2694,7 @@ PYEOF
           # the line ovn_item_guard.sh/record_outcome resolve for this cycle (scout-file match, else the top open line - the ongoing lanes are told
           # to work the top item, and in the xlite incident the planner's battle.gd is in NO item line, so a name-match requirement would never park it)
           _sg_ln="${_sg_top%%:*}"
-          if [ "$(python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --park-line OVERNIGHT_PROGRESS.md "$_sg_ln" "$_sg_why" 2>>"$task_log")" = "PARKED=1" ]; then
+          if [ "$(ovn_hto 60 park_unworkable python3 "$SCRIPT_DIR/ovn_park_unworkable.py" --park-line OVERNIGHT_PROGRESS.md "$_sg_ln" "$_sg_why" 2>>"$task_log")" = "PARKED=1" ]; then
             git add OVERNIGHT_PROGRESS.md
             if git commit -q -m "chore(queue): park unworkable item (scout planned a banned/oversize file)" >>"$task_log" 2>&1; then
               timeout 30 git push origin "$branch" --quiet 2>>"$task_log" \
@@ -2721,7 +2722,7 @@ PYEOF
       _sgr_item_f="$(mktemp 2>/dev/null || echo "/tmp/ovn_sgr_item.$$")"
       _sgr_top=""; command -v ovn_resolve_top_item >/dev/null 2>&1 && _sgr_top="$(ovn_resolve_top_item "." "$task_log" 2>/dev/null)"
       printf '%s\n%s\n' "${_sgr_top#*:}" "$prompt" > "$_sgr_item_f"
-      _sgr_out="$(python3 "$SCRIPT_DIR/ovn_scout_ground.py" "$PWD" "$task_log" "$_sgr_item_f" "${OVN_MAX_FILE_BYTES:-120000}" 2>>"$task_log")"
+      _sgr_out="$(ovn_hto 60 scout_ground python3 "$SCRIPT_DIR/ovn_scout_ground.py" "$PWD" "$task_log" "$_sgr_item_f" "${OVN_MAX_FILE_BYTES:-120000}" 2>>"$task_log")"
       rm -f "$_sgr_item_f"
       _sgr_ungrounded=""
       while IFS=$'\t' read -r _sgr_kind _sgr_a _sgr_b; do
@@ -3106,7 +3107,7 @@ $(ovn_udiff_nudge_text)"
       echo "--- implement-pass already-satisfied credit SKIPPED: the attempt log shows an API/context error (ContextWindowExceeded/BadRequest/API), so 'no edit' means the model never worked the item - nothing name-match credited ---" >> "$task_log"
     fi
     if [ "$_ac_apierr" = 0 ] && [ "$AFTER_SHA" = "$BEFORE_SHA" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" ]; then
-      _AC_OUT="$(bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
+      _AC_OUT="$(ovn_hto "${OVN_CREDIT_HTO:-900}" credit_already_satisfied bash "$SCRIPT_DIR/scripts/ovn_credit_already_satisfied.sh" "$task_log" OVERNIGHT_PROGRESS.md 2>>"$task_log")"; [ $? -eq 124 ] && ovn_hto_restore_file OVERNIGHT_PROGRESS.md   # killed mid-loop: drop its uncommitted ticks
       echo "$_AC_OUT" >> "$task_log"
       if echo "$_AC_OUT" | grep -qE 'CREDITED=[1-9]'; then
         git add OVERNIGHT_PROGRESS.md
@@ -3183,7 +3184,7 @@ $(ovn_udiff_nudge_text)"
     # order), rather than relying on the model's compliance. No-ops (exits
     # "unchanged", no commit) when there's nothing to merge.
     if [ "$AFTER_SHA" != "$BEFORE_SHA" ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
-      DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_progress_headers.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
+      DEDUPE_OUT="$(ovn_hto 60 dedupe_progress_headers python3 "$SCRIPT_DIR/dedupe_progress_headers.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
       if [ "$DEDUPE_OUT" != "unchanged" ]; then
         echo "--- OVERNIGHT_PROGRESS.md: ${DEDUPE_OUT} ---" >> "$task_log"
         git add OVERNIGHT_PROGRESS.md
@@ -3210,7 +3211,7 @@ $(ovn_udiff_nudge_text)"
       if [ -n "$CHANGED_GD_FILES" ]; then
         echo "$CHANGED_GD_FILES" | while IFS= read -r gd_file; do
           [ -f "$gd_file" ] || continue
-          GD_DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_gd_duplicate_functions.py" "$gd_file" 2>>"$task_log")"
+          GD_DEDUPE_OUT="$(ovn_hto 60 dedupe_gd python3 "$SCRIPT_DIR/dedupe_gd_duplicate_functions.py" "$gd_file" 2>>"$task_log")"
           if [ "$GD_DEDUPE_OUT" != "unchanged" ]; then
             echo "--- ${gd_file}: ${GD_DEDUPE_OUT} ---" >> "$task_log"
             git add "$gd_file"
@@ -3239,7 +3240,7 @@ $(ovn_udiff_nudge_text)"
       if [ -n "$CHANGED_PY_FILES" ]; then
         echo "$CHANGED_PY_FILES" | while IFS= read -r py_file; do
           [ -f "$py_file" ] || continue
-          PY_DEDUPE_OUT="$(python3 "$SCRIPT_DIR/dedupe_python_duplicate_defs.py" "$py_file" 2>>"$task_log")"
+          PY_DEDUPE_OUT="$(ovn_hto 60 dedupe_py python3 "$SCRIPT_DIR/dedupe_python_duplicate_defs.py" "$py_file" 2>>"$task_log")"
           if [ "$PY_DEDUPE_OUT" != "unchanged" ]; then
             echo "--- ${py_file}: ${PY_DEDUPE_OUT} ---" >> "$task_log"
             git add "$py_file"
@@ -3299,7 +3300,7 @@ $(ovn_udiff_nudge_text)"
       # detect which files matter.
       if [ -f "backend/scripts/export_openapi.py" ] && [ -f "docs/openapi.json" ] \
          && [ -x "backend/.venv/bin/python3" ]; then
-        ( cd backend && ./.venv/bin/python3 scripts/export_openapi.py ) >>"$task_log" 2>&1
+        ( cd backend && ovn_hto_open 120 export_openapi ./.venv/bin/python3 scripts/export_openapi.py ) >>"$task_log" 2>&1
         if ! git diff --quiet -- docs/openapi.json; then
           git add docs/openapi.json
           git commit -q -m "chore(contract): auto-regenerate openapi.json (deterministic, matches this cycle's commit)"
@@ -3405,7 +3406,7 @@ $(ovn_udiff_nudge_text)"
         AFTER_SHA="$(git rev-parse HEAD)"
       fi
       if [ -f "$SCRIPT_DIR/scripts/check_migrations.py" ]; then
-        _migcheck_out="$(OVN_MIG_BEFORE_SHA="$BEFORE_SHA" python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
+        _migcheck_out="$(OVN_MIG_BEFORE_SHA="$BEFORE_SHA" ovn_hto_open 120 check_migrations python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
         _migcheck_rc=$?
         printf '%s\n' "$_migcheck_out" >> "$task_log"
         if [ "$_migcheck_rc" -ne 0 ]; then
@@ -3435,7 +3436,7 @@ $(ovn_udiff_nudge_text)"
             if [ "$_migfix_after" != "$AFTER_SHA" ]; then
               AFTER_SHA="$_migfix_after"
               _ovn_land_sha="$AFTER_SHA"   # h13: the fix-up superseded the verified commit; the landing check must follow it
-              _migcheck_out="$(OVN_MIG_BEFORE_SHA="$BEFORE_SHA" python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
+              _migcheck_out="$(OVN_MIG_BEFORE_SHA="$BEFORE_SHA" ovn_hto_open 120 check_migrations python3 "$SCRIPT_DIR/scripts/check_migrations.py" "$(pwd)" 2>&1)"
               _migcheck_rc=$?
               printf '%s\n' "$_migcheck_out" >> "$task_log"
               echo "--- MIGRATION-SAFETY fix-up re-check: $([ "$_migcheck_rc" -eq 0 ] && echo ok || echo fail) ---" >> "$task_log"
@@ -3459,7 +3460,7 @@ $(ovn_udiff_nudge_text)"
       # (test-automation-agent 3114b2a edited 0001_baseline.py -> duplicate columns with 0002 -> migration tests red fleet-wide for 6 hygiene passes).
       # Default SHADOW (alert only). OVN_MIGRATION_IMMUTABLE=enforce reverts the cycle, =off disables. Fail-safe: script absent = no-op.
       if [ -f "$SCRIPT_DIR/scripts/check_applied_migration_immutable.py" ] && [ "${OVN_MIGRATION_IMMUTABLE:-shadow}" != "off" ]; then
-        _mimm_out="$(python3 "$SCRIPT_DIR/scripts/check_applied_migration_immutable.py" "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" 2>&1)"
+        _mimm_out="$(ovn_hto_open 120 migration_immutable python3 "$SCRIPT_DIR/scripts/check_applied_migration_immutable.py" "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" 2>&1)"
         _mimm_rc=$?
         if [ "$_mimm_rc" -ne 0 ]; then
           printf '%s\n' "$_mimm_out" >> "$task_log"
@@ -3478,7 +3479,7 @@ $(ovn_udiff_nudge_text)"
       # GHOST-TEST GATE (2026-10-18): a changed test_*.py outside every pytest collection root never runs (test-automation-agent: root tests/ vs
       # backend/pytest.ini; e5fc16b/ae277a2 credited on tests nothing collects). Default SHADOW (alert); OVN_GHOST_TEST_GATE=enforce reverts, =off disables.
       if [ -f "$SCRIPT_DIR/scripts/check_ghost_tests.py" ] && [ "${OVN_GHOST_TEST_GATE:-shadow}" != "off" ]; then
-        _ghost_out="$(python3 "$SCRIPT_DIR/scripts/check_ghost_tests.py" "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" 2>&1)"
+        _ghost_out="$(ovn_hto_open 120 ghost_tests python3 "$SCRIPT_DIR/scripts/check_ghost_tests.py" "$(pwd)" "$BEFORE_SHA" "$AFTER_SHA" 2>&1)"
         if [ $? -ne 0 ]; then
           printf '%s\n' "$_ghost_out" >> "$task_log"
           if [ "${OVN_GHOST_TEST_GATE:-shadow}" = "enforce" ]; then
@@ -3513,7 +3514,7 @@ $(ovn_udiff_nudge_text)"
       # prod deploy). Only runs when this cycle's diff touched a dependency file; infra failure = proceed.
       # Kill switch/shadow: OVN_DEP_GATE=off|shadow. Fail-safe: lib absent = no-op.
       if [ -f "$SCRIPT_DIR/scripts/lib_dep_import_check.py" ] && git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" 2>/dev/null | grep -Eq '(^|/)(requirements[^/]*\.txt|pyproject\.toml)$'; then
-        _depgate_out="$(python3 "$SCRIPT_DIR/scripts/lib_dep_import_check.py" gate --repo "$(pwd)" --before "$BEFORE_SHA" --after "$AFTER_SHA" 2>&1)"
+        _depgate_out="$(ovn_hto_open 120 dep_import_check python3 "$SCRIPT_DIR/scripts/lib_dep_import_check.py" gate --repo "$(pwd)" --before "$BEFORE_SHA" --after "$AFTER_SHA" 2>&1)"
         _depgate_rc=$?
         printf '%s\n' "$_depgate_out" >> "$task_log"
         if [ "$_depgate_rc" -ne 0 ]; then
@@ -3783,7 +3784,7 @@ ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (
       # gates above already handle structural breaks, where a quick patch is less likely
       # to help and riskier to attempt blind.
       if [ "$VERIFY_RESULT" = "fail" ] && [ -x "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" ]; then
-        _fixup_summary="$(bash "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" "$task_log" 2>/dev/null)"
+        _fixup_summary="$(ovn_hto 60 extract_failure bash "$SCRIPT_DIR/scripts/ovn_extract_failure.sh" "$task_log" 2>/dev/null)"
         if [ -n "$_fixup_summary" ]; then
           # 2026-09-26 fix: same exclusion as the BUILD-GATE fix-up above - see that
           # comment for the full incident (iptv_apps ContextWindowExceededError from
@@ -4007,7 +4008,7 @@ All files you need are already in the chat. You cannot run commands or call tool
       # The tiny doc commit rides the same push below (no extra push).
       if [ "$VERIFY_RESULT" != "fail" ] && [ "$_skip_credit" = 0 ] && [ -f "OVERNIGHT_PROGRESS.md" ]; then
         PROG_MSGS="$(git log --format=%B "${BEFORE_SHA}..${AFTER_SHA}")"
-        PROG_OUT="$(printf '%s' "$PROG_MSGS" | python3 "$SCRIPT_DIR/update_progress.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
+        PROG_OUT="$(printf '%s' "$PROG_MSGS" | ovn_hto 60 update_progress python3 "$SCRIPT_DIR/update_progress.py" OVERNIGHT_PROGRESS.md 2>>"$task_log")"
         if [ "$PROG_OUT" != "unchanged" ]; then
           echo "--- progress bookkeeping: ${PROG_OUT} ---" >> "$task_log"
           # 2026-10-09 (harness-credit-integrity item 7): a DONE: trailer ticks an item on the model's say-so; un-tick the ones whose own VERIFY FAILS (OVN_VERIFY_GATE_MODE)
@@ -4370,7 +4371,7 @@ coder_fast_prepass() {
     persist="$(jq -r ".[$i].persistent_branch // false" "$TASKS_FILE")"
     if [ "$persist" = "true" ] && [ "${OVN_CODER_INCLUDE_PERSISTENT:-0}" != "1" ]; then continue; fi
     prompt="$(jq -r ".[$i].prompt" "$TASKS_FILE")"
-    tag="$(python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "$prompt" 2>/dev/null || echo '')"
+    tag="$(ovn_hto 60 classify python3 "$SCRIPT_DIR/scripts/ovn_classify.py" --tag "$prompt" 2>/dev/null || echo '')"
     case "$tag" in *"·T1·"*|*"·T2·"*) idxs="${idxs} ${i}";; esac
   done
   local n; n="$(echo $idxs | wc -w)"
@@ -4515,7 +4516,7 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
           if [ -n "$_bn_key" ] && [ "$_bn_streak" -ge "${OVN_REPEAT_BREAKER_N:-2}" ]; then
             _bn_stop="repeat-breaker"
             log "best-of-N: item ${ID} stopped after attempt ${_btry}: the same failing test set repeated ${_bn_streak}x (deterministic, not luck)"
-            echo "--- repeat-breaker: same failing tests on ${_bn_streak} consecutive attempts of the same item: $(ovn_failing_ids "$TASK_LOG" | python3 "$SCRIPT_DIR/scripts/ovn_repeat_ids.py" filter "$(basename "${REPO:-.}")" "${STATE_DIR:-$SCRIPT_DIR/state}" "$_bn_h" 2>/dev/null | head -5 | tr '\n' ' ')---" >> "$TASK_LOG"
+            echo "--- repeat-breaker: same failing tests on ${_bn_streak} consecutive attempts of the same item: $(ovn_failing_ids "$TASK_LOG" | ovn_hto 60 repeat_ids python3 "$SCRIPT_DIR/scripts/ovn_repeat_ids.py" filter "$(basename "${REPO:-.}")" "${STATE_DIR:-$SCRIPT_DIR/state}" "$_bn_h" 2>/dev/null | head -5 | tr '\n' ' ')---" >> "$TASK_LOG"
             break
           fi
           if [ "$_btry" -ge "$_bn_eff" ]; then
@@ -4594,7 +4595,7 @@ else
   log "Run ${RUN_KEY} complete. Report: ${REPORT_FILE}"
 fi
 
-[ -x "$SCRIPT_DIR/cycle_notify.sh" ] && "$SCRIPT_DIR/cycle_notify.sh" "$REPORT_FILE" 2>/dev/null || true
+[ -x "$SCRIPT_DIR/cycle_notify.sh" ] && ovn_hto 60 cycle_notify "$SCRIPT_DIR/cycle_notify.sh" "$REPORT_FILE" 2>/dev/null || true
 
 # IDLE WAIT (2026-10-09, harness-credit-integrity item 11a): when EVERY lane this pass was skip(exhausted) there is nothing to do; exiting at once makes systemd restart the
 # unit immediately (restart spam). Release run.lock first (other lock users must not wait out the idle time; the supply child never inherits it), then wait up to

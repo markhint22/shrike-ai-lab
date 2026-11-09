@@ -4,10 +4,10 @@
   1. body_key: stable across checkbox / [CLAUDE] repo/ prefix / [feat:] tag / trailing (cat:..) metadata; different text = different key
   2. harvest ledger: a harvested line is never appended again even when the queue file is wiped; a re-tagged / re-metadata'd re-surfacing of a ticked or archived line is NOT harvested
      (the old 12-word+feat-tag signature missed it); an unrelated new line still is
-  3. done-check: default ON (enforce); `on` alias; a pure creation item whose named class/test is DEFINED in code is skipped + logged ONCE per (repo, line, tag, day); a creation item that also says
+  3. done-check: shadow by default (logs the would-skip; `enforce` skips), `on` = enforce alias; a pure creation item whose named class/test is DEFINED in code is skipped + logged ONCE per (repo, line, tag, day); a creation item that also says
      modify/replace is never judged done; markdown-only / queue-text-only mentions never count; mode off / unknown never enforce
   4. autoclose shadow dedupe survives a shifting line number; OVN_BRIDGE_AUTOCLOSE_REQUIRE_ITEM=on makes enforce close only the line that itself landed
-  5. bridge.sh wiring (default done-check on, ledger args); cron.txt header no longer says heartbeat/pingpong/forecast are NOT installed
+  5. bridge.sh wiring (done-check and ledger default to shadow, ledger args); cron.txt header no longer says heartbeat/pingpong/forecast are NOT installed
   6. MUTANTS: copies of the sources with one substitution each; at least one check must fail on every mutant
 Env Y2_ROOT points at a different copy of the overnight-queue tree (the mutant runner)."""
 import importlib.util
@@ -352,6 +352,15 @@ for i_, (a_, c_) in enumerate(R5_PAIRS):
 for i_, (a_, c_) in enumerate([("Handle NOTE: prefix in the parser", "Handle NOTE: prefix in the lexer"), ("Show the **DONE** badge when finished", "Show the **DONE** badge when approved"), ("Set DONE (see docs) when it ships", "Set DONE (see docs) when it fails"), ("Print \u2705 DONE for finished jobs", "Print \u2705 DONE for failed jobs")]):
     chk("R5 distinct keys, prose without a file path or closing token (extra pair %d)" % i_, KB("- [ ] " + a_) != KB("- [ ] " + c_), a_)
 chk("R5 all 39 probe pairs present", len(R5_PAIRS) == 39, len(R5_PAIRS))
+# Y2b: header-shaped weak tails (date / @ sha proof, no task prose after the header) still need the closing token before them AND no file path in the tail; the two gates were layered behind the Y2b header
+# shape check, so each gets its own pair (a mutant that drops only that gate must change a key)
+Y2B_GATE_PAIRS = [
+ ("Mark the job DONE (2026-01-01, r @ abc1234) - then purge queue", "Mark the job DONE (2026-01-01, r @ abc1234) - then flush cache"),      # letter right before DONE: no closing token
+ ("Wrap the call (see x) DONE (2026-01-01, r @ abc1234) - emit in a/x.py", "Wrap the call (see x) DONE (2026-01-01, r @ abc1234) - emit in b/y.py"),   # closing token, but the tail names a path
+]
+Y2B_GATE_PAIRS.append(("Call x)DONE (2026-01-01, r @ abc1234) - purge queue", "Call x)DONE (2026-01-01, r @ abc1234) - flush cache"))   # the marker is glued to the previous token: units start only at token starts
+for i_, (a_, c_) in enumerate(Y2B_GATE_PAIRS):
+    chk("Y2b gate pair %d: distinct keys" % i_, KB("- [ ] " + a_) != KB("- [ ] " + c_), a_)
 R5_BASE = "Add `def foo_bar` to src/a.py and wire it in src/b.py VERIFY: `pytest tests/test_a.py::test_x`"
 R5_CLOSED = [" (auto-closed 2026-11-05: [feat:T] landed, all 1 named test id(s) present on origin/develop; landing=item)", " (cat:impl; multifile:no)", " DONE (2026-11-05, repo @ abc1234)", " — DONE", " ✅ DONE",
              " **DONE** (2026-11-05)", " ALREADY DONE (verified 2026-11-05)", " <!-- closed 2026-11-05 by claude: done -->", " _(ALREADY-SATISFIED 2026-11-05: x)_", " (retired 2026-11-05: resolved)",
@@ -472,10 +481,10 @@ MUTANTS = [
     ("N1 html comment cut needs no closed/date opener", "claude_queue_bridge.py", '<!--\\s*(?:(?:closed|', '<!--\\s*(?:(?:[a-z]+|closed|'),
     ("R2 _P2 greedy to the last paren", "claude_queue_bridge.py", r'_P2 = r"(?:[^()]|\((?:[^()]|\([^()]*\))*\))*"', '_P2 = r".*"'),
     ("R1 tail window unbounded", "claude_queue_bridge.py", "TAIL_WINDOW = 2000", "TAIL_WINDOW = 10 ** 9"),
-    ("R1/N1 units may start mid-token", "claude_queue_bridge.py", '        if pos == 0 or t[pos - 1] == " ":', "        if True:"),
+    ("R1/N1 units may start mid-token", "claude_queue_bridge.py", '        if pos and t[pos - 1] != " ":\n            continue\n        e = pos - 1', '        e = pos if (pos and t[pos - 1] != " ") else pos - 1'),
     ("N1r5 weak word markers need no closing token", "claude_queue_bridge.py", "    if bch in _BOUNDARY and not _PATH_RE.search(g):", "    if not _PATH_RE.search(g):"),
     ("R1 feat strip unbounded", "claude_queue_bridge.py", '[feat:[^\\]\\n]{0,200}\\]', '[feat:[^\\]]*\\]'),
-    ("N1r5 tails peeled without proof or boundary", "claude_queue_bridge.py", "def _tail_ok(kind, bch, g):", "def _tail_ok(kind, bch, g):\n    return True"),
+    ("N1r5 tails peeled without proof or boundary", "claude_queue_bridge.py", "def _tail_ok(kind, bch, g, t=None, e=0, shape=None):", "def _tail_ok(kind, bch, g, t=None, e=0, shape=None):\n    return True"),
     ("N1r5 weak tails ignore file paths", "claude_queue_bridge.py", "if bch in _BOUNDARY and not _PATH_RE.search(g):", "if bch in _BOUNDARY:"),
     ("N1r5 free tails need no sentence boundary", "claude_queue_bridge.py", "        if bch in _SENT:\n            return True\n        if _EM_TRIAGE_RE", "        if True:\n            return True\n        if _EM_TRIAGE_RE"),
     ("N2 retire splits on every unicode line break", "claude_queue_bridge.py", 'read_text_raw(args.progress).split("\\n")', 'read_text_raw(args.progress).splitlines()'),

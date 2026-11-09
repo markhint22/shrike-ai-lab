@@ -32,11 +32,15 @@ names, and the nearest + parent `conftest.py` of the test. Evidence (2026-11-06/
 gitlark control_plane tests inserted `Workspace(id='<str>')` (UUID column) and mis-mocked async sessions. Same bounds as symbol resolution (shared
 OVN_SCOUT_MAX_EXTRA count + byte budgets), admitted AFTER the symbol extras so they never displace them.
 """
+import bisect
 import difflib
 import os
 import re
+import select
+import signal
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -45,6 +49,31 @@ except Exception:  # pragma: no cover - guard module missing: ground without the
     _park = None
 
 PATH_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}")
+# 2026-11-08 (hotfix-scout-hang): PATH_RE alone is quadratic on one long run of path characters (every start scans to the end of the run and backtracks), so it is only
+# ever applied to individual runs of <= PATH_RUN_MAX chars (a longer run is not a path) and over at most TEXT_CAP chars of text.
+RUN_RE = re.compile(r"[A-Za-z0-9_./-]+")
+PATH_RUN_MAX = 300
+TEXT_CAP = 200000
+
+
+def path_tokens(text):
+    out = []
+    for m in RUN_RE.finditer(text[:TEXT_CAP]):
+        run = m.group(0)
+        if len(run) <= PATH_RUN_MAX:
+            out.extend(PATH_RE.findall(run))
+    return out
+
+
+def strip_path_tokens(text):
+    return RUN_RE.sub(lambda m: PATH_RE.sub(" ", m.group(0)) if len(m.group(0)) <= PATH_RUN_MAX else " ", text[:TEXT_CAP])
+
+
+def clean_tok(tok):
+    """`res://tests/x.gd` tokenizes as `//tests/x.gd` (no ':' in PATH_RE); drop leading './' and '/' so it is the repo-relative `tests/x.gd`."""
+    while tok.startswith("./") or tok.startswith("/"):
+        tok = tok[2:] if tok.startswith("./") else tok[1:]
+    return tok
 FILEISH_RE = re.compile(r"/|\.(py|ts|tsx|js|jsx|vue|gd|kt|java|go|rb|rs|c|cpp|h|hpp|ya?ml|json|toml|cfg|ini|sh|txt|xml|gradle|properties|swift)$")
 SRC_EXT = (".py", ".ts", ".tsx", ".js", ".jsx", ".vue", ".gd", ".kt", ".swift", ".java")
 VENDOR_RE = re.compile(r"(^|/)(node_modules|\.venv|venv|site-packages|__pycache__|build|dist|\.git|Pods|alembic/versions)/")
@@ -53,7 +82,7 @@ CAMEL_RE = re.compile(r"\b[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+\b")
 SNAKE_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 CREATE_RE = re.compile(r"\bcreate\b|\badd (a|an|this) new\b|\bnew (module|helper|component|service|class|function|method|endpoint|schema|model|utility|util|file)\b"
                        r"|\bwrite (only )?a new\b|\bimplement a new\b|\bscaffold\b|\(NEW\)|\bNEW\b", re.I)
-DEF_MODS = r"(?:(?:export|public|private|protected|internal|static|override|open|suspend|async|final|abstract|data|sealed|default|inline)\s+)*"
+DEF_MODS = r"(?:(?:export|public|private|protected|internal|static|override|open|suspend|async|final|abstract|data|sealed|default|inline)[ \t]+)*"
 
 
 def tracked_files(root):
@@ -81,7 +110,7 @@ def scout_files_list(log_text):
     if m:
         seg = seg[: m.start()]
     seen, out = set(), []
-    for tok in PATH_RE.findall(seg):
+    for tok in path_tokens(seg):
         if tok.startswith("./"):
             tok = tok[2:]
         if tok.endswith(".md") or not FILEISH_RE.search(tok) or tok in seen:
@@ -151,7 +180,7 @@ DEFWORD_RE = re.compile(r"\b(?:def|class|fn|func|fun|function)\s+([A-Za-z_][A-Za
 def item_symbols(item_text):
     """{symbol: strong} - strong=True: the item names it in a code context (backticks, call, def/class word, CamelCase); False: a bare snake_case
     name with >= 3 parts, which is only trusted when it is defined in exactly one file (see ground())."""
-    body = PATH_RE.sub(" ", item_text)
+    body = strip_path_tokens(item_text)
     syms = {}
 
     def add(s, strong, minlen):
@@ -217,11 +246,11 @@ TABLE_RE = re.compile(r"__tablename__\s*=\s*[\"']([A-Za-z_]\w*)[\"']")
 CAPWORD_RE = re.compile(r"\b[A-Z][A-Za-z0-9]{2,}\b")
 
 
-def _read(root, path, limit=400000):
+def _read(root, path, limit=TEXT_CAP):
+    """First `limit` chars of a file (a bounded scan, never the whole of a huge file)."""
     try:
-        if os.path.getsize(os.path.join(root, path)) > limit:
-            return ""
-        return open(os.path.join(root, path), encoding="utf-8", errors="replace").read()
+        with open(os.path.join(root, path), encoding="utf-8", errors="replace") as fh:
+            return fh.read(limit)
     except OSError:
         return ""
 
@@ -237,11 +266,13 @@ def model_index(root, files):
             continue
         texts[f] = txt
         cms = list(CLASS_RE.finditer(txt))
-        for i, m in enumerate(cms):
-            seg = txt[m.end(): cms[i + 1].start() if i + 1 < len(cms) else len(txt)]
-            tm = TABLE_RE.search(seg)
-            if tm:
-                classes.setdefault(m.group(1), f)
+        starts = [m.start() for m in cms]
+        done = set()
+        for tm in TABLE_RE.finditer(txt):  # one linear pass: each __tablename__ belongs to the nearest preceding class
+            i = bisect.bisect_right(starts, tm.start()) - 1
+            if i >= 0 and i not in done:
+                done.add(i)
+                classes.setdefault(cms[i].group(1), f)
                 tables.setdefault(tm.group(1), f)
     return tables, classes, texts
 
@@ -250,15 +281,17 @@ def fixture_candidates(root, files, workable, item_text):
     """[(priority, path, why)] model parents / named models / conftest files that a DB-fixture test needs (see the module docstring); [] when not needed."""
     fileset = set(files)
     tests = [w for w in workable if TEST_RE.search(w)]
-    for tok in PATH_RE.findall(item_text):
-        tok = tok[2:] if tok.startswith("./") else tok
+    for tok in path_tokens(item_text):
+        tok = clean_tok(tok)
         if TEST_RE.search(tok) and tok.endswith(SRC_EXT) and tok not in tests:
             tests.append(tok)
+    tests = tests[:8]
     if not tests:
         return []
     tables, classes, mtexts = model_index(root, files)
     loaded_models = [w for w in workable if w in mtexts]
     test_txt = "\n".join(_read(root, t) for t in tests if t in fileset)
+    item_text = item_text[:TEXT_CAP]
     needs = bool(loaded_models) or bool(DB_HINT_RE.search(item_text)) or bool(DB_HINT_RE.search(test_txt))
     if not needs:
         return []
@@ -280,15 +313,18 @@ def fixture_candidates(root, files, workable, item_text):
     # 2) nearest + parent conftest.py of each test target
     for t in tests:
         d, found = os.path.dirname(t), 0
-        while found < 2:
+        for _hop in range(40):  # bounded: a path can never have more than a few dozen parents (a '//x' or '/x' path made dirname() a fixed point at "//" and "/": infinite loop)
+            if found >= 2:
+                break
             cf = (d + "/conftest.py") if d else "conftest.py"
             if cf in fileset and cf not in seen_p:
                 seen_p.add(cf); cands.append((1.6, cf, "fixture: %s conftest.py of %s" % ("nearest" if found == 0 else "parent", t))); found += 1
             elif cf in fileset:
                 found += 1
-            if not d:
+            nd = os.path.dirname(d)
+            if not d or nd == d:
                 break
-            d = os.path.dirname(d)
+            d = nd
     # 3) model classes the item / test names (User, Bill, Workspace): at most 3, defined in exactly the indexed model files
     named = 0
     for w in CAPWORD_RE.findall(item_text + "\n" + test_txt):
@@ -298,7 +334,7 @@ def fixture_candidates(root, files, workable, item_text):
     return cands
 
 
-def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total=120000, total_budget=160000):
+def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total=120000, total_budget=160000, on_core=None):
     files = tracked_files(root)
     fileset = set(files)
     by_base = {}
@@ -378,6 +414,9 @@ def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total
     for path, why in extras:
         out.append(("ADD", path, why)); workable.append(path)
 
+    if on_core:  # everything above is final (fixture grounding only ever ADDS rows): lets the budget watchdog keep it if the fixture stage overruns
+        on_core(list(out) + ([("UNGROUNDED", "every planned file is fictional/ambiguous (%s)" % ", ".join(planned[:4]))] if planned and not workable else []))
+
     # fixture grounding (Z2): AFTER the symbol extras so it never displaces them; shares the extra-file count and both byte budgets
     if workable and os.environ.get("OVN_SCOUT_FIXTURES", "on") != "off":
         added_bytes = 0
@@ -397,6 +436,79 @@ def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total
     return out
 
 
+def _run(root, log_text, item_text, max_bytes, emit_core=None):
+    max_extra = int(os.environ.get("OVN_SCOUT_MAX_EXTRA", "6"))
+    extra_total = int(os.environ.get("OVN_SCOUT_EXTRA_TOTAL_BYTES", "120000"))
+    total_budget = int(os.environ.get("OVN_SCOUT_TOTAL_BYTES", "160000"))
+    return ground(root, log_text, item_text, max_bytes, max_extra, extra_total, total_budget, on_core=emit_core)
+
+
+def _budgeted(root, log_text, item_text, max_bytes, budget):
+    """Run grounding in a forked child under a wall-clock budget (2026-11-08 hotfix-scout-hang). A signal handler cannot interrupt a regex or a pure-Python spin that never
+    returns to the interpreter loop, so the work is isolated in a child that the parent can SIGKILL. The child streams the core rows (final before fixture grounding), then
+    the full set; on overrun the parent keeps the core rows (fixture grounding skipped) or nothing, prints 'scout: budget exceeded' and exits 0: the plan is used unchanged."""
+    rfd, wfd = os.pipe()
+    pid = os.fork()
+    if pid == 0:  # child
+        rc = 0
+        try:
+            os.close(rfd)
+            w = os.fdopen(wfd, "w")
+
+            def emit(tag, rows):
+                w.write("#%s\n" % tag)
+                for r in rows:
+                    w.write("\t".join(r).replace("\n", " ") + "\n")
+                w.write("#END\n"); w.flush()
+            emit_core = lambda rows: emit("CORE", rows)
+            rows = _run(root, log_text, item_text, max_bytes, emit_core)
+            emit("FULL", rows)
+        except BaseException:
+            import traceback; traceback.print_exc(); rc = 1
+        os._exit(rc)
+    os.close(wfd)
+    deadline = time.time() + budget
+    buf = b""
+    exceeded = False
+    while True:
+        left = deadline - time.time()
+        if left <= 0:
+            exceeded = True
+            break
+        r, _, _ = select.select([rfd], [], [], min(left, 0.5))
+        if r:
+            chunk = os.read(rfd, 65536)
+            if not chunk:
+                break
+            buf += chunk
+    if exceeded:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    os.close(rfd)
+    try:
+        _, status = os.waitpid(pid, 0)
+    except OSError:
+        status = 0
+    # a block is only trusted if it was closed by #END: re-parse strictly
+    ok = {}
+    cur, rows = None, []
+    for line in buf.decode("utf-8", "replace").split("\n"):
+        if line in ("#CORE", "#FULL"):
+            cur, rows = line[1:], []
+        elif line == "#END" and cur:
+            ok[cur] = rows; cur = None
+        elif cur is not None and line:
+            rows.append(line)
+    if exceeded:
+        sys.stderr.write("scout: budget exceeded (%ss)%s\n" % (budget, "; kept pre-fixture grounding, fixture grounding skipped" if "CORE" in ok else "; plan used unchanged"))
+        return ok.get("CORE", [])
+    if os.WIFEXITED(status) and os.WEXITSTATUS(status) != 0:
+        raise SystemExit(os.WEXITSTATUS(status))
+    return ok.get("FULL", [])
+
+
 def main():
     root, log, item_file = sys.argv[1], sys.argv[2], sys.argv[3]
     max_bytes = int(sys.argv[4]) if len(sys.argv) > 4 else 120000
@@ -408,11 +520,16 @@ def main():
         item_text = open(item_file, encoding="utf-8", errors="replace").read()
     except OSError:
         item_text = ""
-    max_extra = int(os.environ.get("OVN_SCOUT_MAX_EXTRA", "6"))
-    extra_total = int(os.environ.get("OVN_SCOUT_EXTRA_TOTAL_BYTES", "120000"))
-    total_budget = int(os.environ.get("OVN_SCOUT_TOTAL_BYTES", "160000"))
-    for row in ground(root, log_text, item_text, max_bytes, max_extra, extra_total, total_budget):
-        print("\t".join(row))
+    try:
+        budget = float(os.environ.get("OVN_SCOUT_BUDGET_S", "20"))
+    except ValueError:
+        budget = 20.0
+    if budget <= 0 or not hasattr(os, "fork"):
+        for row in _run(root, log_text, item_text, max_bytes):
+            print("\t".join(row))
+        return
+    for line in _budgeted(root, log_text, item_text, max_bytes, budget):
+        print(line)
 
 
 if __name__ == "__main__":

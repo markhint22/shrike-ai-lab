@@ -27,7 +27,7 @@ mut "fixture grounding returns nothing"      '    return cands
 =>>    return []
 '
 mut "FK parents not followed"                'for tgt in FK_RE.findall(txt):=>>for tgt in []:'
-mut "conftest never added"                   'while found < 2:=>>while False:'
+mut "conftest never added"                   'for _hop in range(40):=>>for _hop in range(0):'
 mut "extra-file bound ignored"               'if path in workable or len(extras) >= max_extra or too_big_or_banned(path):=>>if path in workable or too_big_or_banned(path):'
 mut "byte budget ignored"                    '            if extra_bytes + sz > budget_left:
                 continue

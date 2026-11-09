@@ -56,6 +56,7 @@
 # spec-compiler-v2 (2026-10-09): the parked-line patterns live in ONE place (lib_parked_pattern.sh; twin of ovn_backlog_eligibility.py). BLOCKED is a
 # case-sensitive TAG - the old case-insensitive `grep -viE '...|BLOCKED|...'` parked every line that merely contained the word "blocked" (all 10 open iptv_apps
 # items). Inline fallback (identical values) for a deployment that has not got the library yet.
+type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 _LIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 [ -f "$_LIS_DIR/lib_parked_pattern.sh" ] && . "$_LIS_DIR/lib_parked_pattern.sh"
 : "${OVN_PARKED_CI_ERE:=AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}"
@@ -282,7 +283,7 @@ ovn_repeat_key() {
   [ "$n" -le "${OVN_REPEAT_MAX_IDS:-20}" ] || return 0
   helper="$(dirname "${BASH_SOURCE[0]}")/ovn_repeat_ids.py"
   if [ -n "$rdir" ] && [ -n "$sdir" ] && [ -f "$helper" ]; then
-    ids="$(printf '%s\n' "$ids" | python3 "$helper" filter "$(basename "$rdir")" "$sdir" "$h" 2>/dev/null)"
+    ids="$(printf '%s\n' "$ids" | ovn_hto 60 item_select_filter python3 "$helper" filter "$(basename "$rdir")" "$sdir" "$h" 2>/dev/null)"
     [ -n "$ids" ] || return 0
   fi
   printf '%s|%s' "$h" "$(printf '%s' "$ids" | md5sum | cut -d' ' -f1)"
@@ -303,20 +304,20 @@ ovn_bestn_baseline_stop() {
   ids="$(ovn_failing_ids "$log")"; [ -n "$ids" ] || return 1
   st="$(grep -a '^--- NO-NEW-RED BASELINE: status=' "$log" 2>/dev/null | tail -1 | sed -E 's/^--- NO-NEW-RED BASELINE: status=([^ ]+).*/\1/')"
   case "$st" in baseline-unknown|disabled|lib-missing) ;; *) return 1;; esac
-  r="$(printf '%s\n' "$ids" | python3 "$helper" base_only "$(basename "$rdir")" "$sdir" 2>/dev/null)"
+  r="$(printf '%s\n' "$ids" | ovn_hto 60 item_select_base_only python3 "$helper" base_only "$(basename "$rdir")" "$sdir" 2>/dev/null)"
   [ "$r" = yes ]
 }
 
 # usage: ovn_repeat_basis <repo dir> <state dir> -> "baseline" | "previous-item" (which rule ovn_repeat_key used), for the park note
 ovn_repeat_basis() {
   local helper; helper="$(dirname "${BASH_SOURCE[0]}")/ovn_repeat_ids.py"
-  [ -f "$helper" ] && python3 "$helper" basis "$(basename "${1:-x}")" "${2:-/nonexistent}" 2>/dev/null
+  [ -f "$helper" ] && ovn_hto 60 item_select_basis python3 "$helper" basis "$(basename "${1:-x}")" "${2:-/nonexistent}" 2>/dev/null
 }
 # usage: ovn_repeat_record <repo dir> <state dir> <item hash> <log> - remember this attempt's failing ids (the "previous item" memory)
 ovn_repeat_record() {
   local helper; helper="$(dirname "${BASH_SOURCE[0]}")/ovn_repeat_ids.py"
   [ -f "$helper" ] || return 0
-  ovn_failing_ids "${4:-}" | python3 "$helper" record "$(basename "${1:-x}")" "${2:-}" "${3:-}" 2>/dev/null
+  ovn_failing_ids "${4:-}" | ovn_hto 60 item_select_record python3 "$helper" record "$(basename "${1:-x}")" "${2:-}" "${3:-}" 2>/dev/null
   return 0
 }
 

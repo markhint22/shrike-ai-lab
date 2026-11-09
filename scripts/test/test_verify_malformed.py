@@ -209,5 +209,32 @@ ok("queue_refill shadow lint is inert with OVN_VERIFY_LINT=off", n2 == 0 and not
 os.environ.pop("OVN_VERIFY_LINT", None)
 os.environ.pop("OVN_VERIFY_LINT_LOG", None)
 
+# Z5 (Q1 noise): pytest-path-missing must stay silent when the item (or a queued sibling) creates that test path, and the shadow journal is ONE row per item per day
+print("== Z5 pytest-path-missing: creation items + per-day dedupe")
+zr = tempfile.mkdtemp(prefix="vm-z5-")
+put(zr, "backend/app/__init__.py")
+V = "cd backend && python -m pytest tests/test_new_feature.py::test_it -v"
+ok("Z5a baseline: missing test file, item that does NOT create it -> pytest-path-missing", codes(M.lint_verify(V, zr, "[T3] backend/app/x.py - tweak the retry delay")) == ["pytest-path-missing"])
+ok("Z5b item head 'Create a test ...' targeting the missing test path -> silent",
+   M.lint_verify(V, zr, "[T3] backend/tests/test_new_feature.py - Create a test that checks the retry delay VERIFY: " + V) == [])
+ok("Z5c item text names the path with a creation verb -> silent", M.lint_verify(V, zr, "add backend/tests/test_new_feature.py covering retries") == [])
+ok("Z5d a creation verb that does NOT name the path (and a non-test head) is still flagged",
+   codes(M.lint_verify(V, zr, "[T3] backend/app/x.py - add a retry parameter")) == ["pytest-path-missing"])
+ok("Z5e a SIBLING item that creates the test path silences the finding",
+   M.lint_verify(V, zr, "[T3] backend/app/x.py - tweak the retry delay", sibling_texts=["[T3] backend/tests/test_new_feature.py - Create tests for retry"]) == [])
+ok("Z5f an unrelated sibling does not", codes(M.lint_verify(V, zr, "[T3] backend/app/x.py - tweak the retry delay", sibling_texts=["[T3] other/tests/test_other.py - Create tests"])) == ["pytest-path-missing"])
+ok("Z5g an existing test file is unaffected (node check still runs)", codes(M.lint_verify("cd backend && python -m pytest app/__init__.py::test_x", zr, "Create test_x")) == ["pytest-node-missing"])
+zlog = os.path.join(zr, "state", "verify_lint_shadow.log")
+T0 = 1_700_000_000
+for _ in range(5):
+    M.shadow_log_verify(V, zr, "[T3] backend/app/x.py - tweak the retry delay", zlog, now=T0)
+M.shadow_log_verify(V, zr, "[T3] backend/app/y.py - another item", zlog, now=T0)
+n1 = len(open(zlog).read().splitlines())
+ok("Z5h five identical lint passes of one item in a day journal ONE row (another item gets its own)", n1 == 2, n1)
+M.shadow_log_verify(V, zr, "[T3] backend/app/x.py - tweak the retry delay", zlog, now=T0 + 86400)
+ok("Z5i ...and the next UTC day journals it again", len(open(zlog).read().splitlines()) == 3)
+ok("Z5j a corrupt dedupe sidecar fails open (still journals)", (open(zlog + ".seen", "w").write("{not json") or True) and
+   M.shadow_log_verify(V, zr, "[T3] backend/app/z.py - third", zlog, now=T0 + 86400) is not None and len(open(zlog).read().splitlines()) == 4)
+
 print("  %d passed, %d failed" % (P, F))
 sys.exit(0 if F == 0 else 1)

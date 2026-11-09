@@ -36,6 +36,7 @@ rec_row(){ # <runner> <lib> [args to record_outcome...] -> the one row written (
   local runner="$1" lib="$2"; shift 2
   (
     SCRIPT_DIR="$ROOT"; STATE_DIR="$tmp/stateA.$RANDOM"; mkdir -p "$STATE_DIR"
+    . "$ROOT/scripts/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; }   # record_outcome calls ovn_hto (run_overnight.sh sources the lib before it)
     # shellcheck source=/dev/null
     [ "$lib" != none ] && source "$lib"
     eval "$(sed -n '/^record_outcome(/,/^}/p' "$runner")"
@@ -393,9 +394,21 @@ out, ts, d0, d1 = sys.argv[1:]
 open(out, "w").write(json.dumps({"ts": ts, "repo": "r1", "id": "ongoing-r1", "class": "error", "status": "error(verify-skipped - lock contended, retry next cycle)", "commits": [d1], "head_before": d0, "head_after": d1}) + "\n")
 EOF
 cp "$CC/state/outcomes.jsonl" "$tmp/cc.in"
+cat > "$tmp/conc_drv.py" <<'DRVEOF'
+import importlib.util, sys, time
+spec = importlib.util.spec_from_file_location("acct_mod", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+orig = m._reconcile_locked
+def slow(*a, **k):
+    time.sleep(1.0)
+    return orig(*a, **k)
+m._reconcile_locked = slow
+sys.exit(m.main(["reconcile"] + sys.argv[2:]))
+DRVEOF
 conc(){ # <script> -> landed-late rows after 8 simultaneous reconciles
   cp "$tmp/cc.in" "$CC/state/outcomes.jsonl"; rm -f "$CC/state/outcome_reconcile.lock"; local i
-  for i in 1 2 3 4 5 6 7 8; do "$PY" "$1" reconcile --state-dir "$CC/state" --repos-dir "$CC/repos" >/dev/null 2>&1 & done; wait
+  # Z5-D: deterministic overlap. Each process sleeps 1s INSIDE the (locked) read-dedupe-append section, so all 8 are provably concurrent: the real code lets one in (the others
+  # skip on the flock); the no-flock mutant has all 8 read before any appends (8 rows). The old plain 8-process race let fast processes finish serially and the mutant survive (flaky).
+  for i in 1 2 3 4 5 6 7 8; do "$PY" "$tmp/conc_drv.py" "$1" --state-dir "$CC/state" --repos-dir "$CC/repos" >/dev/null 2>&1 & done; wait
   grep -c landed-late "$CC/state/outcomes.jsonl" || true
 }
 ok "D20 8 concurrent reconciles: exactly ONE landed-late row" "[ \"\$(conc '$ACCT')\" = 1 ]"

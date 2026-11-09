@@ -32,7 +32,8 @@ RUN(){ OVN_ITEM_FAIL_CAP=3 OVN_ITEM_NOOP_CAP=4 OVN_ITEM_TOKEN_CAP=200000 bash "$
 setchild(){ printf '%s\n\n%s\n%s\n' "$(head -1 "$1")" "$2" "$3" > "$1"; }   # $1 progress file, $2 header, $3 child line
 park_parent(){ local i l; for i in 1 2; do l="$(mklog 110 "$4" "p$i")"; RUN "$1" "$2" "reverted(build-break)" "$3" ongoing-x "$l"; done; }   # guard repo state label
 led1(){ ls "$1"/item_fails/ongoing-x.lineage.*.toks 2>/dev/null | head -1; }
-old_ts(){ date -u -d '23 hours ago' +%Y%m%d%H%M 2>/dev/null || date -u -v-23H +%Y%m%d%H%M; }
+# Z5-D: `touch -t` reads the stamp as LOCAL time, so the stamp must be local too (the old `date -u` made the ledger 17h old on the CST box and G2 failed every run there)
+old_ts(){ date -d '23 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-23H +%Y%m%d%H%M; }
 
 suite(){   # $1=guard path  $2=label ; asserts the NEW behaviour in ENFORCING mode (OVN_FEATURE_TOKEN_INHERIT=on)
   local G="$1" L="$2" r r2 st l led ll ph ch
@@ -214,5 +215,11 @@ mutant "landed child text never resolved"      '_lin_clear_landed_texts "$_zhs"'
 mutant "header ph hash ignored (txt prefix)"   "s/^# --- recovered from a parked item" "s/^# --- recovered from a parked itemX"
 mutant "child hash never registered"         '[ "$_inh" -gt 0 ] && _lin_member "$_inh_src" "$h"' ':'
 
+# Z5-D regression: old_ts + touch -t must land ~23h in the past under ANY zone (the CST box failed G2 5x because the stamp was UTC and touch read it as local time)
+for _tz in UTC America/Chicago Asia/Tokyo Pacific/Kiritimati; do
+  _f="$tmp/tzprobe"; : > "$_f"
+  ( export TZ="$_tz"; touch -t "$(old_ts)" "$_f" )
+  ok "Z5-D old_ts is ~23h old under TZ=$_tz (between 1320 and 1440 minutes)" "[ -n \"\$(find '$_f' -mmin +1320 -mmin -1440)\" ]"
+done
 echo "Z2 feature token budget: $P passed, $F failed"
 [ "$F" -eq 0 ]

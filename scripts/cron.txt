@@ -83,9 +83,11 @@
 #OFF# 15 2 * * * cd /home/mhintermeister/overnight-queue && NTFY_TOPIC=shrike_ovn_311380987a ./scripts/ovn_coverage_cron.sh >> logs/ovn_coverage_cron.log 2>&1
 # (and remove the current '30 3 * * *' coverage line when enabling it)
 # --- 2026-11-03 K4 promote safety (PROPOSED, NOT INSTALLED: enable by removing '#OFF# ')
-# prod alembic snapshot from the public prod /health (iptv_apps only; other repos: health-has-no-revision until their /health exposes db_revision). Read-only GET; makes '[prod-alembic]' real (still SHADOW, never blocks).
+# prod alembic snapshot from the public prod /health (iptv_apps + billwatch; other repos: health-has-no-revision until their /health exposes db_revision). Read-only GET; makes '[prod-alembic]' real (still SHADOW, never blocks).
 #OFF# */30 * * * * cd /home/mhintermeister/overnight-queue && python3 qa/prod_alembic_snapshot.py --repo iptv_apps >> logs/prod_alembic_snapshot.log 2>&1
+#OFF# */30 * * * * cd /home/mhintermeister/overnight-queue && python3 qa/prod_alembic_snapshot.py --repo billwatch >> logs/prod_alembic_snapshot.log 2>&1
 #OFF# 55 8 * * * cd /home/mhintermeister/overnight-queue && python3 qa/prod_alembic_snapshot.py --repo iptv_apps >> logs/prod_alembic_snapshot.log 2>&1
+#OFF# 56 8 * * * cd /home/mhintermeister/overnight-queue && python3 qa/prod_alembic_snapshot.py --repo billwatch >> logs/prod_alembic_snapshot.log 2>&1
 # or, without cron: env OVN_ALEMBIC_REFRESH=on on the 09:00 daily_promote line (promote_gate refreshes the snapshot itself right before the check).
 # Vercel PRODUCTION state for promote_postcheck: the box has no Vercel token, so the MAC exports state/vercel_prod/<repo>.json (read-only API GETs) and scripts/qa-staging-export.sh style copy puts it on the box;
 # the postcheck re-reads it every poll. Mac line (launchd/cron, NOT installed): */10 * * * * for r in iptv_apps billwatch gitlark shrike-labs-website; do python3 <shared>/scripts/overnight-queue/qa/vercel_prod_state.py export --repo $r; done
@@ -210,3 +212,8 @@
 #   INSTALLED: qtmp_reaper DRY RUN only (47 5, cron_beat-wrapped; live OVN_QTMP_REAP=on is NOT safe as-is: it would reap ~/qtmp/state_backups and deploy.*.stage rollback dirs, 34 GB / 120 dirs in the dry run - add them to OVN_QTMP_KEEP first),
 #              prod_alembic_snapshot iptv_apps (*/30 + 55 8, read-only GET), mutation_supply SHADOW (50 3), cron_beat wrapping of ONLY ovn_supply_forecast and ovn_notify_heartbeat.
 #   NOT installed: the other ~55 cron_beat wrappers (wrap incrementally), ovn_log_cap live flip (deletes ~41k reports and truncates live logs; keep dry run), coverage move 30 3 -> 15 2 (not shadow; live job, lock/CPU overlap with 02:30 mutation scan).
+
+# --- 2026-11-08 PROPOSAL (hotfix-scout-hang; NOT installed - Mark/the box operator enables it): run-loop hang watchdog. ops/hang_watchdog.sh flags a helper script (ovn_*/lib_*/dedupe_*/check_* ...) that has
+#     been the innermost child of run_overnight.sh for >= 15 min CPU or >= 30 min wall with no aider/pytest/llama descendant: one 'WARN | hang-watchdog | HANG:' row in state/alerts.log. Default SHADOW (logs
+#     'would kill'). After reading a few shadow rows, enforce with OVN_HANG_WATCHDOG=on (TERM, 5 s grace, KILL). Never touches aider/pytest/llama/orchestrators. Rollback: remove the line.
+#OFF# */5 * * * * cd $HOME/overnight-queue && OVN_HANG_WATCHDOG=shadow /home/mhintermeister/overnight-queue/ops/hang_watchdog.sh >> logs/hang_watchdog.log 2>&1

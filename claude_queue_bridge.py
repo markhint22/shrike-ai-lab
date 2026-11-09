@@ -32,7 +32,7 @@ by claude_queue_bridge.sh as Passes A-D each cycle:
              (state/bridge_autoclose_shadow.log), `enforce` flips the line to [x], `off` skips. harvest uses the same tag match so a closed feature is not re-opened.
 
 Y2 (2026-11-04): harvest also keeps a persisted LEDGER (--ledger, state/harvest_ledger.tsv) of stable item keys (body_key: repo + full normalized text, feat tag/metadata/checkbox/prefix removed): a key that was
-ever harvested, or is ticked/archived, is never harvested again, whatever the 12-word signature or feat tag of its re-surfacing. The pre-harvest done-check (OVN_HARVEST_DONE_CHECK, default ON) skips a line
+ever harvested, or is ticked/archived, is never harvested again, whatever the 12-word signature or feat tag of its re-surfacing. The pre-harvest done-check (OVN_HARVEST_DONE_CHECK, default `shadow`: it only logs the would-skip; `enforce`/`on` skips) flags a line
 whose named test/new class/def is already DEFINED in code (never markdown/queue text). Autoclose stays shadow; OVN_BRIDGE_AUTOCLOSE_REQUIRE_ITEM=on makes enforce additionally require that the line ITSELF landed (landing=item).
 
 ENFORCE POLICY (Y2 r6): do NOT enable OVN_HARVEST_LEDGER_MODE=enforce, OVN_HARVEST_DONE_CHECK=enforce or OVN_BRIDGE_AUTOCLOSE=enforce until a 1-2 week SHADOW log (state/harvest_ledger_skips.log,
@@ -534,54 +534,69 @@ MAX_PEELS = 40
 _PATH_RE = re.compile(r"[\w.@~-]+/[\w./@~-]*[\w]\.[A-Za-z0-9]{1,6}\b|\b[\w-]+\.(?:py|js|jsx|ts|tsx|vue|md|json|sh|swift|kt|kts|gd|html|css|yml|yaml|toml|txt|sql|cfg|ini|xml|plist|gradle)\b")
 _TAIL_DATE = r"(?=.{0,100}?(?:\b" + _VER + r"\s*\(?\s*" + _D + r"|\b" + _D + r"))"
 TAIL_UNITS = (
-    (re.compile(r"\((?:cat|coverage):[^()]*\)$"), "b"),                                                   # `(cat:impl; multifile:no)` / `(coverage:x)`
-    (re.compile(r"\((?:auto-closed|retired)\s+" + _D + _P2 + r"\)$"), "b"),                               # `(auto-closed D: [feat:T] landed, all N named test id(s) present on REF; landing=item)` / `(retired D: ...)`
-    (re.compile(r"\(REOPENED\b" + _P2 + r"\)$"), "b"),
-    (re.compile(r"(?:SKIPPED\s*)?\(" + _D + r"\b" + _P2 + r"\)$"), "b"),                                  # dated parenthetical `(2026-10-01)` / `SKIPPED (2026-10-01)`
-    (re.compile(r"SKIPPED\s*\((?:re-)?verified\s+" + _D + r"\).*$", re.S), "f"),                              # `SKIPPED (verified D) - reason ...`
-    (re.compile(r"<!--\s*(?:(?:closed|landed|DONE|STOPPED|retagged|reviewed|verified|reopened|resolved|decided|obsolete|skipped|already)\b|[^\n]{0,40}?" + _D + r")(?:(?!-->).)*-->$", re.S | re.I), "b"),   # `<!-- closed D by claude: done -->`; a plain `<!-- markers -->` in task prose is not one
-    (re.compile(r"_\((?:ALREADY-SATISFIED|DONE|RESOLVED|UPDATED|SKIPPED|IMPLEMENTED|REVIEWED|duplicate\b|" + _D + r").*\)_$", re.S), "b"),   # `_(ALREADY-SATISFIED D: ...)_`: a known opener AND the `)_` closer at the very end
-    (re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}" + _TAIL_DATE + r".*$", re.S), "f"),               # ALREADY DONE only with a verified-date / date in its first 100 chars
-    (re.compile(r"(?:[—-]\s*)?\*\*STALE TICKET\*\*.*$", re.S), "f"),
-    (re.compile(r"(?:[—-]\s*)?STALE TICKET,\s*no action\s*\((?:re-)?verified\b[^()]*\).*$", re.S), "f"),
-    (re.compile(r"[—-]\s+\*{0,2}TRIAGE\s+" + _D + r"(?:\*{0,2}:|\s+[A-Z]{3,}\b).*$", re.S), "f"),   # ` — TRIAGE 2026-10-12 DONE: ...`
-    (re.compile(r"\(done\s+" + _D + r"\s*:\s*claude\b.*$", re.S), "f"),                                      # `(done 2026-09-12: claude ...) tests pass`
-    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}DONE\*{0,2}\s*\([^()]*(?:\b" + _VER + r"|@)[^()]*\).*$", re.S), "w"),   # `DONE (shrike-monitor @ H, verified D)`
-    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}DONE\*{0,2}\s*(?:\(" + _D + r"|" + _D + r"\b|$).*$", re.S), "w"),   # `DONE (D, repo @ H)` / `DONE D repo@H: ...` / bare trailing `DONE`
-    (re.compile(r"\*{0,2}DONE\*{0,2}\s*\(.*$", re.S), "w"),                                                  # `(cat:impl) DONE (shipped abc)`
-    (re.compile(r"\*\*DONE\*\*.*$", re.S), "w"),                                                              # bold `**DONE** (D)`
-    (re.compile(r"✅\s*DONE\b.*$", re.S), "w"),
-    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}NOTE:.*$", re.S), "w"),
+    (re.compile(r"\((?:cat|coverage):[^()]*\)$"), "b", None),                                                   # `(cat:impl; multifile:no)` / `(coverage:x)`
+    (re.compile(r"\((?:auto-closed|retired)\s+" + _D + _P2 + r"\)$"), "b", None),                               # `(auto-closed D: [feat:T] landed, all N named test id(s) present on REF; landing=item)` / `(retired D: ...)`
+    (re.compile(r"\(REOPENED\b" + _P2 + r"\)$"), "b", None),
+    (re.compile(r"(?:SKIPPED\s*)?\(" + _D + r"(?=[,;)]|\s+claude\b)" + _P2 + r"\)$"), "b", None),                                  # dated parenthetical `(2026-10-01)` / `SKIPPED (2026-10-01)`
+    (re.compile(r"SKIPPED\s*\((?:re-)?verified\s+" + _D + r"\).*$", re.S), "f", "skipped"),                              # `SKIPPED (verified D) - reason ...`
+    (re.compile(r"<!--\s*(?:(?:closed|landed|DONE|STOPPED|retagged|reviewed|verified|reopened|resolved|decided|obsolete|skipped|already)\b|[^\n]{0,40}?" + _D + r")(?:(?!-->).)*-->$", re.S | re.I), "b", None),   # `<!-- closed D by claude: done -->`; a plain `<!-- markers -->` in task prose is not one
+    (re.compile(r"_\((?:ALREADY-SATISFIED|DONE|RESOLVED|UPDATED|SKIPPED|IMPLEMENTED|REVIEWED|duplicate\b|" + _D + r").*\)_$", re.S), "b", None),   # `_(ALREADY-SATISFIED D: ...)_`: a known opener AND the `)_` closer at the very end
+    (re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}" + _TAIL_DATE + r".*$", re.S), "f", "already"),               # ALREADY DONE only with a verified-date / date in its first 100 chars
+    (re.compile(r"(?:[—-]\s*)?\*\*STALE TICKET\*\*.*$", re.S), "f", "stale_bold"),
+    (re.compile(r"(?:[—-]\s*)?STALE TICKET,\s*no action\s*\((?:re-)?verified\b[^()]*\).*$", re.S), "f", "stale_noact"),
+    (re.compile(r"[—-]\s+\*{0,2}TRIAGE\s+" + _D + r"(?:\*{0,2}:|\s+[A-Z]{3,}\b).*$", re.S), "f", "triage"),   # ` — TRIAGE 2026-10-12 DONE: ...`
+    (re.compile(r"\(done\s+" + _D + r"\s*:\s*claude\b.*$", re.S), "f", "done_claude"),                                      # `(done 2026-09-12: claude ...) tests pass`
+    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}DONE\*{0,2}\s*\([^()]*(?:\b" + _VER + r"|@)[^()]*\).*$", re.S), "w", "done"),   # `DONE (shrike-monitor @ H, verified D)`
+    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}DONE\*{0,2}\s*(?:\(" + _D + r"|" + _D + r"\b|$).*$", re.S), "w", "done"),   # `DONE (D, repo @ H)` / `DONE D repo@H: ...` / bare trailing `DONE`
+    (re.compile(r"\*{0,2}DONE\*{0,2}\s*\(.*$", re.S), "w", "done"),                                                  # `(cat:impl) DONE (shipped abc)`
+    (re.compile(r"\*\*DONE\*\*.*$", re.S), "w", "done"),                                                              # bold `**DONE** (D)`
+    (re.compile(r"✅\s*DONE\b.*$", re.S), "w", "done"),
+    (re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}NOTE:.*$", re.S), "w", "note"),
 )
 # a feat tag / AUTO-SKIP tag is a bracketed token wherever it sits (leading or trailing) and never part of the task identity (bounded bodies: no quadratic scan on a run of unclosed `[feat:`)
 BODY_STRIP_RES = (re.compile(r"\[feat:[^\]\n]{0,200}\]"), re.compile(r"\[AUTO-SKIP[^\]\n]{0,200}\]"))
 
 
-def _peel_tail(body):
-    """Remove ONE trailing annotation group from `body` (None if the end of the text is not one). Linear in the tail window: units are matched only at token starts inside the last TAIL_WINDOW chars."""
-    t = " ".join(body.split())
+def _peel_tail(body, normalized=False):
+    """Remove ONE trailing annotation group from `body` (None if the end of the text is not one). Linear in the tail window: units are matched only at token starts inside the last TAIL_WINDOW chars.
+    Y2b D3: index arithmetic only -- the text before a candidate is never copied per token start (round 6 copied t[:pos] for every one: a 1 MB line took ~2.8 s); the one slice happens on the returned peel."""
+    t = body if normalized else " ".join(body.split())   # `normalized`: the caller passes a previous peel's result (already collapsed, no edge blanks), so a 40-peel chain is not 40 full-line re-joins
     n = len(t)
     lo = max(0, n - TAIL_WINDOW)
     if lo and not t[lo - 1].isspace():
         sp = t.find(" ", lo)
         lo = n if sp < 0 else sp + 1
-    pos = lo
-    while pos < n:
-        if pos == 0 or t[pos - 1] == " ":
-            before = t[:pos].rstrip()
-            if before:
-                bch = before[-1]
-                for rx, kind in TAIL_UNITS:
-                    m = rx.match(t, pos)
-                    if not m:
-                        continue
-                    if not _tail_ok(kind, bch, m.group(0)):
-                        continue
-                    return before
-        pos += 1
+    for pos in range(lo, n):
+        if pos and t[pos - 1] != " ":
+            continue
+        e = pos - 1                       # t is whitespace-collapsed: exactly one space precedes a token start, so the text before the candidate ends at e
+        while e > 0 and t[e - 1] == " ":
+            e -= 1
+        if e <= 0:
+            continue                      # nothing before the candidate (pos == 0 or only blanks)
+        bch = t[e - 1]
+        for rx, kind, shape in TAIL_UNITS:
+            m = rx.match(t, pos)
+            if m and _tail_ok(kind, bch, m.group(0), t, e, shape):
+                return t[:e]
     return None
 
 
+# Y2b D1 (path-free prose tails). Round 6 gated a free tail only on "names no file path" / a sentence boundary before it, so path-free prose that merely CONTAINS a marker still collided:
+#   `... (see below) NOTE: explain backoff jitter` vs `... NOTE: explain timeouts`; `Reduce bundle size by 10% (target). DONE (tree-shake lodash)` vs `(tree-shake moment)`;
+#   `Fix typo in README. ALREADY DONE (verified 2026-01-01) in the header, still wrong in the footer` vs `... sidebar`.
+# A free-text tail is now peeled only when it is a recognised CLOSING ANNOTATION at the true end of the line, which means two things: (1) its HEADER is the full annotation shape (the marker plus its proof: a
+# `(verified D)` / date / `@ sha` group), and (2) what follows the header is not more task prose: the header is closed by a colon (`DONE (D, repo @ h): <evidence>`, `ALREADY DONE — verified D: <evidence>`)
+# or is followed by nothing, a `-`/em-dash separator, or further parenthetical groups to the end. A header followed directly by a word is prose, never a tail. Bare NOTE: is a tail only straight after a
+# bounded annotation (`(cat:..) NOTE: ...`), never after task prose. Every doubt resolves to "distinct" (one extra re-harvest) rather than a collision (a silently lost task in enforce mode).
+_PAREN_CHAIN_RE = re.compile(r"(?:\s*\((?:[^()]|\([^()]*\))*\))*\s*\.?\s*$")
+_COLON = r"(?P<colon>\s*:\*{0,2})?"
+_HDR_AD = re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}(?:,\s*stale item|\s+by\s+the\s+(?:overnight\s+)?fleet(?:\s*\([^()]*\))?)?\s*(?:[—-]\s*)?(?:\((?:[^()]*?\b" + _VER + r"|[^()]*?" + _D + r")[^()]*\)|\b" + _VER + r"\s*" + _D + r"|" + _D + r"\b)" + _COLON)
+_HDR_SKIPPED = re.compile(r"SKIPPED\s*\((?:re-)?verified\s+" + _D + r"\)" + _COLON)
+_HDR_STALE_BOLD = re.compile(r"(?:[—-]\s*)?\*\*STALE TICKET\*\*" + _COLON)
+_HDR_STALE_NOACT = re.compile(r"(?:[—-]\s*)?STALE TICKET,\s*no action\s*\((?:re-)?verified\b[^()]*\)" + _COLON)
+_HDR_DONE = re.compile(r"(?:✅\s*|[—-]\s+)?\*{0,2}DONE\*{0,2}\s*(?:\((?P<paren>[^()]*(?:\([^()]*\)[^()]*)*)\)|(?P<date>" + _D + r"\S{0,40}))?\*{0,2}" + _COLON)
+_HDR = {"skipped": _HDR_SKIPPED, "already": _HDR_AD, "stale_bold": _HDR_STALE_BOLD, "stale_noact": _HDR_STALE_NOACT, "done": _HDR_DONE}
 _BARE_DONE_RE = re.compile(r"(?:[—-]\s+|✅\s*)?\*{0,2}DONE\*{0,2}\s*(?:\([^()]{0,120}\)|" + _D + r"\S{0,40})?\.?")
 _DONE_PROOF_RE = re.compile(r"\([^()]*(?:@|\b" + _VER + r"|" + _D + r")")
 _EM_TRIAGE_RE = re.compile(r"—\s+\*{0,2}TRIAGE\s+" + _D)
@@ -589,12 +604,59 @@ _PROVEN_RE = re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}\b[^\n]{0,60}?
 
 
 _STRONG_DONE_RE = re.compile(r"\*{0,2}DONE\*{0,2}\s*\([^()]*@\s*[0-9a-f]{6,}[^()]*\b" + _VER + r"\s*" + _D + r"[^()]*\)")   # `DONE (repo @ 9b68488, verified 2026-09-08) - <free note naming files>`: commit AND dated verification inside the opener
+_DONE_TAIL_PROOF_RE = re.compile(r"@|\b" + _VER + r"|" + _D)
 
 
-def _tail_ok(kind, bch, g):
-    """May the unit text `g` (match from its token start to the end) be peeled, given the last char `bch` of the text before it?"""
+_DATED_HDR_END_RE = re.compile(r"\(" + _D + r"[^()]*@[^()]*\)\*{0,2}\s*[—-]?$")   # `<task> (2026-09-04, gitlark @ 5cde8d8) — DONE (note)`: a dated, commit-stamped completion header (or a bounded `(cat:..)`-style annotation) right before the DONE
+
+
+def _closing_shape_ok(shape, g, stamped=None):
+    """Y2b D1: is the unit text `g` a header + closing (no task prose straight after the header)? Shapes without a header rule (TRIAGE / `(done D: claude ..)`) have a fixed deliberate opener and pass."""
+    rx = _HDR.get(shape)
+    if rx is None:
+        return True
+    m = rx.match(g)
+    if not m:
+        return False
+    if shape == "done":
+        paren = m.group("paren")
+        if paren is not None and not _DONE_TAIL_PROOF_RE.search(paren) and not m.group("colon") and not (stamped is not None and stamped()):
+            return False       # `DONE (tree-shake lodash)`: a parenthetical with no date / @ sha / verified is task prose unless a colon closes it (`DONE (web): ...`)
+        if m.group("colon") and paren is None and not m.group("date"):
+            return False       # `DONE: x` / `**DONE**: x` carry no proof: a colon alone does not close a bare DONE
+    if m.group("colon"):
+        return True
+    rem = g[m.end():]
+    r = rem.strip()
+    if not r or r == ".":
+        return True
+    if r[0] in "—" or (r[0] == "-" and r[1:2] == " "):
+        return True
+    return bool(_PAREN_CHAIN_RE.match(rem))
+
+
+def _ends_with_bounded(t, e):
+    """True when t[:e] ends with a bounded annotation unit (`(cat:..)`, `(auto-closed ..)`, `<!-- closed .. -->`, `_(..)_`): the only thing a bare `NOTE:` may follow."""
+    for p in range(max(0, e - 400), e):
+        if (p and t[p - 1] != " ") or t[p] not in "(<_S":
+            continue
+        for rx, kind, _sh in TAIL_UNITS:
+            if kind == "b" and rx.match(t, p, e):
+                return True
+    return False
+
+
+def _tail_ok(kind, bch, g, t=None, e=0, shape=None):
+    """May the unit text `g` (match from its token start to the end) be peeled, given the last char `bch` of the text before it (t[:e])?"""
     if kind == "b":
         return True
+    if shape == "note":
+        return bch in _BOUNDARY and not _PATH_RE.search(g) and t is not None and _ends_with_bounded(t, e)
+    stamped = None
+    if shape == "done" and t is not None:   # evaluated lazily (only for a proofless `DONE (x)`): it scans the text before the candidate
+        stamped = lambda: bool(_DATED_HDR_END_RE.search(t, max(0, e - 160), e)) or _ends_with_bounded(t, e)
+    if not _closing_shape_ok(shape, g, stamped):
+        return False
     if kind == "f":
         if bch in _SENT:
             return True
@@ -617,11 +679,12 @@ def body_key(repo, text):
     body = re.sub(r"^- \[[ xX]\] ", "", body)
     for rx in BODY_STRIP_RES:
         body = rx.sub(" ", body)
+    peeled = False
     for _ in range(MAX_PEELS):
-        nb = _peel_tail(body)
+        nb = _peel_tail(body, peeled)
         if nb is None:
             break
-        body = nb
+        body, peeled = nb, True
     body = LEADING_TAGS_RE.sub("", body)
     body = REPO_PREFIX_RE.sub("", body)
     body = LEADING_TAGS_RE.sub("", body)

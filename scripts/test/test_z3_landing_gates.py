@@ -30,7 +30,7 @@ def ok(name, cond, extra=""):
         print("  ok   " + name)
     else:
         F += 1
-        print("  FAIL " + name + ((" :: " + extra) if extra else ""))
+        print("  FAIL " + name + ((" :: " + str(extra)) if extra else ""))
 
 
 def diff(path, removed=(), added=(), new=False, ctx_before=("",), start=10):
@@ -207,7 +207,7 @@ repo = os.path.join(tmp, "repo")
 os.makedirs(repo)
 ENV = dict(os.environ, GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1", NTFY_SERVER="http://127.0.0.1:9", OVN_NOTIFY_DISABLE="1", TZ="UTC",
            GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-for k in ("OVN_Z3_STEP_DIFF", "OVN_Z3_TONE", "OVN_Z3_REPAIR_ROUTE", "OVN_Z3_TEST_SRC", "OVN_Z3_CALL_DROP", "OVN_Z3_LANDING_CAP", "OVN_Z3_EDITOR_LEAK"):
+for k in ("OVN_Z3_STEP_DIFF", "OVN_Z3_TONE", "OVN_Z3_REPAIR_ROUTE", "OVN_Z3_TEST_SRC", "OVN_Z3_CALL_DROP", "OVN_Z3_LANDING_CAP", "OVN_Z3_EDITOR_LEAK", "OVN_Z3_ASSERT_WEAKEN"):
     ENV.pop(k, None)
 
 
@@ -518,6 +518,80 @@ p = subprocess.run(["bash", "-c", '. "%s"; z3_leak_gate "%s" "%s" lbl step; echo
 ok("B0 z3_leak_gate enforce returns 1", p.stdout.startswith("rc=1 editor-example-leak"), p.stdout)
 runner = open(os.path.join(SCRIPTS, "..", "ovn_stage_runner.sh")).read()
 ok("B0 the stage runner calls z3_leak_gate for non-successful attempts", 'z3_leak_gate "$atmp" state' in runner and '[ "$rc" != 0 ] && [ "$fa" != "landing-gate" ]' in runner)
+
+
+print("== B7 assert-weaken (Z5): real 2026-11-08 incident diffs + negative controls")
+
+
+def aw(path, removed, added, old_text=None, extra=""):
+    d = diff(path, removed, added) + extra
+    fn = (lambda _p: old_text) if old_text is not None else None
+    return G.check_assert_weaken(G.parse_diff(d), fn)
+
+
+def kinds(fs):
+    return sorted(set(f["kind"] for f in fs))
+
+
+T = "backend/tests/test_cm_store_and_health.py"
+f = aw(T, ['    assert "detail" not in r.json()', '    assert "RuntimeError" not in r.text'], ['    assert r.json()["detail"] == "RuntimeError(\'x\')"', '    assert r.json()["detail"] == "RuntimeError(\'x\')"'])
+ok("B7a shrike-monitor 08c7146: two negative leak asserts replaced by two IDENTICAL positive asserts -> negative-removed + duplicate-assert", kinds(f) == ["duplicate-assert", "negative-removed"], f)
+f = aw(T, ['    assert "detail" not in r.json()'], ['    assert r.json()["detail"] == "x"', '    assert r.json()["other"] == "y"'])
+ok("B7a2 ...a negative removed and replaced by a DIFFERENT strong assertion on the same subject is not flagged", f == [], f)
+f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 422"], ["    assert r.status_code == 200"])
+ok("B7b iptv 872a3906: `== 422` flipped to `== 200` in a test-only change -> status-flip", kinds(f) == ["status-flip"], f)
+f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 422"], ["    assert r.status_code == 422"], extra=diff("iptv-backend/app/auth.py", ["a"], ["b"]))
+ok("B7b2 ...422 kept is not flagged", f == [], f)
+f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 422"], ["    assert r.status_code == 200"], extra=diff("iptv-backend/app/auth.py", ["a"], ["b"]))
+ok("B7b3 ...a flip together with an app-source edit (behaviour changed on purpose) is not flagged", f == [], f)
+f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 404"], ["    assert r.status_code == 403"])
+ok("B7b4 4xx -> another 4xx is not a weakening", f == [], f)
+f = aw("iptv-backend/tests/test_reminders_patch_nulls.py", ['    assert data["program_start"] == original_start', '    assert data["title"] == original_title'], ['    assert data["program_start"] is not None', '    assert data["title"] is not None'])
+ok("B7c iptv f9cf73dc: `== original_*` replaced by `is not None` -> compare-to-weak", kinds(f) == ["compare-to-weak"], f)
+f = aw("iptv-backend/tests/test_reminders_patch_nulls.py", ['    assert data["a"] == 1'], ['    assert data["a"] == 2'])
+ok("B7c2 a changed expected VALUE is not flagged", f == [], f)
+old = '@pytest.mark.parametrize("expr", [\n    "* * * * *",\n    "59 25 * * *",\n    "0 0 1 13 *",\n    "0 24 * * *",\n])\ndef test_invalid(expr):\n    with pytest.raises(ValueError):\n        cron_matches(expr)\n'
+f = aw("backend/tests/test_cron_matches_validates_all_fields.py", ['    "59 25 * * *",', '    "0 0 1 13 *",', '    "0 24 * * *",'], [], old_text=old)
+ok("B7d TAA 6b686f31: invalid-cron parametrize cases deleted -> case-deleted", kinds(f) == ["case-deleted"], f)
+f = aw("backend/tests/test_cron_matches_validates_all_fields.py", ['    "59 25 * * *",'], [], old_text="x = [\n    1,\n    \"59 25 * * *\",\n]\ndef test_a():\n    pass\n")
+ok("B7d2 a removed list entry that is NOT a parametrize table is not flagged", f == [], f)
+f = aw("backend/tests/test_cron_matches_validates_all_fields.py", ['    "59 25 * * *",'], [], old_text=None)
+ok("B7d3 without a pre-image the case check stays silent (fail-open)", f == [], f)
+f = aw("backend/tests/test_a.py", ["    assert not db.get(ok.id).is_active"], ["    assert db.get(ok.id).is_active"])
+ok("B7e polarity flip (`assert not x` -> `assert x`: the expectation changed) is not flagged", f == [], f)
+f = aw("backend/tests/test_a.py", ["def test_cron_matches_not_imported():", '    assert "x" not in source'], ["def test_cron_matches_imported():", '    assert len(source) > 0'])
+ok("B7f a test whose def line was renamed/removed (rewritten or retired) is not flagged", f == [], f)
+f = aw("backend/tests/test_a.py", ['    assert "/monitors?limit=" not in body', '    assert "x" not in body'], ['    assert resp.status_code == 200'])
+ok("B7g two negatives -> one positive IS flagged (control for B7h)", kinds(f) == ["negative-removed"], f)
+f = aw("backend/tests/test_a.py", ['    assert "/monitors?limit=" not in body'], ['    assert data == []'])
+ok("B7h a negative replaced by an emptiness check is not flagged", f == [], f)
+f = aw("backend/app/service.py", ['    assert "x" not in y'], ["    pass"])
+ok("B7i a non-test file is never judged", f == [], f)
+newfile = diff("backend/tests/test_new.py", [], ['    assert 1 == 1', '    assert 1 == 1'], new=True)
+ok("B7j a NEW test file is not judged", G.check_assert_weaken(G.parse_diff(newfile)) == [])
+f = aw("backend/tests/test_a.py", ["    assert x is None"], ["    assert x == 1000"])
+ok("B7k `is None` -> `== 1000` (expected value changed) is not flagged", f == [], f)
+f = aw("web/src/__tests__/a.test.ts", ["    expect(wrapper.exists()).toBe(true)"], ["    expect(btn).toBeDefined()"])
+ok("B7l an existence check swapped for another existence check is not flagged", f == [], f)
+f = aw("web/src/__tests__/a.test.ts", ["    expect(out).not.toContain('secret')", "    expect(out).toBe('ok')"], ["    expect(out).toBeTruthy()"])
+ok("B7m JS: `.not.toContain` + `toBe('ok')` replaced by `toBeTruthy()` -> flagged", kinds(f) == ["compare-to-weak", "negative-removed"], f)
+res = G.analyse(diff(T, ['    assert "detail" not in r.json()'], ['    assert r.json()["detail"] == "e"', '    assert r.json()["detail"] == "e"']), "tidy", "[T3] x", "step", "")
+ok("B7n analyse() reports the rule under 'assert-weaken'", [x["kind"] for x in res["assert-weaken"]] == ["duplicate-assert", "negative-removed"] or kinds(res["assert-weaken"]) == ["duplicate-assert", "negative-removed"], res["assert-weaken"])
+
+# shell glue: real worktree, tests/ file weakened
+tf = os.path.join(repo, "backend/tests")
+os.makedirs(tf, exist_ok=True)
+open(os.path.join(tf, "test_h.py"), "w").write('def test_h(r):\n    assert r.status_code == 200\n    assert "detail" not in r.json()\n    assert "RuntimeError" not in r.text\n')
+git("add", "-A")
+git("commit", "-q", "-m", "tests")
+open(os.path.join(tf, "test_h.py"), "w").write('def test_h(r):\n    assert r.status_code == 200\n    assert r.json()["detail"] == "e"\n    assert r.json()["detail"] == "e"\n')
+o, log = gate("step", desc="tidy", item="[T3] x (cat:python)")
+ok("B7s1 shell glue, shadow default: journals assert-weaken, rc=0", o.startswith("rc=0 refuse=") and "assert-weaken" in log and '"mode": "shadow"' in log, o + "|" + log[:300])
+o, log = gate("step", {"OVN_Z3_ASSERT_WEAKEN": "enforce"}, desc="tidy", item="[T3] x (cat:python)")
+ok("B7s2 enforce is accepted but FLAG-ONLY (journals as shadow, rc=0)", o.startswith("rc=0 refuse=") and "assert-weaken" in log and '"mode": "shadow"' in log, o + "|" + log[:300])
+o, log = gate("step", {"OVN_Z3_ASSERT_WEAKEN": "off"}, desc="tidy", item="[T3] x (cat:python)")
+ok("B7s3 OVN_Z3_ASSERT_WEAKEN=off journals nothing for the rule", "assert-weaken" not in log, log[:200])
+clean()
 
 shutil.rmtree(tmp, ignore_errors=True)
 print("\n%d passed, %d failed" % (P, F))

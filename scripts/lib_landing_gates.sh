@@ -8,6 +8,7 @@
 #   OVN_Z3_REPAIR_ROUTE   B3  repair-new-route     a repair-to-pass-verification round may not add a route/endpoint
 #   OVN_Z3_TEST_SRC       B4  test-item-src-edit   a test-creation item may not touch non-test source
 #   OVN_Z3_CALL_DROP      B5  call-dropped         FLAG ONLY: `enforce` is accepted but behaves as shadow (a heuristic, never a veto)
+#   OVN_Z3_ASSERT_WEAKEN  B7  assert-weaken       FLAG ONLY (Z5): a test diff removed a negative assert / flipped 4xx->2xx / compare->`is not None` / duplicated a positive assert / deleted parametrize cases; `enforce` behaves as shadow
 #   OVN_Z3_LANDING_CAP    B6  landing-cap          item landed >= OVN_Z3_LANDING_CAP_N (3) times in OVN_Z3_LANDING_CAP_H (24) h, keyed on the item LINE hash -> park (AUTO-SKIP)
 #   OVN_Z3_EDITOR_LEAK    B0  editor-example-leak  aider's built-in "Change the greeting to be more casual" example replayed by the editor (root cause of Hey/Yo/Buzz copy)
 #   OVN_STAGE_EDITOR_FORMAT   (not a gate) when set (e.g. editor-diff) the staged runner passes --editor-edit-format <v> to aider; empty = aider's default editor-whole
@@ -16,6 +17,7 @@
 #   Looks at the UNCOMMITTED change in <wt> (git diff HEAD incl. new files). Sets Z3_REFUSE (empty or "<rule>: <msg>") for the first ENFORCED gate that fired; returns 1 then, else 0.
 #   Shadow findings are appended to <state-dir>/landing_gates_shadow.log (one JSON object per line) and never refuse.
 
+type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 _z3_py() { local d; d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; printf '%s/ovn_landing_gates.py' "$d"; }
 
 _z3_mode() {  # _z3_mode <rule-flag-name> -> off|shadow|enforce (invalid => shadow)
@@ -96,6 +98,7 @@ z3_step_gate() {
       repair-new-route) mode="$(_z3_mode OVN_Z3_REPAIR_ROUTE)";;
       test-item-src-edit) mode="$(_z3_mode OVN_Z3_TEST_SRC)";;
       call-dropped) mode="$(_z3_mode OVN_Z3_CALL_DROP)"; [ "$mode" = enforce ] && mode=shadow;;
+      assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)"; [ "$mode" = enforce ] && mode=shadow;;
       *) mode=shadow;;
     esac
     [ "$mode" = off ] && continue
@@ -133,13 +136,13 @@ z3_landing_cap() {
   [ -n "$h" ] && [ -f "$sd/outcomes.jsonl" ] || return 0
   py="$(_z3_py)"; [ -f "$py" ] || return 0
   n="${OVN_Z3_LANDING_CAP_N:-3}"; case "$n" in ''|*[!0-9]*|0|1) n=3;; esac
-  out="$(OVN_Z3_LANDING_CAP_H="${OVN_Z3_LANDING_CAP_H:-24}" python3 "$py" cap-check --outcomes "$sd/outcomes.jsonl" --hash "$h" --n "$n" --pending "${6:-0}" 2>/dev/null)" || return 0
+  out="$(OVN_Z3_LANDING_CAP_H="${OVN_Z3_LANDING_CAP_H:-24}" ovn_hto 60 landing_cap_check python3 "$py" cap-check --outcomes "$sd/outcomes.jsonl" --hash "$h" --n "$n" --pending "${6:-0}" 2>/dev/null)" || return 0
   case "$out" in *'"over": true'*) ;; *) return 0;; esac
   cnt="$(printf '%s' "$out" | sed -E 's/.*"count": ([0-9]+).*/\1/')"
   _z3_rotate "$sd/landing_gates_shadow.log"
   printf '%s\n' "{\"ts\":\"$(date -u +%FT%TZ)\",\"rule\":\"landing-cap\",\"mode\":\"$mode\",\"label\":\"$label\",\"hash\":\"$h\",\"count\":$cnt,\"n\":$n,\"item\":\"$(printf '%s' "$text" | tr -d '"\\' | cut -c1-120)\"}" >> "$sd/landing_gates_shadow.log" 2>/dev/null
   if [ "$mode" = enforce ] && [ -n "$rd" ] && [ -f "$rd/OVERNIGHT_PROGRESS.md" ] && [ -n "$text" ]; then
-    k="$(python3 "$py" cap-park --progress "$rd/OVERNIGHT_PROGRESS.md" --text "$text" --count "$cnt" 2>/dev/null)"
+    k="$(ovn_hto 60 landing_cap_park python3 "$py" cap-park --progress "$rd/OVERNIGHT_PROGRESS.md" --text "$text" --count "$cnt" 2>/dev/null)"
     if [ "${k:-0}" -gt 0 ] 2>/dev/null; then
       git -C "$rd" add OVERNIGHT_PROGRESS.md >/dev/null 2>&1
       git -C "$rd" commit -q -m "chore(queue): park item after ${cnt} landings in 24h (landing cap)" -- OVERNIGHT_PROGRESS.md >/dev/null 2>&1

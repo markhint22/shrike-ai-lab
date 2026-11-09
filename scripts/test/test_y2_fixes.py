@@ -369,7 +369,7 @@ MUT = [
     ("done-check ignores the target file", "    files = target_files(task)\n    if not files and has_named_paths(task):", "    files = []\n    if False:"),
     ("weak evidence is ledgered", "                    if dstrong and key not in ledger:", "                    if True:"),
     ("generic names allowed without a file", "    if generic:\n", "    if False:\n"),
-    ("body_key keeps closing tails", "        nb = _peel_tail(body)", "        nb = None"),
+    ("body_key keeps closing tails", "        nb = _peel_tail(body, peeled)", "        nb = None"),
     ("body_key lowercases/drops operators", '    body = " ".join(body.split()).rstrip(" .")', '    body = " ".join(re.findall(r"[a-z0-9]+", body.lower()))'),
 ]
 orig = rd(BR)

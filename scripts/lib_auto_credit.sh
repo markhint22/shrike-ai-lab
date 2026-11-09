@@ -25,6 +25,7 @@
 # npm run build/npm test/vitest/full pytest), bounded overall by OVN_AC_VERIFY_BUDGET (default 2400s per call). A timeout (rc=124) or unrunnable
 # clause is neither credited nor FAILED: the item stays open, one alert per call (deduped) says why, and an `indet-hash <md5>` marker goes into the task
 # log so ovn_item_guard.sh treats the green landing as a landing (clears the item's counters) and does not bill the item's next ALREADY-DONE no-ops.
+type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 _AC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib_path_normalize.sh
 [ -f "$_AC_DIR/lib_path_normalize.sh" ] && . "$_AC_DIR/lib_path_normalize.sh"
@@ -121,7 +122,7 @@ ovn_ac_is_placeholder() {
   case "$_head" in *"$OVN_AC_PLACEHOLDER_TEXT"*) ;; *) return 1 ;; esac
   # Z1 review-fix: delegated to ovn_placeholder_scan.py (markers stripped FIRST; test files need a non-skipped test fn with a real assertion; see its docstring).
   # No python3 / scan error => treated as a placeholder (refuse credit; fail closed).
-  _n="$(printf '%s\n' "$_all" | python3 "$(dirname "${BASH_SOURCE[0]}")/ovn_placeholder_scan.py" "$2" "$OVN_AC_PLACEHOLDER_TEXT" 2>/dev/null)"
+  _n="$(printf '%s\n' "$_all" | ovn_hto 60 placeholder_scan python3 "$(dirname "${BASH_SOURCE[0]}")/ovn_placeholder_scan.py" "$2" "$OVN_AC_PLACEHOLDER_TEXT" 2>/dev/null)"
   [ "$_n" = real ] && return 1
   return 0
 }
@@ -359,7 +360,7 @@ ovn_auto_credit() {
 
   [ -n "$OVN_TREE_IGNORED" ] && _ovn_ac_log "ignoring tracked generated-artefact difference(s) not touched by this cycle: ${OVN_TREE_IGNORED:0:300}"
 
-  items="$(python3 "$_AC_DIR/ovn_credit_items.py" list "$prog" 2>/dev/null)"
+  items="$(ovn_hto 60 credit_items_list python3 "$_AC_DIR/ovn_credit_items.py" list "$prog" 2>/dev/null)"
   [ -n "$items" ] || return 0
 
   SHADOW_LOG="${OVN_VERIFY_SHADOW_LOG:-$HOME/overnight-queue/state/verify_gate_shadow.log}"
@@ -498,7 +499,7 @@ ovn_auto_credit() {
       ln="$_ac_rowln"
     fi
     _ac_before_text="$(sed -n "${ln}p" "$prog")"
-    res="$(python3 "$_AC_DIR/ovn_credit_items.py" tick "$prog" "$ln" 2>/dev/null)"
+    res="$(ovn_hto 60 credit_items_tick python3 "$_AC_DIR/ovn_credit_items.py" tick "$prog" "$ln" 2>/dev/null)"
     if [ "$res" = "TICKED" ]; then _AC_CREDITED_HASHES="${_AC_CREDITED_HASHES:-} $(_ovn_cr_hash "$_ac_before_text")"; ovn_credit_refused_clear "$_ac_before_text" "$prog"; OVN_AC_CREDITED=$((OVN_AC_CREDITED + 1)); _ovn_ac_log "checked off line ${ln} (green change touched its named file and its VERIFY passed)"; ovn_credit_twins "$prog" "$ln" "$_AC_TASK_LOG"; ovn_card_credit_shadow "$_ac_before_text" "$after"; fi
   done
   [ "$OVN_AC_CREDITED" -gt 0 ] || return 0

@@ -11,6 +11,8 @@
 # Usage: ovn_stage_runner.sh <repo> ["<item text>"]   (no item -> first doable T3+ item in the queue)
 # Tunables: OVN_STAGE_MAX_ATTEMPTS(2 per step) OVN_STAGE_MAX_STEPS(6) OVN_STAGE_REDECOMP(1)
 set -uo pipefail
+_OVN_SR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+type ovn_hto >/dev/null 2>&1 || . "${_OVN_SR_DIR:-$HOME/overnight-queue}/scripts/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; ovn_hto_restore_file(){ :; }; ovn_hto_git_recover(){ :; }; ovn_hto_snapshot_untracked(){ :; }; ovn_hto_sentinel(){ :; }; ovn_hto_recover_done(){ :; }; }   # helper wall-clock cap (hotfix-scout-hang)
 # 2026-10-04: GUT also descends into tests/*/ (release/battle/steam were never run). Verified green on xlite claude/feature (389 scripts, 2862 tests, 0 failing).
 # Kill switch: OVN_GUT_SUBDIRS=off. 2026-10-13: the flag comes from lib_gut_xml.sh gut_subdirs_flag (sourced below) - one definition shared with run_overnight.sh's per-cycle verify.
 cd "$HOME/overnight-queue" || exit 1
@@ -132,7 +134,7 @@ _SO_LOG="${OVN_STAGE_ORDER_LOG:-state/stage_order_shadow.log}"
 _so_item_filter(){   # stdin = candidate queue lines -> stdout = the lines the picker may take (all of them unless enforce)
   local _in _out; _in="$(cat)"
   if [ "$_SO_MODE" = off ]; then printf '%s\n' "$_in"; return 0; fi
-  if _out="$(printf '%s\n' "$_in" | python3 "$_SO_PY" item-filter --mode "$_SO_MODE" --progress "$rd/OVERNIGHT_PROGRESS.md" --repo "$repo" --log "$_SO_LOG" 2>/dev/null)"; then printf '%s\n' "$_out"; else printf '%s\n' "$_in"; fi
+  if _out="$(printf '%s\n' "$_in" | ovn_hto 60 so_item_filter python3 "$_SO_PY" item-filter --mode "$_SO_MODE" --progress "$rd/OVERNIGHT_PROGRESS.md" --repo "$repo" --log "$_SO_LOG" 2>/dev/null)"; then printf '%s\n' "$_out"; else printf '%s\n' "$_in"; fi
 }
 # <<< d3 step-ordering helpers
 # >>> y4 item-deps helpers
@@ -144,7 +146,7 @@ _ID_LOG="${OVN_ITEM_DEPS_LOG:-state/item_deps_shadow.log}"
 _id_item_filter(){   # stdin = candidate queue lines -> stdout = the lines the picker may take (all of them unless enforce)
   local _in _out; _in="$(cat)"
   if [ "$_ID_MODE" = off ] || [ -z "$_in" ]; then printf '%s\n' "$_in"; return 0; fi
-  if _out="$(printf '%s\n' "$_in" | python3 "$_ID_PY" item-filter --mode "$_ID_MODE" --progress "$rd/OVERNIGHT_PROGRESS.md" --repo "$repo" --log "$_ID_LOG" --tree "$rd" 2>/dev/null)"; then printf '%s\n' "$_out"; else printf '%s\n' "$_in"; fi
+  if _out="$(printf '%s\n' "$_in" | ovn_hto 60 id_item_filter python3 "$_ID_PY" item-filter --mode "$_ID_MODE" --progress "$rd/OVERNIGHT_PROGRESS.md" --repo "$repo" --log "$_ID_LOG" --tree "$rd" 2>/dev/null)"; then printf '%s\n' "$_out"; else printf '%s\n' "$_in"; fi
 }
 # <<< y4 item-deps helpers
 
@@ -213,7 +215,7 @@ llm(){ local pf="$1" body resp content i
     # 2026-09-16: this decompose/planning call's real token spend was discarded entirely
     # (only .choices[0].message.content was ever kept) - the per-step aider calls below are
     # already tracked via stage_runs/*.jsonl, but this call that PRECEDES them never was.
-    bash "$HOME/overnight-queue/scripts/ovn_log_tokens.sh" stage-decompose "$repo" \
+    ovn_hto 60 log_tokens bash "$HOME/overnight-queue/scripts/ovn_log_tokens.sh" stage-decompose "$repo" \
       "$(printf '%s' "$resp" | jq -r '.usage.prompt_tokens // 0' 2>/dev/null)" \
       "$(printf '%s' "$resp" | jq -r '.usage.completion_tokens // 0' 2>/dev/null)" 2>/dev/null || true
     if [ -n "$content" ]; then printf '%s' "$content"; return 0; fi
@@ -358,7 +360,7 @@ if [ "$_bg_on" = 1 ] && [ -z "$item_arg" ] && [ "${OVN_BUG_BRIEF:-on}" != off ] 
   if [ -n "$_bg_feat" ] && ! printf '%s' "$item" | grep -qE '\(brief:[0-9]+/[0-9]+\)' \
      && [ ! -f "state/bug_briefs/${_bg_safe}.json" ] && [ ! -f "state/bug_lazy/${_bg_safe}" ] \
      && [ ! -f "state/item_fails/stage-${repo}.$(ovn_item_hash "$item").bugcount" ]; then
-    _bg_id="$(python3 "$_bg_py" brief-id --ovn "$PWD" --feat "$_bg_feat" 2>/dev/null)"
+    _bg_id="$(ovn_hto 60 bg_brief_id python3 "$_bg_py" brief-id --ovn "$PWD" --feat "$_bg_feat" 2>/dev/null)"
     if [ -z "$_bg_id" ]; then
       say "lazy bug brief: skipped (no open manual_notes entry for $_bg_feat, or it was already briefed)"
     elif ! command -v pgrep >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
@@ -552,7 +554,7 @@ except Exception: print('[]')" | _bg_filter
 }
 # 2026-10-03 (A8): on a manual bug, drop decomposed steps whose desc says 'no change required' / 'nothing to change' (the categories bug stored such a step
 # and the run "passed" it). The number dropped goes to $_bg_dropf so the caller can tell 'the model had nothing' from 'the LLM was down'.
-_bg_filter(){ if [ "$_bg_on" = 1 ]; then python3 "$_bg_py" filter-steps ${_bg_dropf:+--drop-file "$_bg_dropf"} 2>/dev/null; else cat; fi; }
+_bg_filter(){ if [ "$_bg_on" = 1 ]; then ovn_hto 60 bg_filter_steps python3 "$_bg_py" filter-steps ${_bg_dropf:+--drop-file "$_bg_dropf"} 2>/dev/null; else cat; fi; }
 
 # 2026-10-03 (A8): the plan used to be re-made by the model on EVERY attempt (3, 2, 4, 2, 1, 2 steps for the same bug), so attempt 2 never built on attempt 1.
 # A manual bug now persists its FIRST plan (state/bug_plans/<md5 of the item text>.json) and reuses it on the next attempt; removed on escalation / full pass.
@@ -623,7 +625,7 @@ stage_precredit_run(){   # uses globals: wt rd repo item item_arg tier RUNID _bg
   ./queue.sh hold "$repo" >/dev/null 2>&1
   git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
   git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null
-  if [ "$(python3 -I "$_pk_py" mark --progress "$rd/OVERNIGHT_PROGRESS.md" --item "$item" --decision "$_pk_dec" --note "$_pk_note" 2>/dev/null | jq -r '.marked' 2>/dev/null)" = true ] \
+  if [ "$(ovn_hto 60 precredit_mark python3 -I "$_pk_py" mark --progress "$rd/OVERNIGHT_PROGRESS.md" --item "$item" --decision "$_pk_dec" --note "$_pk_note" 2>/dev/null | jq -r '.marked' 2>/dev/null)" = true ] \
      && ! git -C "$rd" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
     git -C "$rd" add OVERNIGHT_PROGRESS.md
     git -C "$rd" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): pre-edit credit T$tier item ($_pk_dec: its own VERIFY already passes before any edit)"
@@ -653,7 +655,7 @@ STEPS_JSON=""; _bg_reused=0
 if [ "$_bg_on" = 1 ]; then
   _bg_dropf="$(mktemp "${TMPDIR:-/tmp}/ovn_stage_$$.XXXXXX")"; : > "$_bg_dropf"
   _bg_plan_f="state/bug_plans/$(printf '%s' "$item" | md5sum | cut -d' ' -f1).json"
-  STEPS_JSON="$(python3 "$_bg_py" plan-load --file "$_bg_plan_f" 2>/dev/null | python3 "$_bg_py" filter-steps 2>/dev/null)"
+  STEPS_JSON="$(ovn_hto 60 bg_plan_load python3 "$_bg_py" plan-load --file "$_bg_plan_f" 2>/dev/null | ovn_hto 60 bg_filter_steps python3 "$_bg_py" filter-steps 2>/dev/null)"
   if [ -n "$STEPS_JSON" ] && [ "$(printf '%s' "$STEPS_JSON" | jq 'length' 2>/dev/null || echo 0)" -ge 1 ] 2>/dev/null; then
     _bg_reused=1; say "reusing the plan persisted by the first attempt ($(printf '%s' "$STEPS_JSON" | jq 'length') step(s))"
   else STEPS_JSON=""; fi
@@ -661,7 +663,7 @@ fi
 [ -n "$STEPS_JSON" ] || STEPS_JSON="$(decompose "$item")"
 # D3: order the plan by dependency (shadow: unchanged + journaled; enforce: merge red-by-design test steps into their fix step, else reorder)
 if [ "$_SO_MODE" != off ] && [ -n "$STEPS_JSON" ]; then
-  _so_res="$(printf '%s' "$STEPS_JSON" | python3 "$_SO_PY" plan --mode "$_SO_MODE" --repo "$repo" --run "$RUNID" --item "$item" --log "$_SO_LOG" 2>/dev/null)"
+  _so_res="$(printf '%s' "$STEPS_JSON" | ovn_hto 60 so_plan python3 "$_SO_PY" plan --mode "$_SO_MODE" --repo "$repo" --run "$RUNID" --item "$item" --log "$_SO_LOG" 2>/dev/null)"
   if [ -n "$_so_res" ] && printf '%s' "$_so_res" | jq -e '.steps | type=="array"' >/dev/null 2>&1; then
     _so_nd="$(printf '%s' "$_so_res" | jq '.decisions | length')"
     if [ "${_so_nd:-0}" -gt 0 ]; then
@@ -687,7 +689,7 @@ if [ "${NSTEPS:-0}" -lt 1 ]; then
   exit 1
 fi
 [ -n "$_bg_dropf" ] && { rm -f "$_bg_dropf"; _bg_dropf=""; }
-[ "$_bg_on" = 1 ] && [ "$_bg_reused" = 0 ] && python3 "$_bg_py" plan-save --file "$_bg_plan_f" --plan-json "$STEPS_JSON" 2>/dev/null
+[ "$_bg_on" = 1 ] && [ "$_bg_reused" = 0 ] && ovn_hto 60 bg_plan_save python3 "$_bg_py" plan-save --file "$_bg_plan_f" --plan-json "$STEPS_JSON" 2>/dev/null
 say "decomposed into $NSTEPS sub-steps"
 jlog "$(jq -nc --arg r "$RUNID" --arg repo "$repo" --argjson t "$tier" --arg it "$item" --argjson n "$NSTEPS" --argjson plan "$STEPS_JSON" '{run:$r,repo:$repo,tier:$t,item:$it,event:"decomposed",steps:$n,plan:$plan}')"
 
@@ -1258,7 +1260,7 @@ ${_tgtctx}
   # the real definition of the type the model tried to re-declare. Empty (=> the old prompt) unless _bg_on.
   local _bgctx="" _bgre="" _bgdup=""
   if [ "$_bg_on" = 1 ]; then
-    _bgctx="$(python3 "$_bg_py" kotlin-ctx --wt "$wt" --files "$files" --text "$desc $item" --desc "$desc" 2>/dev/null)"
+    _bgctx="$(ovn_hto 60 bg_kotlin_ctx python3 "$_bg_py" kotlin-ctx --wt "$wt" --files "$files" --text "$desc $item" --desc "$desc" 2>/dev/null)"
     [ -n "$_bgctx" ] && _bgctx=$'\n\n'"$_bgctx"
   fi
   local slog="state/stage_runs/${repo}-${RUNID}-s${idx}.log"   # per-step aider session log for review
@@ -1369,7 +1371,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
         _fb_next=$'\n\n'"YOUR PREVIOUS ATTEMPT FAILED: you left ${STAGE_EF_DECLARED} EMPTY (0 bytes). Write the COMPLETE content of that file this time (every import, function and test), not just its name."
         stage_emptyfile_whole "$idx" "$STAGE_EF_DECLARED"; [ "$STAGE_EW_DECISION" = whole ] && _efmt=whole
       else fa="no-edit"; rc=1; fi
-    elif [ "$_bg_on" = 1 ] && _bgdup="$(python3 "$_bg_py" dupes --wt "$wt" 2>/dev/null)" && [ -n "$_bgdup" ]; then
+    elif [ "$_bg_on" = 1 ] && _bgdup="$(ovn_hto 60 bg_dupes python3 "$_bg_py" dupes --wt "$wt" 2>/dev/null)" && [ -n "$_bgdup" ]; then
       # 2026-10-03 (A8): a NEW .kt file re-declaring a type that already exists (GroupedCategories.kt vs CategoryModels.kt, DiscoverModels.kt vs ChickadeeApi.kt)
       # only surfaced as 'Redeclaration' at the final verify (a 15-25 min cycle). Reject it NOW and re-prompt with the real definition.
       fa="duplicate-type"; rc=1; _bgre=$'\n\n'"$_bgdup"
@@ -1421,7 +1423,7 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
           say "  step $idx REJECTED (landing gate): ${Z3_REFUSE:0:140}"
         fi
       else
-        fa="$(bash "$HOME/overnight-queue/ovn_classify_fail.sh" "$atmp" reverted 2>/dev/null)"; rc=1
+        fa="$(ovn_hto 60 classify_fail bash "$HOME/overnight-queue/ovn_classify_fail.sh" "$atmp" reverted 2>/dev/null)"; rc=1
         excerpt="$(grep -iE 'error|fail|assert|expected|traceback|<failure|cannot|not found|no attribute|no such' "$atmp" 2>/dev/null | tail -4 | tr '\n' ' ' | cut -c1-320)"
       fi
     fi
@@ -1547,7 +1549,7 @@ for i in $(seq 0 $((NSTEPS-1))); do
   v="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].verify // \"tests green\"")"
   # D3: runtime gate. A step whose prerequisite step has not landed is parked (enforce) - never run red-by-design before the fix it tests; shadow only journals the would-have decision.
   _so_sid="$(printf '%s' "$STEPS_JSON" | jq -r ".[$i].id // $i")"; _so_um=""
-  if [ "$_SO_MODE" != off ]; then _so_um="$(printf '%s' "${_SO_ANN:-$STEPS_JSON}" | python3 "$_SO_PY" unmet --i "$i" --done "$_SO_DONE" 2>/dev/null)"; fi
+  if [ "$_SO_MODE" != off ]; then _so_um="$(printf '%s' "${_SO_ANN:-$STEPS_JSON}" | ovn_hto 60 so_unmet python3 "$_SO_PY" unmet --i "$i" --done "$_SO_DONE" 2>/dev/null)"; fi
   if [ -n "$_so_um" ]; then
     say "  step $i waits for unlanded prerequisite step(s) [$_so_um] (step-order $_SO_MODE)"
     jlog "$(jq -nc --arg r "$RUNID" --argjson i "$i" --arg u "$_so_um" --arg m "$_SO_MODE" '{run:$r,step:$i,event:(if $m=="enforce" then "step_parked_dep" else "would_park_dep" end),mode:$m,unmet:$u}')"
@@ -1588,14 +1590,17 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   # clean-venv import of app.main (the iptv_apps 0011 stub / aiohttp prod-deploy incidents). Both helpers fail-safe:
   # absent script or infra failure = no effect. The stub-drop runs first so an unfilled stub is deleted, not failed.
   if [ -x scripts/ovn_alembic_autogen.sh ]; then
+    _ag_snap="$(ovn_hto_snapshot_untracked "$wt" ':(glob)**/alembic/versions/**')"; _ag_sent="$(ovn_hto_sentinel)"   # snapshot first, sentinel last, right before the call
     GIT_AUTHOR_NAME=shrike-fleet GIT_COMMITTER_NAME=shrike-fleet GIT_AUTHOR_EMAIL=22970726+markhint22@users.noreply.github.com \
-      GIT_COMMITTER_EMAIL=22970726+markhint22@users.noreply.github.com bash scripts/ovn_alembic_autogen.sh --drop-stubs "$wt" >> "$vlog" 2>&1
+      GIT_COMMITTER_EMAIL=22970726+markhint22@users.noreply.github.com ovn_hto "${OVN_ALEMBIC_HTO:-400}" alembic_autogen bash scripts/ovn_alembic_autogen.sh --drop-stubs "$wt" >> "$vlog" 2>&1
+    [ $? -eq 124 ] && ovn_hto_git_recover "$wt" "$_ag_snap" "$_ag_sent"   # cap exceeded: remove only our own index.lock and untracked files the call created (never touches tracked/staged/pre-existing files: the tree may hold the uncommitted repair candidate)
+    ovn_hto_recover_done "$_ag_snap" "$_ag_sent"
   fi
-  if [ -f scripts/check_migrations.py ] && ! python3 scripts/check_migrations.py "$wt" >> "$vlog" 2>&1; then
+  if [ -f scripts/check_migrations.py ] && ! ovn_hto_open 120 check_migrations python3 scripts/check_migrations.py "$wt" >> "$vlog" 2>&1; then
     echo "-- MIGRATION SAFETY FAIL (see above) --" >> "$vlog"; vok=0
   fi
   if [ -f scripts/lib_dep_import_check.py ]; then
-    python3 scripts/lib_dep_import_check.py gate --repo "$wt" --before "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" >> "$vlog" 2>&1 \
+    ovn_hto_open 120 dep_import_check python3 scripts/lib_dep_import_check.py gate --repo "$wt" --before "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" >> "$vlog" 2>&1 \
       || { echo "-- DEP-IMPORT FAIL (see above) --" >> "$vlog"; vok=0; }
   fi
   # ANDROID (Gradle) — 2026-09-16 FIX: full_verify() had ZERO Kotlin/Android coverage, so a staged
@@ -1941,10 +1946,12 @@ qa_baseline_record(){   # $1 = the runner's FINAL VERIFIED (0/1); call once, aft
 # always exits 0 and leaves the tree untouched on refusal. OVN_ALEMBIC_AUTOGEN_DISABLE=1 disables.
 if [ "$passed" -gt 0 ] && [ -x scripts/ovn_alembic_autogen.sh ]; then
   # fleet identity via env (every other commit in this file passes -c user.*; the hook uses plain `git commit`)
+  _ag_snap="$(ovn_hto_snapshot_untracked "$wt" ':(glob)**/alembic/versions/**')"; _ag_sent="$(ovn_hto_sentinel)"
   _ag_out="$(OVN_ALEMBIC_AUTOGEN_NAME="$repo" OVN_ALEMBIC_AUTOGEN_VENV_ROOT="$(cd "$rd" && pwd)" \
     GIT_AUTHOR_NAME=shrike-fleet GIT_COMMITTER_NAME=shrike-fleet \
     GIT_AUTHOR_EMAIL=22970726+markhint22@users.noreply.github.com GIT_COMMITTER_EMAIL=22970726+markhint22@users.noreply.github.com \
-    bash scripts/ovn_alembic_autogen.sh "$wt" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" "$(git -C "$wt" rev-parse HEAD)" 2>>"$SLOG")"
+    ovn_hto "${OVN_ALEMBIC_HTO:-400}" alembic_autogen bash scripts/ovn_alembic_autogen.sh "$wt" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" "$(git -C "$wt" rev-parse HEAD)" 2>>"$SLOG")"; [ $? -eq 124 ] && ovn_hto_git_recover "$wt" "$_ag_snap" "$_ag_sent"
+  ovn_hto_recover_done "$_ag_snap" "$_ag_sent"
   [ -n "$_ag_out" ] && { say "$_ag_out"; jlog "$(jq -nc --arg r "$RUNID" --arg o "$_ag_out" '{run:$r,event:"alembic_autogen",out:$o}')"; }
 fi
 
@@ -2246,7 +2253,7 @@ emit_unverified_outcome(){
   # fail_reason is a BOUNDED TAG (consumers Counter() it: ovn_t3_report.sh, ovn_godot_report.sh, ovn_failure_triage.py); the free-text excerpt goes in
   # the separate, scrubbed + truncated "detail" field (verify output can carry connection strings / tokens).
   cf="$vlog"; [ -f "$cf" ] || cf="$SLOG"
-  fr="$(bash ovn_classify_fail.sh "$cf" "$ust" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
+  fr="$(ovn_hto 60 classify_fail bash ovn_classify_fail.sh "$cf" "$ust" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
   [ -n "$fr" ] && [ "$fr" != unknown ] || fr="stage-unverified"
   # 2026-10-21 (P4, OVN_STAGE_FAILTAG=on): the classifier short-circuits on the stage-unverified status text above, so fr was ALWAYS stage-unverified; use the cause tag
   if [ "${OVN_STAGE_FAILTAG-on}" = on ] && declare -F ovn_stage_fail_tag >/dev/null 2>&1; then _p4t="$(ovn_stage_fail_tag "$SLOG" "$vlog" 2>/dev/null)"; [ -n "$_p4t" ] && fr="$_p4t"; fi

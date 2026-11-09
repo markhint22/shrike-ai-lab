@@ -665,7 +665,7 @@ echo; echo "===== P2 N5: queue_refill 'Backlog refilled' via the relay + per-rep
 echo; echo "===== P2 F4/N7: hygiene-stuck recovery from the last hygiene result per feature branch + escalation at 4h (7 mutants) ====="; bash test_hygiene_stuck_f4.sh || rc=1
 echo; echo "===== P2 N7: daily promote HELD/BLOCKED escalation for billwatch/iptv_apps (5 mutants) ====="; bash test_daily_promote_escalation.sh || rc=1
 echo; echo "===== S1 suite repair: lib_fixup helper lookup + loud missing-helper warn, ntfy lint top-level prune, suite cron lock retry, red-streak digest/escalation (12 mutants) ====="; bash test_s1_suite_repair.sh || rc=1
-echo; echo "===== Y2 bridge harvest: ledger (never re-harvest a harvested/ticked/archived key), done-check default ON + creation items, shadow dedupe, cron header (15 mutants) ====="; python3 test_y2_bridge_harvest.py || rc=1
+echo; echo "===== Y2 bridge harvest: ledger (never re-harvest a harvested/ticked/archived key), done-check shadow by default (enforce skips) + creation items, shadow dedupe, cron header (15 mutants) ====="; python3 test_y2_bridge_harvest.py || rc=1
 echo; echo "===== Y2 shared branch sync: ops/shared_branch_sync.sh dry-run default, --apply merge-only temp worktree, conflict abort, push-reject exit, main refused (8 mutants) ====="; bash test_y2_shared_branch_sync.sh || rc=1
 echo; echo "===== Y2 fixes: exact-identifier done-check, body_key closed-line shapes, no DeprecationWarning ====="; python3 test_y2_fixes.py || rc=1
 echo; echo "===== Y3: tsc gate pre-commit re-measure (stale baseline never reverts a non-adding commit) ====="; bash test_tsc_gate_premeasure.sh || rc=1
@@ -676,10 +676,16 @@ echo; echo "===== Y6 hygiene-stuck: age from the last merge, names branch + fail
 echo; echo "===== Z4: hygiene-stuck recovery for the claude/feature lane (reads logs/branch_hygiene_claude.log; 1 mutant) ====="; bash test_z4_hygiene_stuck_claude_lane.sh || rc=1
 echo; echo "===== Z4: mac-native-build-check timestamps + first-error cause (2 mutants) ====="; bash test_z4_native_build_check.sh || rc=1
 echo; echo "===== Z4: suite cron lock poll (10 min x 90 min, cron mode only; 3 mutants) ====="; bash test_z4_suite_cron_poll.sh || rc=1
-echo; echo "===== Z3 landing gates: B0 editor-example-leak, B1 step-diff, B2 tone, B3 repair-route, B4 test-item scope, B5 dropped call, B6 landing cap - all SHADOW by default (23 mutants) ====="; bash test_z3_landing_gates.sh || rc=1
+echo; echo "===== Z3 landing gates: B0 editor-example-leak, B1 step-diff, B2 tone, B3 repair-route, B4 test-item scope, B5 dropped call, B6 landing cap - all SHADOW by default (B7 assert-weaken added by Z5; 51 mutants) ====="; bash test_z3_landing_gates.sh || rc=1
 echo; echo "===== Z3 wiring: gates in the real stage runner (shadow journals, enforce refuses, editor-format knob; box only) ====="; bash test_z3_stage_runner_wiring.sh || rc=1
 echo; echo "===== Z2: scout fixture grounding (FK parents + conftest + named models for DB tests; bounded; 7 mutants) ====="; bash test_z2_scout_fixtures.sh || rc=1
 echo; echo "===== Z2: feature-level token budget inheritance in ovn_item_guard.sh (same-lineage recovery/feat children only; shadow default; 11 mutants) ====="; bash test_z2_feature_budget.sh || rc=1
 echo; echo "===== Z2: stage runner junk scope tokens (bugfix) + timeout park + empty-file whole retry (shadow-first) ====="; bash test_z2_stage.sh || rc=1
+echo; echo "===== hotfix-scout-hang: ovn_scout_ground.py infinite conftest walk on res:// paths + quadratic PATH_RE + OVN_SCOUT_BUDGET_S watchdog (old-code mutants must hang) ====="; bash test_hotfix_scout_hang.sh || rc=1
+echo; echo "===== hotfix-scout-hang: ovn_hto/ovn_hto_open helper timeouts, wiring lint over run_overnight/stage runner/libs, real call sites proceed on a hung helper ====="; bash test_hotfix_helper_timeout.sh || rc=1
+echo; echo "===== hotfix-scout-hang: ops/hang_watchdog.sh shadow/on, thresholds, protected programs, live kill (TERM then KILL) ====="; bash test_hang_watchdog.sh || rc=1
+echo; echo "===== hotfix-scout-hang r2: JSONL journal never gets a text timeout note, credit/alembic caps + restore/recover after a kill, OOM 137 is not a timeout ====="; bash test_hotfix_helper_timeout_r2.sh || rc=1
+echo; echo "===== Y2b follow-ups: body_key path-free prose tails stay distinct (D1), ALREADY DONE date gate per layer (D2), _peel_tail index arithmetic == reference (D3), shadow-default wording; 14 mutants ====="; python3 test_y2b_followups.py || rc=1
+echo; echo "===== Z5-B: build-break park precision tool + pinned SHADOW default (4 mutants) ====="; bash test_bb_park_precision.sh || rc=1
 echo; finish || rc=1
 exit $rc

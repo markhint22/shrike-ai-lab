@@ -8,6 +8,8 @@
 #   Call it right where a cycle is reverted(build-break). It counts reverts of the SAME item (ovn_item_hash) for the fixed key "build-break" (lib_run_integrity.sh's
 #   ovn_ri_revert_repeat: same 7-day TTL, reset by ovn_ri_revert_reset when the item LANDS - so the count is "build-break reverts since the item last landed"), and at
 #   OVN_BUILD_BREAK_PARK_AFTER (default 2) tags the item line `[CLAUDE] [AUTO-SKIP build-break ...]` (the picker excludes both tags; Claude picks it up from the CLAUDE queue bridge).
+#   Z5 decision (2026-11-08, scripts/ovn_bb_park_precision.py on the box outcomes, 7 days): 12 would-park events, 4 for items that LANDED afterwards (0d7c31 x3, 26af0f) = precision
+#   66.7% (AFTER=3: 71%) < the 80% bar, so the DEFAULT STAYS SHADOW; flip with OVN_BUILD_BREAK_PARK=enforce once the precision tool reports >= 0.8.
 #   OVN_BUILD_BREAK_PARK=off|shadow|enforce (default SHADOW: counts and reports `would-park`, never edits OVERNIGHT_PROGRESS.md).
 #   stdout (one line, empty = nothing to say): "count N" | "would-park N" | "parked N" | "park-failed N". Never fails the caller; every error path prints nothing.
 ovn_bb_escalate() {

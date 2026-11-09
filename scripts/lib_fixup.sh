@@ -14,6 +14,7 @@
 #   A third answer is UNKNOWN: the id's file is absent at BEFORE_SHA AND cannot be found at the after-commit either (a path relative to some subproject dir,
 #   or a test deleted again), or a subproject-relative id matches SEVERAL tracked paths. Claiming "own" there would flip the fix-up direction for tests that
 #   already passed (the original bug in reverse) and skip the NEEDS-DECISION park, so UNKNOWN ids fall back to the old added-file-basename rule.
+type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 OVN_FIXUP_PLACEHOLDER_TEXT="Placeholder - the implement step fills this in"
 # portable in-place sed (GNU on the box, BSD on the Mac where the tests run): GNU sed accepts `-i` alone, BSD sed needs `-i ''`
 _ovn_sed_i() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
@@ -190,7 +191,7 @@ ovn_is_delete_intent() {
     grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b' <<< "$text"
     return $?
   fi
-  python3 "$_py" intent "$text" >/dev/null 2>&1
+  ovn_hto 30 delete_intent python3 "$_py" intent "$text" >/dev/null 2>&1
 }
 
 # ovn_delete_sidecars <repo_dir> <path>...  (2026-10-12, package uidcredit): after <path> was deleted, remove the Godot sidecars it left behind (`<path>.uid`, `<path>.import`:
@@ -772,8 +773,8 @@ ovn_udiff_unanchored_scan() {
   local slice="${1:-}" repo="${2:-.}" rev="${3:-}" here="$_OVN_LF_DIR"
   [ -f "$slice" ] || return 0
   [ -f "$here/ovn_udiff_anchor.py" ] || return 0
-  if [ -n "$rev" ]; then python3 "$here/ovn_udiff_anchor.py" "$slice" "$repo" --rev "$rev" 2>/dev/null || true
-  else python3 "$here/ovn_udiff_anchor.py" "$slice" "$repo" 2>/dev/null || true; fi
+  if [ -n "$rev" ]; then ovn_hto 60 udiff_anchor python3 "$here/ovn_udiff_anchor.py" "$slice" "$repo" --rev "$rev" 2>/dev/null || true
+  else ovn_hto 60 udiff_anchor python3 "$here/ovn_udiff_anchor.py" "$slice" "$repo" 2>/dev/null || true; fi
 }
 
 ovn_udiff_unanchored_decision() {
@@ -1244,7 +1245,7 @@ ovn_fixup_dedupe_defs() {
     [ -n "$f" ] && [ -f "$f" ] || continue
     case "$f" in *.gd) py="$od/dedupe_gd_duplicate_functions.py";; *.py) py="$od/dedupe_python_duplicate_defs.py";; *) continue;; esac
     [ -f "$py" ] || continue
-    out="$(python3 "$py" "$f" 2>/dev/null)"
+    out="$(ovn_hto 60 dedupe python3 "$py" "$f" 2>/dev/null)"
     if [ -n "$out" ] && [ "$out" != "unchanged" ]; then
       echo "${f}: ${out}"
       git add -- "$f" >/dev/null 2>&1 && changed=1

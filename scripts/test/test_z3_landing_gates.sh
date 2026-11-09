@@ -50,7 +50,7 @@ mut "lib: enforce never refuses"          sh 'then Z3_REFUSE="$rule: $msg"; rc=1
 mut "lib: default mode is enforce"        sh 'eval "v=\${$1:-shadow}"' 'eval "v=\${$1:-enforce}"'
 mut "lib: off still journals"             sh '[ "$mode" = off ] && continue' ':'
 mut "lib: B5 may enforce"                 sh '[ "$mode" = enforce ] && mode=shadow;;' ':;;'
-mut "lib: cap enforce never parks"        sh 'k="$(python3 "$py" cap-park' 'k="$(echo 0 #'
+mut "lib: cap enforce never parks"        sh 'k="$(ovn_hto 60 landing_cap_park python3 "$py" cap-park' 'k="$(echo 0 #'
 mut "item_guard: hook removed"           guard 'z3_landing_cap "$state"' 'true "$state"'
 mut "lib: cap shadow parks too"           sh 'if [ "$mode" = enforce ] && [ -n "$rd" ]' 'if [ -n "$rd" ]'
 mut "D1 item_guard counts the landing twice (pending=1)" guard '"$_z3t" "$id" 0 ||' '"$_z3t" "$id" 1 ||'
@@ -68,6 +68,19 @@ mut "B2 tests/fixtures/locale linted"     py 'if is_test_path(p) or TONE_EXEMPT_
 mut "B4 test-helper dirs unknown"         py 'test_?helpers?|test-helpers?|testhelpers?|test_?utils?|test-utils?|testutils?|test_?support|test-support|testsupport|testing|testlib|test_?lib|snapshots?)/|' 'testing)/|'
 mut "B0 paraphrases not matched"          py 'make the greeting (?:more )?casual|greeting\b.{0,60}\bcasual|casual\b.{0,60}\bgreeting|' ''
 mut "B0 leak_gate enforce never refuses"  sh 'return 1; fi ;;' 'return 0; fi ;;'
+mut "B7 gate never fires"                 py 'res["assert-weaken"] = check_assert_weaken(' 'res["assert-weaken"] = [] and check_assert_weaken('
+mut "B7 negative removal ignored"         py 'if rem_neg > add_neg:' 'if False:'
+mut "B7 polarity flips flagged"           py 'if _polarity_key(t) in add_pk:' 'if False:'
+mut "B7 status flip flagged with source edits" py 'for ln, t in ([] if src_touched else rem):' 'for ln, t in rem:'
+mut "B7 status flip needs a success code"  py 'if ac and _status_shape(a) == shape:' 'if _status_shape(a) == shape:'
+mut "B7 weak compare ignored"             py 'if strong_rem > strong_add and weak_add' 'if False and weak_add'
+mut "B7 duplicate asserts ignored"        py 'if h["add"][i + 1][0] == h["add"][i][0] + 1 and _norm_line' 'if False and _norm_line'
+mut "B7 parametrize cases never checked"  py 'if old_test_ok(old_text_fn) and not retired:' 'if False:'
+mut "B7 any removed list entry counts"    py 'if any(_PARAM_RE.search(w) for w in window):' 'if True:'
+mut "B7 renamed/retired tests flagged"    py 'retired = rem_testdef' 'retired = False'
+mut "B7 emptiness replacement flagged"    py 'if add_empty:' 'if False:'
+mut "B7 lib: B7 enforce vetoes"           sh 'assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)"; [ "$mode" = enforce ] && mode=shadow;;' 'assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)";;'
+mut "B7 lib: off still journals"          sh 'assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)";' 'assert-weaken) mode=shadow; : "$(_z3_mode OVN_Z3_ASSERT_WEAKEN)";'
 echo "mutants: $n, survived/unapplied: $survived"
 [ "$survived" -eq 0 ] || exit 1
 exit 0

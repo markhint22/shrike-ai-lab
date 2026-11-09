@@ -158,7 +158,7 @@ def _verify_lint_shadow(pulled_lines, repo_root):
     written = 0
     for line in pulled_lines:
         v = _extract_verify(line)
-        if v and _VM.shadow_log_verify(v, repo_root, line, log_path, mode) is not None:
+        if v and _VM.shadow_log_verify(v, repo_root, line, log_path, mode, sibling_texts=[x for x in pulled_lines if x is not line]) is not None:
             written += 1
     return written
 

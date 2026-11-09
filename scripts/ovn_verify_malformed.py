@@ -81,16 +81,46 @@ def classify_result(rc, output="", cmd=""):
     return None
 
 
-def shadow_log_verify(verify, repo_root, item_text, log_path, mode="shadow"):
+def _dedupe_seen(log_path, key, today):
+    """Z5: True when `key` was already journaled today (sidecar <log>.seen = {"day": D, "keys": [...]}); records it otherwise. Fail-open (False)."""
+    side = log_path + ".seen"
+    try:
+        try:
+            with open(side, encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            d = {}
+        if d.get("day") != today:
+            d = {"day": today, "keys": []}
+        if key in d["keys"]:
+            return True
+        d["keys"].append(key)
+        tmp = side + ".%d.tmp" % os.getpid()
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+        os.replace(tmp, side)
+    except Exception:
+        return False
+    return False
+
+
+def shadow_log_verify(verify, repo_root, item_text, log_path, mode="shadow", sibling_texts=None, now=None):
     """SHADOW ONLY. Lint one pulled item's VERIFY and append one JSON line to log_path. Returns the findings,
     or None when mode is off or nothing could be written. Never raises: a lint bug must not stop a refill."""
     if (mode or "").lower() == "off" or not verify:
         return None
     try:
-        findings = lint_verify(verify, repo_root, item_text)
+        findings = lint_verify(verify, repo_root, item_text, None, sibling_texts)
         rec = {"verify": verify[:300], "findings": findings}
         d = os.path.dirname(os.path.abspath(log_path))
         os.makedirs(d, exist_ok=True)
+        import hashlib
+        import time as _t
+        today = _t.strftime("%Y-%m-%d", _t.gmtime(now if now is not None else _t.time()))
+        # Z5: ONE row per (item, verify, findings) per UTC day - queue_refill re-lints every pulled item on every pass (1620 identical rows/25h)
+        k = hashlib.md5(((item_text or "") + "\0" + verify + "\0" + json.dumps(findings, sort_keys=True)).encode("utf-8", "replace")).hexdigest()
+        if _dedupe_seen(log_path, k, today):
+            return findings
         with open(log_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, sort_keys=True) + "\n")
         return findings
@@ -105,8 +135,29 @@ def verify_park_decision(tag, prior_malformed_attempts):
     return "retry"
 
 
-def lint_verify(verify, repo_root, item_text="", tsc_baseline_green=None):
-    """Return a list of {code, detail} dicts for a VERIFY command text. Empty list means no static defect found."""
+_CREATE_VERB_RE = re.compile(r"\b(add|adds|create|creates|new|write|writes|introduce|introduces|extend|extends|expand)\b", re.I)
+_TESTISH_PATH_RE = re.compile(r"(^|/)(tests?|__tests__|spec|specs)/|(^|/)(test_[^/]*|[^/]*_test)\.py$")
+
+
+def item_creates_path(item_text, rel_path, cwd=""):
+    """Z5 (Q1 noise): True when the item text says it creates/adds `rel_path`: a creation verb in the item AND either the path (or its basename) is named in the text, or the item head
+    ('<file> - Create a test for ...', i.e. a test-creation item) targets a test-looking path. Used for the item itself and for its queue siblings."""
+    t = item_text or ""
+    if not _CREATE_VERB_RE.search(t):
+        return False
+    full = os.path.normpath(os.path.join(cwd or "", rel_path))
+    for cand in {rel_path, full, os.path.basename(rel_path)}:
+        if cand and re.search(r"(?<![\w./-])" + re.escape(cand) + r"(?![\w])", t.replace("\\", "/")):
+            return True
+    head = re.split(r"\bVERIFY\b", t, 1)[0]
+    # a test-creation item: the head names a test verb/noun and the missing path itself is a test file
+    return bool(_TESTISH_PATH_RE.search(rel_path)) and re.search(r"\b(tests?|specs?|unit test|regression test)\b", head, re.I) is not None and \
+        re.match(r"^\W*(?:\[\w+\]\s*)*(?:[\w./-]+\s*[-\u2014\u2013:]+\s*)?(?:\[\w+\]\s*)*(create|add|write|extend|expand|new|introduce)\b", head.strip(" -[]x"), re.I) is not None
+
+
+def lint_verify(verify, repo_root, item_text="", tsc_baseline_green=None, sibling_texts=None):
+    """Return a list of {code, detail} dicts for a VERIFY command text. Empty list means no static defect found.
+    Z5: pytest-path-missing is silent when the item (or one of `sibling_texts`, the other queued items) creates that test path (the 2026-11-07/08 log had 1620 such false rows in 25h)."""
     findings = []
     verify = verify or ""
     repo_root = os.path.abspath(repo_root)
@@ -119,6 +170,8 @@ def lint_verify(verify, repo_root, item_text="", tsc_baseline_green=None):
         cwd = cwd_before(verify, m.start())
         path = os.path.join(repo_root, cwd, m.group(1))
         if not os.path.isfile(path):
+            if item_creates_path(item_text, m.group(1), cwd) or any(item_creates_path(t, m.group(1), cwd) for t in (sibling_texts or [])):
+                continue
             findings.append({"code": "pytest-path-missing", "detail": "%s (cwd %s)" % (m.group(1), cwd or ".")})
             continue
         name = m.group(2).split("::")[-1]

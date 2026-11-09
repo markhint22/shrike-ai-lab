@@ -34,6 +34,7 @@ import prod_alembic_check as pac  # noqa: E402
 
 PRODUCTION_URLS = {
     "iptv_apps": "https://chickadeestream-production.up.railway.app/health",
+    "billwatch": "https://billwatch-production.up.railway.app/health",
 }
 REV_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 NOT_A_REVISION = {"unknown", "none", "null", "error", "n/a", "na", "unavailable", "pending", "undefined", "false", "true", "current", "head", "base"}

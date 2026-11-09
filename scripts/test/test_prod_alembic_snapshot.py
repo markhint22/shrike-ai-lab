@@ -171,7 +171,7 @@ def suite(S, label=""):
     clear(); health()
     ok_, msg = S.refresh("iptv_apps", dry=True)
     ok(label + "S4 dry run: reports the revision, records nothing", ok_ and "0012_referral_hardening" in msg and snap() is None, (ok_, msg))
-    ok_, msg = S.refresh("billwatch")
+    ok_, msg = S.refresh("nope_repo")
     ok(label + "S4 repo without a known /health revision field: not recorded, says why", (not ok_) and "health-has-no-revision" in msg)
     os.environ["QA_PROD_ALEMBIC_SNAPSHOT"] = "0"
     hits = RESP["hits"]
@@ -202,6 +202,17 @@ r = subprocess.run([sys.executable, os.path.join(QA, "prod_alembic_snapshot.py")
 ok("CLI: exit 3 on a bad reading (never exit 0 for a failed refresh)", r.returncode == 3 and "left untouched" in r.stdout, r.stdout)
 r = subprocess.run([sys.executable, os.path.join(QA, "prod_alembic_snapshot.py")], capture_output=True, text=True, env=os.environ, timeout=60)
 ok("CLI: no --repo prints usage, exit 2", r.returncode == 2 and "prod_alembic_snapshot.py --repo" in r.stdout)
+
+# ---- billwatch is registered with its prod /health URL (env override still wins)
+_saved = os.environ.pop("QA_PROD_ALEMBIC_URL_BILLWATCH", None)
+ok("billwatch has a prod /health URL", S.PRODUCTION_URLS.get("billwatch") == "https://billwatch-production.up.railway.app/health", S.health_url("billwatch"))
+ok("iptv_apps URL unchanged", S.PRODUCTION_URLS["iptv_apps"] == "https://chickadeestream-production.up.railway.app/health")
+ok("unknown repo still has no URL", S.health_url("nope_repo") == "")
+os.environ["QA_PROD_ALEMBIC_URL_BILLWATCH"] = "http://127.0.0.1:1/x"
+ok("billwatch env override wins", S.health_url("billwatch") == "http://127.0.0.1:1/x")
+del os.environ["QA_PROD_ALEMBIC_URL_BILLWATCH"]
+if _saved is not None:
+    os.environ["QA_PROD_ALEMBIC_URL_BILLWATCH"] = _saved
 
 # ================= mutation proofs
 MUT = [

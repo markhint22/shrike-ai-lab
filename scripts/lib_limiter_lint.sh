@@ -4,6 +4,7 @@
 # Lints ONLY the .py files the cycle's commit range touched. OVN_LIMITER_LINT=off|shadow|enforce (default shadow): shadow appends the findings to state/limiter_lint.log (OVN_LIMITER_LINT_LOG)
 # and writes ONE alerts.log line (OVN_LIMITER_LINT_ALERTS); it never changes the return code, so it can never revert a commit. Findings are also echoed on stdout for the task log.
 # Fail-open: a missing/crashing linter, a missing repo or bad shas = rc 0 (a lint must never block a cycle by being broken). OVN_LIMITER_LINT_PY overrides the linter path (tests).
+type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 _LL_HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
 limiter_lint_gate() {
   local repo="${1:-}" before="${2:-}" after="${3:-}" id="${4:-lint}" mode py out rc log alog
@@ -11,7 +12,7 @@ limiter_lint_gate() {
   case "$mode" in off) return 0;; shadow|enforce) ;; *) mode=shadow;; esac
   py="${OVN_LIMITER_LINT_PY:-$_LL_HERE/ovn_limiter_order_lint.py}"
   [ -f "$py" ] && [ -n "$repo" ] && [ -n "$before" ] || return 0
-  out="$(python3 "$py" diff --repo "$repo" --before "$before" ${after:+--after "$after"} 2>/dev/null)"; rc=$?
+  out="$(ovn_hto 60 limiter_lint python3 "$py" diff --repo "$repo" --before "$before" ${after:+--after "$after"} 2>/dev/null)"; rc=$?
   [ "$rc" = 1 ] || return 0                       # 0 = clean, 2/other = usage or crash: fail-open
   [ -n "$out" ] || return 0
   printf '%s\n' "$out"

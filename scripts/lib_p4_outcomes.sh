@@ -16,12 +16,13 @@
 #       Re-run ONLY the failing pytest ids once. rc 0 = mode on AND the re-run was green (caller treats the verify as pass); anything else rc 1 (revert as before).
 #       shadow logs "would have saved" but still reverts. Ids that are not pytest node ids (vitest, GUT) or more than OVN_NNR_RERUN_MAX (5) are never re-run.
 
+type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 ovn_stage_fail_tag() {
   local jl="${1:-}" vlog="${2:-}" here tag
   [ "${OVN_STAGE_FAILTAG-on}" = on ] || return 0
   here="${OVN_P4_QDIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)}"
   if [ -n "$vlog" ] && [ -s "$vlog" ]; then
-    tag="$(bash "$here/ovn_classify_fail.sh" "$vlog" "verify-failed" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
+    tag="$(ovn_hto 60 classify_fail bash "$here/ovn_classify_fail.sh" "$vlog" "verify-failed" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
     case "$tag" in ''|unknown|landed) tag="verify-failed";; esac
     printf '%s' "$tag"; return 0
   fi
