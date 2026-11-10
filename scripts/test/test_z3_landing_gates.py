@@ -542,8 +542,10 @@ f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 4
 ok("B7b iptv 872a3906: `== 422` flipped to `== 200` in a test-only change -> status-flip", kinds(f) == ["status-flip"], f)
 f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 422"], ["    assert r.status_code == 422"], extra=diff("iptv-backend/app/auth.py", ["a"], ["b"]))
 ok("B7b2 ...422 kept is not flagged", f == [], f)
+os.environ["OVN_Z7_ASSERT_RECALL"] = "off"     # Z7 (2026-11-09) reports the next two shapes as shadow evidence; with the Z7 recall extension off the Z5 behaviour is unchanged
 f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 422"], ["    assert r.status_code == 200"], extra=diff("iptv-backend/app/auth.py", ["a"], ["b"]))
-ok("B7b3 ...a flip together with an app-source edit (behaviour changed on purpose) is not flagged", f == [], f)
+ok("B7b3 ...a flip together with an app-source edit (behaviour changed on purpose) is not flagged (Z7 recall off)", f == [], f)
+del os.environ["OVN_Z7_ASSERT_RECALL"]
 f = aw("iptv-backend/tests/test_device_auth.py", ["    assert r.status_code == 404"], ["    assert r.status_code == 403"])
 ok("B7b4 4xx -> another 4xx is not a weakening", f == [], f)
 f = aw("iptv-backend/tests/test_reminders_patch_nulls.py", ['    assert data["program_start"] == original_start', '    assert data["title"] == original_title'], ['    assert data["program_start"] is not None', '    assert data["title"] is not None'])
@@ -557,8 +559,10 @@ f = aw("backend/tests/test_cron_matches_validates_all_fields.py", ['    "59 25 *
 ok("B7d2 a removed list entry that is NOT a parametrize table is not flagged", f == [], f)
 f = aw("backend/tests/test_cron_matches_validates_all_fields.py", ['    "59 25 * * *",'], [], old_text=None)
 ok("B7d3 without a pre-image the case check stays silent (fail-open)", f == [], f)
+os.environ["OVN_Z7_ASSERT_RECALL"] = "off"
 f = aw("backend/tests/test_a.py", ["    assert not db.get(ok.id).is_active"], ["    assert db.get(ok.id).is_active"])
-ok("B7e polarity flip (`assert not x` -> `assert x`: the expectation changed) is not flagged", f == [], f)
+ok("B7e polarity flip (`assert not x` -> `assert x`: the expectation changed) is not flagged (Z7 recall off)", f == [], f)
+del os.environ["OVN_Z7_ASSERT_RECALL"]
 f = aw("backend/tests/test_a.py", ["def test_cron_matches_not_imported():", '    assert "x" not in source'], ["def test_cron_matches_imported():", '    assert len(source) > 0'])
 ok("B7f a test whose def line was renamed/removed (rewritten or retired) is not flagged", f == [], f)
 f = aw("backend/tests/test_a.py", ['    assert "/monitors?limit=" not in body', '    assert "x" not in body'], ['    assert resp.status_code == 200'])

@@ -13,6 +13,7 @@
 set -uo pipefail
 _OVN_SR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 type ovn_hto >/dev/null 2>&1 || . "${_OVN_SR_DIR:-$HOME/overnight-queue}/scripts/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; ovn_hto_restore_file(){ :; }; ovn_hto_git_recover(){ :; }; ovn_hto_snapshot_untracked(){ :; }; ovn_hto_sentinel(){ :; }; ovn_hto_recover_done(){ :; }; }   # helper wall-clock cap (hotfix-scout-hang)
+type ovn_gitb >/dev/null 2>&1 || . "${_OVN_SR_DIR:-$HOME/overnight-queue}/scripts/lib_push_bound.sh" 2>/dev/null || { ovn_gitb(){ git "$@"; }; ovn_gitb_pull_rebase(){ if [ "${1:-}" = "-C" ]; then local _d="$2"; shift 2; git -C "$_d" pull --rebase "$@"; else git pull --rebase "$@"; fi; }; ovn_phase(){ return 0; }; }   # Z7-B: every push/pull/fetch below is bounded (timeout, no tty prompt)
 # 2026-10-04: GUT also descends into tests/*/ (release/battle/steam were never run). Verified green on xlite claude/feature (389 scripts, 2862 tests, 0 failing).
 # Kill switch: OVN_GUT_SUBDIRS=off. 2026-10-13: the flag comes from lib_gut_xml.sh gut_subdirs_flag (sourced below) - one definition shared with run_overnight.sh's per-cycle verify.
 cd "$HOME/overnight-queue" || exit 1
@@ -68,7 +69,7 @@ capstone_escalate_on_failure() {
     if ! git -C "$rd" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
       git -C "$rd" add OVERNIGHT_PROGRESS.md
       git -C "$rd" commit -q -m "chore(queue): escalate capstone regression-check item after ${n} consecutive real-regression detections"
-      git -C "$rd" push -q origin overnight/feature 2>/dev/null || { git -C "$rd" pull -q --rebase origin overnight/feature && git -C "$rd" push -q origin overnight/feature; }
+      ovn_gitb -C "$rd" push -q origin overnight/feature 2>/dev/null || { ovn_gitb_pull_rebase -C "$rd" -q origin overnight/feature && ovn_gitb -C "$rd" push -q origin overnight/feature; }
     fi
   fi
   rm -f "$countf" 2>/dev/null
@@ -311,7 +312,7 @@ if printf '%s' "$item" | grep -qiE 'run the (full |whole )?.*(suite|tests) (once
   vcmd="$(printf '%s' "$vcmd" | sed -E "s#(^|&& |; )godot #\1${HOME}/godot/godot4 #g")"
   if [ -n "$vcmd" ]; then
     say "regression-check capstone item — running its own VERIFY directly (no decompose needed): $vcmd"
-    git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
+    ovn_gitb -C "$rd" fetch -q origin overnight/feature 2>/dev/null
     git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null
     # Godot needs its asset/class_name cache imported before a headless GUT run will see the
     # project correctly (same warm-then-run pattern used everywhere else this repo runs GUT —
@@ -327,7 +328,7 @@ if printf '%s' "$item" | grep -qiE 'run the (full |whole )?.*(suite|tests) (once
         if ! git -C "$rd" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
           git -C "$rd" add OVERNIGHT_PROGRESS.md
           git -C "$rd" commit -q -m "chore(queue): auto-verify regression-check capstone item (direct VERIFY run, no decompose)"
-          git -C "$rd" push -q origin overnight/feature 2>/dev/null || { git -C "$rd" pull -q --rebase origin overnight/feature && git -C "$rd" push -q origin overnight/feature; }
+          ovn_gitb -C "$rd" push -q origin overnight/feature 2>/dev/null || { ovn_gitb_pull_rebase -C "$rd" -q origin overnight/feature && ovn_gitb -C "$rd" push -q origin overnight/feature; }
         fi
       fi
       jlog "{\"run\":\"$RUNID\",\"repo\":\"$repo\",\"tier\":$tier,\"event\":\"capstone_verified\"}"
@@ -374,7 +375,7 @@ if [ "$_bg_on" = 1 ] && [ -z "$item_arg" ] && [ "${OVN_BUG_BRIEF:-on}" != off ] 
       _bg_rc=$?
       [ "$_bg_rc" = 124 ] && rm -f "state/bug_lazy/${_bg_safe}"      # timed out: allow ONE retry on the next first-attempt pick (marker lives outside the bug_briefs glob)
       jlog "$(jq -nc --arg r "$RUNID" --arg f "$_bg_feat" --argjson rc "$_bg_rc" '{run:$r,event:"lazy_bug_brief",feat:$f,rc:$rc}')"
-      git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
+      ovn_gitb -C "$rd" fetch -q origin overnight/feature 2>/dev/null
       if [ -f "state/bug_briefs/${_bg_safe}.json" ] && grep -q '"status": "ok"' "state/bug_briefs/${_bg_safe}.json" 2>/dev/null; then
         git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null; _pick_item
         [ -z "$item" ] && { say "lazy bug brief applied but nothing doable is left to pick"; exit 0; }
@@ -389,7 +390,7 @@ if [ "$_bg_on" = 1 ] && [ -z "$item_arg" ] && [ "${OVN_BUG_BRIEF:-on}" != off ] 
 fi
 
 # ---- worktree (all steps build on each other) ----
-git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
+ovn_gitb -C "$rd" fetch -q origin overnight/feature 2>/dev/null
 wt="$(mktemp -d "/tmp/stage-${repo}.XXXX" 2>/dev/null)" || wt=""   # 2026-10-16: empty on failure -> the worktree add below fails ("worktree failed"); cleanup() is guarded on a non-empty wt
 git -C "$rd" worktree add -q "$wt" origin/overnight/feature 2>/dev/null || { say "worktree failed"; exit 1; }
 cleanup(){ [ "$_wd" != 0 ] && kill "$_wd" 2>/dev/null; [ "${_dedicated:-0}" = 1 ] && rm -f state/PAUSED state/stage_pause_since; [ -n "${wt:-}" ] && git -C "$rd" worktree remove --force "$wt" >/dev/null 2>&1; rm -f "${TMPDIR:-/tmp}"/ovn_stage_"$$".* 2>/dev/null; return 0; }   # 2026-10-17: per-run scratch files (prompt/attempt/drop) die with the run even when it is killed mid-step
@@ -623,13 +624,13 @@ stage_precredit_run(){   # uses globals: wt rd repo item item_arg tier RUNID _bg
   if [ "${_bg_on:-0}" = 1 ]; then say "pre-edit credit: not applied (manual bug item: a bug is never credited without a fix)"; return 1; fi
   _pk_note="$([ "$_pk_dec" = duplicate ] && echo "duplicate: sibling owns the VERIFY test ${_pk_key:0:80}" || echo "already-satisfied: pre-edit VERIFY green, non-vacuous")"
   ./queue.sh hold "$repo" >/dev/null 2>&1
-  git -C "$rd" fetch -q origin overnight/feature 2>/dev/null
+  ovn_gitb -C "$rd" fetch -q origin overnight/feature 2>/dev/null
   git -C "$rd" reset -q --hard origin/overnight/feature 2>/dev/null
   if [ "$(ovn_hto 60 precredit_mark python3 -I "$_pk_py" mark --progress "$rd/OVERNIGHT_PROGRESS.md" --item "$item" --decision "$_pk_dec" --note "$_pk_note" 2>/dev/null | jq -r '.marked' 2>/dev/null)" = true ] \
      && ! git -C "$rd" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
     git -C "$rd" add OVERNIGHT_PROGRESS.md
     git -C "$rd" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): pre-edit credit T$tier item ($_pk_dec: its own VERIFY already passes before any edit)"
-    if git -C "$rd" push -q origin overnight/feature 2>/dev/null || { git -C "$rd" pull -q --rebase origin overnight/feature 2>/dev/null && git -C "$rd" push -q origin overnight/feature 2>/dev/null; }; then
+    if ovn_gitb -C "$rd" push -q origin overnight/feature 2>/dev/null || { ovn_gitb_pull_rebase -C "$rd" -q origin overnight/feature 2>/dev/null && ovn_gitb -C "$rd" push -q origin overnight/feature 2>/dev/null; }; then
       ./queue.sh release "$repo" >/dev/null 2>&1
       jlog "$(jq -nc --arg r "$RUNID" --arg d "$_pk_dec" '{run:$r,event:"precredit_applied",decision:$d,model_calls:0}')"
       say "pre-edit credit APPLIED ($_pk_dec): item checked off and pushed, the model was never called"
@@ -681,7 +682,7 @@ if [ "${NSTEPS:-0}" -lt 1 ]; then
   # a bug whose every planned step was vacuous ('no change required') is the MODEL having nothing, not an outage: count it as an attempt (escalates at the cap)
   if [ "$_bg_on" = 1 ] && [ "$(cat "$_bg_dropf" 2>/dev/null || echo 0)" -gt 0 ] 2>/dev/null; then
     ./queue.sh hold "$repo" >/dev/null 2>&1
-    ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
+    ( cd "$rd" && ovn_gitb fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
     stage_bug_attempt "plan had only 'no change required' steps"
     ./queue.sh release "$repo" >/dev/null 2>&1
   fi
@@ -1010,6 +1011,9 @@ stage_scope_learn(){ _stage_scope_learn_body "$@"; }   # $2 = NEWLINE-separated 
 # attempts, re-decompositions and cycles (zero_landing cap 3). OVN_STAGE_TIMEOUT_PARK=off|shadow|on (default SHADOW): every step timeout is remembered per item+file set
 # (state/item_fails/stage-<repo>.<hash>.timeouts); at the OVN_STAGE_TIMEOUT_PARK_AT-th (default 2) timeout of the same file set the step is abandoned (no more attempts, no re-decomposition) and, when the
 # run then lands 0 steps, the item is escalated at once (zero-landing cap 1) instead of two more cycles. SHADOW only logs `would_park_timeout`.
+# Z7-C (2026-11-09) precision measure (scripts/ovn_timeout_park_precision.py replays this rule over state/stage_runs, 7 days): 10 items / 15 would-park events; checked item by item against
+# origin/overnight/feature, 7 of 10 = 70% never landed afterwards (or landed only through a Claude commit); 3 landed later by the fleet itself (get_epg_guide guide window, PlayerView
+# role=alert, discover clear_cache test). 70% < the 80% flip bar, so the default STAYS shadow (test_z7_timeout_park_precision.sh pins it); re-measure after another week of shadow rows.
 STAGE_TO_DECISION=""; STAGE_TIMEOUT_PARKED=0
 stage_timeout_track(){   # $1=step files $2=step idx -> sets STAGE_TO_DECISION = off|first|park|shadow-park
   local mode="${OVN_STAGE_TIMEOUT_PARK:-shadow}" at="${OVN_STAGE_TIMEOUT_PARK_AT:-2}" key h tf n
@@ -2065,7 +2069,7 @@ if [ "$VERIFIED" = 1 ]; then
   local_ncommits="$(git -C "$wt" rev-list --count origin/overnight/feature..HEAD 2>/dev/null || echo 0)"
   if [ "${local_ncommits:-0}" -gt 0 ]; then
     _push_attempted=1
-    if git -C "$wt" push -q origin HEAD:overnight/feature 2>/dev/null || { git -C "$wt" pull -q --rebase origin overnight/feature && git -C "$wt" push -q origin HEAD:overnight/feature; }; then
+    if ovn_gitb -C "$wt" push -q origin HEAD:overnight/feature 2>/dev/null || { ovn_gitb_pull_rebase -C "$wt" -q origin overnight/feature && ovn_gitb -C "$wt" push -q origin HEAD:overnight/feature; }; then
       ncommits="$local_ncommits"
       say "pushed $ncommits verified commit(s) to overnight/feature"
     else say "push FAILED (fleet racing) — commits are in the worktree branch only, NOT counted as pushed"; fi
@@ -2082,7 +2086,7 @@ fi
 # OPEN for a clean re-attempt instead of being silently and permanently marked done. ----
 if [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -gt 0 ] && [ -z "$item_arg" ]; then   # only auto-picked items live in the queue
   ./queue.sh hold "$repo" >/dev/null 2>&1
-  ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
+  ( cd "$rd" && ovn_gitb fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   _is_bug=0; ovn_is_manual_bug_text "$item" && _is_bug=1
   OVN_F="$rd/OVERNIGHT_PROGRESS.md" OVN_ITEM="$item" OVN_P="$passed" OVN_N="$NSTEPS" OVN_BUG="$_is_bug" OVN_PARTIAL="${STAGE_PARTIAL:-0}" OVN_NOCREDIT="${STAGE_NOCREDIT:-0}" OVN_NOCREDIT_WHY="${STAGE_NOCREDIT_WHY//[\]\[]/}" python3 - <<'PY'
 import os
@@ -2126,7 +2130,7 @@ PY
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {
       git add OVERNIGHT_PROGRESS.md
       git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): mark staged T$tier item ($passed/$NSTEPS) so it isn't re-run"
-      git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
+      ovn_gitb push -q origin overnight/feature 2>/dev/null || { ovn_gitb_pull_rebase -q origin overnight/feature && ovn_gitb push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
 elif [ "$VERIFIED" = 1 ] && [ "$passed" -gt 0 ] && [ "${ncommits:-0}" -eq 0 ] && [ -z "$item_arg" ]; then
   # Verified and would have landed, but the push itself lost a fleet race - leave the item OPEN
@@ -2142,7 +2146,7 @@ elif [ "$passed" -eq 0 ] && [ -z "$item_arg" ]; then
   # genuinely beyond the 27B (usually a wire-into-a-complex-existing-function). Stop looping the fleet
   # on it: tag it for Claude so the Mac bridge harvests it to the Claude queue.
   ./queue.sh hold "$repo" >/dev/null 2>&1
-  ( cd "$rd" && git fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
+  ( cd "$rd" && ovn_gitb fetch -q origin overnight/feature && git reset -q --hard origin/overnight/feature ) 2>/dev/null
   if ovn_is_manual_bug_text "$item"; then
     # 2026-10-02: never AUTO-SKIP a manual bug - count the attempt, escalate at the cap (see stage_bug_attempt)
     stage_bug_attempt "staged landed 0 of ${NSTEPS}"
@@ -2215,7 +2219,7 @@ PY
   ( cd "$rd" && git diff --quiet -- OVERNIGHT_PROGRESS.md || {
       git add OVERNIGHT_PROGRESS.md
       git -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "chore(queue): escalate staged T$tier item to Claude (27B couldn't land it)"
-      git push -q origin overnight/feature 2>/dev/null || { git pull -q --rebase origin overnight/feature && git push -q origin overnight/feature; }; } )
+      ovn_gitb push -q origin overnight/feature 2>/dev/null || { ovn_gitb_pull_rebase -q origin overnight/feature && ovn_gitb push -q origin overnight/feature; }; } )
   ./queue.sh release "$repo" >/dev/null 2>&1
   if [ "${_zsame:-0}" = 1 ]; then say "escalated to Claude (staged pipeline landed 0/$NSTEPS - the same failure twice in a row (attempt ${_zc}/${_zcap}), beyond the 27B)"
   else say "escalated to Claude (staged pipeline landed 0/$NSTEPS - ${_zcap} attempts, beyond the 27B)"; fi

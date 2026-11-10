@@ -17,6 +17,9 @@ cnt(){ grep -cF -- "$2" "$1" 2>/dev/null || true; }
 nlines(){ grep -c "" "$1" 2>/dev/null || echo 0; }
 T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
 FX="$T/fx"; mkdir -p "$FX"; export FX
+# Z6-fix: deploy_watch.sh now honours OVN_NOTIFY_DISABLE (ntfy_guard.sh exports =1 for the suite). This test drives the alert paths against STUB curl/ssh functions only (no network), so it needs the switch off;
+# the disabled behaviour is proven in test_z6_notify_guard.sh.
+unset OVN_NOTIFY_DISABLE
 
 # ---- stubs (exported functions) ----
 curl(){ echo "curl $*" >> "$FX/curl.log"

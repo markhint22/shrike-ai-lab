@@ -968,7 +968,7 @@ def _rule_backend_prefix(clause, stages, pls, tree, item=None):
     for root, dirs, files in os.walk(base):
         dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "__pycache__", ".venv", "venv")]
         for f in files:
-            if not f.endswith(".py"):
+            if f.startswith("._") or not f.endswith(".py"):   # Z6: skip macOS AppleDouble sidecars
                 continue
             n_seen += 1
             if n_seen > 300:
@@ -1251,7 +1251,7 @@ def _py_root_exists(tree, root):
             dns[:] = []
         if root in dns or (root + ".py") in fns:
             return True
-        if any(f.endswith(".py") for f in fns):
+        if any(f.endswith(".py") and not f.startswith("._") for f in fns):
             seen_py = True
     return False if seen_py else None
 

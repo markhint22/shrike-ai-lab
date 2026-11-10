@@ -490,7 +490,7 @@ DWL="$T/dwlayout/scripts/overnight-queue"; mkdir -p "$DWL"
 cp "$DW" "$OQ/shrike_notify_lib.sh" "$DWL/"; [ -f "$OQ/alert_suppress.txt" ] && cp "$OQ/alert_suppress.txt" "$DWL/"
 printf '#!/bin/bash\nexec "${RAILWAY_BIN:-railway}" "$@"\n' > "$T/dwlayout/scripts/railway_serial.sh"; chmod +x "$T/dwlayout/scripts/railway_serial.sh"; : > "$T/dwlayout/scripts/railway_config_guard.py"
 DWRUN="$DWL/deploy_watch.sh"
-dwenv(){ env -u SHRIKE_NOTIFY_URL -u SHRIKE_NOTIFY_TOKEN -u NTFY_SERVER -u OVN_SERVER -u DRYRUN -u SHRIKE_MONITOR_URL -u SHRIKE_MONITOR_TOKEN -u LOCAL_PROJECTS \
+dwenv(){ env -u OVN_NOTIFY_DISABLE -u SHRIKE_NOTIFY_URL -u SHRIKE_NOTIFY_TOKEN -u NTFY_SERVER -u OVN_SERVER -u DRYRUN -u SHRIKE_MONITOR_URL -u SHRIKE_MONITOR_TOKEN -u LOCAL_PROJECTS \
   HOME="$T/dwhome" NTFY_TOPIC=selftest RAILWAY_BIN="$T/rwbin/railway" RAILWAY_SERIAL_LOCK="$T/dwhome/.railway/.cli.lock.d" "$@"; }
 dw(){ dwenv bash "$DWRUN" > "$FX/out.log" 2>&1; echo $? > "$FX/rc"; }
 urg(){ local n; n="$(grep -c "Priority: urgent" "$FX/curl.log" 2>/dev/null)"; echo "${n:-0}"; }

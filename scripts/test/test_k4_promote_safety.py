@@ -92,8 +92,31 @@ pac.check_ref("iptv_apps", cand)
 ok("verdict file UNVERIFIED without snapshot", json.load(open(vp)).get("state") == "UNVERIFIED")
 
 # ---- 3. other repos skip with a reason
+# Z6 (2026-11-09): billwatch is in PRODUCTION_URLS (6dba0c6), so it is no longer skipped: it fetches /health. The fetch is STUBBED here (no network, ever).
+_calls = []
+_orig_fetch = pas.fetch_health
+
+
+def _fetch_down(url, timeout=15):
+    _calls.append(url)
+    return None, "request failed: URLError"
+
+
+pas.fetch_health = _fetch_down
 okb, msg = pas.refresh("billwatch")
-ok("billwatch snapshot skipped: health-has-no-revision", (not okb) and "health-has-no-revision" in msg, msg)
+ok("billwatch snapshot is attempted (handled, not skipped): fetch down => snapshot left untouched / UNVERIFIED",
+   (not okb) and "health-has-no-revision" not in msg and "snapshot left untouched" in msg and len(_calls) == 1 and "billwatch" in _calls[0], (msg, _calls))
+ok("billwatch fetch failure left NO snapshot file", not os.path.exists(os.path.join(STATE, "prod_alembic", "billwatch.json")))
+pas.fetch_health = lambda url, timeout=15: ({"status": "ok"}, "ok")
+okb, msg = pas.refresh("billwatch")
+ok("billwatch /health without db_revision: untouched, reason named", (not okb) and "no db_revision" in msg and "snapshot left untouched" in msg, msg)
+pas.fetch_health = lambda url, timeout=15: ({"db_revision": "b1_rev"}, "ok")
+okb, msg = pas.refresh("billwatch", dry=True)
+ok("billwatch /health with db_revision: dry run reports the revision, records nothing", okb and "b1_rev" in msg and "dry-run" in msg, msg)
+_calls.clear()
+okg, msgg = pas.refresh("zz_unknown_repo")
+ok("an unknown repo is still skipped (health-has-no-revision) and never fetches", (not okg) and "health-has-no-revision" in msgg and not _calls, (msgg, _calls))
+pas.fetch_health = _orig_fetch
 
 # ---- 4. migration note
 mig = pg.migrations_in_range(pac.qc.git, rd, base, cand)
@@ -140,7 +163,9 @@ ok("health_stage: stale prod => MISMATCH + WARN, no push (shadow)",
    and "WARN" in open(os.path.join(STATE, "alerts.log")).read() and not pushes)
 ok("health_stage: match => OK", pp.health_stage("iptv_apps", cand, once=True, fetch=lambda u: (H_OK, "ok")) == "OK")
 ok("health_stage: unreachable => UNVERIFIED", pp.health_stage("iptv_apps", cand, once=True, fetch=lambda u: (None, "HTTP 502")) == "UNVERIFIED")
-ok("health_stage: repo with no /health revision => NA", pp.health_stage("billwatch", cand, once=True, fetch=lambda u: (H_OK, "ok")) == "NA")
+ok("health_stage: repo with no /health URL => NA", pp.health_stage("zz_unknown_repo", cand, once=True, fetch=lambda u: (H_OK, "ok")) == "NA")
+# Z6: billwatch has a prod /health URL now (6dba0c6): it is judged (injected fetch, no network), no longer NA
+ok("health_stage: billwatch is judged (unreachable => UNVERIFIED, not NA)", pp.health_stage("billwatch", cand, once=True, fetch=lambda u: (None, "HTTP 502")) == "UNVERIFIED")
 os.environ["OVN_POSTCHECK_HEALTH_EMERGENCY"] = "on"
 pp.health_stage("iptv_apps", cand, once=True, fetch=lambda u: (H_OLD, "ok"))
 ok("health emergency flag on => push", len(pushes) == 1)

@@ -1563,6 +1563,8 @@ def lint_text(path, text):
 
 
 def lint_file(p):
+    if os.path.basename(p).startswith("._"):   # Z6: macOS AppleDouble sidecar (binary junk, not source): `._test_y2_fixes.py` kept test_no_unsafe_rm red for 15h ("python file does not parse")
+        return []
     try:
         text = open(p, errors="replace").read()
     except OSError:
@@ -1580,7 +1582,7 @@ def lint_root(root):
         ds[:] = sorted(x for x in ds if x not in SKIP_DIRS and not (d == root and x in ROOT_DATA_DIRS))
         for f in sorted(fs):
             p = os.path.join(d, f)
-            if f.endswith(TEXT_SKIP_EXT) or os.path.islink(p):
+            if f.startswith("._") or f.endswith(TEXT_SKIP_EXT) or os.path.islink(p):
                 continue
             res += lint_file(p)
     return res

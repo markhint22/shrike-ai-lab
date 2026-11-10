@@ -389,10 +389,24 @@ def check_test_item_scope(diff_files, item="", desc="", files=""):
 # Sub-kinds (finding["kind"]): negative-removed, status-flip, compare-to-weak, duplicate-assert, case-deleted.
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
 
-_NEG_ASSERT_RE = re.compile(
+_NEG_ASSERT_RE_PRE = re.compile(
     r"\bassert\b[^#\n]*?\bnot\s+in\b|\bassert\s+not\b|\bassertNotIn\b|\bassertNotEqual\b|\bassertFalse\b|\bassertNotIsInstance\b|\bassert_not_called\b|\bassert_not_called_with\b|\brefute\b|"
     r"\bassert_not\w*\b|\bassert_false\b|\bassert_ne\b|\.not\.(?:toContain|toBe|toEqual|toHaveProperty|toMatch|toHaveBeenCalled\w*|toBeInTheDocument|toBeVisible|toThrow\w*|toHaveLength|toStrictEqual)\b|"
     r"\btoBeFalsy\(|\bassertNotRegex\b")
+_NEG_ASSERT_RE_Z7 = re.compile(
+    r"\bassert\b[^#\n]*?\bnot\s+in\b|\bassert\b[^#\n]*?!=|\bassert\s+not\b|\bassertNotIn\b|\bassertNotEqual\b|\bassertFalse\b|\bassertNotIsInstance\b|\bassert_not_called\b|\bassert_not_called_with\b|\brefute\b|"
+    r"\bassert_not\w*\b|\bassert_false\b|\bassert_ne\b|\.not\.(?:toContain|toBe|toEqual|toHaveProperty|toMatch|toHaveBeenCalled\w*|toBeInTheDocument|toBeVisible|toThrow\w*|toHaveLength|toStrictEqual)\b|"
+    r"\btoBeFalsy\(|\bassertNotRegex\b")
+
+
+class _NegAssert:
+    """`.search` picks the Z7 pattern (adds `assert ... !=`) only while OVN_Z7_ASSERT_RECALL is on, so `off` restores the pre-Z7 matching exactly."""
+    @staticmethod
+    def search(t):
+        return (_NEG_ASSERT_RE_Z7 if _z7_on() else _NEG_ASSERT_RE_PRE).search(t)
+
+
+_NEG_ASSERT_RE = _NegAssert()
 _ASSERTISH_RE = re.compile(r"\bassert\w*\b|\bexpect\s*\(|\bshould\b|\brefute\b|\bverify\b")
 _STATUS_RE = re.compile(r"\b([1-5]\d\d)\b")
 _WEAK_RE = re.compile(r"\bis\s+not\s+None\b|\bassertIsNotNone\b|\bassertTrue\(\s*True\s*\)|\bassert\s+True\b|\.toBeDefined\(\)|\.toBeTruthy\(\)|\.not\.toBeNull\(\)|\.not\.toBeUndefined\(\)|\bassert\s+\w+\s*$|\bassert_not_null\b|\bassert_true\(\s*true\s*\)")
@@ -427,6 +441,8 @@ _SUBJ_STOP = {"assert", "not", "in", "is", "None", "True", "False", "and", "or",
 def _polarity_key(t):
     t = re.sub(r"\bnot\s+in\b", "in", t)
     t = re.sub(r"\bassert\s+not\b", "assert", t)
+    if _z7_on():
+        t = t.replace("!=", "==")
     t = t.replace(".not.", ".").replace("assertNotIn", "assertIn").replace("assertFalse", "assertTrue").replace("assertNotEqual", "assertEqual")
     return _norm_line(t)
 
@@ -436,7 +452,66 @@ def _subject_tokens(t):
     return set(x for x in _SUBJ_TOKEN_RE.findall(t) if x not in _SUBJ_STOP and len(x) > 1)
 
 
-def check_assert_weaken(diff_files, old_text_fn=None):
+# Z7 (2026-11-09) recall extension: kinds polarity-flip, status-flip-src, literal-swap, assertion-deleted, orphan-assert-deleted. Flag only (shadow evidence): a legitimate test update that
+# accompanies a legitimate behaviour change looks the same, so every Z7 finding carries `src_changed` and the kinds that need a source change in the same diff never fire without one.
+# OVN_Z7_ASSERT_RECALL=off restores the Z5 behaviour exactly.
+_LIT_RE = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|(?<![\w.])-?\d+(?:\.\d+)?(?:e-?\d+)?(?![\w.])")
+_CMP_RE = re.compile(r"==|\bassertEqual\b|\.toBe\(|\.toEqual\(|\.toStrictEqual\(|\bassert_eq\b|\bassert_equal\b|\bassertAlmostEqual\b|\.toBeCloseTo\(")
+_ASSIGN_RE = re.compile(r"^\s*(?:async\s+)?def\s+\w+\s*\(([^)]*)\)|^\s*(?:for\s+)?([A-Za-z_][\w, ]*?)\s*(?::[^=]+)?=(?!=)|\bas\s+([A-Za-z_]\w*)|\bfor\s+([A-Za-z_][\w, ]*)\s+in\b")
+
+
+def _z7_on():
+    return os.environ.get("OVN_Z7_ASSERT_RECALL", "on").strip().lower() != "off"
+
+
+def _lit_shape(t):
+    return _norm_line(_LIT_RE.sub("L", t))
+
+
+def _lits(t):
+    return [x for x in _LIT_RE.findall(t or "")]
+
+
+def _lit_delta(new, old):
+    """The part of literal `new` that is not shared (common prefix/suffix) with `old`."""
+    n, o = new.strip("\"'"), old.strip("\"'")
+    i = 0
+    while i < min(len(n), len(o)) and n[i] == o[i]:
+        i += 1
+    j = 0
+    while j < min(len(n), len(o)) - i and n[len(n) - 1 - j] == o[len(o) - 1 - j]:
+        j += 1
+    return n[i:len(n) - j].strip()
+
+
+def _lit_explained(new, olds, src_added):
+    """True when the source diff itself introduces the value `new` (a deliberate change the test follows)."""
+    bare = new.strip("\"'")
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", bare):
+        return bool(re.search(r"(?<![\w.])%s(?![\w.])" % re.escape(bare), src_added))
+    for d in ([_lit_delta(new, o) for o in olds] or [bare]):
+        if len(d) >= 2 and re.search(r"(?<!\w)%s(?!\w)" % re.escape(d), src_added):
+            return True
+    return False
+
+
+def _assert_root(t):
+    m = re.search(r"\bassert(?:\w*)\b\s*\(?\s*(?:not\s+)?([A-Za-z_]\w*)", t)
+    return m.group(1) if m else ""
+
+
+def _bound_names(lines):
+    names = set()
+    for t in lines:
+        for m in _ASSIGN_RE.finditer(t):
+            for g in m.groups():
+                if g:
+                    names |= set(re.findall(r"[A-Za-z_]\w*", g))
+    return names
+
+
+
+def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=False):
     """B7. Deterministic per-hunk heuristics (see above). old_text_fn(path) -> pre-image text, only needed for the deleted-parametrize-case check."""
     out = []
     for fd in diff_files:
@@ -446,12 +521,14 @@ def check_assert_weaken(diff_files, old_text_fn=None):
             continue
         src_touched = any(is_source_path(o.path) and not o.is_deleted and (o.added or o.removed) for o in diff_files)
         file_added_norm = set(_norm_line(t) for _, t in fd.added)
+        src_added = "\n".join(t for o in diff_files if is_source_path(o.path) and not o.is_deleted for _, t in o.added)
         file_ctx_neg = [t for t in fd.context if _NEG_ASSERT_RE.search(t)]
         old_text = None
         found = {}   # kind -> (lineno, text)
 
         def hit(kind, ln, txt):
             found.setdefault(kind, (ln, _norm_line(txt)[:120]))
+        new_text = None
         for h in fd.hunks:
             rem = [(ln, t) for ln, t in h["rem"] if not _is_comment(t)]
             add = [(ln, t) for ln, t in h["add"] if not _is_comment(t)]
@@ -474,7 +551,11 @@ def check_assert_weaken(diff_files, old_text_fn=None):
                 for ln, t in rem:
                     if _NEG_ASSERT_RE.search(t) and _norm_line(t) not in file_added_norm and _ASSERTISH_RE.search(t):
                         if _polarity_key(t) in add_pk:
-                            continue      # expectation flipped (`assert not x` -> `assert x`): the behaviour under test changed, not weakened
+                            # expectation flipped (`assert not x` -> `assert x`). Z5 skipped it (the behaviour under test may have changed on purpose); Z7 reports it as evidence when the
+                            # SAME literal/operands now assert the opposite (shrike-monitor deacf45: `"secret=xyz" not in result` -> `"secret=xyz" in result`)
+                            if _z7_on():
+                                hit("polarity-flip", ln, t + "  ->  " + next((a for _, a in add if _polarity_key(a) == _polarity_key(t)), ""))
+                            continue
                         if _subject_tokens(t) & add_subj and not any(_norm_line(x) == _norm_line(y) for (_, x), (_, y) in zip(add, add[1:])):
                             continue      # replaced by a stronger comparison on the same subject
                         if add_empty:
@@ -498,6 +579,66 @@ def check_assert_weaken(diff_files, old_text_fn=None):
                     if ac and _status_shape(a) == shape:
                         hit("status-flip", ln, t + "  ->  " + a)
                         break
+            if _z7_on():
+                # (2b) error status -> success status although a SOURCE file changed too (the expectation was bent to the new implementation)
+                if src_touched:
+                    for ln, t in rem:
+                        if not _ASSERTISH_RE.search(t) or retired:
+                            continue
+                        oc = [c for c in _status_codes(t) if c in (400, 401, 403, 404, 405, 409, 422)]
+                        if not oc:
+                            continue
+                        shape = _status_shape(t)
+                        for _, a in add:
+                            if _ASSERTISH_RE.search(a) and _status_shape(a) == shape and [c for c in _status_codes(a) if 200 <= c <= 299]:
+                                hit("status-flip-src", ln, t + "  ->  " + a)
+                                break
+                # (2c) literal swap in an unchanged assertion shape while a SOURCE file changed (60.0 -> 0.5; shrike-notify df2145b)
+                if src_touched and not retired:
+                    for ln, t in rem:
+                        if not (_ASSERTISH_RE.search(t) and _CMP_RE.search(t)) or _is_comment(t):
+                            continue
+                        lt = _lits(t)
+                        if not lt:
+                            continue
+                        sh = _lit_shape(t)
+                        for _, a in add:
+                            if _ASSERTISH_RE.search(a) and _lit_shape(a) == sh and _lits(a) != lt and _norm_line(a) != _norm_line(t) and not (set(_status_codes(t)) and [c for c in _status_codes(a) if 200 <= c <= 299] and found.get("status-flip-src")):
+                                la = _lits(a)
+                                new_l = [x for x in la if x not in lt]
+                                # a NEW literal that the source diff itself introduces (a renamed label, a new status code) is an expectation following a deliberate change; the swap is only
+                                # evidence when the source diff does not contain the value the test now expects (shrike-notify df2145b: source returns 0.0, test now expects 0.5)
+                                if new_l and all(_lit_explained(x, [y for y in lt if y not in la], src_added) for x in new_l):
+                                    continue
+                                hit("literal-swap", ln, t + "  ->  " + a)
+                                break
+                # (2d) assertion lines deleted with nothing asserting in their place
+                if not retired:
+                    if new_text is None and callable(new_text_fn):
+                        new_text = new_text_fn(fd.path) or ""
+                    new_norm = set(_norm_line(x) for x in new_text.split("\n")) if new_text else None
+                    del_ass = [(ln, t) for ln, t in rem if _ASSERTISH_RE.search(t) and not _WEAK_RE.search(t) and not _is_comment(t) and _norm_line(t) not in add_norm and _norm_line(t) not in file_added_norm]
+                    add_ass = [1 for _, t in add if _ASSERTISH_RE.search(t)]
+                    if del_ass and len(add_ass) < len(del_ass):
+                        keep = [x for x in del_ass if new_norm is None or _norm_line(x[1]) not in new_norm]    # still elsewhere in the new file = a de-duplication, not a loss
+                        if keep and len(keep) > len(add_ass):
+                            hit("assertion-deleted", keep[0][0], keep[0][1])
+                # (2e) a test is retired but ONE of the assertions in the removed block belonged to a surviving test (its subject name is bound nowhere in the removed lines)
+                if retired and fd.path.endswith(".py"):
+                    if new_text is None and callable(new_text_fn):
+                        new_text = new_text_fn(fd.path) or ""
+                    rem_defs = [re.match(r"\s*(?:async\s+)?def\s+(test_\w+)", t) for _, t in rem]
+                    rem_defs = [m.group(1) for m in rem_defs if m]
+                    deduped = bool(rem_defs) and bool(new_text) and all(re.search(r"def\s+%s\b" % re.escape(n), new_text) for n in rem_defs)   # the same test is still defined: a de-duplication
+                    bound = _bound_names([t for _, t in rem])
+                    for ln, t in ([] if deduped else rem):
+                        if not _ASSERTISH_RE.search(t) or _is_comment(t) or _norm_line(t) in add_norm:
+                            continue
+                        r = _assert_root(t)
+                        if r and r not in bound and r not in ("self", "True", "False", "None", "len", "isinstance", "any", "all", "pytest", "response", "result", "resp") and not r[0].isupper():
+                            if _norm_line(t) not in file_added_norm:
+                                hit("orphan-assert-deleted", ln, t)
+                                break
             # (3) strong comparison replaced by an existence check
             if not retired:
                 strong_rem = sum(1 for _, t in rem if _STRONG_RE.search(t) and not _WEAK_RE.search(t))
@@ -523,8 +664,14 @@ def check_assert_weaken(diff_files, old_text_fn=None):
                     window = old_lines[max(0, ln0 - 25):max(0, ln0 - 1)]
                     if any(_PARAM_RE.search(w) for w in window):
                         hit("case-deleted", ln0, gone[0][1])
+        if found.get("assertion-deleted") and any(k in found for k in ("negative-removed", "compare-to-weak", "duplicate-assert", "status-flip", "status-flip-src", "polarity-flip")):
+            found.pop("assertion-deleted")     # the more specific kind already names the loss
         for kind, (ln, txt) in sorted(found.items()):
             out.append({"rule": "assert-weaken", "sev": "FLAG", "kind": kind, "file": fd.path, "line": ln, "text": txt,
+                        "msg": "test %s weakened (%s) at %s:%s: %s" % ("assertions", kind, fd.path, ln, txt[:80])}
+                       if not _z7_on() else
+                       {"rule": "assert-weaken", "sev": "FLAG", "kind": kind, "file": fd.path, "line": ln, "text": txt, "src_changed": bool(src_touched),
+                        "tier": "strong" if (kind in ("polarity-flip", "status-flip-src") or (repair and kind in ("literal-swap", "assertion-deleted", "orphan-assert-deleted"))) else "weak",
                         "msg": "test %s weakened (%s) at %s:%s: %s" % ("assertions", kind, fd.path, ln, txt[:80])})
     return out
 
@@ -785,7 +932,9 @@ def analyse(diff_text, desc="", item="", kind="step", files="", post_text=None, 
     res["tone-lint"] = check_tone(fds, (desc or "") + "\n" + (item or ""))
     res["repair-new-route"] = check_repair_routes(fds) if kind == "repair" else []
     res["test-item-src-edit"] = check_test_item_scope(fds, item, desc, files)
-    res["assert-weaken"] = check_assert_weaken(fds, (lambda pth: git(repo, "show", "%s:%s" % (base, pth))) if (repo and base) else None)
+    res["assert-weaken"] = check_assert_weaken(fds, (lambda pth: git(repo, "show", "%s:%s" % (base, pth))) if (repo and base) else None,
+                                               (lambda pth: (git(repo, "show", "%s:%s" % (head, pth)) if head != "WORKTREE" else _read(os.path.join(repo, pth)))) if (repo and head) else None,
+                                               repair=(kind == "repair"))
     drops = []
     if repo and base and head:
         for fd in fds[:_envint("OVN_Z3_MAX_FILES", 200)]:

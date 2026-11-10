@@ -143,6 +143,9 @@ def push(title, body, urgent, dry):
         if not ok:
             print("push failed: no channel took %r" % title)
         return ok
+    if os.environ.get("OVN_NOTIFY_DISABLE", "").strip().lower() not in ("", "0", "false", "no", "off"):   # Z6-fix: same switch definition as ovn_relay.notify_disabled
+        print("notify disabled (OVN_NOTIFY_DISABLE): %r not sent" % title)
+        return False
     srv = (os.environ.get("NTFY_SERVER") or "http://127.0.0.1:8099")  # P2: never default to the public ntfy.sh
     req = urllib.request.Request("%s/%s" % (srv, TOPIC), data=body.encode(), method="POST",
                                  headers={"Title": title, "Priority": "urgent" if urgent else ("low" if low else "default")})

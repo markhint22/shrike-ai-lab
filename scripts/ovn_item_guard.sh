@@ -36,6 +36,7 @@
 # file(s) for the item hash(es) that ACTUALLY landed this cycle (see the tests:pass case below
 # for how that identity is established) — never a different item's counter.
 # args: <repo_dir> <status> <state_dir> <id> [<task_log>]
+type ovn_gitb >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]:-$0}")/lib_push_bound.sh" 2>/dev/null || ovn_gitb(){ git "$@"; }   # Z7-B: every park push below is bounded (timeout, no tty prompt): a stalled push here held the whole run loop for 97 min on 2026-11-08
 set -uo pipefail
 repo="${1:-}"; status="${2:-}"; state="${3:-}"; id="${4:-}"; task_log="${5:-}"
 [ -n "$repo" ] && [ -d "$repo" ] || exit 0
@@ -210,7 +211,7 @@ if [ "$_rp_at" -gt 0 ] 2>/dev/null && [ -d "$state/credit_refused" ]; then
     _rp_branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
     git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
     git -C "$repo" commit -q -m "chore(queue): park ${_rp_parked} item(s) after ${_rp_at}+ credit refusals (green commits the auto-credit could not tick)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
-    [ -n "$_rp_branch" ] && git -C "$repo" push -q origin "$_rp_branch" 2>/dev/null
+    [ -n "$_rp_branch" ] && ovn_gitb -C "$repo" push -q origin "$_rp_branch" 2>/dev/null
     echo "AUTO-SKIPPED ${_rp_parked} item(s) after ${_rp_at}+ credit refusals"
   fi
 fi
@@ -438,7 +439,7 @@ case "$status" in
         if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
           git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
           git -C "$repo" commit -q -m "chore(queue): park item - same failing tests repeated on consecutive attempts (needs-human)" 2>/dev/null
-          [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+          [ -n "$branch" ] && ovn_gitb -C "$repo" push -q origin "$branch" 2>/dev/null
           echo "AUTO-SKIPPED item (repeat circuit-breaker, needs-human): ${text:0:70}"
         fi
         rm -f "$state/failures/${id}.count" "$countf" "$toksf" "$ncountf" "$ntoksf" "$lastidsf" 2>/dev/null
@@ -556,7 +557,7 @@ if [ "$_dc_mode" != off ]; then
           if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
             git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
             git -C "$repo" commit -q -m "chore(queue): park item after ${_dc_n} non-landing attempts in 24h (per-item day cap)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
-            [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+            [ -n "$branch" ] && ovn_gitb -C "$repo" push -q origin "$branch" 2>/dev/null
             echo "AUTO-SKIPPED item after ${_dc_n} non-landing attempts in 24h (${_dc_mix}): ${text:0:70}"
           fi
           rm -f "$state/failures/${id}.count" "$countf" "$toksf" "$ncountf" "$ntoksf" "$lastidsf" "$_dc_f" 2>/dev/null
@@ -616,7 +617,7 @@ PYEOF
             if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
               git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
               git -C "$repo" commit -q -m "chore(queue): park ${_rr_k} item(s) after ${_rr_c} reverts of the same item in 24h (repeat-revert guard)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
-              [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+              [ -n "$branch" ] && ovn_gitb -C "$repo" push -q origin "$branch" 2>/dev/null
               echo "AUTO-SKIPPED ${_rr_k} item(s) after ${_rr_c} reverts in 24h (${_rr_feat:-no feat tag}): ${text:0:70}"
             fi
             rm -f "$state/failures/${id}.count" "$countf" "$toksf" "$ncountf" "$ntoksf" "$lastidsf" "$_rr_f" 2>/dev/null
@@ -672,7 +673,7 @@ PYEOF
       if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
         git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
         git -C "$repo" commit -q -m "chore(queue): park ${_ugn} sibling item(s) after ${ug} consecutive ungrounded-plan no-ops (${_ugfeat})" -- OVERNIGHT_PROGRESS.md 2>/dev/null
-        [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+        [ -n "$branch" ] && ovn_gitb -C "$repo" push -q origin "$branch" 2>/dev/null
         echo "AUTO-SKIPPED ${_ugn} sibling item(s) of ${_ugfeat} after ${ug} consecutive ungrounded-plan no-ops: ${text:0:60}"
       fi
       rm -f "$ugf" "$ncountf" "$ntoksf" "$state/failures/${id}.count" 2>/dev/null
@@ -718,7 +719,7 @@ if [ "$_ig_fixup_fail" = 0 ] && [[ "$status" == no-op* || "$status" == "<none>"*
     if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
       git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
       git -C "$repo" commit -q -m "chore(queue): auto-skip item after ${trigger} (already-done/mis-targeted)" 2>/dev/null
-      [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+      [ -n "$branch" ] && ovn_gitb -C "$repo" push -q origin "$branch" 2>/dev/null
       echo "AUTO-SKIPPED no-op item after ${trigger}: ${text:0:70}"
     fi
     # parked -> reset the task-valve too so this streak doesn't also disable the task
@@ -744,7 +745,7 @@ if [ "$c" -ge "$CAP" ] || [ "$toks" -ge "$TOKCAP" ] || [ "$_ftrip" = 1 ]; then
   if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
     git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
     git -C "$repo" commit -q -m "chore(queue): auto-skip item after ${trigger} (needs a human)" 2>/dev/null
-    [ -n "$branch" ] && git -C "$repo" push -q origin "$branch" 2>/dev/null
+    [ -n "$branch" ] && ovn_gitb -C "$repo" push -q origin "$branch" 2>/dev/null
     echo "AUTO-SKIPPED item after ${trigger}: ${text:0:70}"
   fi
   # bad item now parked -> give the REPO a fresh start: reset the task-valve

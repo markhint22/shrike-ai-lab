@@ -133,6 +133,8 @@ def short(body, n=110):
 
 
 def classify(title, priority="default", level=""):
+    # NOTE (Z6-fix): plain truthiness - "0"/"false"/"off" ALSO disable here. The Mac helpers (scripts/mac_lib.sh _mac_notify_disabled, ovn_relay.notify_disabled, deploy_watch.sh ...)
+    # treat empty/0/false/no/off as ENABLED. Deliberately NOT unified (this relay's behaviour is relied on by the suite); set OVN_NOTIFY_DISABLE=1 to disable everywhere.
     if os.environ.get("OVN_NOTIFY_DISABLE"):
         return "drop"
     lv = (level or "").lower()

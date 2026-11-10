@@ -687,5 +687,11 @@ echo; echo "===== hotfix-scout-hang: ops/hang_watchdog.sh shadow/on, thresholds,
 echo; echo "===== hotfix-scout-hang r2: JSONL journal never gets a text timeout note, credit/alembic caps + restore/recover after a kill, OOM 137 is not a timeout ====="; bash test_hotfix_helper_timeout_r2.sh || rc=1
 echo; echo "===== Y2b follow-ups: body_key path-free prose tails stay distinct (D1), ALREADY DONE date gate per layer (D2), _peel_tail index arithmetic == reference (D3), shadow-default wording; 14 mutants ====="; python3 test_y2b_followups.py || rc=1
 echo; echo "===== Z5-B: build-break park precision tool + pinned SHADOW default (4 mutants) ====="; bash test_bb_park_precision.sh || rc=1
+echo; echo "===== Z6: Mac notify guard (OVN_NOTIFY_DISABLE => zero ssh/relay from every Mac alert path; --print strictly read-only; D1 deploy_watch + native-build + vercel fallback guards; D2 no marker when disabled; kickstart --print; 13 mutants) ====="; bash test_z6_notify_guard.sh || rc=1
+echo; echo "===== Z6: AppleDouble ._* files skipped by lint_unsafe_rm / lint_ntfy_tests; box_deploy tar --exclude (4 mutants) ====="; bash test_z6_appledouble_lint.sh || rc=1
+echo; echo "===== Z7-A: assert-weaken recall (polarity-flip, status-flip-src, literal-swap, assertion-deleted, orphan-assert-deleted; shadow; 20 mutants) ====="; bash test_z7_assert_recall.sh || rc=1
+echo; echo "===== Z7-B: bounded push/rebase retry (stub git hangs), non-interactive git, cycle phase timestamps, wiring lint (18 mutants; box or Mac with timeout) ====="; bash test_z7_push_bound.sh || rc=1
+echo; echo "===== Z7-C: timeout-park precision replay + pinned SHADOW default (8 mutants) ====="; bash test_z7_timeout_park_precision.sh || rc=1
+echo; echo "===== Z7 review fix 1: OVN_Z7_ASSERT_RECALL=off restores pre-Z7 assert-weaken output exactly (corpus diff vs verbatim pre-Z7 slice; 4 mutants) ====="; bash test_z7_off_exact.sh || rc=1
 echo; finish || rc=1
 exit $rc

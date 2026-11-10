@@ -71,7 +71,7 @@ def lint_scripts(root):
         top = os.path.realpath(dp) == root_real
         dns[:] = [d for d in dns if d not in SKIP_DIRS and not d.startswith("proposals") and not (top and d in TOP_PRUNE)]
         for fn in sorted(fns):
-            if not fn.endswith((".sh", ".py")):
+            if fn.startswith("._") or not fn.endswith((".sh", ".py")):   # Z6: skip macOS AppleDouble sidecars
                 continue
             p = os.path.join(dp, fn)
             try:

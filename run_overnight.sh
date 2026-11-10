@@ -122,6 +122,8 @@ STATE_DIR="$SCRIPT_DIR/state"
 # scripts/lib_item_select.sh for the full root-cause writeup. record_outcome() below uses
 # this instead of its own independent top-of-file re-grep.
 type ovn_hto >/dev/null 2>&1 || . "$SCRIPT_DIR/scripts/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; ovn_hto_restore_file(){ :; }; ovn_hto_git_recover(){ :; }; ovn_hto_snapshot_untracked(){ :; }; ovn_hto_sentinel(){ :; }; ovn_hto_recover_done(){ :; }; }   # helper wall-clock cap (hotfix-scout-hang)
+# Z7-B (2026-11-09): bounded git network calls (ovn_gitb), the bounded push-rejected rebase retry (ovn_push_rebase_retry) and `[HH:MM:SS] phase=<name> start|end` cycle-log lines (ovn_phase)
+type ovn_gitb >/dev/null 2>&1 || . "$SCRIPT_DIR/scripts/lib_push_bound.sh" 2>/dev/null || { ovn_gitb(){ git "$@"; }; ovn_gitb_pull_rebase(){ if [ "${1:-}" = "-C" ]; then local _d="$2"; shift 2; git -C "$_d" pull --rebase "$@"; else git pull --rebase "$@"; fi; }; ovn_phase(){ return 0; }; ovn_push_rebase_retry(){ git pull --rebase origin "$1" >>"${2:-/dev/null}" 2>&1 && git push origin "$1" --quiet 2>>"${2:-/dev/null}"; }; }
 # shellcheck source=scripts/lib_item_select.sh
 source "$SCRIPT_DIR/scripts/lib_item_select.sh" 2>/dev/null || true
 # shellcheck source=scripts/lib_stage_credit.sh
@@ -752,6 +754,7 @@ log "Loaded ${TASK_COUNT} task(s) from ${TASKS_FILE}"
 run_repo_verification() {
   local any_ran=0 any_failed=0 dir py_ran=0 _ovn_vt0
   _ovn_vt0="$(date +%s)"   # r11 P9: wall-clock marker so ovn_cycle_walltime can PROVE verify_s (see _ovn_verify_done_mark)
+  ovn_phase verify start
   # 2026-08-27: scope each suite to the subdirs THIS cycle's commit(s) touched,
   # so a backend-only change never triggers an unrelated (e.g. broken Android)
   # build and mislabels a green change as tests:FAIL.
@@ -762,7 +765,7 @@ run_repo_verification() {
   _ovn_red_mark() { echo "--- verify-suite-red: $1 in ${2:-.} rc=${3:-?} ---" >> "$task_log"; }
   # 2026-10-11 (r11 acct, platform P9): the cycle log carried no per-phase timestamps, so cycle_walltime.jsonl verify_s was 0 for every row (only logged VERIFY *timeouts* counted). One marker per
   # verification run, written to the task log (stdout is the verdict, captured by every caller): '--- verify done in Ns ---'. ovn_cycle_walltime.py sums them. Never fatal.
-  _ovn_verify_done_mark() { { echo "--- verify done in $(( $(date +%s) - ${_ovn_vt0:-$(date +%s)} ))s ---" >> "${task_log:-/dev/null}"; } 2>/dev/null || true; declare -F ovn_tree_dirty_note >/dev/null 2>&1 && ovn_tree_dirty_note "$PWD" "${task_log:-}" "verify (${_ovnv:-repo suites})"; }   # 2026-10-13 (iptv F9): name the step that left a tracked file dirty
+  _ovn_verify_done_mark() { ovn_phase verify end; { echo "--- verify done in $(( $(date +%s) - ${_ovn_vt0:-$(date +%s)} ))s ---" >> "${task_log:-/dev/null}"; } 2>/dev/null || true; declare -F ovn_tree_dirty_note >/dev/null 2>&1 && ovn_tree_dirty_note "$PWD" "${task_log:-}" "verify (${_ovnv:-repo suites})"; }   # 2026-10-13 (iptv F9): name the step that left a tracked file dirty
   _ovn_touched() {
     local d="${1#./}"
     [ -z "$_OVN_CHANGED" ] && return 0    # unknown -> run (safe default)
@@ -2571,10 +2574,9 @@ PYEOF
       # 2026-10-02 (harness-X X1): every credit commit below is a PATHSPEC commit (`git commit ... -- OVERNIGHT_PROGRESS.md`): a bare `git commit` commits
       # the whole index, which is how a half-restored tree was swept into a "chore" commit on 2026-10-02 13:14 CDT.
       _credit_push() {
-        timeout 30 git push origin "$branch" --quiet 2>>"$task_log" && return 0
+        ovn_gitb push origin "$branch" --quiet 2>>"$task_log" && return 0
         echo "--- credit-push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
-        if declare -F ovn_tree_dirty_note >/dev/null 2>&1; then ovn_tree_dirty_note "$PWD" "$task_log" "the cycle (before the credit-push rebase)"; ovn_reset_dirty_lockfiles "$PWD" "$task_log" "credit-push-retry"; fi   # 2026-10-13 (iptv F9)
-        if timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
+        if ovn_push_rebase_retry "$branch" "$task_log"; then
           return 0
         fi
         git rebase --abort >/dev/null 2>&1 || true
@@ -2880,6 +2882,7 @@ ${full_prompt}"
     while [ "$ATTEMPT" -le "$MAX_IMPLEMENT_ATTEMPTS" ]; do
       echo "--- implement attempt ${ATTEMPT}/${MAX_IMPLEMENT_ATTEMPTS} (${#FILE_ARGS[@]} file(s) pre-loaded) ---" >> "$task_log"
       _ovn_att_sha="$(git rev-parse HEAD)"; _ovn_att_off="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"
+      ovn_phase generation start "attempt=${ATTEMPT}"
       timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" \
         ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} \
         ${TEST_ARGS[@]+"${TEST_ARGS[@]}"} \
@@ -2889,6 +2892,7 @@ ${full_prompt}"
         --message "${full_prompt}" \
         >> "$task_log" 2>&1
       AIDER_EXIT=$?
+      ovn_phase generation end "rc=${AIDER_EXIT}"
 
       # Oversized-context guard (2026-09-06): if this item blew past the model's window
       # (litellm 400 exceed_context_size — seen at 70-115K tokens), stop NOW instead of
@@ -3428,10 +3432,11 @@ $(ovn_udiff_nudge_text)"
             for _mf in $_migfix_touched; do [ -f "$_mf" ] && _migfix_fileargs+=(--file "$_mf"); done
             echo "--- MIGRATION-SAFETY fix-up: one bounded attempt at the migration-chain break before reverting: ${_migfix_summary:0:200}" >> "$task_log"
             _ovn_fx0="$(date +%s)"   # r11 P9
+            ovn_phase fixup start
             timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_migfix_fileargs[@]}" \
               --message "$(ovn_fixup_prompt "The change below was just committed and it broke the Alembic migration chain." "$BEFORE_SHA" "$AFTER_SHA" "$_migfix_summary" "Fix this SPECIFIC migration-chain error (correct down_revision / resolve the multiple-heads or duplicate-revision-id / fix the FK column type) so 'alembic upgrade head' resolves to a single linear chain again. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.")" \
               >> "$task_log" 2>&1
-            echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
+            echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"; ovn_phase fixup end
             _migfix_after="$(git rev-parse HEAD)"
             if [ "$_migfix_after" != "$AFTER_SHA" ]; then
               AFTER_SHA="$_migfix_after"
@@ -3684,12 +3689,13 @@ ${_buildfix_evidence}"
           echo "--- BUILD-GATE fix-up: evidence=$(printf '%s' "$_buildfix_evidence" | wc -c)B extra_files=${_buildfix_nextra} ---" >> "$task_log"
           echo "--- BUILD-GATE fix-up: one bounded attempt at the structural break before reverting: ${_buildfix_summary:0:200}" >> "$task_log"
           _ovn_fx0="$(date +%s)"   # r11 P9: '--- fixup done in Ns ---' after the aider call (the re-verify logs its own '--- verify done ---')
+          ovn_phase fixup start
           _ovn_fx_off="$(wc -c < "$task_log" 2>/dev/null | tr -d ' ')"   # 2026-10-20: log offset for ovn_aider_commit_rescue
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_buildfix_fileargs[@]}" \
             --message "$(ovn_fixup_prompt "The change below was just committed and it broke the build." "$BEFORE_SHA" "$AFTER_SHA" "REAL failing output from the verify run (verbatim; you already have every file it names in the chat):
 ${_buildfix_evidence:-$_buildfix_summary}" "Fix this SPECIFIC structural error (syntax/import/parse/collection) so the code loads again. Do not ask for more output - the error above is complete. If it is 'No module named X' / 'cannot import name X': either create X or remove the import that needs it. If the committed change deleted a file, also update or delete the tests/imports that still reference it. Do not touch unrelated files. Keep the rest of the committed change as-is if it's working.")" \
             >> "$task_log" 2>&1
-          echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
+          echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"; ovn_phase fixup end
           ovn_aider_commit_rescue "$AFTER_SHA" "$task_log" "${_ovn_fx_off:-0}" "fix: build-gate fix-up (aider commit crashed; tracked edit rescued)" || true
           _buildfix_after="$(git rev-parse HEAD)"
           if [ "$_buildfix_after" != "$AFTER_SHA" ]; then
@@ -3826,10 +3832,11 @@ All files you need are already in the chat. You cannot run commands or call tool
           echo "--- Tier-2 fix-up: prompt=${#_fixup_msg}B files=$(( ${#_fixup_fileargs[@]} / 2 )) ---" >> "$task_log"
           echo "--- Tier-2 fix-up: one bounded attempt at the specific failure before reverting [${_fixup_kind}]: ${_fixup_summary:0:200}" >> "$task_log"
           _ovn_fx0="$(date +%s)"   # r11 P9
+          ovn_phase fixup start
           timeout "$aider_timeout" aider "${AIDER_BASE_ARGS[@]}" "${_fixup_fileargs[@]}" \
             --message "$_fixup_msg" \
             >> "$task_log" 2>&1
-          echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"
+          echo "--- fixup done in $(( $(date +%s) - _ovn_fx0 ))s ---" >> "$task_log"; ovn_phase fixup end
           _fixup_after="$(git rev-parse HEAD)"
           if [ "$_fixup_after" != "$AFTER_SHA" ]; then
             _fix_prev_sha_t2="$AFTER_SHA"
@@ -3999,6 +4006,7 @@ All files you need are already in the chat. You cannot run commands or call tool
         if ovn_redgreen_suspect_policy "$task_log" "$id" "$(basename "$PWD")"; then _skip_credit=1; _rg_refuse=1; fi
       fi
 
+      ovn_phase commit start
       echo "--- landing: bookkeeping + auto-credit + push phase ---" >> "$task_log"   # 2026-10-09: segment marker for ovn_landed_uncredited (best-of-N reuses this log)
       [ "${_rg_refuse:-0}" = 1 ] && echo "--- auto-credit: REFUSED - red-green SUSPECT: the new test(s) passed without the fix (OVN_REDGREEN_SUSPECT=enforce); nothing credited ---" >> "$task_log"
       # Runner-owned progress bookkeeping (2026-08-25 Tier-1). The model declared
@@ -4044,7 +4052,10 @@ All files you need are already in the chat. You cannot run commands or call tool
         AFTER_SHA="$(git rev-parse HEAD)"
       fi
 
-      if timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
+      ovn_phase commit end
+      ovn_phase push start
+      if ovn_gitb push origin "$branch" --quiet 2>>"$task_log"; then
+        ovn_phase push end "rc=0"
         case "$VERIFY_RESULT" in
           fail) PUSH_STATUS="pushed(tests:FAIL - see log)" ;;
           pass) PUSH_STATUS="pushed(tests:pass)" ;;
@@ -4104,9 +4115,10 @@ All files you need are already in the chat. You cannot run commands or call tool
         # and do NOT let it count toward the 3-strike safety valve (that was
         # auto-disabling healthy repos - billwatch/shrike - during heavy manual
         # pushing). If the rebase-retry also fails, emit a transient status.
+        ovn_phase push end "rc=rejected"
         echo "--- push rejected; rebasing onto origin/${branch} and retrying ---" >> "$task_log"
-        if declare -F ovn_tree_dirty_note >/dev/null 2>&1; then ovn_tree_dirty_note "$PWD" "$task_log" "the cycle (before the push-retry rebase)"; ovn_reset_dirty_lockfiles "$PWD" "$task_log" "push-retry"; fi   # 2026-10-13 (iptv F9)
-        if timeout 30 git pull --rebase origin "$branch" >>"$task_log" 2>&1 && timeout 30 git push origin "$branch" --quiet 2>>"$task_log"; then
+        # Z7-B: bounded (OVN_PUSH_RETRY_N rebase attempts / OVN_PUSH_RETRY_CAP_S wall clock, every git call under `timeout`, no tty prompt); same `pull --rebase` semantics as before
+        if ovn_push_rebase_retry "$branch" "$task_log"; then
           # rebase rewrote the commit(s): AFTER_SHA itself is no longer an ancestor, so check the rebased HEAD (which must also differ from BEFORE_SHA)
           if [ "$(git rev-parse HEAD)" = "$BEFORE_SHA" ] || ! ovn_ri_commit_reachable "$(git rev-parse HEAD)" "$branch"; then
             echo "--- LANDING CHECK (after-rebase): the rebased commit is NOT reachable from origin/${branch} ---" >> "$task_log"
@@ -4118,7 +4130,7 @@ All files you need are already in the chat. You cannot run commands or call tool
           echo "pushed(after-rebase)"
         else
           git rebase --abort >/dev/null 2>&1 || true
-          timeout 30 git fetch -q origin "$branch" 2>/dev/null && git reset --hard "origin/$branch" >/dev/null 2>&1 || true
+          ovn_gitb fetch -q origin "$branch" 2>/dev/null && git reset --hard "origin/$branch" >/dev/null 2>&1 || true
           echo "error-transient(push-diverged - resynced, retry next cycle)"
         fi
       fi
@@ -4539,6 +4551,7 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   # 2026-10-18 (D4): head_before = the base sha the implement step logged (first attempt), head_after = the repo HEAD now; record_outcome derives commits=[...] from the pair.
   _oa_hb="$(ovn_hb_read "${TASK_LOG:-}")"
   _oa_ha=""; [ "$TYPE" != "train_job" ] && [ -n "${REPO:-}" ] && _oa_ha="$(ovn_oa_head "$REPO" 2>/dev/null)"
+  ovn_phase post-gates start
   record_outcome "$ID" "${REPO_BASENAME:-}" "$STATUS" "${PROMPT:-}" "$TYPE" "${_btry:-1}" "${TASK_LOG:-}" "${_TASK_DURATION_S:-0}" "${REPO:-}" "${_bn_stop:-}" "$_oa_hb" "$_oa_ha"
   # reconcile held commits that reached origin since (additive landed-late rows), throttled + backgrounded; OVN_OUTCOME_RECONCILE=off disables
   if [ "${OVN_OUTCOME_RECONCILE:-on}" != off ] && [ -f "$SCRIPT_DIR/scripts/ovn_outcome_acct.py" ] && [ "$TYPE" != "train_job" ]; then
@@ -4574,6 +4587,7 @@ for i in $(seq 0 $((TASK_COUNT - 1))); do
   [ "$TYPE" != "train_job" ] && [ -x "$SCRIPT_DIR/scripts/ovn_cycle_triage.sh" ] && \
     "$SCRIPT_DIR/scripts/ovn_cycle_triage.sh" "$REPO" "$STATUS" "$TASK_LOG" "$STATE_DIR" "$ID" 2>/dev/null || true
   track_progress_signal "$ID" "$STATUS"
+  ovn_phase post-gates end
 done
 
 # End-of-cycle auto-planning + refill (race-free — run.lock is still held here). ovn_planner

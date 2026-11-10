@@ -8,6 +8,7 @@
 #   OVN_Z3_REPAIR_ROUTE   B3  repair-new-route     a repair-to-pass-verification round may not add a route/endpoint
 #   OVN_Z3_TEST_SRC       B4  test-item-src-edit   a test-creation item may not touch non-test source
 #   OVN_Z3_CALL_DROP      B5  call-dropped         FLAG ONLY: `enforce` is accepted but behaves as shadow (a heuristic, never a veto)
+#   (Z7, 2026-11-09: B7 also reports polarity-flip / status-flip-src / literal-swap / assertion-deleted / orphan-assert-deleted, each with src_changed + tier strong|weak; OVN_Z7_ASSERT_RECALL=off drops them)
 #   OVN_Z3_ASSERT_WEAKEN  B7  assert-weaken       FLAG ONLY (Z5): a test diff removed a negative assert / flipped 4xx->2xx / compare->`is not None` / duplicated a positive assert / deleted parametrize cases; `enforce` behaves as shadow
 #   OVN_Z3_LANDING_CAP    B6  landing-cap          item landed >= OVN_Z3_LANDING_CAP_N (3) times in OVN_Z3_LANDING_CAP_H (24) h, keyed on the item LINE hash -> park (AUTO-SKIP)
 #   OVN_Z3_EDITOR_LEAK    B0  editor-example-leak  aider's built-in "Change the greeting to be more casual" example replayed by the editor (root cause of Hey/Yo/Buzz copy)
@@ -16,6 +17,7 @@
 # z3_step_gate <wt> <kind: step|repair> <desc> <item> <files> <atmp-log-or-empty> <state-dir> <label>
 #   Looks at the UNCOMMITTED change in <wt> (git diff HEAD incl. new files). Sets Z3_REFUSE (empty or "<rule>: <msg>") for the first ENFORCED gate that fired; returns 1 then, else 0.
 #   Shadow findings are appended to <state-dir>/landing_gates_shadow.log (one JSON object per line) and never refuse.
+type ovn_gitb >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_push_bound.sh" 2>/dev/null || ovn_gitb(){ git "$@"; }   # Z7-B: bounded, non-interactive git for the park push/fetch below
 
 type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 _z3_py() { local d; d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; printf '%s/ovn_landing_gates.py' "$d"; }
@@ -150,10 +152,10 @@ z3_landing_cap() {
       if git -C "$rd" remote get-url origin >/dev/null 2>&1; then
         br="$(git -C "$rd" rev-parse --abbrev-ref HEAD 2>/dev/null)"
         if [ -n "$br" ] && [ "$br" != HEAD ]; then
-          if ! git -C "$rd" push -q origin "$br" >/dev/null 2>&1; then
+          if ! ovn_gitb -C "$rd" push -q origin "$br" >/dev/null 2>&1; then
             # non-fast-forward (the branch moved): merge (never rebase) and retry once
-            if git -C "$rd" fetch -q origin "$br" >/dev/null 2>&1 && git -C "$rd" merge -q --no-edit "origin/$br" >/dev/null 2>&1; then
-              git -C "$rd" push -q origin "$br" >/dev/null 2>&1 || echo "z3: landing-cap park committed but NOT pushed ($br)" >&2
+            if ovn_gitb -C "$rd" fetch -q origin "$br" >/dev/null 2>&1 && git -C "$rd" merge -q --no-edit "origin/$br" >/dev/null 2>&1; then
+              ovn_gitb -C "$rd" push -q origin "$br" >/dev/null 2>&1 || echo "z3: landing-cap park committed but NOT pushed ($br)" >&2
             else
               git -C "$rd" merge --abort >/dev/null 2>&1
               echo "z3: landing-cap park committed but NOT pushed ($br)" >&2

@@ -60,9 +60,13 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 2026-09-28: priority (5th arg, default "default") differentiates genuinely broken/
 # decision-needed deploy events (high/urgent) from routine recovery pings (low) — see
 # call sites below for the actual tiering.
+# Z6-fix: OVN_NOTIFY_DISABLE honoured by EVERY push path here (curl to the relay, shrike_notify_publish, the box alerts.log ssh). Same definition as scripts/mac_lib.sh _mac_notify_disabled:
+# empty/0/false/no/off (any case) = enabled, anything else non-empty = disabled. (ovn_notify.py on the box uses plain truthiness: "0" disables there - deliberately unchanged.)
+_notify_disabled(){ case "$(printf '%s' "${OVN_NOTIFY_DISABLE:-}" | tr 'A-Z' 'a-z')" in ""|0|false|no|off) return 1;; *) return 0;; esac; }
 alert(){
   local topic_repo="${4:-${repo:-queue}}"
   local prio="${5:-default}"
+  _notify_disabled && { echo "notify disabled (OVN_NOTIFY_DISABLE): $1 not sent" >&2; return 0; }
   [ "$DRYRUN" = 1 ] && { echo "  [ntfy] $1 :: $3" ; return 0; }
   curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || true
   command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${topic_repo}_deploy" "$1" "$2" "$3"
@@ -70,6 +74,7 @@ alert(){
 # alert_ok: same as alert() but returns 0 only when the push really went out (curl rc), so callers can write dedupe markers after success.
 alert_ok(){
   local topic_repo="${4:-${repo:-queue}}" prio="${5:-default}" rc=0
+  _notify_disabled && { echo "notify disabled (OVN_NOTIFY_DISABLE): $1 not sent" >&2; return 1; }   # not sent => rc 1 => callers write NO dedupe marker (the next real run still pages)
   [ "$DRYRUN" = 1 ] && { echo "  [ntfy] $1 :: $3" ; return 0; }
   curl -fsS --max-time 8 -H "Title: $1" -H "Tags: $2" -H "Priority: $prio" -d "$3" "${NTFY_SERVER:-http://127.0.0.1:8099}/$TOPIC" >/dev/null 2>&1 || rc=$?
   command -v shrike_notify_publish >/dev/null 2>&1 && shrike_notify_publish "fleet_${topic_repo}_deploy" "$1" "$2" "$3"
@@ -235,11 +240,12 @@ emergency_failed(){
   marker="$STATE/emerg_${r}_${envn}_${ident:0:40}"
   [ -e "$marker" ] && { log "$key: emergency already sent for ${ident:0:10}"; return 0; }
   line="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR | deploy-watch | $r $envn deploy FAILED (sha ${ident:0:10}, deploy ${id:0:8}): ${e:0:160}"
-  if [ "$DRYRUN" = 1 ]; then echo "  [alerts.log] $line"; elif [ ! -e "$marker.alog" ]; then
+  if [ "$DRYRUN" = 1 ]; then echo "  [alerts.log] $line"; elif _notify_disabled; then :   # Z6-fix: no alerts.log line and no .alog marker from a disabled run (it would swallow the real line later)
+  elif [ ! -e "$marker.alog" ]; then
     : > "$marker.alog"   # alerts.log line once per (repo, env, sha) even while the push below is being retried
     echo "$line" >> "$STATE/alerts.log"
     local b64; b64="$(printf '%s' "$line" | base64 | tr -d '\n')"   # base64: no shell-special chars survive the remote re-parse (see enqueue_fix)
-    ssh -n -o ConnectTimeout=10 -o BatchMode=yes "$SRV" "mkdir -p ~/overnight-queue/state; echo '$b64' | base64 -d >> ~/overnight-queue/state/alerts.log; echo >> ~/overnight-queue/state/alerts.log" >/dev/null 2>&1 </dev/null || true
+    [ -z "$b64" ] || ssh -n -o ConnectTimeout=10 -o BatchMode=yes "$SRV" "mkdir -p ~/overnight-queue/state; echo '$b64' | base64 -d >> ~/overnight-queue/state/alerts.log; echo >> ~/overnight-queue/state/alerts.log" >/dev/null 2>&1 </dev/null || true
   fi
   # the dedupe marker is written ONLY after the push succeeded (a transient network failure must not swallow the one urgent page; the next run retries).
   # staging failures page at "high" (promote gate already holds the repo; the fleet merges into develop hourly), prod failures stay "urgent".
