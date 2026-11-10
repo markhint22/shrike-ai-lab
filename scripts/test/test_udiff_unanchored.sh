@@ -322,7 +322,7 @@ RUN="$RO_Q/run_overnight.sh"
 ok "retry flags initialised once per implement loop" "$([ "$(grep -c '^    _ovn_retry_nm=0; _ovn_retry_unf=0; _ovn_retry_una=0; _ovn_una_refused=0' "$RUN")" = 1 ] && echo 1 || echo 0)"
 ok "the unanchored check sits BEFORE the commit-detection (NOW_SHA) block" "$([ "$(grep -n 'ovn_udiff_unanchored_scan "\$_ovn_slice2"' "$RUN" | head -1 | cut -d: -f1)" -lt "$(grep -n '^      NOW_SHA="\$(git rev-parse HEAD)"' "$RUN" | head -1 | cut -d: -f1)" ] && echo 1 || echo 0)"
 ok "the refuse status is emitted right after the implement loop" "$([ "$(grep -c 'echo "no-op(unanchored-hunk)"' "$RUN")" = 1 ] && echo 1 || echo 0)"
-ok "the push-retry and credit-push paths reset dirty lockfiles before the rebase" "$([ "$(grep -c 'ovn_reset_dirty_lockfiles "\$PWD" "\$task_log" "push-retry"' "$RUN")" = 1 ] && [ "$(grep -c 'ovn_reset_dirty_lockfiles "\$PWD" "\$task_log" "credit-push-retry"' "$RUN")" = 1 ] && echo 1 || echo 0)"
+ok "the push-retry and credit-push paths reset dirty lockfiles before the rebase" "$([ "$(grep -c 'ovn_reset_dirty_lockfiles "\$PWD" "\$tl" "push-retry"' "$RO_Q/scripts/lib_push_bound.sh")" = 1 ] && [ "$(grep -c 'if ovn_push_rebase_retry "\$branch" "\$task_log"; then' "$RUN")" -ge 2 ] && echo 1 || echo 0)"
 
 echo "== MUTATION controls (scratch copy of the tree) =="
 MQ="$T/mut"; rm -rf "${MQ:?}"; mkdir -p "$MQ"
@@ -390,10 +390,11 @@ else
   # M4: no lockfile reset in the runner (the old push-retry behaviour)
   cp "$RO_Q/run_overnight.sh" "$T/run.orig"
   mutate run_overnight.sh '      declare -F ovn_reset_dirty_lockfiles >/dev/null 2>&1 && ovn_reset_dirty_lockfiles "$PWD" "$task_log" "after verify"' '      :'
-  mutate run_overnight.sh 'ovn_reset_dirty_lockfiles "$PWD" "$task_log" "push-retry"; fi' ':; fi'
+  cp "$RO_Q/scripts/lib_push_bound.sh" "$T/pb.orig"   # Z8a: the push-retry reset moved into lib_push_bound.sh (Z7-B)
+  mutate scripts/lib_push_bound.sh 'ovn_reset_dirty_lockfiles "$PWD" "$tl" "push-retry"; fi' ':; fi'
   UDIFF_TEST_NO_MUTATION=1 runmut M4
   ok "MUTATION: without the lockfile reset the real push-retry scenario FAILS (rebase blocked by the dirty lockfile)" "$(grep -q 'FAIL the rejected push is rebased and lands (not' "$T/mut.out" && echo 1 || echo 0)"
-  cp "$T/run.orig" "$MQ/run_overnight.sh"
+  cp "$T/run.orig" "$MQ/run_overnight.sh"; cp "$T/pb.orig" "$MQ/scripts/lib_push_bound.sh"
 fi
 ok "the real tree is untouched by the mutation runs (no mutant in the tracked sources)" "$(grep -q 'return bool(adds) and not dels and not ctx' "$RO_Q/scripts/ovn_udiff_anchor.py" && grep -q 'if n is None or n <= min_lines or intended_append(header, n):' "$RO_Q/scripts/ovn_udiff_anchor.py" && grep -q 'or not is_unanchored(body) or py_eof_tolerant(path, body):' "$RO_Q/scripts/ovn_udiff_anchor.py" && grep -q 'if pending_deco and kind not in ("def", "deco"):' "$RO_Q/scripts/ovn_udiff_anchor.py" && grep -q '_KW = "|".join(sorted(keyword.kwlist' "$RO_Q/scripts/ovn_udiff_anchor.py" && grep -q '\*) if \[ "\$retried" = 0 \]; then echo reset-retry; else echo refuse; fi ;;' "$RO_Q/scripts/lib_fixup.sh" && grep -q 'ovn_reset_dirty_lockfiles "\$PWD" "\$task_log" "after verify"' "$RO_Q/run_overnight.sh" && echo 1 || echo 0)"
 ro_summary

@@ -10,6 +10,7 @@ S="${MAC_NATIVE_BUILD_CHECK:-$HERE/../../../mac-native-build-check.sh}"
 command -v timeout >/dev/null 2>&1 || [ -x /opt/homebrew/bin/timeout ] || { echo "  SKIP: no timeout(1) on this host"; exit 77; }
 export TZ=UTC NTFY_SERVER=http://127.0.0.1:9
 T="$(safe_mktemp_dir)" || exit 1; trap 'safe_rm_rf "$T"' EXIT
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$T" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 n=0; fails=0
 ok() { n=$((n+1)); if [ "$2" = 0 ]; then echo "  ok   $1"; else echo "  FAIL $1"; fails=$((fails+1)); fi; }
 chk() { local d="$1"; shift; "$@" >/dev/null 2>&1; ok "$d" $?; }

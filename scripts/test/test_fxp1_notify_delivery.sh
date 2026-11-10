@@ -13,6 +13,7 @@ SC="$(cd "$HERE/../../.." && pwd)"
 [ -f "$SC/mac_lib.sh" ] && [ -f "$SC/ovn_relay.py" ] || { echo "  SKIP: Mac job scripts not present under $SC"; exit 0; }
 QD="$SC/overnight-queue"
 T="$(safe_mktemp_dir fxp1)" || exit 1
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$T" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 safe_set_sandbox_home "$T" || exit 1
 trap 'safe_rm_rf "${T:?}"' EXIT
 unset OVN_SSH OVN_MAC_JOBS MAC_NOW OVN_NTFY_GUARD_LOG OVN_RELAY_FALLBACK MAC_DIRECT_URL NTFY_TOPIC MAC_CURL MAC_SSH NTFY_SERVER

@@ -8,6 +8,7 @@ export TZ=UTC
 rc=0
 python3 "$HERE/test_y6_notify_fixes.py" || rc=1
 T="$(safe_mktemp_dir)" || exit 1; trap 'safe_rm_rf "$T"' EXIT
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$T" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 cp "$OVN_ROOT/scripts/ovn_supply_filter.py" "$T/" 2>/dev/null          # ovn_notify._doable imports the shared filter from its own directory; the mutant copy lives in $T
 cp "$OVN_ROOT/scripts/ovn_relay.py" "$T/" 2>/dev/null; mkdir -p "$T/up"; cp "$OVN_ROOT/scripts/ovn_relay.py" "$T/up/" 2>/dev/null   # vercel_state_check imports ovn_relay from its parent dir
 mutate(){  # $1=label $2=notify|vsc $3=old $4=new

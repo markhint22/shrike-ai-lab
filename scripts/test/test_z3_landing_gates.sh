@@ -30,7 +30,7 @@ PYEOF
 }
 mut "B1 gate never fires"                 py 'if len(missing) / float(len(toks)) >= ratio and missing:' 'if False:'
 mut "B1 removal steps judged on added lines" py 'if removal:' 'if False:'
-mut "B2 Buzz dropped from the token list" py 'DEFAULT_TONE = "Hey|Yo|Buzz|' 'DEFAULT_TONE = "Hey|Yo|'
+mut "B2 Buzz dropped from the token list" py 'DEFAULT_TONE_PRE = "Hey|Yo|Buzz|' 'DEFAULT_TONE_PRE = "Hey|Yo|'
 mut "B2 pre-existing tokens count as new" py 'if prior.get(w, 0) > 0:' 'if False:'
 mut "B2 item text no longer suppresses"   py 'if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(w), ctxt):' 'if False:'
 mut "B3 repair routes not checked"        py 'check_repair_routes(fds) if kind == "repair" else []' '[]'

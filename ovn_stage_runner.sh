@@ -1037,17 +1037,31 @@ stage_timeout_track(){   # $1=step files $2=step idx -> sets STAGE_TO_DECISION =
   jlog "$(jq -nc --arg r "$RUNID" --argjson i "$2" --arg m "$mode" --arg k "${key%|}" --argjson n "$n" --arg e "$([ "$mode" = on ] && echo park_timeout || echo would_park_timeout)" '{run:$r,step:$i,event:$e,mode:$m,files:$k,timeouts:$n}')"
   return 0
 }
+# Z8b (2026-11-10) the flip shadow -> ON was REVERTED in review (default is SHADOW again; OVN_STAGE_EMPTY_WHOLE=on opts in). The first justification ("the udiff+architect retry failed again in every one of 82
+# events") was FALSE: the 82 would_whole_retry lines are duplicated per run/sub-step, not independent retries. Re-derived from the box journals (48 runs, 45 distinct (step, attempt 1 empty-file) ->
+# attempt 2 pairs): the udiff+architect retry PASSED in 15 of 45 steps = 33% (26 failed empty-file again, 3 scope-violation, 1 timeout). Whole format has NEVER produced an outcome in shadow (the log
+# only records that it WOULD retry), so flipping would trade a measured ~33% for an unmeasured rate. Also unguarded in the on-path: the whole format applies to EVERY --file of the step (not only the
+# empty NEW file), no shrink guard, CRLF files are rewritten LF. Before re-enabling: restrict to files absent from HEAD, refuse >300 lines/CRLF, add a shrink guard, gather 10+ shadow-vs-actual samples.
 # OVN_STAGE_EMPTY_WHOLE=off|shadow|on (default SHADOW): after an `empty-file` failure (the model left the declared new file at 0 bytes - always in att1+att2 pairs: 25 attempts / 50 min in 24h) the retry
 # is run with aider's WHOLE-file edit format and no architect turn (the architect/udiff pair is what produced the empty file twice); SHADOW only logs `would_whole_retry` and keeps udiff + architect.
 STAGE_EW_DECISION=""
 stage_emptyfile_whole(){   # $1=step idx $2=declared empty files -> sets STAGE_EW_DECISION = off|shadow|whole
-  local mode="${OVN_STAGE_EMPTY_WHOLE:-shadow}"
+  local mode="${OVN_STAGE_EMPTY_WHOLE:-shadow}"   # default SHADOW (Z8b flip to on reverted in review, see the measurement note above)
   STAGE_EW_DECISION=off
   case "$mode" in off|OFF|0) return 0;; on|ON|1) mode=on;; *) mode=shadow;; esac
   if [ "$mode" = on ]; then STAGE_EW_DECISION=whole; say "  step $1 empty-file: the retry uses aider --edit-format whole (no architect turn) for ${2}"
   else STAGE_EW_DECISION=shadow; say "  step $1 empty-file (shadow): would retry with --edit-format whole instead of udiff+architect for ${2}"; fi
   jlog "$(jq -nc --arg r "$RUNID" --argjson i "$1" --arg m "$mode" --arg f "$2" --arg e "$([ "$mode" = on ] && echo whole_retry || echo would_whole_retry)" '{run:$r,step:$i,event:$e,mode:$m,files:$f}')"
   return 0
+}
+# OVN_STAGE_DEP_NOEDIT default OFF (review 2026-11-10; opt in with =on). Reasons: OVN_STAGE_ORDER defaults to shadow so the park branch is inert, yet the no-edit branch still ran and suppressed later
+# would_park_dep rows (skewing the very evidence that decides the enforce flip); `no-edit` also covers a FAILED apply (udiff no-match leaves the tree unchanged), not only "already done"; and the jq
+# filter `.step == $i` aliases re-decomposed sub-step ids 0.0/0.1 with the parent 0 (0.0 == 0 in jq), so sub-step rows pollute the parent's evidence. Gate on a real signal before enabling.
+# stage_step_noedit_only <step idx>: rc 0 when the step has at least one failed attempt row in this run's journal, every failed attempt was `no-edit` and none passed. Fail-closed (rc 1) without jq/journal.
+stage_step_noedit_only(){
+  [ "${OVN_STAGE_DEP_NOEDIT:-off}" = on ] || return 1
+  [ -f "${SLOG:-}" ] && command -v jq >/dev/null 2>&1 || return 1
+  jq -s -e --argjson i "$1" '[.[] | select(.step == $i and .attempt != null)] as $a | ($a | length) > 0 and ([$a[] | select(.verdict == "pass")] | length) == 0 and ([$a[] | select(.verdict == "fail" and .fail_reason != "no-edit")] | length) == 0' "$SLOG" >/dev/null 2>&1
 }
 # <<< z2 helpers: timeout park + empty-file whole-edit retry
 
@@ -1559,7 +1573,15 @@ for i in $(seq 0 $((NSTEPS-1))); do
     jlog "$(jq -nc --arg r "$RUNID" --argjson i "$i" --arg u "$_so_um" --arg m "$_SO_MODE" '{run:$r,step:$i,event:(if $m=="enforce" then "step_parked_dep" else "would_park_dep" end),mode:$m,unmet:$u}')"
     if [ "$_SO_MODE" = enforce ]; then STAGE_PARTIAL=$((STAGE_PARTIAL+1)); continue; fi
   fi
-  if run_step "$i" "$d" "$f" "$v" "$REDECOMP"; then passed=$((passed+1)); _SO_DONE="$_SO_DONE $_so_sid"; fi
+  if run_step "$i" "$d" "$f" "$v" "$REDECOMP"; then passed=$((passed+1)); _SO_DONE="$_SO_DONE $_so_sid"
+  elif stage_step_noedit_only "$i"; then
+    # 2026-11-10 (Z8b-E): a prerequisite whose EVERY attempt ended `no-edit` (the model had nothing to change: the helper/field/import is usually already there) is satisfied for the dependency gate.
+    # Measured on 14 days of stage journals: 12 would_park_dep events whose prerequisite ended no-edit, the dependent step still passed in 11 and the run landed in 9; a parked step would have lost them.
+    # Other blocked reasons (scope-violation 14, empty-file 8, timeout 3) stay unmet. OVN_STAGE_DEP_NOEDIT=on is opt-in (default off = the old gate).
+    _SO_DONE="$_SO_DONE $_so_sid"
+    jlog "$(jq -nc --arg r "$RUNID" --argjson i "$i" '{run:$r,step:$i,event:"dep_noedit_satisfied"}')"
+    say "  step $i ended no-edit on every attempt: counted as satisfied for the dependency gate (OVN_STAGE_DEP_NOEDIT)"
+  fi
 done
 fi
 

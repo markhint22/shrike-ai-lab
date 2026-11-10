@@ -39,6 +39,9 @@ rc=0
 NOTRUN=0
 # a suite exiting 77 could not run on this host (missing flock/bash 4/source file): it is NOT green - counted and reported at the end (2026-10-14)
 run_or_notrun(){ bash "$1"; _r=$?; if [ "$_r" -eq 77 ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN: $1 did not execute (prerequisites missing)"; elif [ "$_r" -ne 0 ]; then rc=1; fi; }
+# 2026-11-10 (Z8a): a suite that needs files the box does not have (Mac-only scripts, excluded from the deploy tar) is registered with run_if_present: a missing file is a loud SKIP, never rc=1
+# (the unguarded `bash test_z6_notify_guard.sh` made the box suite red for two cron runs). test_run_all_registration_files_exist.sh fails on any OTHER missing registered file.
+run_if_present(){ if [ -f "$1" ]; then bash "$1" || rc=1; else echo "  SKIP: $1 not present on this host (Mac-only file excluded from the deploy tar)"; fi; }
 # the single verdict: green only when every suite ran and passed. A NOT RUN suite is unverified, never green (2026-10-14 review).
 finish(){
   if [ "$rc" -ne 0 ]; then [ -n "${FAILED_SUITES:-}" ] && echo "FAILED SUITES:${FAILED_SUITES:-}"; echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
@@ -585,7 +588,7 @@ echo; echo "===== spec check links subdir venv ====="; bash test_spec_check_link
 # can never mean "never runs in the gate". test_pipeline_lint.sh still FAILS on it so the registration gets added; this only closes the silent hole.
 for _t in test_*.sh; do
   [ -e "$_t" ] || continue
-  grep -qE "(bash|run_or_notrun) $_t([^A-Za-z0-9_.-]|\$)" "$HERE_RA/run_all.sh" && continue
+  grep -qE "(bash|run_or_notrun|run_if_present) $_t([^A-Za-z0-9_.-]|\$)" "$HERE_RA/run_all.sh" && continue
   echo; echo "===== UNREGISTERED TEST (auto-run; add it to run_all.sh): $_t ====="; run_or_notrun "$_t"
 done
 echo; echo "===== run all autodiscover ====="; bash test_run_all_autodiscover.sh || rc=1
@@ -687,11 +690,25 @@ echo; echo "===== hotfix-scout-hang: ops/hang_watchdog.sh shadow/on, thresholds,
 echo; echo "===== hotfix-scout-hang r2: JSONL journal never gets a text timeout note, credit/alembic caps + restore/recover after a kill, OOM 137 is not a timeout ====="; bash test_hotfix_helper_timeout_r2.sh || rc=1
 echo; echo "===== Y2b follow-ups: body_key path-free prose tails stay distinct (D1), ALREADY DONE date gate per layer (D2), _peel_tail index arithmetic == reference (D3), shadow-default wording; 14 mutants ====="; python3 test_y2b_followups.py || rc=1
 echo; echo "===== Z5-B: build-break park precision tool + pinned SHADOW default (4 mutants) ====="; bash test_bb_park_precision.sh || rc=1
-echo; echo "===== Z6: Mac notify guard (OVN_NOTIFY_DISABLE => zero ssh/relay from every Mac alert path; --print strictly read-only; D1 deploy_watch + native-build + vercel fallback guards; D2 no marker when disabled; kickstart --print; 13 mutants) ====="; bash test_z6_notify_guard.sh || rc=1
+echo; echo "===== Z6: Mac notify guard (OVN_NOTIFY_DISABLE => zero ssh/relay from every Mac alert path; --print strictly read-only; D1 deploy_watch + native-build + vercel fallback guards; D2 no marker when disabled; kickstart --print; 13 mutants) ====="; run_if_present test_z6_notify_guard.sh
 echo; echo "===== Z6: AppleDouble ._* files skipped by lint_unsafe_rm / lint_ntfy_tests; box_deploy tar --exclude (4 mutants) ====="; bash test_z6_appledouble_lint.sh || rc=1
 echo; echo "===== Z7-A: assert-weaken recall (polarity-flip, status-flip-src, literal-swap, assertion-deleted, orphan-assert-deleted; shadow; 20 mutants) ====="; bash test_z7_assert_recall.sh || rc=1
 echo; echo "===== Z7-B: bounded push/rebase retry (stub git hangs), non-interactive git, cycle phase timestamps, wiring lint (18 mutants; box or Mac with timeout) ====="; bash test_z7_push_bound.sh || rc=1
 echo; echo "===== Z7-C: timeout-park precision replay + pinned SHADOW default (8 mutants) ====="; bash test_z7_timeout_park_precision.sh || rc=1
 echo; echo "===== Z7 review fix 1: OVN_Z7_ASSERT_RECALL=off restores pre-Z7 assert-weaken output exactly (corpus diff vs verbatim pre-Z7 slice; 4 mutants) ====="; bash test_z7_off_exact.sh || rc=1
+echo; echo "===== Z9: GUT pass/fail comes only from gut_xml_green (root failures/errors, tests>0; 414-zero-line red fixture, old-grep mutant, wiring mutants; 21 checks) ====="; bash test_z9_gut_gate.sh || rc=1
+echo; echo "===== run all registration files exist ====="; bash test_run_all_registration_files_exist.sh || rc=1
+echo; echo "===== z8a bridge commit feature ====="; run_if_present test_z8a_bridge_commit_feature.sh
+echo; echo "===== z8a deadman heartbeat ====="; run_if_present test_z8a_deadman_heartbeat.sh
+echo; echo "===== z8a suite wait budget ====="; bash test_z8a_suite_wait_budget.sh || rc=1
+echo; echo "===== Z8b: gate recall (tone tokens, expectation-trivial / stream-assert-deleted / bulk deletion), non-staged commit audit (shadow), unused-import autofix in the tsc gate, plan-path garbage filter, pinned shadow-vs-enforce defaults (60+ mutants; Mac or box) ====="; bash test_z8b.sh || rc=1
+echo; echo "===== Z8b-C: partial fix-up undo guard (a3) in ovn_fixup_integrity_gate: >=80% of the item's added lines removed => shadow WOULD REJECT / enforce reset (5 mutants) ====="; bash test_z8b_fixup.sh || rc=1
+# Z10 (2026-11-10): Mac tests can no longer reach the real box (z6 control leaked 4 WARN rows into the real alerts.log: a script prepended /usr/bin over the test's stub ssh). Darwin only (box skips).
+if [[ "$(uname)" == "Darwin" ]]; then
+  echo; echo "===== Z10: Mac test sandbox (guard stubs + exported guard functions + BASH_ENV; mac_path_setup; mac_alert_for fixture-path refusal; the incident; 6 mutants) ====="; run_if_present test_z10_mac_test_sandbox.sh
+  echo; echo "===== Z10: every Mac test under the recording guard: zero real-target calls (minutes; 3 mutants + abs-path lint) ====="; run_if_present test_mac_tests_cannot_reach_box.sh
+else
+  echo; echo "===== Z10 Mac test sandbox tests (skipped on non-macOS) ====="
+fi
 echo; finish || rc=1
 exit $rc

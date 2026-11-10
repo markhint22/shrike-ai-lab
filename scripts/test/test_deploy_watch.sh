@@ -13,6 +13,7 @@ ENQ="$HERE/../ovn_enqueue_emergency.py"
 [ -f "$ENQ" ] || ENQ="$HERE/ovn_enqueue_emergency.py"   # fallback if colocated
 rc=0
 tmp="$(safe_mktemp_dir)" || exit 1
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$tmp" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 trap 'rm -rf "$tmp"' EXIT
 fail(){ echo "  ❌ $1"; rc=1; }
 ok(){ echo "  ✅ $1"; }

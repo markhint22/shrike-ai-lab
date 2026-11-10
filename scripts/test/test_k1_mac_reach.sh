@@ -9,6 +9,7 @@ SC="$(cd "$HERE/../../.." && pwd)"   # shared/scripts
 [ -f "$SC/mac_lib.sh" ] && [ -f "$SC/ovn_pick_srv.py" ] && [ -f "$SC/mac_jobs_health.py" ] && [ -f "$SC/railway_config_guard.py" ] || { echo "  SKIP: K1 Mac scripts not present under $SC (box copy of the queue dir)"; exit 0; }
 . "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-11-01: fail-closed sandbox helpers (lint_unsafe_rm.py R1/R8)
 T="$(safe_mktemp_dir k1test)" || exit 1
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$T" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 trap 'safe_rm_rf "${T:?}"' EXIT
 fails=0; n=0
 ok() { n=$((n+1)); if [ "$2" = 0 ]; then echo "  ok   $1"; else echo "  FAIL $1"; fails=$((fails+1)); fi; }
@@ -79,9 +80,9 @@ sed 's/return age > lim/return age > lim * 1000/' "$SC/mac_jobs_health.py" > "$S
 HP="$SC/.k1_mut_health.py" hrun 25200; ! grep -q '\[emergency\] com.t.b:stale' "$S/alerts.log"; ok "MUTANT broken 6 h threshold: the emergency test FAILS (escalation not raised)" $?
 rm -f "$SC/.k1_mut_health.py"
 # delivery of a WARN goes over ssh to the PROBED target (LAN up, no OVN_SSH), not the Tailscale address
-: > "$STUB_LOG"; export STUB_UP="$LAN"; hrun 7200 NTFY_SERVER=; hrc=$?
+: > "$STUB_LOG"; export STUB_UP="$LAN"; hrun 7200 NTFY_SERVER= OVN_NOTIFY_DISABLE=; hrc=$?
 grep -q "^$LAN\$" "$STUB_LOG" && ! grep -q "^$TS\$" "$STUB_LOG" && [ "$hrc" = 0 ]; ok "WARN delivery + box copy go to the LAN target when only LAN answers (exit 0)" $?
-: > "$STUB_LOG"; export STUB_UP=""; hrun 7200 NTFY_SERVER=; hrc=$?
+: > "$STUB_LOG"; export STUB_UP=""; hrun 7200 NTFY_SERVER= OVN_NOTIFY_DISABLE=; hrc=$?
 [ "$hrc" = 0 ] && grep -q "^$LAN\$" "$STUB_LOG"; ok "both links down: supervisor still exits 0 (LAN fallback target used)" $?
 echo "== Mac disk free check"
 hrun 100 MAC_DISK_FREE_GIB=50; ! grep -q 'mac-disk' "$S/alerts.log" 2>/dev/null; ok "50 GiB free: no disk alert" $?

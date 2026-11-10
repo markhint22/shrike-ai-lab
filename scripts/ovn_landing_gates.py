@@ -280,13 +280,22 @@ def check_step_diff(desc, diff_files, post_text=None, files="", ratio=0.5, trunc
 # B2 tone lint
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
 
-DEFAULT_TONE = "Hey|Yo|Buzz|Hi there|Howdy|Oh no|Whoa|Yikes"
+DEFAULT_TONE_PRE = "Hey|Yo|Buzz|Hi there|Howdy|Oh no|Whoa|Yikes"
+# Z8b (2026-11-10): `Heads up:` landed in shrike-monitor b434d22 with the gate silent. Added tokens only count on a NON-comment line (a code comment may say "FYI"; UI copy may not).
+# OVN_Z8_TONE=off restores the pre-Z8b list exactly.
+Z8_TONE_EXTRA = ("Heads up", "Heads-up", "Hi!", "Psst", "Oops", "Uh oh", "Quick note", "Just a heads up", "Just a heads-up", "FYI")
+DEFAULT_TONE = DEFAULT_TONE_PRE + "|" + "|".join(Z8_TONE_EXTRA)
+
+
+def _z8_tone_on():
+    return os.environ.get("OVN_Z8_TONE", "on").strip().lower() != "off"
 
 
 def tone_regex(tokens=None):
-    toks = [t.strip() for t in (tokens or os.environ.get("OVN_Z3_TONE_TOKENS") or DEFAULT_TONE).split("|") if t.strip()]
+    dflt = DEFAULT_TONE if _z8_tone_on() else DEFAULT_TONE_PRE
+    toks = [t.strip() for t in (tokens or os.environ.get("OVN_Z3_TONE_TOKENS") or dflt).split("|") if t.strip()]
     if not toks:
-        toks = DEFAULT_TONE.split("|")
+        toks = dflt.split("|")
     alt = "|".join(re.escape(t) for t in toks)
     # capitalised as written (a lowercase "yo"/"hey" in code or prose is not the tell); not inside a longer identifier (HeyCorp, Yoga)
     return re.compile(r"(?<![A-Za-z0-9_])(?:%s)(?![A-Za-z0-9_])" % alt)
@@ -320,6 +329,8 @@ def check_tone(diff_files, text="", tokens=None):
         for ln, t in fd.added:
             for m in rx.finditer(t):
                 w = m.group(0)
+                if w in Z8_TONE_EXTRA and _z8_tone_on() and (_is_comment(t) or re.match(r"\s*(?:<!--|\"\"\"|\'\'\')", t)):
+                    continue        # Z8b tokens are only judged on code/copy lines, not comments
                 if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(w), ctxt):
                     continue        # the item/step text itself asks for it
                 if prior.get(w, 0) > 0:
@@ -464,6 +475,32 @@ def _z7_on():
     return os.environ.get("OVN_Z7_ASSERT_RECALL", "on").strip().lower() != "off"
 
 
+# Z8b (2026-11-10) recall: the 2026-11-10 audit found landings with the gate silent: shrike-monitor 4925ade (three `is False/True` expectations rewritten to `is None` alongside a source change
+# that made sla_met([]) return None: no kind matched because `is` is not in _CMP_RE and the new value is "explained" by the source diff), shrike-notify ae714d7 (a `captured.err` assertion
+# deleted under a 'remove duplicate' label; the test def line was in the hunk so Z7 treated it as a retired test), gitlark 0b77a340 (~165 test lines deleted in one commit).
+# New kinds (flag only): expectation-trivial, stream-assert-deleted, bulk-assert-deleted (+ 429 added to status-flip-src). OVN_Z8_ASSERT_RECALL=off drops them; OVN_Z7_ASSERT_RECALL=off drops them too.
+def _z8_on():
+    return _z7_on() and os.environ.get("OVN_Z8_ASSERT_RECALL", "on").strip().lower() != "off"
+
+
+_VALUE_TOK_RE = re.compile(r"\bTrue\b|\bFalse\b|\bNone\b|\bnull\b|\bundefined\b|\btrue\b|\bfalse\b|\[[^\]\n]*\]|\{[^}\n]*\}|\(\s*\)|\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
+_TRIVIAL_EXP_RE = re.compile(r"\bis\s+None\b|==\s*None\b|==\s*(?:\[\s*\]|\{\s*\}|\(\s*\)|\"\"|'')|==\s*0(?![\w.])|\.toBeNull\(\)|\.toBeUndefined\(\)|\.toEqual\(\s*\[\s*\]\s*\)|\.toEqual\(\s*\{\s*\}\s*\)|\.toBe\(\s*(?:0|null|undefined)\s*\)|\bassertIsNone\b|\bassert_none\b")
+_STREAM_ASSERT_RE = re.compile(r"\b(?:captured|capsys|capfd|caplog|stderr|stdout|readouterr)\b|\.(?:err|out)\b")
+
+
+_COMPARATOR_RE = re.compile(r"==|\bis\s+(?:not\s+)?|\.toBe\(|\.toEqual\(|\.toStrictEqual\(|\bassertEqual\(|\bassertIs\(|\bassertIsNone\(|\.toBeNull\(|\.toBeUndefined\(")
+
+
+def _value_shape(t):
+    """Normalised assertion with ONLY the expected side (after the last comparator) value-collapsed: the subject text must match literally, so `data["a"] == 3` vs `data["b"] == []` is a different assertion."""
+    n = _norm_line(t)
+    ms = list(_COMPARATOR_RE.finditer(n))
+    if not ms:
+        return None
+    m = ms[-1]
+    return n[:m.start()] + "|" + _VALUE_TOK_RE.sub("E", n[m.start():])
+
+
 def _lit_shape(t):
     return _norm_line(_LIT_RE.sub("L", t))
 
@@ -585,7 +622,7 @@ def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=F
                     for ln, t in rem:
                         if not _ASSERTISH_RE.search(t) or retired:
                             continue
-                        oc = [c for c in _status_codes(t) if c in (400, 401, 403, 404, 405, 409, 422)]
+                        oc = [c for c in _status_codes(t) if c in (400, 401, 403, 404, 405, 409, 422) or (c == 429 and _z8_on())]
                         if not oc:
                             continue
                         shape = _status_shape(t)
@@ -639,6 +676,32 @@ def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=F
                             if _norm_line(t) not in file_added_norm:
                                 hit("orphan-assert-deleted", ln, t)
                                 break
+            if _z8_on():
+                # (2f) an expectation rewritten to None/empty/0 in an otherwise identical assertion while a SOURCE file changed too (monitor 4925ade). Unlike literal-swap this does NOT
+                # accept "the source diff introduces None" as an explanation: sla_met([]) was changed to return None by the same step that rewrote its three tests
+                if src_touched and not retired:
+                    for ln, t in rem:
+                        if not _ASSERTISH_RE.search(t) or _is_comment(t) or _TRIVIAL_EXP_RE.search(t):
+                            continue
+                        sh = _value_shape(t)
+                        if sh is None:
+                            continue
+                        for _, a in add:
+                            if _ASSERTISH_RE.search(a) and _TRIVIAL_EXP_RE.search(a) and _value_shape(a) == sh and _norm_line(a) != _norm_line(t):
+                                hit("expectation-trivial", ln, t + "  ->  " + a)
+                                break
+                # (2g) an assertion on a captured stream (capsys / caplog / .err / .out) deleted and not present anywhere in the new file (notify ae714d7: `captured.err` assertion removed under a
+                # 'remove duplicate' label). Also fires for a hunk that retires the test def: a def removed next to it does not excuse an assertion that belonged to a surviving test
+                if "stream-assert-deleted" not in found:
+                    if new_text is None and callable(new_text_fn):
+                        new_text = new_text_fn(fd.path) or ""
+                    new_norm_s = set(_norm_line(x) for x in new_text.split("\n")) if new_text else None
+                    stream_added = any(_ASSERTISH_RE.search(x) and _STREAM_ASSERT_RE.search(x) and not _is_comment(x) for hh in fd.hunks for _, x in hh["add"])   # reworded / replaced in place
+                    for ln, t in ([] if stream_added else rem):
+                        if _ASSERTISH_RE.search(t) and not _is_comment(t) and _STREAM_ASSERT_RE.search(t) and not _WEAK_RE.search(t) \
+                                and _norm_line(t) not in add_norm and _norm_line(t) not in file_added_norm and (new_norm_s is None or _norm_line(t) not in new_norm_s):
+                            hit("stream-assert-deleted", ln, t)
+                            break
             # (3) strong comparison replaced by an existence check
             if not retired:
                 strong_rem = sum(1 for _, t in rem if _STRONG_RE.search(t) and not _WEAK_RE.search(t))
@@ -664,6 +727,30 @@ def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=F
                     window = old_lines[max(0, ln0 - 25):max(0, ln0 - 1)]
                     if any(_PARAM_RE.search(w) for w in window):
                         hit("case-deleted", ln0, gone[0][1])
+        if _z8_on():
+            # (6) BULK deletion: many assertion lines removed from one test file with nothing replacing them anywhere in the commit (gitlark 0b77a340: ~165 lines). Lines that reappear as added
+            # lines of ANY file of the diff (a move/split) are not counted.
+            all_added_norm = set(_norm_line(t) for o in diff_files for _, t in o.added)
+            if new_text is None and callable(new_text_fn):
+                new_text = new_text_fn(fd.path) or ""
+            if new_text:      # lines / tests that still exist in the post-image (a de-duplication that removed an earlier copy) are not a loss
+                all_added_norm |= set(_norm_line(x) for x in new_text.split("\n"))
+            gone = []
+            for h in fd.hunks:
+                for ln, t in h["rem"]:
+                    if _ASSERTISH_RE.search(t) and not _is_comment(t) and _norm_line(t) not in all_added_norm:
+                        gone.append((ln, t))
+            n_add = sum(1 for h in fd.hunks for _, t in h["add"] if _ASSERTISH_RE.search(t) and not _is_comment(t))
+            net = len(gone) - n_add
+            if net >= _envint("OVN_Z8_BULK_ASSERT_N", 8):
+                found.setdefault("bulk-assert-deleted", (gone[0][0], "%d assertion line(s) removed, %d added" % (len(gone), n_add)))
+            # whole tests removed in bulk (the removed lines may be mostly bodies without a counted assertion: gitlark 0b77a340 deleted 3 tests / 179 lines and added 14)
+            defs_gone = [(ln, t) for h in fd.hunks for ln, t in h["rem"] if _TESTDEF_RE.match(t) and _norm_line(t) not in all_added_norm
+                         and not (new_text and re.search(r"(?:def|func)\s+%s\b" % re.escape((re.search(r"(?:def|func)\s+(\w+)", t) or re.match(r"()", t)).group(1) or "\0"), new_text))]
+            defs_added = sum(1 for h in fd.hunks for _, t in h["add"] if _TESTDEF_RE.match(t))
+            net_lines = len(fd.removed) - len(fd.added)
+            if defs_gone and ((len(defs_gone) - defs_added >= _envint("OVN_Z8_BULK_TESTS_N", 3) and net_lines >= 60) or net_lines >= _envint("OVN_Z8_BULK_LINES_N", 100)):
+                found.setdefault("bulk-test-deleted", (defs_gone[0][0], "%d test(s) removed (%d added), net %d lines" % (len(defs_gone), defs_added, net_lines)))
         if found.get("assertion-deleted") and any(k in found for k in ("negative-removed", "compare-to-weak", "duplicate-assert", "status-flip", "status-flip-src", "polarity-flip")):
             found.pop("assertion-deleted")     # the more specific kind already names the loss
         for kind, (ln, txt) in sorted(found.items()):
@@ -671,7 +758,7 @@ def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=F
                         "msg": "test %s weakened (%s) at %s:%s: %s" % ("assertions", kind, fd.path, ln, txt[:80])}
                        if not _z7_on() else
                        {"rule": "assert-weaken", "sev": "FLAG", "kind": kind, "file": fd.path, "line": ln, "text": txt, "src_changed": bool(src_touched),
-                        "tier": "strong" if (kind in ("polarity-flip", "status-flip-src") or (repair and kind in ("literal-swap", "assertion-deleted", "orphan-assert-deleted"))) else "weak",
+                        "tier": "strong" if (kind in ("polarity-flip", "status-flip-src", "bulk-assert-deleted", "bulk-test-deleted", "stream-assert-deleted") or (repair and kind in ("literal-swap", "assertion-deleted", "orphan-assert-deleted"))) else "weak",
                         "msg": "test %s weakened (%s) at %s:%s: %s" % ("assertions", kind, fd.path, ln, txt[:80])})
     return out
 

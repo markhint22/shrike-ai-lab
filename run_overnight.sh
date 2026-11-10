@@ -209,6 +209,8 @@ source "$SCRIPT_DIR/scripts/lib_run_integrity.sh" 2>/dev/null || { ovn_ri_subtra
 # shellcheck source=scripts/lib_auto_credit.sh
 # 2026-10-02 (harness-X X1): auto-credit needs exact path + passing VERIFY + clean tree; without the lib NOTHING is credited (fail closed).
 source "$SCRIPT_DIR/scripts/lib_auto_credit.sh" 2>/dev/null || { ovn_auto_credit(){ OVN_AC_CREDITED=0; OVN_AC_NEWHEAD="$(git rev-parse HEAD)"; echo "--- auto-credit: lib_auto_credit.sh missing - nothing credited ---" >> "${4:-/dev/null}"; return 0; }; ovn_tree_matches_sha(){ return 0; }; }
+# 2026-11-10 (Z8b-B): the Z3 landing gates' shell glue, for the non-staged commit audit (z3_commit_audit; shadow only, fail-open)
+source "$SCRIPT_DIR/scripts/lib_landing_gates.sh" 2>/dev/null || true
 
 # 2026-10-18 (package D4, outcome accounting): commit shas on every outcome row + the bounded verify-timeout hold (scripts/lib_outcome_acct.sh). Missing lib => no shas, no hold (old behaviour).
 # shellcheck source=scripts/lib_outcome_acct.sh
@@ -2586,6 +2588,12 @@ PYEOF
       if [ "$OVN_VERDICT" = "ALREADY-DONE" ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -n "$OVN_PLAN" ]; then
         for _df in $(echo "$OVN_PLAN" | grep -oE "[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}" | sort -u); do
           case "$_df" in *.md) continue;; esac
+          # 2026-11-10 (Z8b-F): the token regex above also matches numbers/domains (7199.96, 3599.96, db.example); a path token must have a known source extension AND exist in the repo tree
+          # (scripts/ovn_plan_path_ok.py, fail-open, OVN_PLAN_PATH_STRICT=off restores the old behaviour). Journal: state/plan_path_garbage.log
+          if [ -f "$SCRIPT_DIR/scripts/ovn_plan_path_ok.py" ] && ! python3 "$SCRIPT_DIR/scripts/ovn_plan_path_ok.py" "$PWD" "$_df" 2>/dev/null; then
+            echo "$(date -u +%FT%TZ) $(basename "$PWD") scout-plan token '${_df}' is not a real source file - skipped as an ALREADY-DONE credit key" >> "$SCRIPT_DIR/state/plan_path_garbage.log" 2>/dev/null
+            continue
+          fi
           _df_base="$(basename "$_df")"
           _ad_ln="$(grep -nE '^- \[ \]' OVERNIGHT_PROGRESS.md | grep -viE "${OVN_PARKED_CI_ERE:-AUTO-SKIP|HUMAN-ONLY|human/|HARD FILE BAN|\[CLAUDE\]}" | grep -vE "${OVN_PARKED_CS_ERE:-BLOCKED}" | grep -F "$_df_base" | head -1 | cut -d: -f1)"
           if [ -n "$_ad_ln" ]; then
@@ -3382,6 +3390,7 @@ $(ovn_udiff_nudge_text)"
       if [ "${OVN_TSC_GATE:-1}" = 1 ] && [ -f "$SCRIPT_DIR/scripts/ovn_tsc_gate.sh" ]; then
         TSC_OUT="$(bash "$SCRIPT_DIR/scripts/ovn_tsc_gate.sh" "$(pwd)" "$SCRIPT_DIR/state/tsc_baseline" "$repo" "$BEFORE_SHA" "$AFTER_SHA" 2>&1)"
         [ -n "$TSC_OUT" ] && echo "$TSC_OUT" >> "$task_log"
+        AFTER_SHA="$(git rev-parse HEAD)"   # 2026-11-10 (Z8b-D): the gate may have added an unused-import fix commit on top
         if echo "$TSC_OUT" | grep -q "TSC-RATCHET-REGRESSION"; then
           echo "--- TS-RATCHET: commit raised type errors above baseline — reverting to ${BEFORE_SHA} ---" >> "$task_log"
           git reset --hard "$BEFORE_SHA" --quiet
@@ -4052,6 +4061,8 @@ All files you need are already in the chat. You cannot run commands or call tool
         AFTER_SHA="$(git rev-parse HEAD)"
       fi
 
+      # 2026-11-10 (Z8b-B): SHADOW audit of the cycle's own commit range with the Z3/Z5/Z7 landing gates (they only ever saw staged steps; the audit's silent-gate landings were plain aider commits). Never blocks.
+      declare -F z3_commit_audit >/dev/null 2>&1 && z3_commit_audit "$PWD" "$BEFORE_SHA" "$AFTER_SHA" "${PROMPT:-}" "$STATE_DIR" "$(basename "$PWD"):commit" || true
       ovn_phase commit end
       ovn_phase push start
       if ovn_gitb push origin "$branch" --quiet 2>>"$task_log"; then

@@ -16,6 +16,7 @@ cnt(){ grep -cF -- "$2" "$1" 2>/dev/null || true; }
 # line count without wc: BSD wc pads its output with spaces, which broke the numeric compares on macOS
 nlines(){ grep -c "" "$1" 2>/dev/null || echo 0; }
 T="$(safe_mktemp_dir)" || exit 1; trap 'rm -rf "$T"' EXIT
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$T" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 FX="$T/fx"; mkdir -p "$FX"; export FX
 # Z6-fix: deploy_watch.sh now honours OVN_NOTIFY_DISABLE (ntfy_guard.sh exports =1 for the suite). This test drives the alert paths against STUB curl/ssh functions only (no network), so it needs the switch off;
 # the disabled behaviour is proven in test_z6_notify_guard.sh.

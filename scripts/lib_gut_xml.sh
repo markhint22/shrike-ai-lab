@@ -15,6 +15,8 @@ gut_xml_green() {
   local x="${1:-}"
   [ -n "$x" ] && [ -s "$x" ] || return 1
   grep -q 'status="no asserts"' "$x" 2>/dev/null && return 1
+  # Z9 (2026-11-10): a report whose ROOT says tests="0" ran nothing (GUT loaded no script) - never green. Root without a tests attribute (hand-built) is unchanged.
+  head -c 8000 "$x" 2>/dev/null | tr '\n\r' '  ' | grep -oE '<testsuites[^>]*>' | head -1 | grep -qE ' tests="0"' && return 1
   # ANY non-zero failures/errors attribute anywhere is red (the root <testsuites> totals are >= every child, but a hand-built or odd
   # report may only mark a child) - and any <failure>/<error> element is red. A zero count never makes anything green by itself.
   grep -qE '(failures|errors)="[1-9][0-9]*"' "$x" 2>/dev/null && return 1

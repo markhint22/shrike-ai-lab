@@ -13,6 +13,7 @@
 #   mutate <src> <dst> <old> <new>   write a copy of src with exactly one occurrence of old replaced (fails the test run if the anchor is not unique)
 MF_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$MF_HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
+. "$MF_HERE/lib_mac_test_sandbox.sh" || { echo "  FAIL: lib_mac_test_sandbox.sh missing"; exit 1; }   # Z10: real delivery impossible
 MF_REPO="$(cd "$MF_HERE/../../../.." && pwd)"          # <repo>/scripts/overnight-queue/scripts/test -> <repo>
 MF_SCRIPTS="$MF_REPO/scripts"
 # The Mac job scripts live in <repo>/scripts, outside the queue tree the GPU box mirrors; there is nothing to test there, so say so and stop (never a silent pass on the Mac, where mac_lib.sh exists).
@@ -21,6 +22,7 @@ if [ ! -f "$MF_SCRIPTS/mac_lib.sh" ]; then echo "  SKIP: Mac job scripts not pre
 mf_init() {
   T="$(safe_mktemp_dir macjobs)" || exit 1
   safe_set_sandbox_home "$T" || exit 1
+  MTS_KEEP_SWITCH=1 mts_sandbox_init "$T" || exit 1   # Z10: guard stubs + exported guard functions; explicit absolute stubs below are what the test delivers to
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
   export OVN_MAC_STATE="$T/state" ORIGIN="$T/origin.git" PUSHER="$T/pusher" LIVE="$T/home/LocalProjects/shared-live" CALLS="$T/calls.log"
   export MAC_CURL="$T/bin/curl" MAC_SSH="$T/bin/ssh" MAC_LAUNCHCTL="$T/bin/launchctl" NTFY_SERVER="http://relay.test:8099" OVN_SSH="u@box.test" MAC_PUSH_SLEEP_S=0

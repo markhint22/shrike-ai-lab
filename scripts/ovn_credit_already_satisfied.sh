@@ -145,6 +145,9 @@ FILES="$(awk '
 credited=0
 for f in $FILES; do
   case "$f" in *.md) continue;; esac
+  # 2026-11-10 (Z8b-F): numbers/domains (7199.96, db.example) are not files: known source extension AND present in the repo tree (ovn_plan_path_ok.py; OVN_PLAN_PATH_STRICT=off = old)
+  _ppo="$(dirname "${BASH_SOURCE[0]}")/ovn_plan_path_ok.py"
+  if [ -f "$_ppo" ] && ! python3 "$_ppo" "$PWD" "$f" 2>/dev/null; then continue; fi
   b="$(basename "$f")"
   ln="$(grep -nE '^- \[ \]' "$PROG" | grep -viE 'HUMAN-ONLY|human/|AUTO-SKIP|HARD FILE BAN|BLOCKED ITEM' | grep -F "$b" | head -1 | cut -d: -f1)"
   if [ -n "$ln" ]; then

@@ -13,6 +13,7 @@ SC="$(cd "$HERE/../../.." && pwd)"   # <repo>/scripts
 [ -f "$SC/mac_lib.sh" ] && [ -f "$SC/ovn_relay.py" ] && [ -f "$SC/mac_jobs_health.py" ] || { echo "  SKIP: Mac job scripts not present under $SC (queue-only tree: GPU box mirror)"; exit 0; }
 QD="$SC/overnight-queue"
 T="$(safe_mktemp_dir p1notify)" || exit 1
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$T" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 safe_set_sandbox_home "$T" || exit 1
 trap 'safe_rm_rf "${T:?}"' EXIT
 unset OVN_SSH OVN_MAC_JOBS MAC_NOW OVN_NTFY_GUARD_LOG OVN_RELAY_FALLBACK MAC_DIRECT_URL NTFY_TOPIC MAC_CURL MAC_SSH
@@ -172,7 +173,7 @@ hrun() { # hrun <script> [launchctl-table-lines...]; plists in $T/agents
   mkdir -p "$OVN_MAC_STATE/hb"; date +%s > "$OVN_MAC_STATE/hb/a"; date +%s > "$OVN_MAC_STATE/hb/live"
   printf '{"ts": %d, "mode": "enforce", "state": "ok", "head": "abc", "behind": 0, "ahead": 0, "detail": ""}' "$(date +%s)" > "$OVN_MAC_STATE/live_sync.json"
   OVN_MAC_JOBS=shadow MAC_LAUNCHCTL="$T/bin/launchctl" MAC_JOBS_MANIFEST="$T/h.manifest" MAC_JOBS_UID=501 MAC_JOBS_NO_BOX=1 MAC_DISK_FREE_GIB=100 MAC_LAUNCH_AGENTS_DIR="$T/agents" \
-    python3 "$s" --print > "$T/hout.txt" 2>&1 < /dev/null
+    python3 "$s" --summary > "$T/hout.txt" 2>&1 < /dev/null
 }
 mkdir -p "$T/agents"; : > "$T/agents/com.t.a.plist"
 fresh; hrun "$HP" com.t.a
@@ -259,7 +260,7 @@ if bmut no-direct-limit '[ "${n:-0}" -lt "${MAC_DIRECT_DAILY_CAP:-8}" ] && [ "${
   fresh; export STUB_CURL_DOWN="$TS $LAN"; bdeliver "$MUT/mac_lib.sh" emergency k5 "x"; bdeliver "$MUT/mac_lib.sh" emergency k5 "x"
   chk "B5 (no direct rate limit) is caught: two direct posts for one key" bash -c "[ $(direct) = 2 ]"
 fi
-if bmut no-guard-switch 'case "$mode" in on) fb=1;; off) fb=0;; *) [ -z "${OVN_NTFY_GUARD_LOG:-}" ] && fb=1;; esac' 'fb=1'; then
+if bmut no-guard-switch 'case "$mode" in on) fb=1;; off) fb=0;; *) [ -z "${OVN_NTFY_GUARD_LOG:-}" ] && ! _mac_notify_disabled && fb=1;; esac' 'fb=1'; then
   fresh; export OVN_NTFY_GUARD_LOG="$T/guard.log" NTFY_SERVER="http://relay.test:8099" STUB_CURL_DOWN="relay.test"; unset OVN_RELAY_FALLBACK; bdeliver "$MUT/mac_lib.sh" emergency k8 "x"
   chk "B6 (fallback not disabled under the test guard) is caught: the real LAN relay was contacted" bash -c "grep -q '$LAN' '$STUB_LOG'"
 fi

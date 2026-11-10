@@ -11,6 +11,7 @@ P=0; F=0
 ok(){ if [ "$1" = 1 ]; then P=$((P+1)); echo "  ok   $2"; else F=$((F+1)); echo "  FAIL $2"; fi; }
 export NTFY_SERVER=http://127.0.0.1:9 TZ=UTC
 SB="$(safe_mktemp_dir z4poll)" || exit 1
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$SB" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 trap 'safe_rm_rf "$SB"' EXIT
 run_checks(){ # $1 = ops dir
   local OPSX="$1" W; W="$(safe_mktemp_dir_in "$SB" chk)" || return 1

@@ -106,11 +106,15 @@ printf "def foo():\n    return 1\n" > backend/app/foo.py
 : > backend/tests/test_foo.py
 echo "Applied edit to backend/app/foo.py"'
 ef_setup(){ osr_new; osr_venv backend; osr_progress "- [ ] $ITEM_PY"; osr_plan default "$PLAN"; osr_aider 1 "$SNIP_EMPTY_DECL"; osr_aider 2 "$SNIP_FOO"; }
-echo "== F: empty-file retry SHADOW (default): logs only, retry keeps udiff + architect"
-ef_setup; OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+echo "== F: empty-file retry SHADOW (explicit; also the default): logs only, retry keeps udiff + architect"
+ef_setup; OVN_STAGE_EMPTY_WHOLE=shadow OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
 t "F1 shadow line + journal row" bash -c "grep -q 'empty-file (shadow): would retry with --edit-format whole' '$T/out.txt'"
 t "F2 journal: would_whole_retry" J '"event":"would_whole_retry"'
 t "F3 the retry (aider call 2) still uses udiff and the architect" bash -c "grep -qx udiff '$T/scn/aider.args.2' && grep -qx -- --architect '$T/scn/aider.args.2' && ! grep -qx whole '$T/scn/aider.args.2'"
+osr_cleanup
+echo "== G0 (Z8b review): OVN_STAGE_EMPTY_WHOLE unset => the default is SHADOW (measured 33% = 15/45 for udiff+architect attempt 2; whole has no outcome data): the retry keeps udiff + architect"
+unset OVN_STAGE_EMPTY_WHOLE; ef_setup; OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+t "G0 default: attempt 2 still uses udiff + architect, never whole" bash -c "grep -qx udiff '$T/scn/aider.args.2' && grep -qx -- --architect '$T/scn/aider.args.2' && ! grep -qx whole '$T/scn/aider.args.2'"
 osr_cleanup
 echo "== G: empty-file retry ON: attempt 2 uses --edit-format whole and no architect; attempt 1 is unchanged"
 ef_setup; OVN_STAGE_EMPTY_WHOLE=on OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"

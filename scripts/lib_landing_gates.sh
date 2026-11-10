@@ -111,7 +111,8 @@ rule,mode,label,kind=sys.argv[1:5]
 d=json.load(sys.stdin)
 for f in d.get("findings",[]):
     if f.get("rule")==rule:
-        f=dict(f); f.update(ts=__import__("time").strftime("%Y-%m-%dT%H:%M:%SZ",__import__("time").gmtime()),mode=mode,label=label,kind=kind)
+        f=dict(f); f["rule_kind"]=f.get("kind","")   # Z8b: the findings own sub-kind (assert-weaken: expectation-trivial ...) used to be overwritten by the step/repair label below
+        f.update(ts=__import__("time").strftime("%Y-%m-%dT%H:%M:%SZ",__import__("time").gmtime()),mode=mode,label=label,kind=kind)
         print(json.dumps(f))
 ' "$rule" "$mode" "$label" "$kind" 2>/dev/null)" >> "$sd/landing_gates_shadow.log" 2>/dev/null
     if [ "$mode" = enforce ] && [ -z "$Z3_REFUSE" ]; then Z3_REFUSE="$rule: $msg"; rc=1; fi
@@ -167,5 +168,34 @@ z3_landing_cap() {
       printf 'PARKED %s\n' "$k"
     fi
   fi
+  return 0
+}
+
+# z3_commit_audit <repo-dir> <base-sha> <head-sha> <item-text> <state-dir> <label>   (Z8b-B, 2026-11-10)  SHADOW ONLY, always returns 0.
+#   The Z3/Z5/Z7 gates above only ever saw STAGED steps and staged repair rounds. The 2026-11-10 audit's silent-gate landings (shrike-notify ae714d7, gitlark 0b77a340, iptv 619612ad/bab0a91f) were plain
+#   aider auto-commits of the NON-staged path (author = the operator + `Co-authored-by: aider`), which never reached z3_step_gate. run_overnight.sh now calls this on the cycle's own commit range
+#   (BEFORE_SHA..AFTER_SHA) before the push; findings are journaled to <state-dir>/landing_gates_shadow.log with kind=commit and mode=shadow, nothing is refused or changed.
+#   OVN_Z8_COMMIT_AUDIT=off disables it. Bounded by `timeout 60`; any failure = no row.
+z3_commit_audit() {
+  local rd="${1:-}" base="${2:-}" head="${3:-}" item="${4:-}" sd="${5:-${STATE_DIR:-state}}" label="${6:-?}" py out to=""
+  [ "${OVN_Z8_COMMIT_AUDIT:-on}" = off ] && return 0
+  [ -d "$rd" ] && [ -n "$base" ] && [ -n "$head" ] && [ "$base" != "$head" ] || return 0
+  py="$(_z3_py)"; [ -f "$py" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  command -v timeout >/dev/null 2>&1 && to="timeout 60"
+  out="$($to python3 "$py" step-check --kind step --item "$item" --repo "$rd" --base "$base" --head "$head" 2>/dev/null)" || return 0
+  case "$out" in *'"rule"'*) ;; *) return 0;; esac
+  mkdir -p "$sd" 2>/dev/null; _z3_rotate "$sd/landing_gates_shadow.log"
+  printf '%s' "$out" | OVN_Z3_ENV_STEP_DIFF="${OVN_Z3_STEP_DIFF:-shadow}" OVN_Z3_ENV_TONE="${OVN_Z3_TONE:-shadow}" OVN_Z3_ENV_TEST_SRC="${OVN_Z3_TEST_SRC:-shadow}" OVN_Z3_ENV_ASSERT="${OVN_Z3_ASSERT_WEAKEN:-shadow}" OVN_Z3_ENV_CALL="${OVN_Z3_CALL_DROP:-shadow}" python3 -c '
+import json,sys,os,time
+label=sys.argv[1]
+flag={"step-diff-mismatch":"OVN_Z3_ENV_STEP_DIFF","tone-lint":"OVN_Z3_ENV_TONE","test-item-src-edit":"OVN_Z3_ENV_TEST_SRC","assert-weaken":"OVN_Z3_ENV_ASSERT","call-dropped":"OVN_Z3_ENV_CALL"}
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for f in d.get("findings",[]):
+    if f.get("rule")=="repair-new-route": continue
+    if os.environ.get(flag.get(f.get("rule"),""),"shadow")=="off": continue
+    f=dict(f); f["rule_kind"]=f.get("kind",""); f.update(ts=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),mode="shadow",label=label,kind="commit"); print(json.dumps(f))
+' "$label" >> "$sd/landing_gates_shadow.log" 2>/dev/null
   return 0
 }

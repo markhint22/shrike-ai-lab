@@ -24,6 +24,7 @@ PYB="$(command -v python3.12 || command -v python3)"; [ -n "$PYB" ] || { echo " 
 pass=0; fail=0
 ck(){ if eval "$2" >/dev/null 2>&1; then pass=$((pass+1)); else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 T="$(safe_mktemp_dir)" || exit 1; trap 'cd /; rm -rf "$T"' EXIT
+. "$(cd "$(dirname "$0")" && pwd)/lib_mac_test_sandbox.sh" && mts_sandbox_init "$T" || { echo "  FAIL: Z10 mac test sandbox"; exit 1; }   # Z10: real ssh/curl/ntfy delivery impossible from this test
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 safe_set_sandbox_home "$T" || exit 1; Q="$HOME/overnight-queue"; OUT="$T/out.log"
 mkdir -p "$T/shim"; cd "$T"

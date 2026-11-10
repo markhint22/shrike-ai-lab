@@ -10,6 +10,9 @@ unset OVN_WT_BACKFILL_H OVN_WT_MAX_ROWS OVN_WT_PREFILL_TPS OVN_WT_DECODE_TPS   #
 HERE="$(cd "$(dirname "$0")" && pwd)"
 Q="$(cd "$HERE/../.." && pwd)"; R="$Q/run_overnight.sh"; W="$Q/scripts/ovn_cycle_walltime.py"
 [ -f "$R" ] && [ -f "$W" ] || { echo "  SKIP: run_overnight.sh / ovn_cycle_walltime.py not found"; exit 0; }
+# Z8a: run_repo_verification (extracted below) calls ovn_phase from scripts/lib_push_bound.sh, which the real run_overnight.sh sources at its top; source the same lib here.
+[ -f "$Q/scripts/lib_push_bound.sh" ] || { echo "  FAIL: scripts/lib_push_bound.sh missing"; exit 1; }
+. "$Q/scripts/lib_push_bound.sh"
 PY="${QA_TEST_PYTHON:-$(command -v python3.12 || command -v python3)}"
 P=0; F=0
 ok(){ if _pf="$(set +o | grep ' pipefail$')"; set +o pipefail; eval "$2" >/dev/null 2>&1; _rc=$?; eval "$_pf"; [ "$_rc" = 0 ]; then P=$((P+1)); echo "  ok   $1"; else F=$((F+1)); echo "  FAIL $1"; fi; }
@@ -88,7 +91,7 @@ for k in sum_marks:"B1 two verify markers (62s + 20s) => verify_s 82 (was 0)" fi
 done
 
 echo "== C: wiring in run_overnight.sh"
-ok "C1 run_repo_verification has both marker call sites (override path + final exit) and the helper" "[ \"\$(grep -c '^ *_ovn_verify_done_mark\$' '$R')\" = 2 ] && grep -q '^  _ovn_verify_done_mark() { { echo \"--- verify done in' '$R'"
+ok "C1 run_repo_verification has both marker call sites (override path + final exit) and the helper" "[ \"\$(grep -c '^ *_ovn_verify_done_mark\$' '$R')\" = 2 ] && grep -q '^  _ovn_verify_done_mark() { ovn_phase verify end; { echo \"--- verify done in' '$R'"
 ok "C2 every fix-up aider call (BUILD-GATE, MIGRATION-SAFETY, Tier-2) is followed by a '--- fixup done in' marker (3)" "[ \"\$(grep -c 'echo \"--- fixup done in \$(( \$(date +%s) - _ovn_fx0 ))s ---\" >> \"\$task_log\"' '$R')\" = 3 ] && [ \"\$(grep -c '_ovn_fx0=\"\$(date +%s)\"' '$R')\" = 3 ]"
 
 echo "== D: MUTATION controls"

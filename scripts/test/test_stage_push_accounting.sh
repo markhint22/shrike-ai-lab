@@ -15,8 +15,13 @@
 # silently drift from what's deployed.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }   # 2026-10-16: fail-closed sandbox helpers (see lint_unsafe_rm.py)
-SR="${OVN_STAGE_RUNNER:-$HOME/overnight-queue/ovn_stage_runner.sh}"
+SR="${OVN_STAGE_RUNNER:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd)/ovn_stage_runner.sh}"   # Z8a: the tree this test lives in (box: ~/overnight-queue), not whatever $HOME/overnight-queue points at
 [ -f "$SR" ] || { echo "  SKIP: $SR not found on this host"; exit 0; }
+# Z8a (2026-11-10): since Z7-B the extracted runner code calls ovn_gitb / ovn_gitb_pull_rebase (scripts/lib_push_bound.sh), which the real runner sources at its top. This harness only
+# extracts a piece of the runner, so it must source the SAME lib or every push inside the extracted code dies with 'command not found' (suite red since the 2026-11-09 15:03 deploy).
+_PB="$(dirname "$SR")/scripts/lib_push_bound.sh"
+[ -f "$_PB" ] || { echo "  FAIL: $_PB missing (the extracted runner code needs ovn_gitb*)"; exit 1; }
+. "$_PB"
 
 BLOCK="$(sed -n '/^# ---- push ONLY when independently verified ----$/,/^fi$/p' "$SR")"
 [ -n "$BLOCK" ] || { echo "  FAIL: could not extract the push-accounting block from $SR"; exit 1; }

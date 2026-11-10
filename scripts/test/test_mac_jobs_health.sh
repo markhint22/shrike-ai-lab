@@ -29,7 +29,7 @@ setlog() { printf '%s\n' "$2" > "$OVN_MAC_STATE/$1.log"; python3 -c 'import os,s
 live_ok() { printf '{"ts": %d, "mode": "enforce", "state": "ok", "head": "abc1234", "behind": 0, "ahead": 0, "detail": "", "dir": "x"}' "$NOW" > "$OVN_MAC_STATE/live_sync.json"; }
 run_h() { # run_h <mode> [now-offset] [script]
   local m="$1" off="${2:-0}" s="${3:-$HP}"
-  OVN_MAC_JOBS="$m" MAC_JOBS_MANIFEST="$MAN" MAC_JOBS_NOW=$((NOW + off)) MAC_JOBS_UID=501 MAC_JOBS_NO_BOX=1 MAC_DISK_FREE_GIB=100 MAC_LAUNCH_AGENTS_DIR="$T/agents" python3 "$s" --print > "$T/hout.txt" 2>&1 < /dev/null
+  OVN_MAC_JOBS="$m" MAC_JOBS_MANIFEST="$MAN" MAC_JOBS_NOW=$((NOW + off)) MAC_JOBS_UID=501 MAC_JOBS_NO_BOX=1 MAC_DISK_FREE_GIB=100 MAC_LAUNCH_AGENTS_DIR="$T/agents" python3 "$s" --summary > "$T/hout.txt" 2>&1 < /dev/null
 }
 jf() { python3 -c 'import json,sys
 d=json.load(open(sys.argv[1]+"/health.json"))
@@ -170,7 +170,7 @@ chk "one repo's export failed: exit still 0 but NO heartbeat (so it goes stale a
 echo "== mutants"
 MUT="$T/mut"; mkdir -p "$MUT"; cp "$MF_SCRIPTS"/mac_jobs_health.py "$MUT/"
 mutant() { mutate "$HP" "$MUT/mac_jobs_health.py" "$2" "$3" || { ok "mutant $1: anchor exists" 1; return 1; }; }
-if mutant kick-in-shadow 'if md == "enforce":
+if mutant kick-in-shadow 'if md == "enforce" and not READONLY:
                     ok, msg = kickstart' 'if True:
                     ok, msg = kickstart'; then
   fresh; hb b 9000; run_h shadow 0 "$MUT/mac_jobs_health.py"
@@ -252,9 +252,9 @@ python3 - "$MF_SCRIPTS" > "$T/dm.txt" 2>&1 <<'PYEOF'
 import os, sys, importlib.util
 spec = importlib.util.spec_from_file_location("hp", os.path.join(sys.argv[1], "mac_jobs_health.py")); hp = importlib.util.module_from_spec(spec); spec.loader.exec_module(hp)
 j = [x for x in hp.parse_manifest(os.path.join(sys.argv[1], "mac_jobs.manifest")) if x["label"] == "com.shrike.box-deadman"][0]
-print("hbalt=%s" % j["hbalt"]); sys.exit(0 if j["hbalt"] and j["hbalt"].endswith("box-deadman.launchd.log") else 1)
+print("hbalt=%s" % j["hbalt"]); sys.exit(0 if j["hbalt"] and j["hbalt"].endswith("/.box_deadman/deadman.log") else 1)
 PYEOF
-ok "real manifest: box-deadman carries hbalt= the launchd log the installed plist really writes ($(tail -1 "$T/dm.txt"))" $?
+ok "real manifest: box-deadman carries hbalt= the persistent ~/.box_deadman/deadman.log every run appends to (Z8a: /tmp is cleared at reboot) ($(tail -1 "$T/dm.txt"))" $?
 if mutant hbalt-ignored '    if hb is None and job.get("hbalt"):' '    if False:'; then
   alt_fresh; setalt $((NOW - 60)); run_h shadow 0 "$MUT/mac_jobs_health.py"
   chk "M12 (hbalt ignored) is caught: the healthy job is no longer ok (pending, then stale)" bash -c "[ \"$(jf com.t.e status)\" != ok ]"

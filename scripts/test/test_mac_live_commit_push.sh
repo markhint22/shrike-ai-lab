@@ -6,6 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_mac_fixture.sh" || exit 1
 CP="$MF_SCRIPTS/mac_live_commit_push.sh"; [ -f "$CP" ] && [ -f "$MF_SCRIPTS/mac_lib.sh" ] || { echo "  FAIL: mac_live_commit_push.sh / mac_lib.sh missing"; exit 1; }
 mf_init
+export OVN_BRIDGE_COMMIT_ON_FEATURE=off   # Z8a: this suite pins the Z4 deliberate-refusal behaviour (the claude/feature commit mode is default OFF, opt-in, covered by test_z8a_bridge_commit_feature.sh)
 trap 'safe_rm_rf "$T"' EXIT
 fails=0; n=0
 ok() { n=$((n+1)); if [ "$2" = 0 ]; then echo "  ok   $1"; else echo "  FAIL $1"; fails=$((fails+1)); fi; }
@@ -132,7 +133,7 @@ if mutant no-merge-abort '    git -C "$R" merge --abort >/dev/null 2>&1; mac_git
   chk "MG (conflict left unaborted) is caught: MERGE_HEAD survives" bash -c "[ -f '$LIVE/.git/MERGE_HEAD' ]"
 fi
 # MH (Z4): the deliberate refusal escalated to an emergency again (the 14-refusals-2-phone-pushes incident)
-if mutant deliberate-emergency 'mac_alert warn commit-push-branch' 'mac_alert emergency commit-push-branch'; then
+if mutant deliberate-emergency 'mac_alert_for "$R" warn commit-push-branch' 'mac_alert_for "$R" emergency commit-push-branch'; then
   fresh; git -C "$INT" checkout -q -b claude/feature; edit_q "$INT" "tick MH"; : > "$CALLS"; cp_ "$INT" enforce "$MUT/mac_live_commit_push.sh"
   chk "MH (refusal is an emergency) is caught: emergency delivered" bash -c "grep -q 'X-Ovn-Level: emergency' '$CALLS'"
 fi

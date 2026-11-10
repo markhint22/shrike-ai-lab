@@ -358,6 +358,26 @@ ovn_fixup_undid_item_ws() {
   git --literal-pathspecs diff --quiet --ignore-all-space --ignore-blank-lines "$before" HEAD -- "$tgt" 2>/dev/null                                  # net is ws/blank-only
 }
 
+# ovn_fixup_undo_frac <before> <main> <tgt>: prints "<kept> <added>" and returns 0 when the MAIN commit added >= OVN_FIXUP_UNDO_FRAC_MIN (default 5) non-blank lines to <tgt> and HEAD keeps at most
+# (100 - OVN_FIXUP_UNDO_FRAC_PCT)% of them (default PCT 80: the fix-up removed >= 80% of the item's added lines, a PARTIAL undo that the exact net-zero test (ovn_fixup_undid_item) misses).
+# Multiset match on whitespace-trimmed lines. 1 otherwise / on any git error. (Z8b-C, 2026-11-10)
+ovn_fixup_undo_frac() {
+  local before="$1" main="$2" tgt="${3:-}" min="${OVN_FIXUP_UNDO_FRAC_MIN:-5}" pct="${OVN_FIXUP_UNDO_FRAC_PCT:-80}" tmp res added kept
+  [ -n "$tgt" ] || return 1
+  git cat-file -e "${before}^{commit}" 2>/dev/null && git cat-file -e "${main}^{commit}" 2>/dev/null || return 1
+  case "$min" in ''|*[!0-9]*) min=5;; esac; case "$pct" in ''|*[!0-9]*) pct=80;; esac
+  tmp="$(mktemp 2>/dev/null)" || return 1
+  git --literal-pathspecs diff -U0 --no-color "$before" "$main" -- "$tgt" 2>/dev/null | sed -n 's/^+\([^+].*\)$/\1/p; s/^+$//p' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' > "$tmp"
+  res="$(git show "HEAD:${tgt}" 2>/dev/null | awk 'NR==FNR { add[++n]=$0; next } { gsub(/^[ \t]+|[ \t]+$/, ""); if ($0 != "") have[$0]++ } END { k=0; for (i=1;i<=n;i++) if (have[add[i]] > 0) { have[add[i]]--; k++ } print k, n }' "$tmp" - 2>/dev/null)"
+  rm -f "$tmp"
+  kept="${res% *}"; added="${res#* }"
+  case "$kept$added" in ''|*[!0-9]*) return 1;; esac
+  printf '%s %s\n' "$kept" "$added"
+  [ "$added" -ge "$min" ] 2>/dev/null || return 1
+  # removed% = (added-kept)*100/added >= pct
+  [ $(( (added - kept) * 100 )) -ge $(( pct * added )) ]
+}
+
 # ovn_fixup_added_test_names <before_sha> <main_sha>: "file<TAB>name" for every test function/title the main commit ADDED (python def test_*, gdscript func test_*,
 # JS it()/test() titles) in test files
 ovn_fixup_added_test_names() {
@@ -581,6 +601,20 @@ ovn_fixup_integrity_gate() {
       _ovn_fxi_reset "$before"; OVN_FXI_STATUS="no-op(fixup-undid-item)"; return 1
     fi
     _ovn_fxi_log "$tl" "[fixup-undo-ws] shadow: WOULD RESET to ${before:0:12} and report no-op(fixup-undid-item) under OVN_FIXUP_UNDO_WS=enforce (kept: mode=${wmode})"
+  fi
+  # (a3) 2026-11-10 (Z8b-C): PARTIAL undo. outcomes 2026-11-09/10: 8 no-op(fixup-undid-item) rows / 3.6k s; the net-zero guard (a) resets those after the ~450 s fix-up round, and a fix-up that deletes
+  # MOST of the item's added lines (but leaves a remnant) passes (a) and lands a hollow item. SHADOW by default (OVN_FIXUP_UNDO_FRAC=shadow|enforce|off; PCT 80, MIN 5): logs `[fixup-undo-frac] shadow: WOULD REJECT`;
+  # enforce resets to BEFORE exactly like (a) and reports no-op(fixup-undid-item). Corpus (14 d, 150 LANDED staged repair commits): 3 trip it, 0 can be shown to be a bad item: stays shadow.
+  local fmode="${OVN_FIXUP_UNDO_FRAC:-shadow}" frac
+  if [ "$fmode" != off ] && frac="$(ovn_fixup_undo_frac "$before" "$main" "$tgt")"; then
+    OVN_FXI_TEXT="the ${phase} fix-up removed most of the item's added lines on ${tgt} (kept ${frac% *} of ${frac#* })"
+    _ovn_fxi_log "$tl" "[fixup-undo-frac] (${phase}, mode=${fmode}) ${OVN_FXI_TEXT}"
+    _ovn_fxi_alert info "$id" "[fixup-undo-frac] ${OVN_FXI_TEXT} (mode=${fmode})"
+    if [ "$fmode" = enforce ]; then
+      _ovn_fxi_log "$tl" "fixup-integrity: ${OVN_FXI_TEXT}"
+      _ovn_fxi_reset "$before"; OVN_FXI_STATUS="no-op(fixup-undid-item)"; return 1
+    fi
+    _ovn_fxi_log "$tl" "[fixup-undo-frac] shadow: WOULD REJECT the repair round (reset to ${before:0:12}, no-op(fixup-undid-item)) under OVN_FIXUP_UNDO_FRAC=enforce (kept: mode=${fmode})"
   fi
   mode="${OVN_FIXUP_REVERIFY:-shadow}"
   [ "$mode" = off ] && return 0

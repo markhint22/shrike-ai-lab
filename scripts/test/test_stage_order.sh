@@ -112,10 +112,26 @@ so_new
 PLAN_DEP='[{"desc":"Add `bar_value` function in bar.py","files":["backend/app/bar.py"],"verify":"pytest backend/tests/test_bar.py"},{"desc":"Wire `bar_value` into the handler","files":["backend/app/svc.py"],"verify":"pytest backend/tests/test_svc.py","depends_on":[0]}]'
 osr_progress "- [ ] [T3] backend/app/bar.py — Add \`bar_value\` and wire it. VERIFY: \`pytest backend/tests/test_svc.py\` (cat:python; multifile:no)"
 rm -f "$T/llm/n" "$T/scn/aider.n"; osr_plan default "$PLAN_DEP"; echo "exit 0" > "$T/scn/aider.default"   # aider edits nothing: step 0 cannot land
-OVN_STAGE_ORDER=enforce OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+OVN_STAGE_DEP_NOEDIT=off OVN_STAGE_ORDER=enforce OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
 t "E3 step 1 parked on its unlanded prerequisite (step_parked_dep)" J '"event":"step_parked_dep"'
 t "E3 aider ran only for step 0 (the parked step never invoked it)" bash -c "[ \"\$(ls '$T'/scn/aider.args.* 2>/dev/null | wc -l | tr -d ' ')\" -le 2 ] && ! grep -qF 'wire' '$T'/scn/aider.args.* 2>/dev/null"
 t "E3 the item is not checked off (still '- [ ]' in origin)" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q '^- \[ \] .*bar_value' && ! git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q '^- \[x\] .*bar_value'"
+osr_cleanup
+
+echo "== E3b (Z8b): enforce, the prerequisite ended no-edit on every attempt => counted as satisfied: the dependent step is NOT parked (OVN_STAGE_DEP_NOEDIT=on, opt-in; default OFF per review)"
+so_new
+osr_progress "- [ ] [T3] backend/app/bar.py — Add \`bar_value\` and wire it. VERIFY: \`pytest backend/tests/test_svc.py\` (cat:python; multifile:no)"
+rm -f "$T/llm/n" "$T/scn/aider.n"; osr_plan default "$PLAN_DEP"; echo "exit 0" > "$T/scn/aider.default"   # aider edits nothing: step 0 ends no-edit on both attempts
+OVN_STAGE_DEP_NOEDIT=on OVN_STAGE_ORDER=enforce OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+t "E3b step 0 satisfied as no-edit (dep_noedit_satisfied journaled)" J '"event":"dep_noedit_satisfied"'
+t "E3b step 1 is NOT parked on it (no step_parked_dep)" bash -c "! grep -qF step_parked_dep '$Q'/state/stage_runs/$OSR_REPO-*.jsonl"
+osr_cleanup
+echo "== E3c (Z8b review): OVN_STAGE_DEP_NOEDIT UNSET = default OFF = the old gate (the same run parks step 1)"
+so_new
+osr_progress "- [ ] [T3] backend/app/bar.py — Add \`bar_value\` and wire it. VERIFY: \`pytest backend/tests/test_svc.py\` (cat:python; multifile:no)"
+rm -f "$T/llm/n" "$T/scn/aider.n"; osr_plan default "$PLAN_DEP"; echo "exit 0" > "$T/scn/aider.default"
+unset OVN_STAGE_DEP_NOEDIT; OVN_STAGE_ORDER=enforce OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+t "E3c default (unset): step_parked_dep journaled and no dep_noedit_satisfied" bash -c "grep -qF step_parked_dep '$Q'/state/stage_runs/$OSR_REPO-*.jsonl && ! grep -qF dep_noedit_satisfied '$Q'/state/stage_runs/$OSR_REPO-*.jsonl"
 osr_cleanup
 
 echo "== E4: OVN_STAGE_ORDER=off is byte-for-byte the old behaviour"

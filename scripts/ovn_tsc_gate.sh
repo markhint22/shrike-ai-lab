@@ -81,6 +81,37 @@ while IFS= read -r tsconfig; do
     slug="${wd#./}"; slug="${slug//\//__}"; [ -z "$slug" ] && slug="root"
     bf="$baseline_dir/${repo}__${slug}.count"
     out="$( timeout 180 $cmd 2>&1 )"
+    # 2026-11-10 (Z8b-D): AUTOFIX unused imports before the ratchet judges the count. One new `vi` import (TS6133) reverted 8+ billwatch cycles against a 76-error baseline. ON by default (a pure
+    # fix: it can only remove bindings tsc itself reported unused, only in files THIS commit touched, only imports this commit added; scripts/ovn_ts_unused_imports.py). OVN_TSC_UNUSED_FIX=shadow
+    # logs TSC-UNUSED-IMPORTS-WOULD-FIX and edits nothing, =off restores the old behaviour. The fix is its own small commit on top (the caller refreshes AFTER_SHA from HEAD).
+    ufx="${OVN_TSC_UNUSED_FIX:-on}"
+    if [ "$ufx" != off ] && grep -qE 'error TS(6133|6196|6192)' <<< "$out"; then
+      fixer="$(dirname "${BASH_SOURCE[0]:-$0}")/ovn_ts_unused_imports.py"
+      top="$(git rev-parse --show-toplevel 2>/dev/null)"
+      if [ -f "$fixer" ] && [ -n "$top" ] && command -v python3 >/dev/null 2>&1 && [ "$(git rev-parse HEAD 2>/dev/null)" = "$(git rev-parse "$after" 2>/dev/null)" ]; then
+        fxargs=(--cwd "$PWD" --toplevel "$top" --before "${before:-$after~1}" --after "$after")
+        [ "$ufx" = on ] || fxargs+=(--dry-run)
+        fxout="$(timeout 60 python3 "$fixer" "${fxargs[@]}" <<< "$out" 2>/dev/null)"
+        fxtot="$(printf '%s\n' "$fxout" | sed -n 's/^TOTAL \([0-9]*\).*/\1/p' | tail -1)"
+        fxfiles="$(printf '%s\n' "$fxout" | sed -n 's/^TOTAL [0-9]* \(.*\)$/\1/p' | tail -1)"
+        if [ "${fxtot:-0}" -gt 0 ] 2>/dev/null; then
+          if [ "$ufx" != on ]; then
+            echo "TSC-UNUSED-IMPORTS-WOULD-FIX $repo/$wd: $fxtot unused import(s) in $fxfiles (OVN_TSC_UNUSED_FIX=$ufx: nothing edited)"
+            echo "$(date -u +%FT%TZ) $repo/$wd $after would-fix $fxtot $fxfiles" >> "$baseline_dir/unused_import_fix.log" 2>/dev/null || true
+          else
+            if git -C "$top" add -- $fxfiles >/dev/null 2>&1 && git -C "$top" commit -q -m "fix(ts): remove unused imports flagged by tsc (TS6133/TS6192/TS6196)" -- $fxfiles >/dev/null 2>&1; then
+              after="$(git rev-parse HEAD)"
+              echo "TSC-UNUSED-IMPORTS-FIXED $repo/$wd: removed $fxtot unused import(s) in $fxfiles (commit ${after:0:12})"
+              echo "$(date -u +%FT%TZ) $repo/$wd $after fixed $fxtot $fxfiles" >> "$baseline_dir/unused_import_fix.log" 2>/dev/null || true
+              out="$( timeout 180 $cmd 2>&1 )"
+            else
+              git -C "$top" checkout -q HEAD -- $fxfiles >/dev/null 2>&1   # from HEAD (not the index, which already holds the staged fix)
+              echo "TSC-UNUSED-IMPORTS-SKIP $repo/$wd: could not commit the unused-import fix for $fxfiles; files restored"
+            fi
+          fi
+        fi
+      fi
+    fi
     # 2026-10-27 (P5): SHADOW collected-test check (OVN_TEST_COLLECTED_CHECK=shadow; default off). When this
     # commit ADDED a *.test.* file, assert vitest lists it; log would-flag only, never changes the verdict.
     if [ "${OVN_TEST_COLLECTED_CHECK:-off}" = shadow ]; then
