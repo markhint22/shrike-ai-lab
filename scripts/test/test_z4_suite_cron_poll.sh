@@ -30,6 +30,8 @@ STUB
   ok "$([ "$rc" = 0 ] && [ "$(cat "$CNT")" = 4 ] && printf '%s' "$o" | grep -q 'polling again in 1s' && echo 1 || echo 0)" "P1 locked 3 times then free: polled until it freed, suite ran, rc 0 (4 attempts), waits logged"
   cr STUB_75_TIMES=99 OVN_SUITE_LOCK_POLL_SEC=1 OVN_SUITE_LOCK_MAX_SEC=3
   ok "$([ "$rc" = 75 ] && [ "$(cat "$CNT")" = 4 ] && echo 1 || echo 0)" "P2 never frees: bounded by the budget (1 + 3 polls = 4 attempts), then the benign rc 75"
+  cr STUB_75_TIMES=99 OVN_SUITE_LOCK_POLL_SEC=4 OVN_SUITE_LOCK_MAX_SEC=10
+  ok "$([ "$rc" = 75 ] && [ "$(cat "$CNT")" = 4 ] && printf '%s' "$o" | grep -q 'lock wait finished rc=75 after 10s' && printf '%s' "$o" | grep -q 'polling again in 2s' && echo 1 || echo 0)" "P6 (Z4 A4) budget not a multiple of the poll: the last sleep is cut (4s,4s,2s), the wait ends at exactly MAX (10s), never one poll over (12s)"
   cr STUB_75_TIMES=1 OVN_SUITE_LOCK_POLL_SEC=1 OVN_SUITE_LOCK_MAX_SEC=0
   ok "$([ "$rc" = 75 ] && [ "$(cat "$CNT")" = 1 ] && echo 1 || echo 0)" "P3 MAX 0 disables waiting (1 attempt, rc 75)"
   cr STUB_75_TIMES=1 OVN_SUITE_LOCK_RETRY_SEC=1
@@ -58,5 +60,6 @@ PY
 }
 mutant "poll loop runs once only" 'while [ $rc -eq 75 ] && [ "$waited" -lt "$MW" ]; do=>while [ $rc -eq 75 ] && [ "$waited" -lt 1 ]; do'
 mutant "poll loop unbounded" 'while [ $rc -eq 75 ] && [ "$waited" -lt "$MW" ]; do=>while [ $rc -eq 75 ]; do'
+mutant "last sleep not cut to the remaining budget (overshoots MAX by up to one poll)" 'step="$PW"; [ $((MW - waited)) -ge "$step" ] || step=$((MW - waited))=>step="$PW"'
 mutant "candidate mode polls too" 'if [ $rc -eq 75 ] && [ -z "$CAND" ]; then=>if [ $rc -eq 75 ]; then'
 echo "  $P passed, $F failed"; [ "$F" = 0 ]

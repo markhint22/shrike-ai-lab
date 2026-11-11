@@ -533,11 +533,15 @@ TAIL_WINDOW = 2000
 MAX_PEELS = 40
 _PATH_RE = re.compile(r"[\w.@~-]+/[\w./@~-]*[\w]\.[A-Za-z0-9]{1,6}\b|\b[\w-]+\.(?:py|js|jsx|ts|tsx|vue|md|json|sh|swift|kt|kts|gd|html|css|yml|yaml|toml|txt|sql|cfg|ini|xml|plist|gradle)\b")
 _TAIL_DATE = r"(?=.{0,100}?(?:\b" + _VER + r"\s*\(?\s*" + _D + r"|\b" + _D + r"))"
+# Y2 before-enforce (Q-checklist): a dated parenthetical is a closing annotation only when what follows the date is the bare close, `claude ...`, or a `,`/`;` followed by a recognised annotation word / `repo @ sha`.
+# `Cut release (2026-12-01, v2 API)` vs `(2026-12-01, v3 API)` is task text (the date is part of the task), so a bare `,`/`;` after the date no longer qualifies.
+_DATED_PAREN_AHEAD = (r"(?=\)|\s+claude\b|\s*[,;]\s*(?:claude\b|(?:re-)?verified\b|(?:done|closed|landed|shipped|stale|obsolete|skipped|already|no action|retired|superseded|resolved|decided|reopened|implemented)\b"
+                      r"|[\w./+-]+\s*@\s*[0-9a-f]{6,}))")
 TAIL_UNITS = (
     (re.compile(r"\((?:cat|coverage):[^()]*\)$"), "b", None),                                                   # `(cat:impl; multifile:no)` / `(coverage:x)`
     (re.compile(r"\((?:auto-closed|retired)\s+" + _D + _P2 + r"\)$"), "b", None),                               # `(auto-closed D: [feat:T] landed, all N named test id(s) present on REF; landing=item)` / `(retired D: ...)`
     (re.compile(r"\(REOPENED\b" + _P2 + r"\)$"), "b", None),
-    (re.compile(r"(?:SKIPPED\s*)?\(" + _D + r"(?=[,;)]|\s+claude\b)" + _P2 + r"\)$"), "b", None),                                  # dated parenthetical `(2026-10-01)` / `SKIPPED (2026-10-01)`
+    (re.compile(r"(?:SKIPPED\s*)?\(" + _D + _DATED_PAREN_AHEAD + _P2 + r"\)$"), "b", None),                                  # dated parenthetical `(2026-10-01)` / `SKIPPED (2026-10-01)`
     (re.compile(r"SKIPPED\s*\((?:re-)?verified\s+" + _D + r"\).*$", re.S), "f", "skipped"),                              # `SKIPPED (verified D) - reason ...`
     (re.compile(r"<!--\s*(?:(?:closed|landed|DONE|STOPPED|retagged|reviewed|verified|reopened|resolved|decided|obsolete|skipped|already)\b|[^\n]{0,40}?" + _D + r")(?:(?!-->).)*-->$", re.S | re.I), "b", None),   # `<!-- closed D by claude: done -->`; a plain `<!-- markers -->` in task prose is not one
     (re.compile(r"_\((?:ALREADY-SATISFIED|DONE|RESOLVED|UPDATED|SKIPPED|IMPLEMENTED|REVIEWED|duplicate\b|" + _D + r").*\)_$", re.S), "b", None),   # `_(ALREADY-SATISFIED D: ...)_`: a known opener AND the `)_` closer at the very end
@@ -591,7 +595,8 @@ def _peel_tail(body, normalized=False):
 # bounded annotation (`(cat:..) NOTE: ...`), never after task prose. Every doubt resolves to "distinct" (one extra re-harvest) rather than a collision (a silently lost task in enforce mode).
 _PAREN_CHAIN_RE = re.compile(r"(?:\s*\((?:[^()]|\([^()]*\))*\))*\s*\.?\s*$")
 _COLON = r"(?P<colon>\s*:\*{0,2})?"
-_HDR_AD = re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}(?:,\s*stale item|\s+by\s+the\s+(?:overnight\s+)?fleet(?:\s*\([^()]*\))?)?\s*(?:[—-]\s*)?(?:\((?:[^()]*?\b" + _VER + r"|[^()]*?" + _D + r")[^()]*\)|\b" + _VER + r"\s*" + _D + r"|" + _D + r"\b)" + _COLON)
+_HDR_AD = re.compile(r"(?:[—-]\s*)?\*{0,2}ALREADY DONE\*{0,2}(?:,\s*stale item|\s+by\s+the\s+(?:overnight\s+)?fleet(?:\s*\([^()]*\))?)?(?:\s*\((?:duplicate|dup)\s+of\b[^()]*\))?(?:\s*,)?(?:\s*,?\s*found\s*\+\s*fixed\b)?\s*(?:[—-]\s*)?(?:\((?:[^()]*?\b" + _VER + r"|[^()]*?" + _D + r")[^()]*\)|\b" + _VER + r"\s*" + _D + r"|" + _D + r"\b)" + _COLON)
+# Y2 before-enforce: `ALREADY DONE ... verified 2026-09-05, 72 tests pass.` -- a comma straight after a BARE date (no closing paren) ends the header; the evidence follows ("ALREADY DONE (verified D) in the header, ..." stays prose)
 _HDR_SKIPPED = re.compile(r"SKIPPED\s*\((?:re-)?verified\s+" + _D + r"\)" + _COLON)
 _HDR_STALE_BOLD = re.compile(r"(?:[—-]\s*)?\*\*STALE TICKET\*\*" + _COLON)
 _HDR_STALE_NOACT = re.compile(r"(?:[—-]\s*)?STALE TICKET,\s*no action\s*\((?:re-)?verified\b[^()]*\)" + _COLON)
@@ -627,6 +632,8 @@ def _closing_shape_ok(shape, g, stamped=None):
     if m.group("colon"):
         return True
     rem = g[m.end():]
+    if shape == "already" and rem.startswith(",") and g[:m.end()].rstrip()[-1:].isdigit():
+        return True            # `... verified 2026-09-05, plus found + fixed ...`: the comma follows a bare date, not a `)`
     r = rem.strip()
     if not r or r == ".":
         return True
@@ -1013,6 +1020,39 @@ def cmd_harvest(args):
     sys.stderr.write(f"harvest: appended {len(new_items)} new items to {args.queue}\n")
 
 
+def cmd_ledger_rebuild(args):
+    """Y2 before-enforce: regenerate the harvest ledger TSV after a body_key change (stored keys were made with the OLD scheme). Writes `closed` for every checked queue+archive line and `harvested` for every open
+    line under an `Auto-harvested` header; existing `done` rows (git evidence, not derivable from the files) are kept. Atomic (temp + replace); never touches a queue file."""
+    lines = read_text(args.queue).splitlines() + read_lines_optional(args.archive)
+    rows, seen, header = [], set(), ""
+    for k, r, t in sorted(closed_keys(lines), key=lambda x: x[0]):
+        seen.add(k)
+        rows.append((k, "closed", r, t, args.today))
+    for ln in lines:
+        h = HEADER_RE.match(ln)
+        if h:
+            header = h.group(1).strip()
+            continue
+        m = ITEM_RE.match(ln)
+        if m and header.lower().startswith("auto-harvested"):
+            repo = infer_repo(m.group(1), header)
+            k = body_key(repo, m.group(1)) if repo else ""
+            if k and k not in seen:
+                seen.add(k)
+                rows.append((k, "harvested", repo, feat_tag_of(m.group(1)), args.today))
+    for k, st in load_ledger(args.out).items():
+        if st == "done" and k not in seen:
+            seen.add(k)
+            rows.append((k, "done", "", "", args.today))
+    tmp = args.out + ".new"
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        for key, state, repo, tag, day in rows:
+            f.write("%s\t%s\t%s\t%s\t%s\n" % (key, state, repo, tag or "", day))
+    os.replace(tmp, args.out)
+    sys.stderr.write("ledger-rebuild: wrote %d rows (%d closed, %d harvested, %d done) to %s\n" % (len(rows), sum(1 for r in rows if r[1] == "closed"), sum(1 for r in rows if r[1] == "harvested"), sum(1 for r in rows if r[1] == "done"), args.out))
+
+
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1034,6 +1074,11 @@ def main():
     hp.add_argument("--ledger", default="")
     hp.add_argument("--ledger-log", default="")
     hp.add_argument("--ledger-mode", default="")
+    lp = sub.add_parser("ledger-rebuild")
+    lp.add_argument("--queue", required=True)
+    lp.add_argument("--archive", default="")
+    lp.add_argument("--out", required=True)
+    lp.add_argument("--today", default=datetime.date.today().isoformat())
     ap = sub.add_parser("autoclose")
     ap.add_argument("--queue", required=True)
     ap.add_argument("--outcomes", required=True)
@@ -1053,6 +1098,7 @@ def main():
     {
         "prework": cmd_prework,
         "harvest": cmd_harvest,
+        "ledger-rebuild": cmd_ledger_rebuild,
         "signatures": cmd_signatures,
         "retire": cmd_retire,
         "autoclose": cmd_autoclose,

@@ -231,6 +231,7 @@ echo; echo "===== paused restart storm (OVN_PAUSE_WAIT stays up, resumes on flag
 echo; echo "===== run_overnight_core_verify ====="; bash test_run_overnight_core_verify.sh || rc=1
 echo; echo "===== shrike_notify_lib ====="; bash test_shrike_notify_lib.sh || rc=1
 echo; echo "===== staging_smoke ====="; bash test_staging_smoke.sh || rc=1
+echo; echo "===== staging_smoke.conf real-frontend origin ====="; python3 test_staging_smoke_conf_origins.py || rc=1
 echo; echo "===== sync_branches ====="; bash test_sync_branches.sh || rc=1
 echo; echo "===== tree_guard ====="; bash test_tree_guard.sh || rc=1
 echo; echo "===== un_park ====="; bash test_un_park.sh || rc=1
@@ -677,8 +678,8 @@ echo; echo "===== Y3: ops/tsc_baseline_reseed.sh dry-run/apply/backup ====="; ba
 echo; echo "===== Y6 notify fixes 2: promote folded into the digest + weekly scorecard, Mac supervisor default ON, rolling-24h escalation, reconcile bullet repo+branch, bullet cooldowns, vercel recovery, suite-red fixture filter (16 mutants) ====="; bash test_y6_notify_fixes.sh || rc=1
 echo; echo "===== Y6 hygiene-stuck: age from the last merge, names branch + failing tests/conflict files, rolling-24h escalation, one low recovery (12 mutants) ====="; bash test_y6_hygiene_stuck.sh || rc=1
 echo; echo "===== Z4: hygiene-stuck recovery for the claude/feature lane (reads logs/branch_hygiene_claude.log; 1 mutant) ====="; bash test_z4_hygiene_stuck_claude_lane.sh || rc=1
-echo; echo "===== Z4: mac-native-build-check timestamps + first-error cause (2 mutants) ====="; bash test_z4_native_build_check.sh || rc=1
-echo; echo "===== Z4: suite cron lock poll (10 min x 90 min, cron mode only; 3 mutants) ====="; bash test_z4_suite_cron_poll.sh || rc=1
+echo; echo "===== Z4: mac-native-build-check timestamps + first-error cause + builds origin/develop + cause scoped to failed platforms (4 mutants) ====="; bash test_z4_native_build_check.sh || rc=1
+echo; echo "===== Z4: suite cron lock poll (cron mode only; P6 poll budget never overshoots; 4 mutants) ====="; bash test_z4_suite_cron_poll.sh || rc=1
 echo; echo "===== Z3 landing gates: B0 editor-example-leak, B1 step-diff, B2 tone, B3 repair-route, B4 test-item scope, B5 dropped call, B6 landing cap - all SHADOW by default (B7 assert-weaken added by Z5; 51 mutants) ====="; bash test_z3_landing_gates.sh || rc=1
 echo; echo "===== Z3 wiring: gates in the real stage runner (shadow journals, enforce refuses, editor-format knob; box only) ====="; bash test_z3_stage_runner_wiring.sh || rc=1
 echo; echo "===== Z2: scout fixture grounding (FK parents + conftest + named models for DB tests; bounded; 7 mutants) ====="; bash test_z2_scout_fixtures.sh || rc=1
@@ -697,6 +698,9 @@ echo; echo "===== Z7-B: bounded push/rebase retry (stub git hangs), non-interact
 echo; echo "===== Z7-C: timeout-park precision replay + pinned SHADOW default (8 mutants) ====="; bash test_z7_timeout_park_precision.sh || rc=1
 echo; echo "===== Z7 review fix 1: OVN_Z7_ASSERT_RECALL=off restores pre-Z7 assert-weaken output exactly (corpus diff vs verbatim pre-Z7 slice; 4 mutants) ====="; bash test_z7_off_exact.sh || rc=1
 echo; echo "===== Z9: GUT pass/fail comes only from gut_xml_green (root failures/errors, tests>0; 414-zero-line red fixture, old-grep mutant, wiring mutants; 21 checks) ====="; bash test_z9_gut_gate.sh || rc=1
+echo; echo "===== Q Y2 before-enforce checklist: dated-parenthetical collisions, September ALREADY DONE shapes, 3 formerly untested gates, ledger-rebuild (Y2 enforce stays OFF; 14 mutants) ====="; python3 test_q_y2_enforce_checklist.py || rc=1
+echo; echo "===== Q retire_vague recall: backticked test names + suffix/basename path-mismatch exemption tightening (landed together; 8 mutants) ====="; python3 test_q_retire_vague_recall.py || rc=1
+echo; echo "===== Q Z4 advisories A1 (rc 6 refusal escalates after 72 h) A2 (box-deadman log column) A3 (hyg_verdict named-branch guard); A4 + native-build-on-develop are in the Z4 suites above (7 mutants) ====="; run_if_present test_q_z4_advisories.sh
 echo; echo "===== run all registration files exist ====="; bash test_run_all_registration_files_exist.sh || rc=1
 echo; echo "===== z8a bridge commit feature ====="; run_if_present test_z8a_bridge_commit_feature.sh
 echo; echo "===== z8a deadman heartbeat ====="; run_if_present test_z8a_deadman_heartbeat.sh

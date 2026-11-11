@@ -133,7 +133,7 @@ if mutant no-merge-abort '    git -C "$R" merge --abort >/dev/null 2>&1; mac_git
   chk "MG (conflict left unaborted) is caught: MERGE_HEAD survives" bash -c "[ -f '$LIVE/.git/MERGE_HEAD' ]"
 fi
 # MH (Z4): the deliberate refusal escalated to an emergency again (the 14-refusals-2-phone-pushes incident)
-if mutant deliberate-emergency 'mac_alert_for "$R" warn commit-push-branch' 'mac_alert_for "$R" emergency commit-push-branch'; then
+if mutant deliberate-emergency 'mac_alert_for "$R" warn "$REFUSAL_KEY" "$REFUSAL_MSG" "${MAC_REFUSAL_REMIND_S:-86400}"' 'mac_alert_for "$R" emergency "$REFUSAL_KEY" "$REFUSAL_MSG" "${MAC_REFUSAL_REMIND_S:-86400}"'; then
   fresh; git -C "$INT" checkout -q -b claude/feature; edit_q "$INT" "tick MH"; : > "$CALLS"; cp_ "$INT" enforce "$MUT/mac_live_commit_push.sh"
   chk "MH (refusal is an emergency) is caught: emergency delivered" bash -c "grep -q 'X-Ovn-Level: emergency' '$CALLS'"
 fi

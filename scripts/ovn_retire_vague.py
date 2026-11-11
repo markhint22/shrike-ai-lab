@@ -12,7 +12,7 @@
 #                 can never open -> no-op forever.
 # Conservative: an item is only DEAD-PATH if it gives one-or-more slash paths AND
 # NONE of them exist. An item with at least one existing named file is kept.
-import re, sys, os
+import re, sys, os, subprocess
 # 2026-10-09: Godot sidecar files. `loadout_preset.gd.uid` used to match as `loadout_preset.gd` (the regex stopped at `.gd` because \b holds before the
 # next `.`), so five valid "Delete the orphaned file ...gd.uid" items were classified dead-path - that .gd is gone by definition, only the .uid is left
 # - and retired. The compound `<ext>.uid` forms MUST precede their bare extension (alternation order), and .tscn/.tres are real scene/resource files.
@@ -82,7 +82,8 @@ def _is_test_path(p):
 _TC_VERB = r"(?:add|adds|adding|write|writes|writing|create|creates|creating|author|introduce|introduces)"
 _TC_MOD = (r"(?:(?:a|an|the|new|missing|failing|regression|unit|pytest|vitest|jest|gut|integration|e2e|focused|small|basic|minimal|dedicated|additional|more|some|\d+"
            r"|table[- ]driven|parametri[sz]ed|parameteri[sz]ed|edge[- ]cases?|boundary|happy[- ]path|negative|error[- ]path|async|snapshot|property[- ]based|component|api|end[- ]to[- ]end)\s+)*")
-_TC_OBJ = r"(?:test\s+files?|test[ -]cases?|test[ -]suite|test[ -]module|unit[ -]tests?|tests|test|spec\s+files?|specs?)\b"
+# Q (2026-11-10, retire_vague recall): a BACKTICKED test name (`Add `test_retry_budget` to tests/test_sync.py`) is a test-creation object too; the existing-guard below still applies.
+_TC_OBJ = r"(?:(?:test\s+files?|test[ -]cases?|test[ -]suite|test[ -]module|unit[ -]tests?|tests|test|spec\s+files?|specs?)\b|`test_[A-Za-z0-9_]+(?:\(\))?`)"
 _TC_NOT = (r"(?!\s+(?:cases?|files?|suite|module)\b)"   # the object matched only a PREFIX of `test case(s)` / `test file`: let the full alternative decide (so the existing-guard below applies to it)
            r"(?!\s+(?:plan|plans|docs?|documentation|runner|helpers?|fixtures?|run|runs|runtime|speed|stability|data|datas?|utils?|utilities|harness|infra|setup|config)\b)"
            # review r2: `Add a test case to <file>'s existing TestX class` modifies an EXISTING test (the named file is expected to exist): up to three words between the preposition and `existing`
@@ -154,6 +155,45 @@ def _creation_paths(line):
 APP_ROOT_PREFIXES = ("backend", "app", "src", "frontend", "web", "server")
 
 
+# Q (2026-11-10): the repo's file list (tracked + untracked-not-ignored), cached per cwd, with a basename index. The sanitizer's `os.path.exists` + fixed app-root prefixes missed
+# paths authored without a deeper prefix: 17 of 50 path mismatches were `tracked file ends with /<path>` (`tests/test_x.py` for `iptv-backend/tests/test_x.py`), ~33 more were a same-named
+# test living in ANOTHER test dir. Suffix -> the path exists (never dead); same basename elsewhere -> a missing test path is a MISLOCATED duplicate, not a legitimate creation (see _mislocated_test).
+_FILES = {}
+_GENERIC_TEST_BASENAMES = ("conftest.py", "__init__.py")
+
+def _repo_files():
+    cwd = os.getcwd()
+    if cwd not in _FILES:
+        files = []
+        try:
+            r = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard"], capture_output=True, text=True, timeout=30)
+            if r.returncode == 0:
+                files = [f for f in r.stdout.split("\n") if f]
+        except (OSError, subprocess.SubprocessError):
+            files = []
+        if not files:
+            for root, dirs, fs in os.walk("."):
+                dirs[:] = [d for d in dirs if d not in (".git", "node_modules", ".venv", "venv", "__pycache__")]
+                files.extend(os.path.relpath(os.path.join(root, f), ".") for f in fs)
+        by_base = {}
+        for f in files:
+            by_base.setdefault(f.rsplit("/", 1)[-1], []).append(f)
+        _FILES[cwd] = by_base
+    return _FILES[cwd]
+
+def _suffix_exists(p):
+    """a repo file whose path ends with `/<p>` (p authored without the app-dir prefix it really lives under)"""
+    q = p.lstrip("./")
+    return bool(q) and any(f.endswith("/" + q) for f in _repo_files().get(q.rsplit("/", 1)[-1], ()))
+
+def _mislocated_test(p):
+    """`p` (missing) is a test path whose basename already exists as a test file in ANOTHER dir: creating it is a duplicate at the wrong place, so the test-creation exemption does not excuse it"""
+    q = p.lstrip("./")
+    base = q.rsplit("/", 1)[-1]
+    if not _is_test_path(q) or base in _GENERIC_TEST_BASENAMES:
+        return False
+    return any(f != q and not f.endswith("/" + q) and _is_test_path(f) for f in _repo_files().get(base, ()))
+
 def _path_exists(p):
     # Tolerate a leading "<repo>/" prefix: items are sometimes authored with the
     # repo dir prepended (e.g. "xlite/scripts/foo.gd"), but the sanitizer runs
@@ -167,7 +207,7 @@ def _path_exists(p):
     # Try common one-level app-root prefixes before giving up (see note above).
     if any(os.path.exists(os.path.join(prefix, p)) for prefix in APP_ROOT_PREFIXES):
         return True
-    return False
+    return _suffix_exists(p)
 
 # h13 (2026-10-04): an item whose own VERIFY is `test ! -f X` with X already absent is DONE (a delete item an earlier commit satisfied); left open it
 # flails for cycles (xlite elevation.gd, 6 cycles). Only the bare single-path form is trusted.
@@ -210,7 +250,7 @@ def classify(line, sibling_creates=None):
         if not any(_path_exists(p) for p in slash_paths):
             # Z1: paths this item legitimately names before they exist: the test file(s) it creates (head only), and paths a sibling item of the same feature creates.
             # Anything else still missing (a dead non-test path listed beside a test path, docs/spec/*.md ...) keeps the item dead.
-            made = set(_test_creation_paths(body))
+            made = set(p for p in _test_creation_paths(body) if not _mislocated_test(p))   # Q: a same-named test already lives in another test dir -> not a creation, a path mismatch
             if sibling_creates:
                 m = FEAT_TAG.search(body)
                 if m:
