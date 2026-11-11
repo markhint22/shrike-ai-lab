@@ -98,11 +98,61 @@ def _head(body):
 def _head_slash_paths(head):
     return [m.group(0) for m in SLASH_FILE.finditer(head)]
 
+# q-deadpath-newfile (2026-11-10): the tight TEST_CREATE_INTENT above misses natural phrasings: shrike-monitor retired two live NEW-FILE test items as dead-path
+# ("[T2] backend/tests/test_auth_bearer_whitespace.py - Add PURE unit tests for ...", "[T3] ... - Add TestClient INTEGRATION test ...": `pure` / `TestClient` are not in _TC_MOD) while the
+# behaviour was still unfixed. A test file that is the item's PRIMARY target (its first named path) and is created by a loose `Add/Create/Write ... test(s)` head is never dead-path when
+# its directory exists in this clone (a creatable new file; a missing DIRECTORY is the stale-clone signature and stays dead). Only "modify existing file X" items with X missing are dead.
+# Guards: the head must not say `existing`; paths are stripped before looking for the test noun (so `tests/test_x.py` is not its own evidence); a same-named test in another dir is a mislocated
+# duplicate (_mislocated_test). OVN_DEADPATH_NEWFILE=off restores the pre-fix behaviour.
+_LOOSE_NOUN = re.compile(r"\b(?:tests?|test[ -]cases?|test[ -]files?|test[ -]suite|specs?)\b", re.I)
+
+# review-fix (q-deadpath-newfile advisory 3): the test noun must be the OBJECT of the create verb (only a few modifier words between), or the item must say `new` (the named test file is new).
+# `Add retries so the flaky tests pass` / `Add missing import to the test module and fix the failing test` have the noun far behind a preposition/conjunction: NOT a creation.
+_LOOSE_STOP = r"(?:so|to|in|into|on|onto|for|of|and|or|but|that|which|when|while|with|without|by|from|as|if|then|than|at|via|so-that|import|imports|fix|fixes|make|makes|run|runs|pass|passes)"
+_LOOSE_OBJ = re.compile(r"^\s*(?:(?!" + _LOOSE_STOP + r"\b)[\w`'-]+\s+){0,4}?" + _LOOSE_NOUN.pattern, re.I)
+_LOOSE_NEW = re.compile(r"\bnew\b", re.I)
+
+def _loose_create_phrase(rest):
+    """the text after the create verb: the test noun directly governed by it, or an explicit `new`"""
+    return bool(_LOOSE_OBJ.match(rest) or (_LOOSE_NEW.search(rest) and _LOOSE_NOUN.search(rest)))
+
+def _deadpath_newfile_on():
+    return os.environ.get("OVN_DEADPATH_NEWFILE", "on").strip().lower() != "off"
+
+def _dir_in_repo(d):
+    """directory `d` (possibly authored without its app-dir prefix) exists in this clone"""
+    d = d.strip("/")
+    if not d:
+        return True
+    if os.path.isdir(d) or any(os.path.isdir(os.path.join(pre, d)) for pre in APP_ROOT_PREFIXES):
+        return True
+    if "/" in d and os.path.isdir(d.split("/", 1)[1]):
+        return True
+    pref = d + "/"
+    return any(f.startswith(pref) or ("/" + pref) in ("/" + f) for fs in _repo_files().values() for f in fs)
+
+def _loose_new_test_target(head):
+    if not _deadpath_newfile_on():
+        return set()
+    paths = _head_slash_paths(head)
+    if not paths or not _is_test_path(paths[0]) or re.search(r"\bexisting\b", head, re.I):
+        return set()
+    m = re.match(r"^\s*(?:\[[^\]]*\]\s*)*`?\s*" + re.escape(paths[0]) + r"`?\s*(?:[-:\u2014\u2013]+\s*)?(?:then\s+)?" + _TC_VERB + r"\b(?P<rest>[^.;]{0,90})", head, re.I)
+    if not m:
+        return set()
+    rest = SLASH_FILE.sub(" ", m.group("rest"))
+    if not _loose_create_phrase(rest):
+        return set()
+    p = paths[0]
+    if _mislocated_test(p) or not _dir_in_repo(os.path.dirname(p)):
+        return set()
+    return {p}
+
 def _test_creation_paths(body):
     """missing-test paths this item CREATES: test-file paths named in the item's own head (not its VERIFY) when the head has a test-creation phrase (verb directly governing a test file/case)"""
     head = _head(body)
     if not TEST_CREATE_INTENT.search(head):
-        return set()
+        return _loose_new_test_target(head)
     return set(p for p in _head_slash_paths(head) if _is_test_path(p))
 
 def _same_path(p, q):
@@ -261,6 +311,88 @@ def classify(line, sibling_creates=None):
             return "dead-path"
     return None  # keep
 
+# q-deadpath-newfile (2026-11-10) SHADOW detector: a `create/build` item whose every named path ALREADY exists is stale (TAA healing_event.py: ~34 GPU-minutes on "build X" with
+# healing_event.py already in the tree, landing a mock-only test). Journals `would-skip stale-create` rows to <state>/stale_create_shadow.log and CHANGES NOTHING; there is no enforce
+# mode (OVN_STALE_CREATE=off|shadow, anything else = shadow). Rows are de-duplicated by item text so the every-cycle sanitizer does not flood the log.
+_STALE_CREATE_RE = re.compile(r"(?i)^\W*(?:create|creates|creating|build|builds|scaffold)\b")   # the item LEADS with a create verb (`Add a test case to the new file` is a follow-up, not a creation)
+_STALE_MODIFY_RE = re.compile(r"\b(?:modify|modifies|update|updates|extend|extends|existing|append|fix|fixes|refactor|rename|replace|verify|run|ensure|inspect|check)\b", re.I)
+
+def _stale_mode():
+    v = os.environ.get("OVN_STALE_CREATE", "shadow").strip().lower()
+    return "off" if v == "off" else "shadow"
+
+def stale_create_reason(line):
+    """None, or a short reason string: the item creates files that all exist already (shadow evidence only)"""
+    body = line[len("- [ ]"):]
+    if SKIP.search(body):
+        return None
+    head = _head(body)
+    first = re.sub(r"^\s*(?:\[[^\]]*\]\s*)*", "", SLASH_FILE.sub(" ", head))[:140]   # the item's own verb phrase (paths removed: `tests/` must not read as a verb)
+    if not (_STALE_CREATE_RE.match(first) or _PATH_NEW_MARK.search(head)) or _STALE_MODIFY_RE.search(first):
+        return None
+    paths = _head_slash_paths(head)
+    if not paths or not all(_path_exists(p) for p in paths):
+        return None
+    return "create item names only paths that already exist: " + ", ".join(sorted(set(paths))[:3])
+
+def _stale_journal(lines):
+    if _stale_mode() == "off":
+        return
+    import hashlib, json, time
+    sd = os.environ.get("OVN_STATE_DIR") or os.environ.get("STATE_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state")
+    rows = []
+    for ln in lines:
+        if not ln.startswith("- [ ]"):
+            continue
+        reason = stale_create_reason(ln)
+        if reason:
+            rows.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rule": "would-skip stale-create", "mode": "shadow", "reason": reason,
+                         "hash": hashlib.md5(ln.encode("utf-8", "replace")).hexdigest()[:16], "item": ln[len("- [ ] "):][:200]})
+    if not rows:
+        return
+    try:
+        lf = os.path.join(sd, "stale_create_shadow.log")
+        os.makedirs(sd, exist_ok=True)
+        seen = _journal_tail(lf)
+        with open(lf, "a", encoding="utf-8", errors="replace") as fh:
+            for r in rows:
+                if '"hash": "%s"' % r["hash"] not in seen:
+                    fh.write(json.dumps(r) + "\n")
+        _journal_cap(lf)
+    except OSError:
+        pass   # shadow evidence must never break the sanitizer
+
+_JOURNAL_CAP = 2000000      # rotate (truncate to the tail) once the log exceeds this
+_JOURNAL_TAIL = 512 * 1024  # dedupe reads, and rotation keeps, only the last ~512 KB
+
+def _journal_tail(lf):
+    """the last _JOURNAL_TAIL bytes of the log as text (bad bytes replaced): all that dedupe needs, and bounded however large the file got"""
+    try:
+        with open(lf, "rb") as fh:
+            size = fh.seek(0, 2)
+            fh.seek(max(0, size - _JOURNAL_TAIL))
+            return fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+def _journal_cap(lf):
+    """over the cap: atomically replace the log with its tail (from a line boundary)"""
+    if os.path.getsize(lf) <= _JOURNAL_CAP:
+        return
+    with open(lf, "rb") as fh:
+        fh.seek(-_JOURNAL_TAIL, 2)
+        data = fh.read()
+    nl = data.find(b"\n")
+    data = data[nl + 1:] if nl >= 0 else b""
+    tmp = lf + ".tmp.%d" % os.getpid()
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, lf)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
 LAST_GONE = [0]
 
 def process(path):
@@ -268,6 +400,10 @@ def process(path):
     if not os.path.exists(path):
         return (0, 0)
     lines = open(path).read().splitlines()
+    try:
+        _stale_journal(lines)
+    except Exception:
+        pass   # the shadow detector must never raise into the caller (bad bytes in its log, a detector bug): it only observes
     out, vague, dead, gone = [], [], [], []
     # Z1: path -> creators among the OTHER open items of the same feature ([feat:] tag). Built per item below so an item never counts as its own sibling.
     by_feat = {}

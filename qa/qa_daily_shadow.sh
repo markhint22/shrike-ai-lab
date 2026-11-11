@@ -36,10 +36,18 @@ MUT_ONLY=0; [ "${1:-}" = "--mutation-only" ] && MUT_ONLY=1
 STATE_D="${QA_STATE_DIR:-$OVN_DIR/state}"
 alert_once(){ # $1=repo $2=staging_check json: ONE alerts.log WARN per (repo, candidate) when the verdict is FAIL
   local line
-  line="$(printf '%s' "$2" | "$PY" -c 'import sys,json
+  line="$(printf '%s' "$2" | "$PY" -c 'import sys,json,os
 try:
     d=json.loads(sys.stdin.read())
-    if d.get("verdict")=="FAIL": print(str(d.get("ref","?"))+"|"+str(d.get("summary",""))[:200])
+    if d.get("verdict")=="FAIL":
+        dt=d.get("details") or {}
+        # Q-suite-alerts (2026-11-10): MISMATCH_BEHIND within QA_STAGING_ALERT_GRACE_S (default 900; 0 = off) of the candidate commit is plain deploy lag, not an alert. ALERT EMISSION ONLY:
+        # the verdict stays FAIL / relation MISMATCH_BEHIND in the jsonl and promote_gate still HOLDS. No marker is written, so a lag that outlives the window alerts on a later pass.
+        try: g=int(os.environ.get("QA_STAGING_ALERT_GRACE_S","900"))
+        except ValueError: g=900
+        age=dt.get("candidate_age_s")
+        if dt.get("relation")=="MISMATCH_BEHIND" and g>0 and isinstance(age,int) and age<g: sys.exit(0)
+        print(str(d.get("ref","?"))+"|"+str(d.get("summary",""))[:200])
 except Exception: pass' 2>/dev/null)"
   [ -n "$line" ] || return 0
   local ref="${line%%|*}" m="$STATE_D/qa_shadow_alerted/staging_${1}_${line%%|*}"

@@ -204,6 +204,15 @@ if [ "$_rp_at" -gt 0 ] 2>/dev/null && [ -d "$state/credit_refused" ]; then
     _rl=""
     [ -n "$_rt" ] && _rl="$(grep -nF -- "$_rt" "$prog" 2>/dev/null | grep -E '^[0-9]+:- \[ \] ' | head -1 | cut -d: -f1)"
     if [ -z "$_rl" ]; then rm -f "$_rf"; continue; fi
+    # Q2 VERIFY lint (2026-11-10, SHADOW ONLY, OVN_VERIFY_LINT=off disables): record whether the VERIFY that just failed twice was itself suspect (src=park). Logging only; never changes the park.
+    type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || ovn_hto(){ shift 2; "$@"; }   # Q2 hook wall-clock cap (ReDoS hang guard)
+    if [ "${OVN_VERIFY_LINT:-shadow}" != off ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/../ovn_verify_lint.py" ]; then
+      ovn_hto 30 verify_lint_park python3 - "$(dirname "${BASH_SOURCE[0]}")/../ovn_verify_lint.py" "$repo" "$state" "$_rt" <<'PYQ2' >/dev/null 2>&1 || true
+import importlib.util, os, sys
+sp = importlib.util.spec_from_file_location("ovl", sys.argv[1]); m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+m.shadow_log(sys.argv[4], sys.argv[2], None, sys.argv[3], "park")
+PYQ2
+    fi
     _ig_sedi "${_rl}s#^- \[ \] #- [ ] [AUTO-SKIP after ${_rn} credit refusals: ${_rr}] #" "$prog"
     rm -f "$_rf"; _rp_parked=$((_rp_parked + 1))
   done

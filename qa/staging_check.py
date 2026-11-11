@@ -325,6 +325,15 @@ def cmd_check(argv):
     rel, reason, served = decide(full, deploys, is_anc)
     det = {"relation": rel, "candidate": full, "staging_commit": served, "provider": prov, "providers": notes,
            "latest": deploys[0] if deploys else None, "recent": [{"id": d["id"], "status": d["status"], "commit": d["commit"][:10]} for d in deploys[:5]]}
+    # Q-suite-alerts (2026-11-10): the candidate's committer-time age, for the ALERT grace window in qa_daily_shadow.sh (deploy lag right after a develop merge is noise).
+    # Information only: the relation / verdict above are already decided and are never read from this field by promote_gate.
+    rct, ct, _ = qc.git(rd, "show", "-s", "--format=%ct", full)
+    try:
+        age = int(time.time() - int(ct.strip())) if rct == 0 else None
+        # a future-dated candidate (clock skew) has no trustworthy age: None fails open to ALERT (a clamp to 0 would sit inside the grace window and suppress it)
+        det["candidate_age_s"] = age if age is not None and age >= 0 else None
+    except ValueError:
+        det["candidate_age_s"] = None
     return qc.verdict(VERDICT_OF[rel], GATE, repo, full[:10], "%s: %s" % (rel, reason), det)
 
 

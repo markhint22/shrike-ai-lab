@@ -171,7 +171,8 @@ setup; mkrepo app nongreen; cand="$(sha app develop~1)"; tip="$(sha app develop)
 ck "ON: PROMOTED via fast-forward to the release candidate" "has 'PROMOTED app develop -> main (+3, fast-forward to release candidate ${cand:0:10} via release/'"
 ck "ON: main == candidate exactly, NOT develop's tip" "[ \"\$(sha app main)\" = $cand ] && [ \"\$(sha app main)\" != $tip ] && ! git -C $T/origin/app.git merge-base --is-ancestor $tip main"
 ck "ON: pure fast-forward (old main is an ancestor, no merge commit, no 'release: promote' subject)" "git -C $T/origin/app.git merge-base --is-ancestor $m0 main && ! git -C $T/origin/app.git log -1 --format=%s main | grep -q 'release: promote'"
-ck "ON: release/YYYYMMDD branch exists on origin at the candidate" "[ \"\$(nreleases app)\" = 1 ] && [ \"\$(git -C $T/origin/app.git rev-parse refs/heads/release/$(date +%Y%m%d))\" = $cand ]"
+# the date is derived like release_candidate.py does under the cron-style env -i run: TZ dropped, system local time (not the test shell's exported TZ=UTC)
+ck "ON: release/YYYYMMDD branch exists on origin at the candidate" "[ \"\$(nreleases app)\" = 1 ] && [ \"\$(git -C $T/origin/app.git rev-parse refs/heads/release/$(env -u TZ date +%Y%m%d))\" = $cand ]"
 ck "ON: prod rollback tag pushed at the candidate; rollback hint printed" "t=\$(git -C $T/origin/app.git tag -l 'prod-*-app'); [ -n \"\$t\" ] && [ \"\$(git -C $T/origin/app.git rev-parse \"\$t^{commit}\")\" = $cand ] && has \"Rollback: git checkout \$t\""
 ck "ON: evidence lines say 1 held back and main is fast-forwardable" "has '1 develop merge(s) held back' && has 'main fast-forwardable: yes'"
 runp --yes "$Q/repos/app"

@@ -1585,6 +1585,12 @@ STUB
       fi
     fi
 
+    # Q2 VERIFY lint (2026-11-10, SHADOW ONLY): log open items whose VERIFY cannot pass for a reason unrelated to the work (multi-line grep literal, test path under a subdir,
+    # full-project tsc over a nonzero baseline, pytest ::name that does not exist). Appends to state/verify_lint.jsonl; never edits or drops an item. OVN_VERIFY_LINT=off disables.
+    if [ "${OVN_VERIFY_LINT:-shadow}" != off ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/ovn_verify_lint.py" ]; then
+      ovn_hto 60 verify_lint2 python3 "$SCRIPT_DIR/ovn_verify_lint.py" shadow OVERNIGHT_PROGRESS.md --repo-root "$PWD" --repo "$(basename "$PWD")" --state "${STATE_DIR:-${OVN_STATE_DIR:-$SCRIPT_DIR/state}}" >/dev/null 2>&1 || true
+    fi
+
     # Fold a "create migration" item into its model-column sibling (2026-10-02, harness Y1): the alembic autogen hook generates the migration in
     # the same step that edits the model, so a separate migration item can only fork the chain. See scripts/ovn_fold_migration_items.py.
     if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" ]; then

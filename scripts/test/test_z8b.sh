@@ -96,7 +96,7 @@ exit 1
 FAKE
   chmod +x "$r/web/node_modules/.bin/vue-tsc"
   echo '{"compilerOptions":{"noEmit":true},"include":["src"]}' > "$r/web/tsconfig.json"
-  ( cd "$r" && git init -q && git config user.email t@t && git config user.name t && echo "export const b = 1;" > web/src/base.ts && printf "import { describe } from 'vitest'\ndescribe('a', () => {})\n" > web/src/a.test.ts && git add -A && git commit -qm base )
+  ( cd "$r" || exit 1; git init -q && git config user.email t@t && git config user.name t && echo "export const b = 1;" > web/src/base.ts && printf "import { describe } from 'vitest'\ndescribe('a', () => {})\n" > web/src/a.test.ts && git add -A && git commit -qm base )
   echo 2 > "$tmp/bl-$1/testrepo__web.count"
   printf '%s' "$r"
 }
@@ -125,7 +125,7 @@ r="$(mk_repo shadow)"; b0="$(git -C "$r" rev-parse HEAD)"; a0="$(add_commit "$r"
 out="$(run_gate shadow "$r" "$b0" "$a0" OVN_TSC_UNUSED_FIX=shadow)"
 echo "$out" | grep -q "TSC-UNUSED-IMPORTS-WOULD-FIX" && echo "$out" | grep -q "TSC-RATCHET-REGRESSION" && [ "$(git -C "$r" rev-parse HEAD)" = "$a0" ] && git -C "$r" diff --quiet HEAD && ok "D27 shadow: would-fix logged, nothing edited, regression still reported" || bad "D27: $out"
 # an unused import the commit did NOT add (pre-existing in another file) is not touched
-r="$(mk_repo pre)"; ( cd "$r" && printf "import { vi } from 'vitest'\n" > web/src/old.ts && git add -A && git commit -qm old ); b0="$(git -C "$r" rev-parse HEAD)"
+r="$(mk_repo pre)"; ( cd "$r" || exit 1; printf "import { vi } from 'vitest'\n" > web/src/old.ts && git add -A && git commit -qm old ); b0="$(git -C "$r" rev-parse HEAD)"
 a0="$(cd "$r" && echo "export const c = 2;" >> web/src/base.ts && git add -A && git commit -qm item >/dev/null && git rev-parse HEAD)"
 echo 1 > "$tmp/bl-pre/testrepo__web.count"
 out="$(run_gate pre "$r" "$b0" "$a0")"
@@ -152,14 +152,14 @@ done
 crlf_case() {  # crlf_case <gate script> <name> -> rc 0 when CRLF is intact after the autofix (multi-spec edit AND whole-declaration drop)
   local g="$1" nm="$2" rr b a
   rr="$(mk_repo "$nm")"; b="$(git -C "$rr" rev-parse HEAD)"
-  ( cd "$rr" && printf "import { describe, vi } from 'vitest'\r\ndescribe('a', () => {})\r\n" > web/src/a.test.ts && git add -A && git commit -qm item )
+  ( cd "$rr" || exit 1; printf "import { describe, vi } from 'vitest'\r\ndescribe('a', () => {})\r\n" > web/src/a.test.ts && git add -A && git commit -qm item )
   a="$(git -C "$rr" rev-parse HEAD)"
   env OVN_TSC_PREMEASURE=0 OVN_SAFE_TMP_LIB="$HERE/lib_safe_tmp.sh" bash "$g" "$rr" "$tmp/bl-$nm" testrepo "$b" "$a" >/dev/null 2>&1
   printf "import { describe } from 'vitest'\r\ndescribe('a', () => {})\r\n" > "$tmp/crlf.expect"
   cmp -s "$tmp/crlf.expect" "$rr/web/src/a.test.ts" || return 1
   # whole declaration dropped (sole specifier) in a CRLF file: the CRLF after it goes too and every other line keeps CRLF
   b="$(git -C "$rr" rev-parse HEAD)"
-  ( cd "$rr" && printf "import { vi } from 'vitest'\r\nexport const z = 1;\r\n" > web/src/z.ts && git add -A && git commit -qm item2 )
+  ( cd "$rr" || exit 1; printf "import { vi } from 'vitest'\r\nexport const z = 1;\r\n" > web/src/z.ts && git add -A && git commit -qm item2 )
   a="$(git -C "$rr" rev-parse HEAD)"
   env OVN_TSC_PREMEASURE=0 OVN_SAFE_TMP_LIB="$HERE/lib_safe_tmp.sh" bash "$g" "$rr" "$tmp/bl-$nm" testrepo "$b" "$a" >/dev/null 2>&1
   printf "export const z = 1;\r\n" > "$tmp/crlf.expect"
@@ -200,12 +200,12 @@ safe_rm_rf "${tmp:?}/gm"
 echo "== B: z3_commit_audit on a real commit range (non-staged commits, shadow only)"
 . "$SRC/lib_landing_gates.sh"
 ca="$tmp/audit"; mkdir -p "$ca/backend/tests" "$ca/backend/app" "$tmp/st"
-( cd "$ca" && git init -q && git config user.email t@t && git config user.name t
+( cd "$ca" || exit 1; git init -q && git config user.email t@t && git config user.name t
   printf 'def sla_met(r, t):\n    return False\n' > backend/app/sla_met.py
   printf 'from app.sla_met import sla_met\n\ndef test_a():\n    assert sla_met([], 0.9) is False\n' > backend/tests/test_sla_met.py
   git add -A && git commit -qm base )
 b0="$(git -C "$ca" rev-parse HEAD)"
-( cd "$ca" && printf 'def sla_met(r, t):\n    return None\n' > backend/app/sla_met.py && printf 'from app.sla_met import sla_met\n\ndef test_a():\n    assert sla_met([], 0.9) is None\n' > backend/tests/test_sla_met.py && printf 'TITLE = "Heads up: down"\n' > backend/app/notifier.py && git add -A && git commit -qm "fix: x" )
+( cd "$ca" || exit 1; printf 'def sla_met(r, t):\n    return None\n' > backend/app/sla_met.py && printf 'from app.sla_met import sla_met\n\ndef test_a():\n    assert sla_met([], 0.9) is None\n' > backend/tests/test_sla_met.py && printf 'TITLE = "Heads up: down"\n' > backend/app/notifier.py && git add -A && git commit -qm "fix: x" )
 a0="$(git -C "$ca" rev-parse HEAD)"
 z3_commit_audit "$ca" "$b0" "$a0" "Update sla_met" "$tmp/st" "audit:commit"; arc=$?
 [ "$arc" = 0 ] && ok "B30 returns 0" || bad "B30 rc=$arc"

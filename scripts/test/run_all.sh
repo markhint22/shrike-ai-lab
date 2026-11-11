@@ -400,6 +400,7 @@ echo; echo "===== qa railway retry (2026-10-14: 120 s retry on timeout, cached l
 echo; echo "===== queue refill gate ====="; bash test_queue_refill_gate.sh || rc=1
 echo; echo "===== research trigger monotonic ====="; bash test_research_trigger_monotonic.sh || rc=1
 echo; echo "===== retire vague uid ====="; bash test_retire_vague_uid.sh || rc=1
+echo; echo "===== retire vague new-file test items + stale-create shadow (q-deadpath-newfile) ====="; bash test_retire_vague_newfile.sh || rc=1
 echo; echo "===== stage godot seed ====="; bash test_stage_godot_seed.sh || rc=1
 echo; echo "===== r10: bare verify fallback ====="; bash test_bare_verify_fallback.sh || rc=1
 echo; echo "===== r10: boot notes ====="; bash test_boot_notes.sh || rc=1
@@ -556,6 +557,8 @@ echo; echo "===== QA Phase 4: broken-deploy drill (fixtures; 4/4 classes would h
 echo; echo "===== QA Phase 4: soak probe + summary + shadow promote_gate read ====="; bash test_qa_soak_probe.sh || rc=1
 echo; echo "===== D1: VERIFY shape linter (shadow default; OVN_VERIFY_LINT=off|shadow|enforce; real box items, tree-confirmed rules, hooks, audit, mutants) ====="; bash test_verify_shape_lint.sh || rc=1
 echo; echo "===== Z1: VERIFY lint rules Q1 G1 P1 R1 (per-rule switches; Q1+P1 enforce by default, G1+R1 shadow; behavioural + policy + mutants) ====="; bash test_z1_verify_lint.sh || rc=1
+echo; echo "===== Q2: shadow VERIFY lint (ML1 TP1 TS1 PN1, hooks, mutants; OVN_VERIFY_LINT=off|shadow) ====="; bash test_q2_verify_lint.sh || rc=1
+echo; echo "===== Q2 hardening: verify-lint ReDoS (rule guard + time budget + caps; hook under ovn_hto; mutants) ====="; bash test_q2_verify_lint_redos.sh || rc=1
 echo; echo "===== Z1: ovn_ac_is_placeholder keeps real tests + leftover docstring creditable (3 real iptv files + mutants) ====="; bash test_z1_placeholder.sh || rc=1
 echo; echo "===== Z1 round 2: retire_vague VERIFY-spelling/phrasing, ast placeholder scanner (tautology/hidden/dead/skip, per-language), Q1 egrep/rg/-m, mutation-supply lint, queue_refill stderr (with mutants) ====="; bash test_z1_r2.sh || rc=1
 echo; echo "===== D1 repair: ovn_planner.sh verify-lint hook (recount, [decomposed] marking, quarantine, fail-open fall-through + timeout; planner mutants) ====="; bash test_verify_lint_planner_hook.sh || rc=1
@@ -714,5 +717,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
 else
   echo; echo "===== Z10 Mac test sandbox tests (skipped on non-macOS) ====="
 fi
+echo; echo "===== Q suite-alerts: z8b subshell-cd lint regression + qa-staging-check MISMATCH_BEHIND alert grace (gate verdict unchanged; 3 mutants) ====="; run_if_present test_q_suite_alerts.sh
 echo; finish || rc=1
 exit $rc
