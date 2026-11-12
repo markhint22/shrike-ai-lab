@@ -72,7 +72,7 @@ ok "both VERIFY-SKIP GUARD checkpoints are present (2 occurrences: initial + pos
 ok "the skip guard never reverts (must not sit next to a git reset --hard)" \
    "! awk '/VERIFY-SKIP GUARD \\(2026-09-29\\)/,/^      fi\$/' '$RO' | grep -q 'git reset --hard'"
 ok "the skip guard returns a benign/neutral status, never a bad/reverted one" \
-   "grep -A20 'VERIFY-SKIP GUARD (2026-09-29):' '$RO' | grep -q 'error(verify-skipped'"
+   "grep -A20 'VERIFY-SKIP GUARD (2026-09-29):' '$RO' | grep -q 'ovn_verify_skip_status' && sed -n '/^ovn_verify_skip_status() {/,/^}/p' '$RO' | grep -c 'echo \"error(verify-skipped' | grep -qx 2"
 
 # --- D: ordering - the FIRST guard must appear before TS-RATCHET/BUILD-GATE/
 # NO-NEW-RED (those gates only special-case \"fail\"; a skip must be intercepted

@@ -210,7 +210,8 @@ a0="$(git -C "$ca" rev-parse HEAD)"
 z3_commit_audit "$ca" "$b0" "$a0" "Update sla_met" "$tmp/st" "audit:commit"; arc=$?
 [ "$arc" = 0 ] && ok "B30 returns 0" || bad "B30 rc=$arc"
 grep -q '"rule_kind": "expectation-trivial"' "$tmp/st/landing_gates_shadow.log" && grep -q '"token": "Heads up"' "$tmp/st/landing_gates_shadow.log" && ok "B31 the expectation rewrite AND the tone finding are journaled (the two shapes the gate was silent on)" || bad "B31: $(cat "$tmp/st/landing_gates_shadow.log" 2>/dev/null | cut -c1-200)"
-grep -q '"mode": "shadow"' "$tmp/st/landing_gates_shadow.log" && grep -q '"kind": "commit"' "$tmp/st/landing_gates_shadow.log" && ok "B32 rows carry mode=shadow, kind=commit" || bad "B32"
+grep -q '"mode": "audit"' "$tmp/st/landing_gates_shadow.log" && grep -q '"kind": "commit"' "$tmp/st/landing_gates_shadow.log" && ! grep -q '"mode": "enforce"' "$tmp/st/landing_gates_shadow.log" && ok "B32 rows carry mode=audit, kind=commit (never enforce, even with tone-lint enforcing by default)" || bad "B32"
+OVN_Z3_TONE=enforce z3_commit_audit "$ca" "$b0" "$a0" "x" "$tmp/st" "l2"; ! grep '"label": "l2"' "$tmp/st/landing_gates_shadow.log" | grep -q '"mode": "enforce"' && ok "B32b an enforce flag does not stamp commit-audit rows enforce" || bad "B32b"
 rm -f "$tmp/st/landing_gates_shadow.log"; OVN_Z8_COMMIT_AUDIT=off z3_commit_audit "$ca" "$b0" "$a0" "x" "$tmp/st" "l"
 [ ! -s "$tmp/st/landing_gates_shadow.log" ] && ok "B33 OVN_Z8_COMMIT_AUDIT=off writes nothing" || bad "B33"
 rm -f "$tmp/st/landing_gates_shadow.log"; OVN_Z3_TONE=off OVN_Z3_ASSERT_WEAKEN=off z3_commit_audit "$ca" "$b0" "$a0" "x" "$tmp/st" "l"
@@ -219,7 +220,7 @@ rm -f "$tmp/st/landing_gates_shadow.log"; z3_commit_audit "$ca" "$a0" "$a0" "x" 
 [ ! -s "$tmp/st/landing_gates_shadow.log" ] && ok "B35 empty range / bad repo / missing shas: no row, no error" || bad "B35"
 OVN_Z3_TONE=enforce OVN_Z3_ASSERT_WEAKEN=enforce z3_commit_audit "$ca" "$b0" "$a0" "x" "$tmp/st" "l"; [ -z "${Z3_REFUSE:-}" ] && ok "B36 an enforce flag never makes the commit audit refuse (shadow only)" || bad "B36"
 # mutants of the shell glue
-for mm in "audit disabled|OVN_Z8_COMMIT_AUDIT:-on|OVN_Z8_COMMIT_AUDIT:-off" "kind label wrong|kind=\"commit\"|kind=\"step\"" "assert flag ignored|\"assert-weaken\":\"OVN_Z3_ENV_ASSERT\"|\"assert-weaken\":\"OVN_X\""; do
+for mm in "audit disabled|OVN_Z8_COMMIT_AUDIT:-on|OVN_Z8_COMMIT_AUDIT:-off" "kind label wrong|kind=\"commit\"|kind=\"step\"" "mode label wrong|mode=\"audit\"|mode=\"enforce\"" "assert flag ignored|\"assert-weaken\":\"OVN_Z3_ENV_ASSERT\"|\"assert-weaken\":\"OVN_X\""; do
   lab="${mm%%|*}"; rest="${mm#*|}"; old="${rest%%|*}"; new="${rest#*|}"
   cp "$SRC/lib_landing_gates.sh" "$tmp/lg_mut.sh"
   OLD="$old" NEW="$new" "$PY" - "$tmp/lg_mut.sh" <<'PYEOF' || { bad "B37 mutant '$lab' not applicable"; continue; }
@@ -234,6 +235,7 @@ PYEOF
   res="$( ( . "$mutdir/lib_landing_gates.sh"; if [ "$lab" = "assert flag ignored" ]; then OVN_Z3_ASSERT_WEAKEN=off z3_commit_audit "$ca" "$b0" "$a0" "x" "$tmp/st" "l"; else z3_commit_audit "$ca" "$b0" "$a0" "x" "$tmp/st" "l"; fi; cat "$tmp/st/landing_gates_shadow.log" 2>/dev/null ) )"
   case "$lab" in
     "audit disabled") [ -z "$res" ] && echo "  ok   B37 mutant killed: $lab" || { echo "  FAIL B37 mutant SURVIVED: $lab"; fail=1; } ;;
+    "mode label wrong") echo "$res" | grep -q '"mode": "enforce"' && echo "  ok   B37 mutant killed: $lab" || { echo "  FAIL B37 mutant SURVIVED: $lab"; fail=1; } ;;
     "kind label wrong") echo "$res" | grep -q '"kind": "commit"' && { echo "  FAIL B37 mutant SURVIVED: $lab"; fail=1; } || echo "  ok   B37 mutant killed: $lab" ;;
     *) echo "$res" | grep -q assert-weaken && echo "  ok   B37 mutant killed: $lab" || { echo "  FAIL B37 mutant SURVIVED: $lab"; fail=1; } ;;
   esac

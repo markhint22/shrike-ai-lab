@@ -237,8 +237,10 @@ def clean():
     git("clean", "-fdq")
 
 
-def gate(kind, extra_env=None, desc="", item="", alog=""):
+def gate(kind, extra_env=None, desc="", item="", alog="", pin_tone=True):
     env = dict(ENV)
+    if pin_tone:
+        env["OVN_Z3_TONE"] = "shadow"   # 2026-11-12: tone-lint now defaults to ENFORCE; these cases test OTHER gates' default/shadow behaviour, so they pin tone to shadow (the tone default is covered by T1..T7 below)
     env.update(extra_env or {})
     sd = os.path.join(tmp, "state")
     shutil.rmtree(sd, ignore_errors=True)
@@ -261,6 +263,21 @@ o, log = gate("step", {"OVN_Z3_REPAIR_ROUTE": "enforce"}, item="[T3] x (cat:pyth
 ok("S3 the same diff in a normal step is NOT refused by the repair gate", o.startswith("rc=0") and "repair-new-route" not in log, o)
 o, log = gate("repair", {"OVN_Z3_TONE": "enforce"}, item="[T3] x (cat:python)")
 ok("S4 OVN_Z3_TONE=enforce refuses on the greeting", o.startswith("rc=1 refuse=tone-lint"), o)
+# T1..T7 (2026-11-12, q-verify-speed): tone-lint is ENFORCE by default; precedence OVN_Z3_TONE > OVN_Z3_TONE_LINT > enforce; invalid -> the default (enforce), never a silent off
+o, log = gate("repair", pin_tone=False, item="[T3] x (cat:python)")
+ok("T1 tone-lint default (no flag) ENFORCES: the greeting step is refused and journalled mode=enforce", o.startswith("rc=1 refuse=tone-lint") and '"rule": "tone-lint"' in log and '"mode": "enforce"' in log, o + "|" + log[:200])
+o, log = gate("repair", {"OVN_Z3_TONE": "shadow"}, pin_tone=False, item="[T3] x (cat:python)")
+ok("T2 OVN_Z3_TONE=shadow reverts to journal-only", o.startswith("rc=0") and '"mode": "shadow"' in log and "tone-lint" in log, o)
+o, log = gate("repair", {"OVN_Z3_TONE_LINT": "shadow"}, pin_tone=False, item="[T3] x (cat:python)")
+ok("T3 OVN_Z3_TONE_LINT=shadow (alias) reverts to journal-only", o.startswith("rc=0") and '"mode": "shadow"' in log and "tone-lint" in log, o)
+o, log = gate("repair", {"OVN_Z3_TONE_LINT": "off"}, pin_tone=False, item="[T3] x (cat:python)")
+ok("T4 OVN_Z3_TONE_LINT=off is silent for tone", o.startswith("rc=0") and "tone-lint" not in log, o + log[:100])
+o, log = gate("repair", {"OVN_Z3_TONE": "shadow", "OVN_Z3_TONE_LINT": "enforce"}, pin_tone=False, item="[T3] x (cat:python)")
+ok("T5 OVN_Z3_TONE (explicit) wins over the alias", o.startswith("rc=0") and '"mode": "shadow"' in log, o)
+o, log = gate("repair", {"OVN_Z3_TONE": "bogus"}, pin_tone=False, item="[T3] x (cat:python)")
+ok("T6 an invalid tone flag value falls back to the default (enforce), not to off/shadow", o.startswith("rc=1 refuse=tone-lint"), o)
+o, log = gate("repair", pin_tone=False, desc="Add the greeting route returning Hey there", item="[T3] x (cat:python)")
+ok("T7 enforce does not refuse a greeting the item/step text itself asks for", "refuse=tone-lint" not in o, o)
 o, log = gate("repair", {"OVN_Z3_REPAIR_ROUTE": "off", "OVN_Z3_TONE": "off"}, item="[T3] x (cat:python)")
 ok("S5 off = silent: no journal rows for the disabled gates", o.startswith("rc=0") and "repair-new-route" not in log and "tone-lint" not in log, o + "|" + log)
 o, log = gate("repair", {"OVN_Z3_REPAIR_ROUTE": "bogus"}, item="")
@@ -431,7 +448,7 @@ sd3 = os.path.join(tmp, "st3")
 shutil.rmtree(sd3, ignore_errors=True)
 t0 = time.time()
 script = '. "%s"; z3_step_gate "%s" step "" "" "" "" "%s" lbl; echo rc=$?' % (LIB, repo, sd3)
-p = subprocess.run(["bash", "-c", script], env=ENV, capture_output=True, text=True)
+p = subprocess.run(["bash", "-c", script], env=dict(ENV, OVN_Z3_TONE="shadow"), capture_output=True, text=True)
 el = time.time() - t0
 jl = os.path.join(sd3, "landing_gates_shadow.log")
 jtxt = open(jl).read() if os.path.exists(jl) else ""

@@ -241,6 +241,8 @@ if want A24; then mk
   ok "A24 with gc.auto=0 (the old hard-coded config) nothing is ever packed" "$([ "$(df_git -C "$DF_CL" config gc.auto)" = 0 ] && echo 1 || echo 0)"
   OVN_AUTODEPLOY_GC_AUTO=1 ad run
   ok "A24 an existing clone created with gc.auto=0 is migrated to a real threshold" "$([ "$(df_git -C "$DF_CL" config gc.auto)" = 1 ] && echo 1 || echo 0)"
+  # git auto-gc is detached/async: poll (bounded 60 s) for the packed state instead of racing it
+  for _w in $(seq 1 120); do [ "$(df_git -C "$DF_CL" count-objects -v | sed -n 's/^count: //p')" = 0 ] && break; sleep 0.5; done
   ok "A24 the hourly fetch's auto-gc now fires on the deploy clone: loose objects are packed (count 0), the clone still works" "$([ "$(df_git -C "$DF_CL" count-objects -v | sed -n 's/^count: //p')" = 0 ] && [ -n "$(rj tip)" ] && echo 1 || echo 0)"
   mk; ad run
   ok "A24 a fresh clone gets the default threshold 2000 (not 0)" "$([ "$(df_git -C "$DF_CL" config gc.auto)" = 2000 ] && echo 1 || echo 0)"

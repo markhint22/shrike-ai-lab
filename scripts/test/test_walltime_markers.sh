@@ -102,7 +102,7 @@ r = open(sys.argv[1]).read(); w = open(sys.argv[2]).read()
 def mut(s, a, b, name):
     assert s.count(a) == 1, a
     open(sys.argv[3] + ("/mut/" if name.endswith(".py") else "/") + name, "w").write(s.replace(a, b))
-mut(r, '  _ovn_verify_done_mark\n  if [ "$py_ran" -eq 0 ]', '  if [ "$py_ran" -eq 0 ]', "m_nofinal.sh")
+mut(r, '  _ovn_verify_done_mark\n  # 2026-11-11 (xlite)', '  # 2026-11-11 (xlite)', "m_nofinal.sh")
 mut(w, '    verify = min(dur, ph["timeouts"] + ph["verify_marks"])', '    verify = min(dur, ph["timeouts"])', "m_nomarks.py")
 mut(w, '        m = _MARK_RE.match(line)', '        m = re.search(r"--- (verify|fixup) done in (\\d+)s ---", line)', "m_unanchored.py")
 PYEOF

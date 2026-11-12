@@ -4,7 +4,8 @@
 #
 # Per-gate flags (off | shadow | enforce; default SHADOW = journal to $STATE/landing_gates_shadow.log, change nothing):
 #   OVN_Z3_STEP_DIFF      B1  step-diff-mismatch   quoted tokens of the step text must appear in the step diff
-#   OVN_Z3_TONE           B2  tone-lint            Hey/Yo/Buzz/... newly added to a file (OVN_Z3_TONE_TOKENS="Hey|Yo|..." overrides the list)
+#   OVN_Z3_TONE           B2  tone-lint            Hey/Yo/Buzz/... newly added to a file (OVN_Z3_TONE_TOKENS="Hey|Yo|..." overrides the list). DEFAULT ENFORCE since 2026-11-12 (OVN_Z3_TONE=shadow or OVN_Z3_TONE_LINT=shadow reverts)
+#   OVN_Z3_TONE_TEST      B2b tone-test-greeting  FLAG ONLY (q-verify-speed 2026-11-12): a TEST file asserts/opens with Hey/Yo/Buzz/... (the inverted-test landings tone-lint skips); `enforce` behaves as shadow
 #   OVN_Z3_REPAIR_ROUTE   B3  repair-new-route     a repair-to-pass-verification round may not add a route/endpoint
 #   OVN_Z3_TEST_SRC       B4  test-item-src-edit   a test-creation item may not touch non-test source
 #   OVN_Z3_CALL_DROP      B5  call-dropped         FLAG ONLY: `enforce` is accepted but behaves as shadow (a heuristic, never a veto)
@@ -21,6 +22,15 @@ type ovn_gitb >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_push_boun
 
 type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/lib_helper_timeout.sh" 2>/dev/null || { ovn_hto(){ shift 2; "$@"; }; ovn_hto_open(){ shift 2; "$@"; }; }   # helper wall-clock cap (hotfix-scout-hang)
 _z3_py() { local d; d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; printf '%s/ovn_landing_gates.py' "$d"; }
+
+# B2 tone-lint default is ENFORCE (2026-11-12, q-verify-speed). Corpus (10 days, 7 repos, 2,477 fleet commits, origin/overnight|develop|claude/feature diffs): 31 added lines / 23 commit-file events
+# flagged, 31/31 genuine model-injected greetings (Hey/Yo/Whoa/Buzz/Heads up in product copy, docstrings, logs), 0 false positives => precision 100% (n=23 events); of those 16 events were
+# user-visible product copy. A flagged step is refused (fa=landing-gate) instead of landing in staging. Revert: OVN_Z3_TONE=shadow (or OVN_Z3_TONE_LINT=shadow), off disables. Precedence:
+# OVN_Z3_TONE (explicit, existing flag) > OVN_Z3_TONE_LINT (alias) > enforce. Invalid values fall back to the DEFAULT (enforce), never to a silent off.
+_z3_tone_mode() {
+  local v="${OVN_Z3_TONE:-${OVN_Z3_TONE_LINT:-enforce}}"
+  case "$v" in off|shadow|enforce) printf '%s' "$v";; *) printf 'enforce';; esac
+}
 
 _z3_mode() {  # _z3_mode <rule-flag-name> -> off|shadow|enforce (invalid => shadow)
   local v; eval "v=\${$1:-shadow}"
@@ -96,11 +106,12 @@ z3_step_gate() {
     [ -z "$rule" ] && continue
     case "$rule" in
       step-diff-mismatch) mode="$(_z3_mode OVN_Z3_STEP_DIFF)";;
-      tone-lint) mode="$(_z3_mode OVN_Z3_TONE)";;
+      tone-lint) mode="$(_z3_tone_mode)";;
       repair-new-route) mode="$(_z3_mode OVN_Z3_REPAIR_ROUTE)";;
       test-item-src-edit) mode="$(_z3_mode OVN_Z3_TEST_SRC)";;
       call-dropped) mode="$(_z3_mode OVN_Z3_CALL_DROP)"; [ "$mode" = enforce ] && mode=shadow;;
       assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)"; [ "$mode" = enforce ] && mode=shadow;;
+      tone-test-greeting) mode="$(_z3_mode OVN_Z3_TONE_TEST)"; [ "$mode" = enforce ] && mode=shadow;;   # q-verify-speed: heuristic for the test-file coverage gap, never a veto
       *) mode=shadow;;
     esac
     [ "$mode" = off ] && continue
@@ -174,7 +185,7 @@ z3_landing_cap() {
 # z3_commit_audit <repo-dir> <base-sha> <head-sha> <item-text> <state-dir> <label>   (Z8b-B, 2026-11-10)  SHADOW ONLY, always returns 0.
 #   The Z3/Z5/Z7 gates above only ever saw STAGED steps and staged repair rounds. The 2026-11-10 audit's silent-gate landings (shrike-notify ae714d7, gitlark 0b77a340, iptv 619612ad/bab0a91f) were plain
 #   aider auto-commits of the NON-staged path (author = the operator + `Co-authored-by: aider`), which never reached z3_step_gate. run_overnight.sh now calls this on the cycle's own commit range
-#   (BEFORE_SHA..AFTER_SHA) before the push; findings are journaled to <state-dir>/landing_gates_shadow.log with kind=commit and mode=shadow, nothing is refused or changed.
+#   (BEFORE_SHA..AFTER_SHA) before the push; findings are journaled to <state-dir>/landing_gates_shadow.log with kind=commit and mode=audit (NOT the rule's enforce/shadow flag: nothing is ever refused on this path, so a row must not read as an enforced refusal), nothing is refused or changed.
 #   OVN_Z8_COMMIT_AUDIT=off disables it. Bounded by `timeout 60`; any failure = no row.
 z3_commit_audit() {
   local rd="${1:-}" base="${2:-}" head="${3:-}" item="${4:-}" sd="${5:-${STATE_DIR:-state}}" label="${6:-?}" py out to=""
@@ -186,16 +197,16 @@ z3_commit_audit() {
   out="$($to python3 "$py" step-check --kind step --item "$item" --repo "$rd" --base "$base" --head "$head" 2>/dev/null)" || return 0
   case "$out" in *'"rule"'*) ;; *) return 0;; esac
   mkdir -p "$sd" 2>/dev/null; _z3_rotate "$sd/landing_gates_shadow.log"
-  printf '%s' "$out" | OVN_Z3_ENV_STEP_DIFF="${OVN_Z3_STEP_DIFF:-shadow}" OVN_Z3_ENV_TONE="${OVN_Z3_TONE:-shadow}" OVN_Z3_ENV_TEST_SRC="${OVN_Z3_TEST_SRC:-shadow}" OVN_Z3_ENV_ASSERT="${OVN_Z3_ASSERT_WEAKEN:-shadow}" OVN_Z3_ENV_CALL="${OVN_Z3_CALL_DROP:-shadow}" python3 -c '
+  printf '%s' "$out" | OVN_Z3_ENV_STEP_DIFF="${OVN_Z3_STEP_DIFF:-shadow}" OVN_Z3_ENV_TONE="$(_z3_tone_mode)" OVN_Z3_ENV_TEST_SRC="${OVN_Z3_TEST_SRC:-shadow}" OVN_Z3_ENV_ASSERT="${OVN_Z3_ASSERT_WEAKEN:-shadow}" OVN_Z3_ENV_CALL="${OVN_Z3_CALL_DROP:-shadow}" OVN_Z3_ENV_TONETEST="${OVN_Z3_TONE_TEST:-shadow}" python3 -c '
 import json,sys,os,time
 label=sys.argv[1]
-flag={"step-diff-mismatch":"OVN_Z3_ENV_STEP_DIFF","tone-lint":"OVN_Z3_ENV_TONE","test-item-src-edit":"OVN_Z3_ENV_TEST_SRC","assert-weaken":"OVN_Z3_ENV_ASSERT","call-dropped":"OVN_Z3_ENV_CALL"}
+flag={"step-diff-mismatch":"OVN_Z3_ENV_STEP_DIFF","tone-lint":"OVN_Z3_ENV_TONE","test-item-src-edit":"OVN_Z3_ENV_TEST_SRC","assert-weaken":"OVN_Z3_ENV_ASSERT","call-dropped":"OVN_Z3_ENV_CALL","tone-test-greeting":"OVN_Z3_ENV_TONETEST"}
 try: d=json.load(sys.stdin)
 except Exception: sys.exit(0)
 for f in d.get("findings",[]):
     if f.get("rule")=="repair-new-route": continue
     if os.environ.get(flag.get(f.get("rule"),""),"shadow")=="off": continue
-    f=dict(f); f["rule_kind"]=f.get("kind",""); f.update(ts=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),mode="shadow",label=label,kind="commit"); print(json.dumps(f))
+    f=dict(f); f["rule_kind"]=f.get("kind",""); f.update(ts=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),mode="audit",label=label,kind="commit"); print(json.dumps(f))
 ' "$label" >> "$sd/landing_gates_shadow.log" 2>/dev/null
   return 0
 }

@@ -79,6 +79,16 @@ mut "B7 parametrize cases never checked"  py 'if old_test_ok(old_text_fn) and no
 mut "B7 any removed list entry counts"    py 'if any(_PARAM_RE.search(w) for w in window):' 'if True:'
 mut "B7 renamed/retired tests flagged"    py 'retired = rem_testdef' 'retired = False'
 mut "B7 emptiness replacement flagged"    py 'if add_empty:' 'if False:'
+mut "B2 lib: tone default reverts to shadow (T1)" sh 'local v="${OVN_Z3_TONE:-${OVN_Z3_TONE_LINT:-enforce}}"' 'local v="${OVN_Z3_TONE:-${OVN_Z3_TONE_LINT:-shadow}}"'
+mut "B2 lib: OVN_Z3_TONE_LINT alias ignored (T3)" sh 'local v="${OVN_Z3_TONE:-${OVN_Z3_TONE_LINT:-enforce}}"' 'local v="${OVN_Z3_TONE:-enforce}"'
+mut "B2 lib: explicit OVN_Z3_TONE loses to the alias (T5)" sh 'local v="${OVN_Z3_TONE:-${OVN_Z3_TONE_LINT:-enforce}}"' 'local v="${OVN_Z3_TONE_LINT:-${OVN_Z3_TONE:-enforce}}"'
+mut "B2 lib: invalid tone value silently shadows (T6)" sh "*) printf 'enforce';; esac
+}
+
+_z3_mode() {" "*) printf 'shadow';; esac
+}
+
+_z3_mode() {"
 mut "B7 lib: B7 enforce vetoes"           sh 'assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)"; [ "$mode" = enforce ] && mode=shadow;;' 'assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)";;'
 mut "B7 lib: off still journals"          sh 'assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)";' 'assert-weaken) mode=shadow; : "$(_z3_mode OVN_Z3_ASSERT_WEAKEN)";'
 echo "mutants: $n, survived/unapplied: $survived"

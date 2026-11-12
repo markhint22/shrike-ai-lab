@@ -6,7 +6,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib_osr_fixture.sh"
 if ! sed --version >/dev/null 2>&1; then echo "  SKIP: needs GNU sed; run on the box"; exit 0; fi
-unset OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP OVN_STAGE_EMPTY_FILE NTFY_SERVER NTFY_TOPIC OVN_Z3_TONE OVN_Z3_STEP_DIFF OVN_Z3_TEST_SRC OVN_Z3_EDITOR_LEAK OVN_STAGE_EDITOR_FORMAT
+unset OVN_Z3_TONE_LINT OVN_BUG_FIRST OVN_BUG_ATTEMPT_CAP OVN_STAGE_ZERO_CAP OVN_STAGE_EMPTY_FILE NTFY_SERVER NTFY_TOPIC OVN_Z3_TONE OVN_Z3_STEP_DIFF OVN_Z3_TEST_SRC OVN_Z3_EDITOR_LEAK OVN_STAGE_EDITOR_FORMAT
 export NTFY_SERVER=http://127.0.0.1:9 OVN_NOTIFY_DISABLE=1 TZ=UTC
 trap osr_cleanup EXIT
 G(){ grep -qF -- "$1" "$T/out.txt"; }
@@ -19,18 +19,18 @@ echo "Applied edit to backend/app/foo.py"'
 setup(){ osr_new; osr_venv backend; cp "$REALQ/scripts/lib_landing_gates.sh" "$REALQ/scripts/ovn_landing_gates.py" "$Q/scripts/"; osr_progress "- [ ] $ITEM_PY"; osr_plan default "$PLAN"; }
 SH(){ cat "$Q/state/landing_gates_shadow.log" 2>/dev/null; }
 
-echo "== A: default (shadow) - the tone finding is journalled, the step still PASSes and lands"
+echo "== A: OVN_Z3_TONE=shadow (the revert switch; tone-lint defaults to enforce since 2026-11-12) - the tone finding is journalled, the step still PASSes and lands"
 setup; osr_aider default "$SNIP_HEY"
-OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+OVN_Z3_TONE=shadow OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
 t "A1 step PASSes on attempt 1 (shadow never refuses)" G "step 0 PASS (att 1"
 t "A2 the shadow journal has a tone-lint row naming the file and the token" bash -c "grep -q '\"rule\": \"tone-lint\"' '$Q/state/landing_gates_shadow.log' && grep -q '\"token\": \"Hey\"' '$Q/state/landing_gates_shadow.log' && grep -q 'backend/app/foo.py' '$Q/state/landing_gates_shadow.log'"
 t "A3 the journal row says mode shadow" bash -c "grep -q '\"mode\": \"shadow\"' '$Q/state/landing_gates_shadow.log'"
 t "A4 the run lands 1/1" G "DONE: 1/1 steps landed"
 osr_cleanup
 
-echo "== B: OVN_Z3_TONE=enforce refuses the step as fa=landing-gate, nothing is committed"
+echo "== B: DEFAULT (no flag = enforce) refuses the step as fa=landing-gate, nothing is committed"
 setup; osr_aider default "$SNIP_HEY"
-OVN_Z3_TONE=enforce OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
+OVN_STAGE_REDECOMP=0 osr_run "$OSR_REPO"
 t "B1 the step is REJECTED by the landing gate" G "REJECTED (landing gate): tone-lint"
 t "B2 the journal row records fail_reason landing-gate" bash -c "cat '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl | grep -q 'landing-gate'"
 t "B3 0/1 steps landed and the greeting is not on origin" bash -c "grep -q 'DONE: 0/1 steps landed' '$T/out.txt' && ! git -C '$O' show overnight/feature:backend/app/foo.py 2>/dev/null | grep -q Hey"

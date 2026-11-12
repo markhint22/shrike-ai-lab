@@ -105,6 +105,8 @@ source scripts/lib_pytest_parallel.sh 2>/dev/null || ovn_pytest_par_args(){ :; }
 source scripts/lib_tree_guard.sh 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
 # 2026-11-11 (q-infra-gates): gradle host-infra classification + one retry after ./gradlew --stop. Lib absent = the old single run.
 source scripts/lib_gradle_infra.sh 2>/dev/null || { OVN_GRADLE_INFRA_RED=0; ovn_gradle_run(){ ( cd "$1" && export ANDROID_HOME="$HOME/android-sdk" && [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties && timeout "${3:-900}" ./gradlew test --console=plain ) > "$2" 2>&1; }; ovn_gradle_infra_alert(){ :; }; }
+# 2026-11-12 (q-verify-speed): scope the full_verify gradle run to native-touching diffs. Lib absent => always run gradle (the old behaviour).
+source scripts/lib_gradle_scope.sh 2>/dev/null || { ovn_gradle_scope_needed(){ return 0; }; ovn_gradle_changed_files(){ return 1; }; }
 # 2026-10-02 (harness Y4): ovn_item_hash for the unverified-run outcome row comes from lib_item_select.sh, already sourced above. Do NOT source it again
 # here: that would redefine ovn_is_manual_bug_text after the fail-safe stub that follows lib_bug_escalate.sh.
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites.
@@ -1635,10 +1637,18 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   # multi-step item touching a .kt file got NO real re-check before being trusted/pushed — the
   # exact "false-pass" risk this function exists to close for python/vitest/godot. Same
   # ANDROID_HOME/local.properties pattern as run_overnight.sh's working per-item gradle check.
+  local _gs_changed=""
+  if [ "$vok" = 1 ] && [ "${OVN_STAGE_GRADLE_SCOPE:-on}" != off ]; then
+    _gs_changed="$(ovn_gradle_changed_files "$wt" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null)" 2>/dev/null)" || _gs_changed=""
+  fi
   if [ "$vok" = 1 ]; then
     while IFS= read -r -d '' gradlew; do
       gdir="$(dirname "$gradlew")"
       if [ -f "$gdir/settings.gradle.kts" ] || [ -f "$gdir/settings.gradle" ]; then
+        if ! ovn_gradle_scope_needed "${gdir#"$wt"/}" "$_gs_changed" "${item:-}"; then
+          echo "-- gradlew test FULL SKIPPED in ${gdir#"$wt"/} (gradle-scope: the diff touches no native/Android path; the hygiene gate still runs it; OVN_STAGE_GRADLE_SCOPE=off restores) --" >> "$vlog"
+          continue
+        fi
         echo "-- gradlew test FULL in ${gdir#"$wt"/} --" >> "$vlog"
         # 2026-11-11 (q-infra-gates): one ./gradlew --stop + retry on a daemon/host infra signature. Still failing with it = INFRA-RED: the item is NOT pushed (conservative, same as a red) but it is
         # logged + warned as infra, not as a code failure.

@@ -341,6 +341,43 @@ def check_tone(diff_files, text="", tokens=None):
     return findings
 
 
+# B2b tone-test-greeting (2026-11-12, q-verify-speed, SHADOW ONLY). The tone-lint above deliberately skips test files ("Hi there, how can I help?" is legitimate fixture text), so the
+# 2026-11-09..12 landings where the model INVERTED/REWROTE a test to expect the leaked greeting went unseen: shrike-monitor 62a7319e (`assert body["title"] == "Hey, api went from up to down"`),
+# shrike-notify d1e6d5ce/9da06b66 (`assert "Hey!" in ...body`), billwatch a4eef354 (`toContain('Hey there, loading up your legislator...')`), billwatch 4e68cd52 (test docstring "Hey! Tests for ...").
+# Narrow on purpose: only the strong pre-Z8b tokens, only in a test file, and only on (a) an ASSERTION line or (b) a line that STARTS with the greeting (docstring/comment opener). Plain fixture
+# strings (`content: 'Hi there'`, `escape_html("Hello World")`) are never flagged. Same escapes as B2: named by the item/step text, or already present in the file's removed lines.
+# OVN_Z3_TONE_TEST=off|shadow (enforce behaves as shadow: a heuristic for a coverage gap, never a veto).
+_TONE_TEST_ASSERT_RE = re.compile(r"\b(?:assert\w*|expect|toContain|toBe|toEqual|toMatch|toStrictEqual|should|in)\b")
+_TONE_TEST_LEAD_RE = re.compile(r"^\s*(?:#+|//+|/\*+|\*|\"\"\"|\'\'\'|[rRbBfFuU]{0,2}[\"\'])?\s*(?:%s)(?=[,!:])" % "|".join(re.escape(t) for t in DEFAULT_TONE_PRE.split("|")))
+
+
+def check_tone_tests(diff_files, text=""):
+    rx = tone_regex(DEFAULT_TONE_PRE)
+    findings, ctxt = [], text or ""
+    for fd in diff_files:
+        if fd.is_deleted or not (fd.path or "").endswith(SRC_EXT) or not is_test_path(fd.path):
+            continue
+        prior = {}
+        for _, t in fd.removed:
+            for m in rx.finditer(t):
+                prior[m.group(0)] = prior.get(m.group(0), 0) + 1
+        for ln, t in fd.added:
+            m = rx.search(t)
+            if not m:
+                continue
+            if not (_TONE_TEST_ASSERT_RE.search(t) or _TONE_TEST_LEAD_RE.match(t)):
+                continue
+            w = m.group(0)
+            if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(w), ctxt):
+                continue
+            if prior.get(w, 0) > 0:
+                prior[w] -= 1
+                continue
+            findings.append({"rule": "tone-test-greeting", "sev": "FLAG", "file": fd.path, "line": ln, "token": w, "snip": t.strip()[:120],
+                             "msg": "test %s:%d expects/opens with the greeting token %r" % (fd.path, ln, w)})
+    return findings
+
+
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
 # B3 repair may not add a route
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1017,6 +1054,7 @@ def analyse(diff_text, desc="", item="", kind="step", files="", post_text=None, 
     ratio = float(os.environ.get("OVN_Z3_STEPDIFF_RATIO", "0.5") or 0.5)
     res["step-diff-mismatch"] = check_step_diff(desc, fds, post_text, files, ratio, truncated) if (desc or "").strip() else []
     res["tone-lint"] = check_tone(fds, (desc or "") + "\n" + (item or ""))
+    res["tone-test-greeting"] = check_tone_tests(fds, (desc or "") + "\n" + (item or ""))
     res["repair-new-route"] = check_repair_routes(fds) if kind == "repair" else []
     res["test-item-src-edit"] = check_test_item_scope(fds, item, desc, files)
     res["assert-weaken"] = check_assert_weaken(fds, (lambda pth: git(repo, "show", "%s:%s" % (base, pth))) if (repo and base) else None,
