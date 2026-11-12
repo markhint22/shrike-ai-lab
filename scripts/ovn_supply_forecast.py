@@ -6,13 +6,21 @@ per active app, and the Qwen lanes add only ~1-3 items/day. ovn_supply_report.py
 and needs N more features". This job does the arithmetic forward.
 
 Per repo:
-  burn_per_day   DISTINCT items that landed (outcomes.jsonl class landed / landed-uncredited, ovn_supply_ledger.PUSHED) over the trailing OVN_FORECAST_BURN_D days (default 7), / days covered
-                 (the span from the oldest row in the window to now, at least 1 and at most the window: a repo whose history is 3 days old is not diluted by 4 empty days).
+  burn_per_day   HONEST burn (2026-11-11, pkg q-supply-honest): DISTINCT items CLOSED per day = landed + auto-credited + auto-skipped / parked / retired, not just landed. The old figure (distinct
+                 landed over 7 d) ran 2-5x optimistic on 2026-11-11 (runway 228-473 h vs 30-145 h observed) because one green commit routinely credits several items and park/skip/retire
+                 sweeps drain the queue without a landing. Closed items = max(distinct landed/landed-uncredited/credit-only outcomes rows, distinct unchecked `- [ ]` items NET-REMOVED from the repo
+                 clone's OVERNIGHT_PROGRESS.md over the window (2026-11-11, q-supply-honest 2): the newest event for the normalised item key must be a removal. In-place REWRITES are not closures:
+                 a removal re-added in the same or a later commit in any form (unchecked, or held: AUTO-SKIP / [CLAUDE] / recovery-attempted / staged variants keep the same key), removals inside
+                 commits whose subject starts mark|recover|escalate, and removal of an already-held line. Landings/credits ([x] flip or deletion) and retires still count; parks do not). Both are computed over a 24 h and a 7 d
+                 window; burn_per_day = the larger (so runway_h = the more pessimistic of the two runways). Days covered: 24 h window min(1, max(.25, history/1d)), 7 d window min(7, max(1, history)).
+                 Without a repo clone / progress file the git side is unknown and closed = the outcomes-derived count (never lower than the landed figure).
+  burn_per_day_landed_only / runway_h_landed_only   the OLD landed-only 7 d numbers, kept in the json for comparison (nothing should threshold on them).
+  burn_24h_per_day, burn_7d_per_day, runway_24h_h, runway_7d_h, closed_24h, closed_7d, closed_source   the pieces of the honest figure.
   pullable       what the fleet can take next now (ovn_supply_ledger.current_pullable)
   ready          [ready] roadmap features (same selector as ovn_planner.sh / ovn_supply_report.py)
   decomposable   ready * OVN_FORECAST_ITEMS_PER_FEATURE (default 5)
   supply         pullable + decomposable
-  runway_h       supply / (burn_per_day / 24); None when nothing burns (no forecast, no request)
+  runway_h       supply / (burn_per_day / 24) with the HONEST burn; None when nothing burns (no forecast, no request)
 A repo is SHORT when runway_h < OVN_FORECAST_RUNWAY_H (default 24). For a short repo:
   shortfall_items     ceil(burn_per_day * OVN_FORECAST_TARGET_H / 24 - supply)   (target default 48 h of work in hand)
   shortfall_features  ceil(shortfall_items / items_per_feature)
@@ -31,7 +39,7 @@ it held < 1 day: 23 lines, only test-automation-agent (a TRUE starve: pullable 0
 (b) every would-request repo is confirmed by an actual starve (pullable < 5 or an ovn_research_trigger_check starving row) within 24h, (c) no repo flaps short/not-short more than 4 times a day,
 (d) no row for a non-repo. Then set OVN_SUPPLY_FORECAST=on in the forecast cron line (rollback: back to shadow / off; the request goes stale after 6h by itself).
 
-usage:  ovn_supply_forecast.py [--print] [--json] [--dry-run] [--now EPOCH] [--repos a,b]
+usage:  ovn_supply_forecast.py [--print] [--json] [--compare] [--dry-run] [--now EPOCH] [--repos a,b]
 cron (proposed, NOT installed; box):  7,37 * * * * cd ~/overnight-queue && python3 scripts/ovn_supply_forecast.py >> logs/supply_forecast.cron.log 2>&1
       (flip to `env OVN_SUPPLY_FORECAST=on python3 ...` after a day of shadow lines in logs/supply_forecast.log looks right)
 env:    OVN_DIR / OVN_NOTIFY_STATE, OVN_SUPPLY_FORECAST, OVN_FORECAST_RUNWAY_H (24), OVN_FORECAST_HIGH_H (6), OVN_FORECAST_TARGET_H (48), OVN_FORECAST_ITEMS_PER_FEATURE (5), OVN_FORECAST_BURN_D (7),
@@ -41,6 +49,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -91,13 +100,129 @@ def burn_per_day(rows, repo, now, window_d):
     return len(landed) / days
 
 
-def forecast_repo(repo, pullable, ready, burn, items_per_feature, runway_floor, high_h, target_h):
-    """Pure arithmetic -> record dict (also used by the tests)."""
+HELD_RE = re.compile(r"HUMAN-ONLY|AUTO-SKIP|BLOCKED ITEM|\(retired-|\[CLAUDE\]")
+_UNCHECKED = re.compile(r"^- \[ \] (.*)$")
+_TAG = re.compile(r"^\[[^\]]*\]\s*")
+REWRITE_SUBJECT_RE = re.compile(r"^(?:[a-z]+(?:\([^)]*\))?!?:\s*)?(?:mark|recover|escalate)\b", re.I)   # bookkeeping rewrites: "mark ...", "chore(queue): recover parked ...", "escalate staged ..."
+CLOSED_CLASSES = ("landed", "landed-uncredited", "credit-only")
+
+
+def _item_key(text):
+    t = text.strip()
+    while True:
+        m = _TAG.match(t)
+        if not m:
+            break
+        t = t[m.end():]
+    return " ".join(t.split())[:200]
+
+
+def git_progress_closures(repo_dir, since_ts, timeout=30):
+    """[(commit_epoch, item_key, +1 removed-unchecked | -1 added-unchecked-unheld)] for OVERNIGHT_PROGRESS.md commits since `since_ts`, or None when git/the clone/the file is unavailable."""
+    pf = os.path.join(repo_dir, "OVERNIGHT_PROGRESS.md")
+    if not os.path.isfile(pf) or not os.path.isdir(os.path.join(repo_dir, ".git")) and not os.path.isfile(os.path.join(repo_dir, ".git")):
+        return None
+    try:
+        out = subprocess.run(["git", "-C", repo_dir, "log", "--since=@%d" % int(since_ts), "--no-merges", "-p", "--unified=0", "--format=@@C %ct %s", "--", "OVERNIGHT_PROGRESS.md"],
+                             capture_output=True, text=True, timeout=timeout, errors="replace")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    ev, ts, subj, rem, add = [], 0.0, "", [], []
+
+    def flush():
+        # one commit. Net-removed semantics (2026-11-11, q-supply-honest 2): a key removed AND re-added in the SAME commit in ANY form (unchecked, or held: AUTO-SKIP / [CLAUDE] / HUMAN-ONLY variants
+        # keep the same normalised key) is a rewrite, not a closure; a removal inside a bookkeeping commit (mark / recover / escalate ...) is never a closure; adds are always recorded (held or
+        # not) so a LATER add cancels an EARLIER removal in _git_closed_count (newest event per key wins).
+        a_set = set(add)
+        skip_commit = bool(REWRITE_SUBJECT_RE.match(subj))
+        for k in dict.fromkeys(rem):
+            if k not in a_set and not skip_commit:
+                ev.append((ts, k, 1))
+        for k in dict.fromkeys(add):
+            ev.append((ts, k, -1))
+        rem.clear()
+        add.clear()
+
+    for ln in out.stdout.splitlines():
+        if ln.startswith("@@C "):
+            flush()
+            parts = ln.split(None, 2)
+            try:
+                ts = float(parts[1])
+            except (IndexError, ValueError):
+                ts = 0.0
+            subj = parts[2] if len(parts) > 2 else ""
+        elif ln.startswith("-") and not ln.startswith("---"):
+            m = _UNCHECKED.match(ln[1:])
+            if m and not HELD_RE.search(m.group(1)):   # a held/parked line leaving the file is not supply being consumed (symmetric with the add side)
+                rem.append(_item_key(m.group(1)))
+        elif ln.startswith("+") and not ln.startswith("+++"):
+            m = _UNCHECKED.match(ln[1:])
+            if m:
+                add.append(_item_key(m.group(1)))
+    flush()
+    return ev
+
+
+def _git_closed_count(events, lo):
+    """Items whose LAST unchecked-line event inside the window (events are newest first) is a removal: closed by a landing, credit, park, skip or retire. An item added by a refill and closed
+    inside the window counts; one that was removed and re-added (moved / reworded back) does not."""
+    last = {}
+    for t, k, d in events:
+        if t >= lo and k not in last:
+            last[k] = d
+    return sum(1 for d in last.values() if d == 1)
+
+
+def closed_burn(rows, repo, now, window_d, git_events=None):
+    """Honest burn (see the module docstring). Returns None when the repo has no outcomes row in the window, else a dict with burn (items/day, the larger of the 24 h and `window_d` figures)."""
+    import ovn_supply_ledger as led
+    lo7 = now - window_d * 86400.0
+    mine = [r for r in rows if r.get("repo") == repo and r["_t"] >= lo7]
+    if not mine:
+        return None
+    history_d = (now - min(r["_t"] for r in mine)) / 86400.0
+    res = {"closed_source": "outcomes" if git_events is None else "outcomes+git"}
+    best = 0.0
+    for tag, wd, days in (("24h", 1.0, min(1.0, max(0.25, history_d))), ("7d", float(window_d), min(float(window_d), max(1.0, history_d)))):
+        lo = now - wd * 86400.0
+        keys = set()
+        for r in mine:
+            if r["_t"] < lo or led._is_skip(r) or r.get("class") not in CLOSED_CLASSES:
+                continue
+            keys.add(r.get("item_hash") or r.get("feat_tag") or ("%s@%s" % (r.get("item", ""), r.get("ts"))))
+        n = len(keys)
+        if git_events is not None:
+            n = max(n, _git_closed_count(git_events, lo))
+        res["closed_" + tag] = n
+        res["burn_%s_per_day" % tag] = n / days
+        best = max(best, n / days)
+    res["burn"] = best
+    return res
+
+
+def forecast_repo(repo, pullable, ready, burn, items_per_feature, runway_floor, high_h, target_h, burn_landed=None, honest=None):
+    """Pure arithmetic -> record dict (also used by the tests). `burn` = the burn that drives runway_h/short (the honest closed-item burn from collect()); `burn_landed` = the old
+    landed-only figure (defaults to `burn` for legacy callers), reported as runway_h_landed_only; `honest` = optional closed_burn() dict whose pieces are copied into the record."""
     decomposable = ready * items_per_feature
     supply = (pullable or 0) + decomposable
+    if burn_landed is None:
+        burn_landed = burn
     rec = {"repo": repo, "pullable": pullable, "ready": ready, "decomposable": decomposable, "supply": supply,
-           "burn_per_day": None if burn is None else round(burn, 2), "runway_h": None, "short": False, "priority": None,
+           "burn_per_day": None if burn is None else round(burn, 2), "burn_per_day_landed_only": None if burn_landed is None else round(burn_landed, 2),
+           "runway_h": None, "runway_h_landed_only": None, "short": False, "priority": None,
            "shortfall_items": 0, "shortfall_features": 0}
+    if honest:
+        for k in ("closed_source", "closed_24h", "closed_7d"):
+            rec[k] = honest.get(k)
+        for tag in ("24h", "7d"):
+            b = honest.get("burn_%s_per_day" % tag)
+            rec["burn_%s_per_day" % tag] = None if b is None else round(b, 2)
+            rec["runway_%s_h" % tag] = round(supply / (b / 24.0), 1) if b and b > 0 and pullable is not None else None
+    if burn_landed and burn_landed > 0 and pullable is not None:
+        rec["runway_h_landed_only"] = round(supply / (burn_landed / 24.0), 1)
     if burn is None or burn <= 0 or pullable is None:
         return rec
     rec["runway_h"] = round(supply / (burn / 24.0), 1)
@@ -137,7 +262,11 @@ def collect(now=None, root=None, state=None, repos=None):
            "runway_floor_h": floor, "target_h": target, "repos": {}}
     for repo in repos:
         ready = len(READY_RE.findall(_read(os.path.join(root, "roadmap", repo + ".md"))))
-        rec = forecast_repo(repo, pull.get(repo), ready, burn_per_day(rows, repo, now, window_d), ipf, floor, high, target)
+        landed_burn = burn_per_day(rows, repo, now, window_d)
+        gev = git_progress_closures(os.path.join(root, "repos", repo), now - window_d * 86400.0)
+        hb = closed_burn(rows, repo, now, window_d, gev)
+        burn = None if hb is None else max(hb["burn"], landed_burn or 0.0)
+        rec = forecast_repo(repo, pull.get(repo), ready, burn, ipf, floor, high, target, burn_landed=landed_burn, honest=hb)
         rec["line"] = repo_line(rec) if rec["short"] else None
         out["repos"][repo] = rec
     return out
@@ -235,6 +364,11 @@ def main(argv):
     fc = collect(now=now, repos=repos)
     if "--dry-run" not in argv:
         write_outputs(fc)
+    if "--compare" in argv:
+        print("%-24s %8s %8s %6s %6s %7s %9s %8s %8s %s" % ("repo", "pullable", "ready", "cl24", "cl7d", "burn/d", "old_burn", "runway", "old_run", "source"))
+        for r, rec in sorted(fc["repos"].items()):
+            print("%-24s %8s %8s %6s %6s %7s %9s %8s %8s %s" % (r, rec["pullable"], rec["ready"], rec.get("closed_24h"), rec.get("closed_7d"), rec["burn_per_day"],
+                                                           rec["burn_per_day_landed_only"], rec["runway_h"], rec["runway_h_landed_only"], rec.get("closed_source")))
     if "--json" in argv:
         print(json.dumps(fc, indent=1, sort_keys=True))
     else:

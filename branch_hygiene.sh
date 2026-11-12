@@ -52,6 +52,10 @@ source "$SCRIPT_DIR/scripts/lib_lock.sh"
 source "$SCRIPT_DIR/scripts/lib_pytest_parallel.sh" 2>/dev/null || ovn_pytest_par_args(){ :; }
 # shellcheck source=./scripts/lib_tree_guard.sh
 source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_abs_symlinks(){ :; }
+# 2026-11-11 (q-infra-gates): gradle host-infra classification (daemon on a replaced JDK). Lib absent = the old single run, no classification.
+# shellcheck source=./scripts/lib_gradle_infra.sh
+source "$SCRIPT_DIR/scripts/lib_gradle_infra.sh" 2>/dev/null || { OVN_GRADLE_INFRA_RED=0; ovn_gradle_run(){ ( cd "$1" && export ANDROID_HOME="$HOME/android-sdk" && [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties && timeout "${3:-900}" ./gradlew test --console=plain ) > "$2" 2>&1; }; ovn_gradle_infra_alert(){ :; }; ovn_gradle_infra_red_count(){ echo 0; }; }
+declare -F ovn_gradle_infra_red_count >/dev/null 2>&1 || ovn_gradle_infra_red_count(){ echo 0; }   # stale lib from a partial deploy: no counter = the first-version behaviour
 # shellcheck source=./scripts/lib_gut_xml.sh
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors) - the old grep 'failures="0"' matched any per-file line and passed red suites.
 source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; gut_xml_emit_fail_ids(){ :; }; }
@@ -376,7 +380,7 @@ fi
 # a GUT gate for Godot repos.
 run_gate() {
   local repo="$1" dir="$2" ran=0 rc=0
-  _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""; _GATE_INFRA_HIT=0   # (_GATE_GUT_KEEP is NOT reset here: hyg_gut_keep replaces/removes the previous attempt's copy itself)
+  _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""; _GATE_INFRA_HIT=0; _GATE_INFRA_RED=0   # (_GATE_GUT_KEEP is NOT reset here: hyg_gut_keep replaces/removes the previous attempt's copy itself)
   # migration safety gate: multi-head + String-FK-to-uuid crash-loop prod (2026-09-03)
   if [ -f "$HOME/overnight-queue/scripts/check_migrations.py" ] && \
      ! python3 "$HOME/overnight-queue/scripts/check_migrations.py" "$dir" >/dev/null 2>&1; then
@@ -553,13 +557,14 @@ run_gate() {
       # pytest TEST_TIMEOUT retry below: one immediate retry in a fresh worktree
       # instead of flagging on a non-code infra crash.
       gradle_out="$(mktemp)"
-      ( cd "$gdir" &&
-        export ANDROID_HOME="$HOME/android-sdk" &&
-        [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
-        timeout "$TEST_TIMEOUT" ./gradlew test --console=plain ) 2>&1 | tee "$gradle_out" | hyg_gate_cap gradle; rc=${PIPESTATUS[0]}
+      # 2026-11-11 (q-infra-gates): ovn_gradle_run = the same build, plus a ./gradlew --stop + ONE retry when the output carries a daemon/host infra signature
+      # ("Failed to exec spawn helper" after unattended-upgrades replaced the JDK under a live daemon held iptv_apps RED for 9 h). Still failing = INFRA-RED (g=4 below).
+      ovn_gradle_run "$gdir" "$gradle_out" "$TEST_TIMEOUT"; rc=$?
+      hyg_gate_cap gradle < "$gradle_out"
       [ "$rc" -eq 124 ] && _GATE_TIMEOUT_HIT=1
       grep -qE "daemon (has disappeared|unexpectedly exit)|Gradle build daemon disappeared unexpectedly" "$gradle_out" && _GATE_TIMEOUT_HIT=1
       [ "$rc" -ne 0 ] && hyg_infra_text "$gradle_out" && _GATE_INFRA_HIT=1   # host storage exhaustion, not a red test (hyg_infra_decide)
+      [ "$rc" -ne 0 ] && [ "${OVN_GRADLE_INFRA_RED:-0}" = 1 ] && { _GATE_INFRA_RED=1; _GATE_TIMEOUT_HIT=0; }   # gradle infra signature survived ./gradlew --stop + retry: INFRA-RED, not a code verdict (and the whole-gate retry would only repeat it)
       rm -f "$gradle_out"
       [ "$rc" -ne 0 ] && return 1
       ran=1
@@ -767,6 +772,7 @@ for repo in "${REPOS[@]}"; do
     hyg_gate_streak "$name" "$FEAT" 0                  # nothing ahead = nothing red to gate: a gate-failure streak is over (fixed out of band)
     hyg_merge_streak "$name" "$FEAT" 0                 # nothing ahead = nothing left to merge: a merge-conflict streak is over
     hyg_infra_skip_reset "$name" "$FEAT"               # nothing ahead = nothing skipped: the consecutive infra-skip count is over
+    [ "${DRY_RUN:-0}" = 1 ] || ovn_gradle_infra_red_count "$STATE_DIR" "$name" "$FEAT" reset >/dev/null   # ... and so is the consecutive INFRA-RED count
     [ "${DRY_RUN:-0}" = 1 ] || rm -f "$STATE_DIR/stub_leak_streak/${name}__${FEAT//[^A-Za-z0-9._-]/_}" 2>/dev/null   # nothing ahead = nothing flagged: a stub-leak streak (and its alerted=1 dedup) is over (P11 reviewer fix)
     # feature has nothing to land, but $mt (develop) may have advanced independently
     # (reconcile's main->develop back-merges, an out-of-band landing) — keep feature
@@ -846,8 +852,28 @@ for repo in "${REPOS[@]}"; do
 
   # 2026-10-13 (part B, see hyg_infra_decide): a failed gate whose output is host storage exhaustion (or whose /tmp cannot create a dir now) is neither red nor blamed on this repo.
   # g=3 = infra skip: no hyg_gate_streak call (neither increment nor reset), no review flag, retried next pass. OVN_HYG_INFRA_SKIP=off = old behaviour.
+  # 2026-11-11 (q-infra-gates): INFRA-RED = the gradle gate failed with a daemon/host signature even after ./gradlew --stop + one retry. g=4: no red streak, no review flag, no revert/park,
+  # NOT merged (conservative), warn once an hour under the distinct key gradle-infra-red. OVN_GRADLE_INFRA_RETRY=off = old scoring (plain red).
+  # Not silent forever: INFRA-RED passes are counted per repo+lane (state/gradle_infra_red_count/, reset by any other verdict). The first OVN_HYG_INFRA_RED_MAX (default 3) consecutive passes are g=4;
+  # from the next one on the failure falls through to NORMAL red scoring (review flag + hyg_gate_streak, so ovn_hygiene_stuck_check pages) - it still never merges - and a `crit` alert is raised.
+  _ir_fall=""; _ir_n=0; _ir_max="${OVN_HYG_INFRA_RED_MAX:-3}"; case "$_ir_max" in ''|*[!0-9]*) _ir_max=3;; esac
+  if [ "$g" -eq 1 ] && [ "${_GATE_INFRA_RED:-0}" = 1 ] && [ "${OVN_GRADLE_INFRA_RETRY:-on}" != off ]; then
+    if [ "$DRY_RUN" = 1 ]; then _ir_n="$(ovn_gradle_infra_red_count "$STATE_DIR" "$name" "$FEAT" get)"; _ir_n=$((_ir_n + 1))
+    else _ir_n="$(ovn_gradle_infra_red_count "$STATE_DIR" "$name" "$FEAT" inc)"; fi
+    if [ "$_ir_n" -le "$_ir_max" ]; then g=4
+    else
+      _ir_fall="INFRA-RED persisted $_ir_n passes"
+      log "  gate INFRA-RED budget exhausted ($_ir_n consecutive INFRA-RED passes for $name $FEAT > $_ir_max) - scoring this failure as a normal red (still not merged)"
+      [ "$DRY_RUN" = 1 ] || ovn_gradle_infra_alert "$STATE_DIR" "$name:$FEAT" "gradle gate INFRA-RED for $_ir_n consecutive passes (> OVN_HYG_INFRA_RED_MAX=$_ir_max) - escalated to a normal red (review flag + gate streak); +$ahead held, NOT merged, needs a human" crit
+    fi
+  elif [ "$DRY_RUN" != 1 ]; then ovn_gradle_infra_red_count "$STATE_DIR" "$name" "$FEAT" reset >/dev/null; fi   # any other verdict ends the consecutive INFRA-RED count
   if [ "$g" -ne 1 ]; then hyg_infra_skip_reset "$name" "$FEAT"
   elif hyg_infra_decide "$name" "$FEAT" "${_GATE_INFRA_HIT:-0}"; then g=3; fi
+  if [ "$g" -eq 4 ]; then
+    log "  gate INFRA-RED: $name $FEAT +$ahead - gradle daemon/host fault persisted after ./gradlew --stop and one retry; not a code failure: no streak, no flag, NOT merging, retrying next pass"
+    [ "$DRY_RUN" = 1 ] || ovn_gradle_infra_alert "$STATE_DIR" "$name:$FEAT" "gradle gate INFRA-RED (daemon/host fault persisted after ./gradlew --stop + retry; pass $_ir_n of $_ir_max before it is scored as a red); +$ahead held, not merged, not counted as a code failure"
+    report "| $name | 🟠 +$ahead, gate INFRA-RED (gradle daemon/host fault) - not merged, not a code failure |"; continue
+  fi
   if [ "$g" -eq 3 ]; then
     log "  gate-infra-skip: $name $FEAT +$ahead - the gate failed on host storage exhaustion (/tmp), not on code; no red streak, no review flag, retrying next pass"
     report "| $name | ⏭ +$ahead, gate skipped (host infra: storage exhausted) - retry next pass |"; continue
@@ -859,7 +885,7 @@ for repo in "${REPOS[@]}"; do
   hyg_gate_streak "$name" "$FEAT" "$g"   # consecutive-failure alert + reset on green (see hyg_gate_streak)
   if [ "$g" -eq 0 ] && [ -n "${_GATE_GUT_KEEP:-}" ]; then rm -f "$_GATE_GUT_KEEP"; _GATE_GUT_KEEP=""; fi   # green: nothing to explain (hyg_gut_keep, P1)
   if [ "$g" -ne 0 ]; then
-    reason=$([ "$g" -eq 1 ] && echo "gate FAILED (build/tests red)" || echo "no build/test gate available")
+    reason=$([ "$g" -eq 1 ] && echo "gate FAILED (build/tests red${_ir_fall:+; $_ir_fall})" || echo "no build/test gate available")
     echo "$reason: $FEAT +$ahead $(date)" > "$flag"
     log "  $reason for $name — NOT merging, flagged for review"
     [ -n "${_GATE_GUT_KEEP:-}" ] && log "  gate GUT output kept in $_GATE_GUT_KEEP"

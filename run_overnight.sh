@@ -172,6 +172,9 @@ command -v ovn_is_manual_bug_text >/dev/null 2>&1 || ovn_is_manual_bug_text() { 
 command -v ovn_open_bug_count >/dev/null 2>&1 || ovn_open_bug_count() { printf '0'; }
 # shellcheck source=scripts/lib_tree_guard.sh
 source "$SCRIPT_DIR/scripts/lib_tree_guard.sh" 2>/dev/null || ovn_unstage_abs_symlinks(){ :; }
+# 2026-11-11 (q-infra-gates): gradle host-infra classification + one retry after ./gradlew --stop. Lib absent = the old single run.
+# shellcheck source=scripts/lib_gradle_infra.sh
+source "$SCRIPT_DIR/scripts/lib_gradle_infra.sh" 2>/dev/null || { OVN_GRADLE_INFRA_RED=0; ovn_gradle_run(){ ( cd "$1" && export ANDROID_HOME="$HOME/android-sdk" && [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties && timeout "${3:-900}" ./gradlew test --console=plain ) > "$2" 2>&1; }; ovn_gradle_infra_alert(){ :; }; }
 # shellcheck source=scripts/lib_gut_xml.sh
 # 2026-10-01: correct GUT green check (root <testsuites failures/errors); the old grep 'failures="0"' passed red suites (xlite main red since 09-29).
 source "$SCRIPT_DIR/scripts/lib_gut_xml.sh" 2>/dev/null || { gut_xml_green(){ return 1; }; gut_xml_summary(){ echo "lib_gut_xml.sh missing"; }; gut_xml_emit_fail_ids(){ :; }; }
@@ -753,6 +756,15 @@ log "Loaded ${TASK_COUNT} task(s) from ${TASKS_FILE}"
 # real output to $task_log (global, set by the caller) and returns one of:
 # "pass" (something ran and all green), "fail" (something ran, at least one
 # failure), "none" (nothing provisioned to run).
+# Status string for a "skip" verify result (2026-11-11): say what is actually wrong. A repo-owned .ovn-verify.sh lock-contention skip keeps the
+# historical text; a missing python runner (marker line written by run_repo_verification after offset $1 of $task_log) names the path.
+ovn_verify_skip_status() {
+  local _off="${1:-0}" _p
+  _p="$(tail -c +$((_off + 1)) "${task_log:-/dev/null}" 2>/dev/null | grep -a 'verify: NO PYTHON TEST RUNNER for ' | tail -1 | sed 's/.*NO PYTHON TEST RUNNER for //; s/ ---$//')"
+  if [ -n "$_p" ]; then echo "error(verify-skipped - no python test runner for ${_p}, retry next cycle)"
+  else echo "error(verify-skipped - lock contended, retry next cycle)"; fi
+}
+
 run_repo_verification() {
   local any_ran=0 any_failed=0 dir py_ran=0 _ovn_vt0
   _ovn_vt0="$(date +%s)"   # r11 P9: wall-clock marker so ovn_cycle_walltime can PROVE verify_s (see _ovn_verify_done_mark)
@@ -877,13 +889,17 @@ run_repo_verification() {
     if ! _ovn_touched "$dir"; then echo "--- skip gradle test in ${dir}: commit did not touch it ---" >> "$task_log"; continue; fi
     if [ -f "${dir}/settings.gradle.kts" ] || [ -f "${dir}/settings.gradle" ]; then
       echo "--- verify: ./gradlew test in ${dir} (240s cap) ---" >> "$task_log"
-      (
-        cd "$dir" &&
-        export ANDROID_HOME="$HOME/android-sdk" &&
-        [ -f local.properties ] || echo "sdk.dir=$ANDROID_HOME" > local.properties &&
-        timeout 240 ./gradlew test --console=plain
-      ) >> "$task_log" 2>&1
-      _ovn_rc=$?; [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark gradle "$dir" "$_ovn_rc"; }
+      # 2026-11-11 (q-infra-gates): ovn_gradle_run = the same build + ./gradlew --stop and ONE retry on a daemon/host infra signature (JDK replaced under a live daemon). Still failing
+      # with the signature = INFRA-RED: logged + warned, NOT counted as a code failure (no revert/park); the hygiene gate stays the conservative merge decision (it will not merge on infra-red).
+      _ovn_gout="$(mktemp)" || _ovn_gout=/dev/null
+      ovn_gradle_run "$dir" "$_ovn_gout" 240; _ovn_rc=$?
+      cat "$_ovn_gout" >> "$task_log" 2>/dev/null; rm -f "$_ovn_gout"
+      if [ "$_ovn_rc" -ne 0 ] && [ "${OVN_GRADLE_INFRA_RED:-0}" = 1 ]; then
+        echo "--- verify: gradle INFRA-RED in ${dir} rc=${_ovn_rc} (daemon/host fault after ./gradlew --stop + retry; not a code failure, commit kept, hygiene will not merge it) ---" >> "$task_log"
+        ovn_gradle_infra_alert "$SCRIPT_DIR/state" "verify:$(basename "$PWD"):$dir" "per-cycle gradle verify INFRA-RED (daemon/host fault persisted after ./gradlew --stop + retry); not counted as a code failure"
+      else
+        [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark gradle "$dir" "$_ovn_rc"; }
+      fi
       any_ran=1
     fi
   done < <(find . -maxdepth 3 -type f -name "gradlew" -print0 2>/dev/null)
@@ -970,9 +986,38 @@ run_repo_verification() {
   # verifier ran although tests exist -> report "skip": the VERIFY-SKIP guard then holds the commit unpushed instead of landing it.
   # OVN_VERIFY_FAIL_CLOSED=0 restores the old behavior.
   _ovn_verify_done_mark
-  if [ "$py_ran" -eq 0 ] && [ "$any_failed" -ne 1 ] && [ "${OVN_VERIFY_FAIL_CLOSED:-1}" = 1 ] \
-     && find . -maxdepth 4 -path '*/tests/test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
+  # 2026-11-11 (xlite): a stdlib-unittest python test (tools/tests/test_tres_format.py) in a repo with no .venv/bin/pytest used to trip the fail-closed
+  # rule below on EVERY cycle (34 error rows / 18 h, all reported as "lock contended"). unittest-style test files need no pytest: run them with the
+  # repo venv python when present, else the system python3 (OVN_VERIFY_UNITTEST=0 disables). Only files that really have no runner stay "skip".
+  local _ut_unrunnable="" _ut_f _ut_py
+  if [ "$py_ran" -eq 0 ] && [ "$any_failed" -ne 1 ] && [ "${OVN_VERIFY_FAIL_CLOSED:-1}" = 1 ]; then
+    while IFS= read -r _ut_f; do
+      [ -z "$_ut_f" ] && continue
+      if [ "${OVN_VERIFY_UNITTEST:-1}" = 1 ] && grep -qE 'unittest\.TestCase|^[[:space:]]*class[[:space:]]+[A-Za-z_0-9]+\([[:space:]]*(unittest\.)?(IsolatedAsync)?TestCase[[:space:]]*\)' "$_ut_f" 2>/dev/null; then
+        _ut_py="$(find . -maxdepth 4 -type f -path '*/.venv/bin/python' 2>/dev/null | head -1)"
+        [ -z "$_ut_py" ] && _ut_py="$(command -v python3 2>/dev/null)"
+        if [ -z "$_ut_py" ]; then _ut_unrunnable="${_ut_unrunnable:-${_ut_f#./}}"; continue; fi
+        echo "--- verify: unittest ${_ut_f#./} via ${_ut_py} (120s cap) ---" >> "$task_log"
+        # fail closed on "0 tests ran": python>=3.12 exits 5, older python exits 0 with "Ran 0 tests" (a false GREEN) -> neither pass nor red, report skip.
+        # The test dir's parent (tools/) goes on PYTHONPATH so sibling-module imports (from tools_pkg import x / import sibling) resolve.
+        local _ut_out _ut_n
+        _ut_out="$(mktemp "${TMPDIR:-/tmp}/ovn-ut.XXXXXX")"
+        PYTHONPATH="$(cd "$(dirname "$_ut_f")/.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" timeout 120 "$_ut_py" -m unittest discover -s "$(dirname "$_ut_f")" -p "$(basename "$_ut_f")" > "$_ut_out" 2>&1
+        _ovn_rc=$?; cat "$_ut_out" >> "$task_log"
+        _ut_n="$(sed -n 's/^Ran \([0-9][0-9]*\) test.*/\1/p' "$_ut_out" | tail -1)"; rm -f "$_ut_out"
+        if [ "$_ovn_rc" -eq 5 ] || { [ "$_ovn_rc" -eq 0 ] && [ "${_ut_n:-0}" -eq 0 ]; }; then
+          _ut_unrunnable="${_ut_unrunnable:-${_ut_f#./}}"; continue
+        fi
+        [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark unittest "${_ut_f#./}" "$_ovn_rc"; }
+        any_ran=1; py_ran=1
+      else
+        _ut_unrunnable="${_ut_unrunnable:-${_ut_f#./}}"
+      fi
+    done < <(find . -maxdepth 4 -path '*/tests/test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' 2>/dev/null | sort)
+  fi
+  if [ -n "$_ut_unrunnable" ] && [ "$any_failed" -ne 1 ]; then
     echo "--- verify: python tests exist but NO usable .venv/bin/pytest was found - verification could not run (fail-closed: skip, not pass) ---" >> "$task_log"
+    echo "--- verify: NO PYTHON TEST RUNNER for ${_ut_unrunnable} ---" >> "$task_log"
     echo "skip"
   elif [ "$any_ran" -eq 0 ]; then
     echo "none"
@@ -3384,8 +3429,8 @@ $(ovn_udiff_nudge_text)"
       # will either verify it for real before anything reaches origin, or build on top
       # of it and catch the break via its own verify run either way.
       if [ "$VERIFY_RESULT" = "skip" ]; then
-        echo "--- VERIFY-SKIP GUARD: verification could not run (lock contention) — holding this cycle's commit unpushed instead of landing it unverified ---" >> "$task_log"
-        echo "error(verify-skipped - lock contended, retry next cycle)"
+        echo "--- VERIFY-SKIP GUARD: verification could not run (lock contention or no test runner) — holding this cycle's commit unpushed instead of landing it unverified ---" >> "$task_log"
+        ovn_verify_skip_status "${_ovn_voff:-0}"
         return
       fi
 
@@ -3997,7 +4042,7 @@ All files you need are already in the chat. You cannot run commands or call tool
       # that was never actually re-verified after the fix-up attempt.
       if [ "$VERIFY_RESULT" = "skip" ]; then
         echo "--- VERIFY-SKIP GUARD (post-fixup): re-verification could not run (lock contention) — holding this cycle's commit unpushed instead of landing it unverified ---" >> "$task_log"
-        echo "error(verify-skipped - lock contended, retry next cycle)"
+        ovn_verify_skip_status "${_ovn_voff:-0}"
         return
       fi
 

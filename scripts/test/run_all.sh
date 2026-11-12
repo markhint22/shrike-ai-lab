@@ -38,13 +38,22 @@ python3(){ _ovn_run_suite python3 "$@"; }
 rc=0
 NOTRUN=0
 # a suite exiting 77 could not run on this host (missing flock/bash 4/source file): it is NOT green - counted and reported at the end (2026-10-14)
-run_or_notrun(){ bash "$1"; _r=$?; if [ "$_r" -eq 77 ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN: $1 did not execute (prerequisites missing)"; elif [ "$_r" -ne 0 ]; then rc=1; fi; }
+run_or_notrun(){ if [ ! -f "$1" ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN: $1 is not present on this host (counted as NOT-RUN, never silently skipped)"; return 0; fi; bash "$1"; _r=$?; if [ "$_r" -eq 77 ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN: $1 did not execute (prerequisites missing)"; elif [ "$_r" -ne 0 ]; then rc=1; fi; }
 # 2026-11-10 (Z8a): a suite that needs files the box does not have (Mac-only scripts, excluded from the deploy tar) is registered with run_if_present: a missing file is a loud SKIP, never rc=1
 # (the unguarded `bash test_z6_notify_guard.sh` made the box suite red for two cron runs). test_run_all_registration_files_exist.sh fails on any OTHER missing registered file.
-run_if_present(){ if [ -f "$1" ]; then bash "$1" || rc=1; else echo "  SKIP: $1 not present on this host (Mac-only file excluded from the deploy tar)"; fi; }
+# 2026-11-11 (q-infra-gates): a present suite that exits 77 (its own prerequisites are missing here, e.g. test_q_z4_advisories.sh on the queue-only box tree) is a SKIP, not a failure. `|| rc=1` turned 77 into
+# rc=1 with no suite named (_ovn_note_fail ignores 77), so the six-hourly suite cron was red 3 runs in a row with an empty FAILED SUITES list. Skipped suites are counted and listed by finish().
+# OVN_RUN_IF_PRESENT_77=fail restores the old mapping (77 -> rc=1).
+SKIPPED=0; SKIPPED_SUITES=""
+run_if_present(){ if [ -f "$1" ]; then bash "$1"; _rip=$?; if [ "$_rip" -eq 0 ]; then :; elif [ "$_rip" -eq 77 ] && [ "${OVN_RUN_IF_PRESENT_77:-skip}" != fail ]; then SKIPPED=$((${SKIPPED:-0}+1)); SKIPPED_SUITES="${SKIPPED_SUITES:-} $1"; echo "  SKIPPED: $1 exited 77 (prerequisites missing on this host) - counted as skipped, not failed"; else rc=1; fi; else SKIPPED=$((${SKIPPED:-0}+1)); SKIPPED_SUITES="${SKIPPED_SUITES:-} $1"; echo "  SKIP: $1 not present on this host (Mac-only file excluded from the deploy tar)"; fi; }
 # the single verdict: green only when every suite ran and passed. A NOT RUN suite is unverified, never green (2026-10-14 review).
 finish(){
-  if [ "$rc" -ne 0 ]; then [ -n "${FAILED_SUITES:-}" ] && echo "FAILED SUITES:${FAILED_SUITES:-}"; echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
+  [ "${SKIPPED:-0}" -gt 0 ] && echo "SKIPPED SUITES (${SKIPPED}, not failures):${SKIPPED_SUITES:-}"
+  if [ "$rc" -ne 0 ]; then
+    if [ -n "${FAILED_SUITES:-}" ]; then echo "FAILED SUITES:${FAILED_SUITES:-}"
+    else echo "FAILED SUITES: (none recorded: rc=$rc was set by a step that is not a named bash/python3 suite - see the last FAIL/❌ line above)"; fi   # a red run with an empty list must be impossible (2026-11-11)
+    echo "❌ SOME QUEUE TESTS FAILED"; return 1
+  fi
   if [ "$NOTRUN" -gt 0 ]; then echo "⚠️  NOT VERIFIED: $NOTRUN suite(s) did not run on this host - this is NOT a green run (run the NOT RUN suites on the box)"; return 1; fi
   # the verdict is re-checked here too: a suite that sets rc=1 must never be followed by the green banner (2026-10-15)
   if [ "$rc" -ne 0 ]; then echo "❌ SOME QUEUE TESTS FAILED"; return 1; fi
@@ -229,6 +238,7 @@ echo; echo "===== run_overnight_core_loop2 ====="; bash test_run_overnight_core_
 echo; echo "===== run_overnight_core_main ====="; bash test_run_overnight_core_main.sh || rc=1
 echo; echo "===== paused restart storm (OVN_PAUSE_WAIT stays up, resumes on flag removal) ====="; bash test_pause_wait_restart_storm.sh || rc=1
 echo; echo "===== run_overnight_core_verify ====="; bash test_run_overnight_core_verify.sh || rc=1
+echo; echo "===== verify unittest runner + honest skip status (xlite 2026-11-11) ====="; bash test_verify_unittest_runner.sh || rc=1
 echo; echo "===== shrike_notify_lib ====="; bash test_shrike_notify_lib.sh || rc=1
 echo; echo "===== staging_smoke ====="; bash test_staging_smoke.sh || rc=1
 echo; echo "===== staging_smoke.conf real-frontend origin ====="; python3 test_staging_smoke_conf_origins.py || rc=1
@@ -657,6 +667,7 @@ echo; echo "===== K5-supply consume (forecast real repos, research_requests cons
 echo; echo "===== K5 planner small-decomposition marker (GNU sed: box-only like test_ovn_planner.sh; 4 mutants) ====="; run_or_notrun test_k5_planner_small_decomp.sh
 echo; echo "===== K6: gate evidence report (shadow gates joined with later outcomes; UNVERIFIED separate; promote/HOLD rule; tool-missing codes; card_credit once-log; digest hook off by default; mutants) ====="; python3 test_ovn_gate_evidence_report.py || rc=1
 echo; echo "===== K1: gate evidence join repair (cycle/base/range/git-verified joins, join reasons, --explain, hand-label worksheet qa_flag_sample.py; 10 mutants) ====="; python3 test_ovn_gate_evidence_join.py || rc=1
+echo; echo "===== supply forecast honest runway: closed-item burn, landed-only kept (q-supply-honest 2026-11-11; 9 mutants) ====="; bash test_q_supply_honest.sh || rc=1
 echo; echo "===== P5 supply truth (shared doable filter, report doable+pullable+excluded, bridge autoclose by feat tag, ALREADY-DONE evidence gate; 16 mutants) ====="; bash test_p5_supply_truth.sh || rc=1
 echo; echo "===== P4 pipeline guards: prod-touch sibling exclusion (outcomes F6) ====="; bash test_p4_prod_touch_siblings.sh || rc=1
 echo; echo "===== P4 pipeline guards: U4 promote flag + py-root-retry audit dedupe (outcomes F7) ====="; bash test_p4_u4_promote_and_pyroot_dedupe.sh || rc=1
@@ -703,7 +714,7 @@ echo; echo "===== Z7 review fix 1: OVN_Z7_ASSERT_RECALL=off restores pre-Z7 asse
 echo; echo "===== Z9: GUT pass/fail comes only from gut_xml_green (root failures/errors, tests>0; 414-zero-line red fixture, old-grep mutant, wiring mutants; 21 checks) ====="; bash test_z9_gut_gate.sh || rc=1
 echo; echo "===== Q Y2 before-enforce checklist: dated-parenthetical collisions, September ALREADY DONE shapes, 3 formerly untested gates, ledger-rebuild (Y2 enforce stays OFF; 14 mutants) ====="; python3 test_q_y2_enforce_checklist.py || rc=1
 echo; echo "===== Q retire_vague recall: backticked test names + suffix/basename path-mismatch exemption tightening (landed together; 8 mutants) ====="; python3 test_q_retire_vague_recall.py || rc=1
-echo; echo "===== Q Z4 advisories A1 (rc 6 refusal escalates after 72 h) A2 (box-deadman log column) A3 (hyg_verdict named-branch guard); A4 + native-build-on-develop are in the Z4 suites above (7 mutants) ====="; run_if_present test_q_z4_advisories.sh
+echo; echo "===== Q Z4 advisories A1 (rc 6 refusal escalates after 72 h) A2 (box-deadman log column) A3 (hyg_verdict named-branch guard); A4 + native-build-on-develop are in the Z4 suites above (7 mutants) ====="; run_or_notrun test_q_z4_advisories.sh
 echo; echo "===== run all registration files exist ====="; bash test_run_all_registration_files_exist.sh || rc=1
 echo; echo "===== z8a bridge commit feature ====="; run_if_present test_z8a_bridge_commit_feature.sh
 echo; echo "===== z8a deadman heartbeat ====="; run_if_present test_z8a_deadman_heartbeat.sh
@@ -718,5 +729,8 @@ else
   echo; echo "===== Z10 Mac test sandbox tests (skipped on non-macOS) ====="
 fi
 echo; echo "===== Q suite-alerts: z8b subshell-cd lint regression + qa-staging-check MISMATCH_BEHIND alert grace (gate verdict unchanged; 3 mutants) ====="; run_if_present test_q_suite_alerts.sh
+echo; echo "===== Q infra-gates A: gradle host-infra classification (daemon on a replaced JDK: --stop + ONE retry, INFRA-RED = no streak/flag/merge, hourly warn gradle-infra-red; deleted-exe daemon guard SHADOW; 9 mutants) ====="; run_or_notrun test_q_gradle_infra.sh
+echo; echo "===== Q infra-gates B: INFRA-RED only in infra context and never beside test failures, consecutive-INFRA-RED budget (falls through to a normal red -> review flag + streak + crit), gradle --stop serialized (flock, no other client), java-only daemon match, run_all NOT-RUN mapping (12 mutants) ====="; run_or_notrun test_q_infra_red_fix.sh
+echo; echo "===== Q infra-gates B: run_if_present maps exit 77 to SKIP (listed), exit 1 still names itself, red never nameless (4 mutants) ====="; bash test_run_all_skip77.sh || rc=1
 echo; finish || rc=1
 exit $rc

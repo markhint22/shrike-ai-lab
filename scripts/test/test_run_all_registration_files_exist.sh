@@ -80,7 +80,7 @@ if [ "${UDIFF_TEST_NO_MUTATION:-0}" = 1 ]; then echo "  (mutation controls skipp
   cmp -s "$LINT" "$T/mut_lint.py" && ok "F0 mutant lint differs from the real one" 0
   lint "$T/mut_lint.py" "$E/ra.sh" "$E" >/dev/null
   ok "F1 MUTANT lint without the missing-file rule passes the incident shape (so B2/E1 genuinely depend on the rule)" "$([ $? = 0 ] && echo 1 || echo 0)"
-  MF="$(printf '%s' "$FN" | sed 's/if \[ -f "\$1" \]; then bash "\$1" || rc=1; else/if true; then bash "$1" || rc=1; else/')"
+  MF="$(printf '%s' "$FN" | sed 's/^run_if_present(){ if \[ -f "\$1" \]; then/run_if_present(){ if true; then/')"   # 2026-11-11: the function now maps 77 to SKIP (one line, same shape)
   [ "$MF" != "$FN" ] || ok "F0b mutant run_if_present differs" 0
   mo="$(cdrive "$MF")"
   ok "F2 MUTANT run_if_present that always runs bash => the missing file turns rc to 1 (C1 would FAIL)" "$(echo "$mo" | grep -q 'after-absent rc=0' && echo 0 || echo 1)"
