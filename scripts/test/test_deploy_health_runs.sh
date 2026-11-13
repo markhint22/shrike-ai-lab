@@ -15,9 +15,9 @@ out=$(STUB_CODE=200 DRYRUN=1 bash deploy_health.sh 2>&1)
 echo "$out" | grep -q "unbound variable" && bad "unbound variable" || ok "no unbound variable / stray command errors"
 echo "$out" | grep -qE "No such file or directory|command not found" && bad "shell errors in output" || ok "no shell errors"
 n=$(echo "$out" | grep -oE "[0-9]+ surfaces checked" | grep -oE "^[0-9]+")
-[ "${n:-0}" -ge 8 ] && ok "all surfaces checked ($n)" || bad "only ${n:-0} surfaces checked"
+[ "${n:-0}" -ge 7 ] && ok "all surfaces checked ($n)" || bad "only ${n:-0} surfaces checked"
 echo "$out" | grep -q "0 currently failing" && ok "stubbed-200 -> 0 failing" || bad "failing count wrong"
 # negative control: proves the stub (not the real network) drives the result
 out5=$(STUB_CODE=503 DRYRUN=1 bash deploy_health.sh 2>&1)
-echo "$out5" | grep -q "8 surfaces checked, 8 currently failing" && ok "stubbed-503 -> 8 failing (stub is what answers)" || bad "stub not in effect (503 control)"
+echo "$out5" | grep -q "7 surfaces checked, 7 currently failing" && ok "stubbed-503 -> 7 failing (stub is what answers)" || bad "stub not in effect (503 control)"
 exit $fail

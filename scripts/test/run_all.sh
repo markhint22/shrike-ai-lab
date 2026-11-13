@@ -732,6 +732,7 @@ echo; echo "===== Q suite-alerts: z8b subshell-cd lint regression + qa-staging-c
 echo; echo "===== Q infra-gates A: gradle host-infra classification (daemon on a replaced JDK: --stop + ONE retry, INFRA-RED = no streak/flag/merge, hourly warn gradle-infra-red; deleted-exe daemon guard SHADOW; 9 mutants) ====="; run_or_notrun test_q_gradle_infra.sh
 echo; echo "===== Q infra-gates B: INFRA-RED only in infra context and never beside test failures, consecutive-INFRA-RED budget (falls through to a normal red -> review flag + streak + crit), gradle --stop serialized (flock, no other client), java-only daemon match, run_all NOT-RUN mapping (12 mutants) ====="; run_or_notrun test_q_infra_red_fix.sh
 echo; echo "===== Q infra-gates B: run_if_present maps exit 77 to SKIP (listed), exit 1 still names itself, red never nameless (4 mutants) ====="; bash test_run_all_skip77.sh || rc=1
+echo; echo "===== q-suite-fix: skip77 fixture leak, SIGPIPE pushed(), fail-fast verify-log section for the baseline hook (5 mutants) ====="; bash test_q_suite_fix.sh || rc=1
 echo; echo "===== q-verify-speed: staged gradle full-verify scoped to native-touching diffs (8 mutants) ====="; bash test_gradle_scope.sh || rc=1
 echo; echo "===== q-verify-speed: tone gate (tone-test-greeting shadow rule + tone-lint real-landing corpus, 7 mutants) ====="; bash test_q_tone_gate.sh || rc=1
 echo; echo "===== q-landing-quality: tone-lint-wide (shadow), assert-flip, dup-test, NEGGREP1 verify lint, test-first-pair detector (all shadow; 28 mutants) ====="; bash test_q_landing_quality.sh || rc=1

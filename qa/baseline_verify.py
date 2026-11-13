@@ -263,7 +263,7 @@ def parse_gut(text, prefix=""):
 
 
 STAGE_ORDER = ["pytest", "gradle", "gut", "vitest", "shell", "docker"]   # == ovn_stage_runner.sh full_verify() order
-_SECTION = re.compile(r"^-- (pytest FULL in (\S+)|gradlew test FULL in (\S+)|GUT FULL --|vitest FULL --|docker build FULL in (\S+)|"
+_SECTION = re.compile(r"^-- (pytest (?:FULL|FAIL-FAST) in (\S+)|gradlew test FULL in (\S+)|GUT FULL --|vitest FULL --|docker build FULL in (\S+)|"
                       r"python tests exist but|QUALITY FAIL|SEMANTIC FAIL|semantic OK)")
 
 
@@ -344,6 +344,15 @@ def parse_verify_log(text):
     if not kinds and not hard:
         complete = False
         reasons.append("verify log has no recognizable test stage (empty or unknown format)")
+    # 2026-11-13 (q-suite-fix review): a log with a FAIL-FAST section and NO FULL section only ran the cycle's OWN test files (the runner skipped the
+    # full suite on purpose). "every red id pre-existing" is then partial evidence, not proof the change broke nothing: incomplete => UNVERIFIED
+    # (compare_sets still lets a NEW red id FAIL, a new red is real whatever the coverage). Also keeps snapshot/refresh from baselining a partial run.
+    failfast_only = False
+    if any(s["head"].startswith("-- pytest FAIL-FAST") for s in secs) and not any(
+            re.match(r"-- (pytest|gradlew test|GUT|vitest|docker build) FULL", s["head"]) for s in secs):
+        failfast_only = True
+        complete = False
+        reasons.append("fail-fast only: the log covers just the cycle's own test files (no FULL section)")
     # Runner stage order and short-circuit: full_verify() runs each later stage only `if vok=1`, so after the first failing stage the
     # rest NEVER RAN. Record which stage kinds may therefore have been skipped; compare_sets() must not call that a PASS.
     first_bad = None
@@ -356,7 +365,8 @@ def parse_verify_log(text):
         skipped = list(STAGE_ORDER[STAGE_ORDER.index(first_bad) + 1:])
         if first_bad == "gradle":
             skipped.insert(0, "gradle")  # further gradle projects are skipped too
-    return _result("verify-log", ids, hard, complete, reasons) | {"kinds": kinds, "skipped_stages": skipped, "first_failed_stage": first_bad}
+    return _result("verify-log", ids, hard, complete, reasons) | {"kinds": kinds, "skipped_stages": skipped, "first_failed_stage": first_bad,
+                                                                   "failfast_only": failfast_only}
 
 
 def parse_ids(text):
@@ -366,7 +376,7 @@ def parse_ids(text):
 
 def detect_format(text):
     t = strip_ansi(text)
-    if re.search(r"(?m)^-- (pytest FULL|gradlew test FULL|GUT FULL|vitest FULL)", t) or "independent full-verify" in t:
+    if re.search(r"(?m)^-- (pytest FULL|pytest FAIL-FAST|gradlew test FULL|GUT FULL|vitest FULL)", t) or "independent full-verify" in t:
         return "verify-log"
     if "Test Files" in t and re.search(r"(?m)^\s*(FAIL|✓|×)\s", t):
         return "vitest"
@@ -615,6 +625,10 @@ def compare_sets(parsed, bl, runner_failed=False, now=None, changed_files=None, 
         elif len(h) >= 2 and h[-1]["count"] > h[-2]["count"]:
             d["growth"] = {"kind": "accepted", "from": h[-2]["count"], "to": h[-1]["count"]}
     if not parsed["complete"]:
+        if parsed.get("failfast_only") and not hard and cur is not None and ids - set(cur["failing"]):
+            new = sorted(ids - set(cur["failing"]))
+            d.update(new_failures=new, preexisting=sorted(ids & set(cur["failing"])))
+            return "FAIL", "%d NEW failing test(s) vs baseline in the cycle's own tests (fail-fast log, partial coverage)" % len(new), d
         return "UNVERIFIED", "cannot compare: " + ("; ".join(parsed["reasons"]) or "incomplete log"), d
     if hard:
         # QUALITY/SEMANTIC/fail-closed/syntax/docker: about THIS change, never baseline-tolerated

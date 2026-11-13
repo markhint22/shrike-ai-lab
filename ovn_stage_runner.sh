@@ -1618,6 +1618,12 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
       echo "-- fail-fast: cycle's own new/changed test files first (timeout ${OVN_FAILFAST_TIMEOUT:-120}s) --" >> "$vlog"
       local _ff_mark; _ff_mark="$(wc -l < "$vlog" 2>/dev/null | tr -d ' ')"
       if ! OVN_NEW_TESTS_TIMEOUT="${OVN_FAILFAST_TIMEOUT:-120}" ovn_run_new_tests "$wt" "${pkg:-.}" "$HOME/overnight-queue/$vp" "" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null || echo HEAD)" "$vlog"; then
+        # 2026-11-13 (q-suite-fix): the early run's pytest output sat in the verify log's PREAMBLE (no "-- pytest ... in <pkg> --" section), so qa/baseline_verify.py parse_verify_log saw no test stage and the
+        # SHADOW baseline hook lost every red id of a fail-fast red (verdict UNVERIFIED/FAIL instead of PASS for a pre-existing red). The red path now labels the early run's lines as a pytest section
+        # (inserted at the mark, so a green/infra early run, which is followed by the real FULL section, never gets a header). OVN_VERIFY_FAILFAST_HEADER=off restores the old unlabeled log.
+        if [ "${OVN_VERIFY_FAILFAST_HEADER:-on}" != "off" ] && [ -f "$vlog" ] && [ -n "${_ff_mark:-}" ]; then
+          awk -v n="$_ff_mark" -v h="-- pytest FAIL-FAST in ${pkg:-.} (the cycle's own test files only; the full suite was skipped) --" '{print} NR==n{print h}' "$vlog" > "$vlog.ffhdr" 2>/dev/null && cat "$vlog.ffhdr" > "$vlog"; rm -f "$vlog.ffhdr"
+        fi
         echo "-- FAIL-FAST: the cycle's own test file(s) are red; skipping the full suite (OVN_VERIFY_FAILFAST_OWN_TESTS=off restores the full run) --" >> "$vlog"; vok=0; _ff_red=1
       elif ! tail -n +"$((${_ff_mark:-0} + 1))" "$vlog" | grep -qE 'infra rc=|\(shadow\)'; then
         _ff_py_green=1   # green with no infra/timeout line: the late NEW/CHANGED TESTS step would run these identical files with the identical pytest again

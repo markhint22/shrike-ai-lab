@@ -13,6 +13,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 . "$HERE/lib_safe_tmp.sh" || { echo "  FAIL: lib_safe_tmp.sh missing"; exit 1; }
 [ -f "$HERE/ntfy_guard.sh" ] && . "$HERE/ntfy_guard.sh"
 export TZ=UTC OVN_NOTIFY_DISABLE=1 NTFY_SERVER=http://127.0.0.1:9
+# 2026-11-13 (q-suite-fix): the cron wrapper exports OVN_SUITE_CAPTURE_DIR; the REAL _ovn_note_fail extracted below appends fixture suites (fx77_bad.sh ...) to $OVN_SUITE_CAPTURE_DIR/failed.tsv, which the cron
+# turned into five bogus 'suite FAILED fx77_bad.sh' alerts.log rows (2026-11-13 08:36). Neutralised for this whole process; section E re-creates it through the real wrapper under env -i.
+unset OVN_SUITE_CAPTURE_DIR
 REAL_SRC="$(cd "$HERE/../.." && pwd)"; SRC="${RA_SRC:-$REAL_SRC}"
 RA="$SRC/scripts/test/run_all.sh"; WR="$SRC/ops/run_suite_sandboxed_cron.sh"
 [ -f "$RA" ] && [ -f "$WR" ] || { echo "  FAIL: run_all.sh / wrapper missing under $SRC"; exit 1; }
@@ -29,7 +32,7 @@ R="$T/ra"; mkdir -p "$R"
   grep -E '^(SKIPPED=0;|run_if_present\(\)\{)' "$RA"
   awk '/^finish\(\)\{/,/^\}$/' "$RA"; } > "$R/fns.sh"
 [ "$(grep -c 'run_if_present()' "$R/fns.sh")" = 1 ] && [ "$(grep -c '^finish()' "$R/fns.sh")" = 1 ] || { echo "  FAIL: could not extract the functions from run_all.sh"; exit 1; }
-printf 'echo "SKIP: prerequisites missing"; exit 77\n' > "$R/skip.sh"; printf 'echo ran-ok; exit 0\n' > "$R/ok.sh"; printf 'echo "  FAIL: a real check failed"; exit 1\n' > "$R/bad.sh"
+printf 'echo "SKIP: prerequisites missing"; exit 77\n' > "$R/fx77_skip.sh"; printf 'echo ran-ok; exit 0\n' > "$R/fx77_ok.sh"; printf 'echo "  FAIL: a real check failed"; exit 1\n' > "$R/fx77_bad.sh"
 run_case(){   # <out> <fake suites...>: run through run_if_present, then finish
   local o="$1"; shift
   ( cd "$R" || exit 99; . "$R/fns.sh"
@@ -39,29 +42,29 @@ run_case(){   # <out> <fake suites...>: run through run_if_present, then finish
 has(){ grep -qE -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
 
 # ===== A =====
-rm -f "$T/a"*; run_case "$T/a" skip.sh
+rm -f "$T/a"*; run_case "$T/a" fx77_skip.sh
 ok "A1 a suite exiting 77 does NOT fail the run: rc stays 0, verdict green (frc=0)" "$(has $T/a '^frc=0 rc=0 skipped=1$')"
-ok "A2 ...and the final summary LISTS the skipped suite" "$(has $T/a 'SKIPPED SUITES \(1, not failures\): skip.sh')"
+ok "A2 ...and the final summary LISTS the skipped suite" "$(has $T/a 'SKIPPED SUITES \(1, not failures\): fx77_skip.sh')"
 ok "A3 ...with the green banner, no FAILED banner" "$([ "$(has $T/a 'ALL QUEUE TESTS PASS')" = 1 ] && [ "$(has $T/a 'SOME QUEUE TESTS FAILED')" = 0 ] && echo 1 || echo 0)"
-ok "A4 the run body says SKIPPED (not NOT RUN / FAILED)" "$(has $T/a.body 'SKIPPED: skip.sh exited 77')"
-rm -f "$T/a2"*; run_case "$T/a2" ok.sh skip.sh ok.sh
-ok "A5 passes around a skip stay green, the skip is still listed" "$([ "$(has $T/a2 '^frc=0 rc=0 skipped=1$')" = 1 ] && [ "$(has $T/a2 'SKIPPED SUITES.*skip.sh')" = 1 ] && echo 1 || echo 0)"
+ok "A4 the run body says SKIPPED (not NOT RUN / FAILED)" "$(has $T/a.body 'SKIPPED: fx77_skip.sh exited 77')"
+rm -f "$T/a2"*; run_case "$T/a2" fx77_ok.sh fx77_skip.sh fx77_ok.sh
+ok "A5 passes around a skip stay green, the skip is still listed" "$([ "$(has $T/a2 '^frc=0 rc=0 skipped=1$')" = 1 ] && [ "$(has $T/a2 'SKIPPED SUITES.*fx77_skip.sh')" = 1 ] && echo 1 || echo 0)"
 
 # ===== B =====
-rm -f "$T/b"*; run_case "$T/b" bad.sh skip.sh
+rm -f "$T/b"*; run_case "$T/b" fx77_bad.sh fx77_skip.sh
 ok "B1 a suite exiting 1 still fails the run (frc=1 rc=1)" "$(has $T/b '^frc=1 rc=1 skipped=1$')"
-ok "B2 ...and NAMES ITSELF in FAILED SUITES" "$(has $T/b '^FAILED SUITES: bad.sh$')"
-ok "B3 ...the skipped one is not in the failed list but is listed as skipped" "$([ "$(has $T/b '^FAILED SUITES:.*skip.sh')" = 0 ] && [ "$(has $T/b 'SKIPPED SUITES.*skip.sh')" = 1 ] && echo 1 || echo 0)"
+ok "B2 ...and NAMES ITSELF in FAILED SUITES" "$(has $T/b '^FAILED SUITES: fx77_bad.sh$')"
+ok "B3 ...the skipped one is not in the failed list but is listed as skipped" "$([ "$(has $T/b '^FAILED SUITES:.*fx77_skip.sh')" = 0 ] && [ "$(has $T/b 'SKIPPED SUITES.*fx77_skip.sh')" = 1 ] && echo 1 || echo 0)"
 ok "B4 verdict banner is the FAILED one" "$(has $T/b 'SOME QUEUE TESTS FAILED')"
-rm -f "$T/b2"*; run_case "$T/b2" nosuch.sh ok.sh
-ok "B5 a registered-but-absent file is a listed skip, not a failure" "$([ "$(has $T/b2 '^frc=0 rc=0 skipped=1$')" = 1 ] && [ "$(has $T/b2 'SKIPPED SUITES.*nosuch.sh')" = 1 ] && echo 1 || echo 0)"
+rm -f "$T/b2"*; run_case "$T/b2" fx77_nosuch.sh fx77_ok.sh
+ok "B5 a registered-but-absent file is a listed skip, not a failure" "$([ "$(has $T/b2 '^frc=0 rc=0 skipped=1$')" = 1 ] && [ "$(has $T/b2 'SKIPPED SUITES.*fx77_nosuch.sh')" = 1 ] && echo 1 || echo 0)"
 
 # ===== C: a red run can never have an empty, silent list =====
 rm -f "$T/c"*; ( cd "$R" || exit 99; . "$R/fns.sh"; rc=1; finish >"$T/c" 2>&1; echo "frc=$?" >>"$T/c" )
 ok "C1 rc=1 with nothing recorded: finish says so explicitly (rc named) instead of printing no FAILED SUITES line" "$([ "$(has $T/c 'FAILED SUITES: \(none recorded: rc=1')" = 1 ] && [ "$(has $T/c 'SOME QUEUE TESTS FAILED')" = 1 ] && [ "$(has $T/c '^frc=1$')" = 1 ] && echo 1 || echo 0)"
 
 # ===== D =====
-rm -f "$T/d"*; OVN_RUN_IF_PRESENT_77=fail run_case "$T/d" skip.sh
+rm -f "$T/d"*; OVN_RUN_IF_PRESENT_77=fail run_case "$T/d" fx77_skip.sh
 ok "D1 OVN_RUN_IF_PRESENT_77=fail restores the old mapping (77 -> rc=1)" "$(has $T/d '^frc=1 rc=1 skipped=0$')"
 
 # ===== E: the cron wrapper, end to end with a stub run_all_sandboxed.sh that exits red with an EMPTY failed.tsv =====

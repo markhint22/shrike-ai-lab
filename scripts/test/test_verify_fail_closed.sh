@@ -36,7 +36,7 @@ rm -f /tmp/vfc.$$
 . "$HERE/lib_osr_fixture.sh"
 trap osr_cleanup EXIT
 export OVN_STAGE_DEDICATE=0 OVN_VERIFY_REPAIR_ROUNDS=0 OVN_VERIFY_REGEN=0
-pushed(){ git -C "$O" log --format=%s overnight/feature | grep -q 'staged step'; }
+pushed(){ local s; s="$(git -C "$O" log --format=%s overnight/feature)"; grep -q 'staged step' <<<"$s"; }
 osr_new; osr_plan default "$PLAN_FOO"; osr_aider 1 "$SNIP_FOO"      # NOTE: no osr_venv -> no live venv pytest, but the fixture repo has backend/tests
 osr_run "$OSR_REPO" "$ITEM_PY"
 t "no live venv pytest but python tests exist -> independent verify FAILED, NOT pushing" bash -c "grep -q 'independent full-verify: FAILED' '$T/out.txt'"

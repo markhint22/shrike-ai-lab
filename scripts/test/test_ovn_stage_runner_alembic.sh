@@ -119,7 +119,7 @@ t "operation names in the log line" bash -c "grep -q 'ops: add_column items.note
 t "hook outcome journaled" J '"event":"alembic_autogen"'
 t "hook ran BEFORE the independent full_verify" bash -c "[ \$(grep -n 'ALEMBIC-AUTOGEN: generated' '$T/out.txt' | head -1 | cut -d: -f1) -lt \$(grep -n 'independent full-verify' '$T/out.txt' | head -1 | cut -d: -f1) ]"
 t "origin has the generated migration (2 files: baseline + new)" bash -c "[ \$(git -C '$O' ls-tree -r --name-only overnight/feature | grep -c '^backend/alembic/versions/.*\\.py\$') = 2 ]"
-t "the migration commit is on origin, with an Operations: list" bash -c "git -C '$O' log --format=%B $H0..overnight/feature | grep -q '^Operations: add_column items.note'"
+t "the migration commit is on origin, with an Operations: list" bash -c "m=\"\$(git -C '$O' log --format=%B $H0..overnight/feature)\"; grep -q '^Operations: add_column items.note' <<<\"\$m\""
 t "step + migration + credit = 3 verified commits pushed together" G "pushed 3 verified commit(s)"
 t "T2 'create migration' item credited on origin" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q '^- \[x\] (satisfied by auto-generated migration 0002_.*\.py) \[T3\] backend/alembic/versions/0002_item_note.py'"
 t "T1/model item checked off by the runner itself" bash -c "git -C '$O' show overnight/feature:OVERNIGHT_PROGRESS.md | grep -q '^- \[x\] \[T3\] backend/app/models.py.*staged 1/1 DONE'"

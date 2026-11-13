@@ -560,7 +560,7 @@ def t_prod():
     check("prod: 200 outside an explicit code list is a breach", sev(rep, "prod_health", "bad_codes") == "crit")
     # the shipped list: parseable, named, only http(s)
     urls_f, src = slo.load_prod_urls(os.path.join(SCRIPTS, ".."), os.path.join(r, "state"))
-    check("prod: ops/slo_prod_urls.txt ships the known-good prod URLs", len(urls_f) >= 8 and all(u.startswith("https://") for _, u, _ in urls_f) and ("billwatch-backend" in [n for n, _, _ in urls_f]), str(src))
+    check("prod: ops/slo_prod_urls.txt ships the known-good prod URLs", len(urls_f) >= 7 and all(u.startswith("https://") for _, u, _ in urls_f) and ("billwatch-backend" in [n for n, _, _ in urls_f] and "specpilot-backend" not in [n for n, _, _ in urls_f]), str(src))
     check("prod: OVN_SLO_PROD_CHECK=off skips the probes", collect(r, net=True)["prod"]["state"] in ("disabled", "nodata"))
 
 

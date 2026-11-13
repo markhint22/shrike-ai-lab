@@ -13,6 +13,9 @@ SIGEQ(){ if [ "$2" = "$3" ]; then ok "$1" 1; else ok "$1" 0; diff <(echo "$2") <
 T2(){ local l="$1"; if eval "$2" >/dev/null 2>&1; then ok "$l" 1; else ok "$l" 0; fi; }
 export OVN_QA_SHADOW=off OVN_STAGE_DEDICATE=0 OVN_VERIFY_REPAIR_ROUNDS=0 OVN_VERIFY_REGEN=0
 unset OVN_BASELINE_SHADOW OVN_QA_BASELINE 2>/dev/null || true
+# 2026-11-13 (q-suite-fix review): with the cycle-own-tests fail-fast ON the red log carries only a FAIL-FAST section (partial evidence -> UNVERIFIED, see the last section).
+# The scenarios above model a FULL-suite red, so they run with the fail-fast off; the fail-fast-on case is asserted explicitly below.
+export OVN_VERIFY_FAILFAST_OWN_TESTS=off
 command -v jq >/dev/null || { echo "jq missing - skipped"; exit 0; }
 command -v timeout >/dev/null || { echo "no GNU timeout (the runner itself needs it; box-only test) - skipped"; exit 0; }
 PYB="$(command -v python3.12 || command -v python3)"
@@ -156,6 +159,18 @@ echo "== set -u safety: the hook cannot abort the runner even with hostile env"
 scene "$OLD" "$OLD"
 OVN_BASELINE_SHADOW= PYTHONPATH=/nonexistent osr_run "$OSR_REPO" "$ITEM_PY"
 T2 "runner reached its normal end (DONE line) and exit code unchanged" "grep -q 'DONE: 0/' '$T/out.txt' && [ $RC = 0 ]"
+osr_cleanup
+
+echo "== fail-fast-only red log (own tests red, full suite skipped): pre-existing ids must NOT be a would-be rescue"
+scene "$OLD" "$OLD"
+OVN_VERIFY_FAILFAST_OWN_TESTS=on osr_run "$OSR_REPO" "$ITEM_PY"
+if osr_vlog | grep -q '^-- pytest FAIL-FAST'; then
+  R="$(LASTROW)"
+  T2 "fail-fast-only: row verdict UNVERIFIED (partial evidence), not PASS" "[ \"\$(jq -r .verdict <<<\"\$R\")\" = UNVERIFIED ]"
+  T2 "fail-fast-only: would_have_rescued=false and real_rescue=false" "jq -e '.would_have_rescued==false and .real_rescue==false' <<<\"\$R\""
+else
+  ok "fail-fast-only fixture produced a FAIL-FAST section (own-test file was not red in this fixture)" 0
+fi
 osr_cleanup
 
 osr_summary

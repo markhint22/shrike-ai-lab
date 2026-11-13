@@ -9,7 +9,10 @@ trap osr_cleanup EXIT
 G(){ grep -qF -- "$1" "$T/out.txt"; }
 V(){ grep -qF -- "$1" <<<"$VL"; }
 vl(){ VL="$(osr_vlog)"; }
-pushed(){ git -C "$O" log --format=%s overnight/feature | grep -q 'staged step 0'; }
+# 2026-11-13 (q-suite-fix): NOT `git log | grep -q` - under `set -o pipefail` grep -q exits at the first match, git log can then die of SIGPIPE (rc 141) and the pipeline reads as "no match":
+# a load-dependent false "pushed" FAIL in the 08:36 suite cron (and, negated, a false "NOT pushed" pass). Capture first, then match with a here-string.
+origin_subjects(){ git -C "$O" log --format=%s overnight/feature 2>/dev/null; }
+pushed(){ local l; l="$(origin_subjects)"; grep -q 'staged step 0' <<<"$l"; }
 base(){ osr_new; osr_venv backend; osr_plan default "$PLAN_FOO"; osr_aider 1 "$SNIP_FOO"; }
 export OVN_STAGE_DEDICATE=0 OVN_VERIFY_REPAIR_ROUNDS=0 OVN_VERIFY_REGEN=0
 
@@ -27,7 +30,7 @@ echo "== python: new test red ONLY when run explicitly -> unverified, never push
 base; echo "failfile:tests/test_foo.py" > "$T/scn/pytest.mode"
 osr_run "$OSR_REPO" "$ITEM_PY"; vl
 t "red new test: NOT verified" G "independent full-verify: FAILED"
-t "red new test: NOT pushed" bash -c "! git -C '$O' log --format=%s overnight/feature | grep -q 'staged step 0'"
+t "red new test: NOT pushed" bash -c "git -C '$O' log --format=%s overnight/feature > '$T/subj.txt'; ! grep -q 'staged step 0' '$T/subj.txt'"
 t "red new test: verify log says NEW-TESTS RED" V "NEW-TESTS RED"
 osr_cleanup
 base; echo "failfile:tests/test_foo.py" > "$T/scn/pytest.mode"

@@ -375,7 +375,8 @@ ro_mkrepo iptv_apps "$FOLD_PROG" >/dev/null
 echo 'OVN_BESTOF_N=1' > "$ST/pilot_flags.env"; cp "$TMP/scn_plain" "$RO_STUB/scn"; : > "$RO_STUB/aider_n"; rm -f "$ST/outcomes.jsonl"
 ro_tasks "$(jq -nc --arg R "$R" '[{id:"t-fold",repo:($R+"/iptv_apps"),prompt:"x"}]')"
 ro_run_main
-ok "sanitizer folded the migration item before the scout ran" "$(git -C "$R/iptv_apps" log --all --format=%s | grep -q 'fold migration item' && echo 1 || echo 0)"
+FMI="$(git -C "$R/iptv_apps" log --all --format=%s)"
+ok "sanitizer folded the migration item before the scout ran" "$(grep -q 'fold migration item' <<<"$FMI" && echo 1 || echo 0)"
 
 echo "== Y2 scout grounding: pure (ovn_scout_ground.py) =="
 GR="$Q/ovn_scout_ground.py"

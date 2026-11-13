@@ -201,9 +201,9 @@ write_model proj unrelated; git add -A; git commit -qm "chore: someone added leg
 sed -i 's/^    qty = .*/&\n    note = Column(String(20))/' proj/app/models.py; git add -A; git commit -qm "feat(models): add item note column"
 out="$(hook "$B")"; msg="$(git log -2 --format=%B | head -40)"
 echo "$out" | grep -q 'generated and committed .*| ops: .*add_column items.note' && echo "$out" | grep -q 'add_column items.legacy_flag' && ok "hook log names both operations" || bad "log: $out"
-git log --format=%B -n 3 | grep -q '^Operations: .*add_column items.note' && git log --format=%B -n 3 | grep -q 'add_column items.legacy_flag' && ok "commit message lists Operations: (both)" || bad "commit msg: $(git log --format=%B -n 2)"
+m3="$(git log --format=%B -n 3)"; grep -q '^Operations: .*add_column items.note' <<<"$m3" && grep -q 'add_column items.legacy_flag' <<<"$m3" && ok "commit message lists Operations: (both)" || bad "commit msg: $(git log --format=%B -n 2)"
 echo "$out" | grep -q 'UNRELATED?: add_column items.legacy_flag' && ! echo "$out" | grep -q 'UNRELATED?:.*items.note' && ok "only the pre-existing drift is flagged UNRELATED (not the cycle's own note column)" || bad "unrelated flag wrong: $out"
-git log --format=%B -n 3 | grep -q 'NOTE - op(s) not traceable to this cycle' && ok "commit message carries the NOTE for the bundled drift" || bad "no NOTE in commit"
+m3="$(git log --format=%B -n 3)"; grep -q 'NOTE - op(s) not traceable to this cycle' <<<"$m3" && ok "commit message carries the NOTE for the bundled drift" || bad "no NOTE in commit"
 R="$(mkrepo)"; cd "$R"; B=$(git rev-parse HEAD)
 sed -i 's/^    qty = .*/&\n    note = Column(String(20))/' proj/app/models.py; git add -A; git commit -qm "feat(models): add item note column"
 out="$(hook "$B")"; echo "$out" | grep -q 'UNRELATED' && bad "benign: clean change falsely flagged: $out" || ok "benign: a clean model change is not flagged UNRELATED"
@@ -215,7 +215,7 @@ printf 'from alembic import op\nimport sqlalchemy as sa\nrevision = "0002_item_n
 git add -A; git commit -qm "feat: note + backfill migration"
 out="$(hook "$B")"
 echo "$out" | grep -q '!! WARNING: discarding hand-written migration proj/alembic/versions/0002_item_note.py which contains DATA operations' && ok "log warns about the discarded data migration" || bad "no warning: $out"
-git log --format=%B -n 3 | grep -q 'WARNING - discarded hand-written migration(s) containing data operations (needs a human): 0002_item_note.py' && ok "commit message records the loss" || bad "no WARNING in commit: $(git log --format=%B -n 2)"
+m3="$(git log --format=%B -n 3)"; grep -q 'WARNING - discarded hand-written migration(s) containing data operations (needs a human): 0002_item_note.py' <<<"$m3" && ok "commit message records the loss" || bad "no WARNING in commit: $(git log --format=%B -n 2)"
 R="$(mkrepo)"; cd "$R"; B=$(git rev-parse HEAD)
 sed -i 's/^    qty = .*/&\n    note = Column(String(20))/' proj/app/models.py
 printf 'from alembic import op\nimport sqlalchemy as sa\nrevision = "0002_item_note"\ndown_revision = "0009"\nbranch_labels = None\ndepends_on = None\ndef upgrade():\n    op.add_column("items", sa.Column("note", sa.String(20)))\ndef downgrade(): pass\n' > proj/alembic/versions/0002_item_note.py

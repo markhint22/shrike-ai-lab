@@ -55,7 +55,6 @@ gitlark-backend|https://gitlark-production.up.railway.app/health
 gitlark-frontend|https://gitlark.vercel.app
 chickadee-backend|https://chickadeestream-production.up.railway.app/health
 chickadee-frontend|https://chickadeestream.com
-specpilot-backend|https://specpilot.fly.dev/health
 shrike-website|https://shrikelabs.dev
 "
 
@@ -94,17 +93,6 @@ for line in $SURFACES; do
   fi
 done
 
-# SpecPilot route-drift smoke: /health can be 200 while the deployed build is ancient
-# (new routes 404). Catch that specifically (the audit's recommended check).
-sp="$(code https://specpilot.fly.dev/api/orgs)"
-spf="$STATE/specpilot-routes.state"; sprev="$(cat "$spf" 2>/dev/null || echo NEW)"
-if [ "$sp" = 404 ]; then
-  [ "$sprev" != 404 ] && alert "specpilot-routes" "⚠️ SpecPilot serving an old build" "warning" "specpilot.fly.dev /health is up but /api/orgs returns 404 — the live Fly build predates the current code (deploy not wired to main). Human: set FLY_API_TOKEN / wire fly deploy. See HUMAN_QUEUE." "default"
-  log "specpilot-routes: 404 (ancient build — human-gated, suppressed)"
-else
-  [ "$sprev" = 404 ] && alert "specpilot-routes-recovered" "✅ SpecPilot routes live" "white_check_mark" "specpilot.fly.dev /api/orgs now returns $sp — the Fly build is current again." "low"
-  log "specpilot-routes: ok ($sp)"
-fi
-echo "$sp" > "$spf"
+# SpecPilot Fly app retired 2026-11-13 (Mark; spend). Probe removed. (no /health or /api/orgs route-drift check).
 
 log "deploy_health: $checked surfaces checked, $fails currently failing"
