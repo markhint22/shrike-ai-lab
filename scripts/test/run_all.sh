@@ -734,5 +734,7 @@ echo; echo "===== Q infra-gates B: INFRA-RED only in infra context and never bes
 echo; echo "===== Q infra-gates B: run_if_present maps exit 77 to SKIP (listed), exit 1 still names itself, red never nameless (4 mutants) ====="; bash test_run_all_skip77.sh || rc=1
 echo; echo "===== q-verify-speed: staged gradle full-verify scoped to native-touching diffs (8 mutants) ====="; bash test_gradle_scope.sh || rc=1
 echo; echo "===== q-verify-speed: tone gate (tone-test-greeting shadow rule + tone-lint real-landing corpus, 7 mutants) ====="; bash test_q_tone_gate.sh || rc=1
+echo; echo "===== q-landing-quality: tone-lint-wide (shadow), assert-flip, dup-test, NEGGREP1 verify lint, test-first-pair detector (all shadow; 28 mutants) ====="; bash test_q_landing_quality.sh || rc=1
+echo; echo "===== q-landing-quality: fail-fast on the cycle's own new/changed tests before the full suite (same verdict on/off; 6 mutants) ====="; bash test_q_failfast_own_tests.sh || rc=1
 echo; finish || rc=1
 exit $rc

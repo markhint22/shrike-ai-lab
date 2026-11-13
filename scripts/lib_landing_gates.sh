@@ -6,6 +6,9 @@
 #   OVN_Z3_STEP_DIFF      B1  step-diff-mismatch   quoted tokens of the step text must appear in the step diff
 #   OVN_Z3_TONE           B2  tone-lint            Hey/Yo/Buzz/... newly added to a file (OVN_Z3_TONE_TOKENS="Hey|Yo|..." overrides the list). DEFAULT ENFORCE since 2026-11-12 (OVN_Z3_TONE=shadow or OVN_Z3_TONE_LINT=shadow reverts)
 #   OVN_Z3_TONE_TEST      B2b tone-test-greeting  FLAG ONLY (q-verify-speed 2026-11-12): a TEST file asserts/opens with Hey/Yo/Buzz/... (the inverted-test landings tone-lint skips); `enforce` behaves as shadow
+#   OVN_Z3_TONE_WIDE      B2w tone-lint-wide      SHADOW ONLY (q-landing-quality 2026-11-12): wider casual set (Check out/Grab/Awesome/...) on product strings; `enforce` behaves as shadow; off disables
+#   OVN_Z3_DUP_TEST       B8  dup-test            SHADOW ONLY: the same test function name defined >= 2 times in the added lines of one file of one commit; `enforce` behaves as shadow
+#   OVN_Z3_ASSERT_FLIP    B7b assert-weaken kind=assert-flip  SHADOW (flag only): a fix-up/repair round rewrote an existing assertion's expected literal (default on; off drops it)
 #   OVN_Z3_REPAIR_ROUTE   B3  repair-new-route     a repair-to-pass-verification round may not add a route/endpoint
 #   OVN_Z3_TEST_SRC       B4  test-item-src-edit   a test-creation item may not touch non-test source
 #   OVN_Z3_CALL_DROP      B5  call-dropped         FLAG ONLY: `enforce` is accepted but behaves as shadow (a heuristic, never a veto)
@@ -111,7 +114,9 @@ z3_step_gate() {
       test-item-src-edit) mode="$(_z3_mode OVN_Z3_TEST_SRC)";;
       call-dropped) mode="$(_z3_mode OVN_Z3_CALL_DROP)"; [ "$mode" = enforce ] && mode=shadow;;
       assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)"; [ "$mode" = enforce ] && mode=shadow;;
-      tone-test-greeting) mode="$(_z3_mode OVN_Z3_TONE_TEST)"; [ "$mode" = enforce ] && mode=shadow;;   # q-verify-speed: heuristic for the test-file coverage gap, never a veto
+      tone-test-greeting) mode="$(_z3_mode OVN_Z3_TONE_TEST)"; [ "$mode" = enforce ] && mode=shadow;;
+      tone-lint-wide) mode="$(_z3_mode OVN_Z3_TONE_WIDE)"; [ "$mode" = enforce ] && mode=shadow;;   # q-landing-quality: wide set is measurement only, never a veto
+      dup-test) mode="$(_z3_mode OVN_Z3_DUP_TEST)"; [ "$mode" = enforce ] && mode=shadow;;   # q-verify-speed: heuristic for the test-file coverage gap, never a veto
       *) mode=shadow;;
     esac
     [ "$mode" = off ] && continue
@@ -194,13 +199,18 @@ z3_commit_audit() {
   py="$(_z3_py)"; [ -f "$py" ] || return 0
   command -v python3 >/dev/null 2>&1 || return 0
   command -v timeout >/dev/null 2>&1 && to="timeout 60"
-  out="$($to python3 "$py" step-check --kind step --item "$item" --repo "$rd" --base "$base" --head "$head" 2>/dev/null)" || return 0
+  # q-landing-quality (2026-11-12): a commit in the range whose subject carries the cycle's FIX-UP marker (the stage runner's "repair staged item to pass verification (round N)", or a subject
+  # starting fix-up/fixup/repair after the conventional type prefix) is a FIX-UP round: assert-flip (an existing assertion's expected literal rewritten) is judged there. A plain
+  # `fix: ... test ...` subject of an ordinary feature commit is NOT a fix-up. kind=fixup only adds assert-flip; it does not change any other tier.
+  local ck=step
+  git -C "$rd" log --format=%s "$base..$head" 2>/dev/null | grep -qiE '(^([a-z]+(\([^)]*\))?:[[:space:]]*)?(fix-?up|repair)([^a-z]|$))|repair staged item to pass verification' && ck=fixup
+  out="$($to python3 "$py" step-check --kind "$ck" --item "$item" --repo "$rd" --base "$base" --head "$head" 2>/dev/null)" || return 0
   case "$out" in *'"rule"'*) ;; *) return 0;; esac
   mkdir -p "$sd" 2>/dev/null; _z3_rotate "$sd/landing_gates_shadow.log"
-  printf '%s' "$out" | OVN_Z3_ENV_STEP_DIFF="${OVN_Z3_STEP_DIFF:-shadow}" OVN_Z3_ENV_TONE="$(_z3_tone_mode)" OVN_Z3_ENV_TEST_SRC="${OVN_Z3_TEST_SRC:-shadow}" OVN_Z3_ENV_ASSERT="${OVN_Z3_ASSERT_WEAKEN:-shadow}" OVN_Z3_ENV_CALL="${OVN_Z3_CALL_DROP:-shadow}" OVN_Z3_ENV_TONETEST="${OVN_Z3_TONE_TEST:-shadow}" python3 -c '
+  printf '%s' "$out" | OVN_Z3_ENV_STEP_DIFF="${OVN_Z3_STEP_DIFF:-shadow}" OVN_Z3_ENV_TONE="$(_z3_tone_mode)" OVN_Z3_ENV_TEST_SRC="${OVN_Z3_TEST_SRC:-shadow}" OVN_Z3_ENV_ASSERT="${OVN_Z3_ASSERT_WEAKEN:-shadow}" OVN_Z3_ENV_CALL="${OVN_Z3_CALL_DROP:-shadow}" OVN_Z3_ENV_TONETEST="${OVN_Z3_TONE_TEST:-shadow}" OVN_Z3_ENV_TONEWIDE="${OVN_Z3_TONE_WIDE:-shadow}" OVN_Z3_ENV_DUP="${OVN_Z3_DUP_TEST:-shadow}" python3 -c '
 import json,sys,os,time
 label=sys.argv[1]
-flag={"step-diff-mismatch":"OVN_Z3_ENV_STEP_DIFF","tone-lint":"OVN_Z3_ENV_TONE","test-item-src-edit":"OVN_Z3_ENV_TEST_SRC","assert-weaken":"OVN_Z3_ENV_ASSERT","call-dropped":"OVN_Z3_ENV_CALL","tone-test-greeting":"OVN_Z3_ENV_TONETEST"}
+flag={"step-diff-mismatch":"OVN_Z3_ENV_STEP_DIFF","tone-lint":"OVN_Z3_ENV_TONE","test-item-src-edit":"OVN_Z3_ENV_TEST_SRC","assert-weaken":"OVN_Z3_ENV_ASSERT","call-dropped":"OVN_Z3_ENV_CALL","tone-test-greeting":"OVN_Z3_ENV_TONETEST","tone-lint-wide":"OVN_Z3_ENV_TONEWIDE","dup-test":"OVN_Z3_ENV_DUP"}
 try: d=json.load(sys.stdin)
 except Exception: sys.exit(0)
 for f in d.get("findings",[]):

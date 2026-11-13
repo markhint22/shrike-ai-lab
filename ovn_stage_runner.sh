@@ -1594,7 +1594,7 @@ fi
 # "wire X into Y" that never wired, both false-passed). Before we trust/push/mark ANYTHING, run the
 # ENTIRE relevant suite on the combined result + a semantic check. Nothing lands unless this is green.
 full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
-  local vok=1 vlog="${SLOG%.jsonl}.verify.log"; : > "$vlog"
+  local vok=1 vlog="${SLOG%.jsonl}.verify.log" _ff_red=0 _ff_py_green=0; : > "$vlog"
   echo "$(date '+%F %T') independent full-verify (combined result)" >> "$vlog"
   # PYTHON: FULL suite (catches circular imports / cross-file breaks / all tests) via the live venv
   local vp; vp="$(find "$rd" -maxdepth 4 -path '*/.venv/bin/pytest' 2>/dev/null | head -1)"
@@ -1608,8 +1608,23 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
     # 2026-09-29: parallel (pytest-xdist) for allowlisted repos - iptv_apps' full suite is ~456s
     # serial vs ~64s with -n 8, and this runs on every staged (T3+) run. Empty (=> serial, as
     # before) unless the repo is allowlisted AND xdist imports in the live venv used here.
+    # 2026-11-12 (q-landing-quality): FAIL-FAST on the cycle's OWN new/changed test files. iptv get_backoff_delay ran the 5500-test suite 9 times (~35 min) for a 0.1 s failing test. The own files run FIRST
+    # (ovn_run_new_tests, pytest timeout 120) and a RED stops the verify BEFORE the full suite. Pure ordering: the same files run again, red, in the NEW/CHANGED TESTS step below whenever the full suite
+    # had been green, and a red full suite is red anyway, so the verdict (red) cannot change; green/infra/timeout falls through to the unchanged flow. The only state that differs between the
+    # early and the late run is an untracked alembic stub the drop-stubs helper deletes later: with one present the early stop is skipped. OVN_VERIFY_FAILFAST_OWN_TESTS=off restores the old order.
+    if [ "${OVN_VERIFY_FAILFAST_OWN_TESTS:-on}" != "off" ] && [ "${OVN_RUN_NEW_TESTS:-on}" != "off" ] && declare -F ovn_run_new_tests >/dev/null 2>&1 \
+       && ! git -C "$wt" ls-files -o --exclude-standard 2>/dev/null | grep -qE '(^|/)alembic/versions/'; then
+      # PYTHON files only (godot arg empty): GUT must never run before the `godot --import` step; GUT keeps its single late run. A project.godot tree gets no early GUT either way.
+      echo "-- fail-fast: cycle's own new/changed test files first (timeout ${OVN_FAILFAST_TIMEOUT:-120}s) --" >> "$vlog"
+      local _ff_mark; _ff_mark="$(wc -l < "$vlog" 2>/dev/null | tr -d ' ')"
+      if ! OVN_NEW_TESTS_TIMEOUT="${OVN_FAILFAST_TIMEOUT:-120}" ovn_run_new_tests "$wt" "${pkg:-.}" "$HOME/overnight-queue/$vp" "" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null || echo HEAD)" "$vlog"; then
+        echo "-- FAIL-FAST: the cycle's own test file(s) are red; skipping the full suite (OVN_VERIFY_FAILFAST_OWN_TESTS=off restores the full run) --" >> "$vlog"; vok=0; _ff_red=1
+      elif ! tail -n +"$((${_ff_mark:-0} + 1))" "$vlog" | grep -qE 'infra rc=|\(shadow\)'; then
+        _ff_py_green=1   # green with no infra/timeout line: the late NEW/CHANGED TESTS step would run these identical files with the identical pytest again
+      fi
+    fi
     local _xd; _xd="$(ovn_pytest_par_args "$(basename "$rd")" "$(dirname "$HOME/overnight-queue/$vp")")"
-    [ -d "$wt/$pkg" ] && { echo "-- pytest FULL in $pkg ${_xd:+(parallel: $_xd)} --" >> "$vlog"; ( cd "$wt/$pkg" && timeout 600 "$HOME/overnight-queue/$vp" -q $_xd -o addopts="" -p no:cacheprovider ) >> "$vlog" 2>&1 || vok=0; }
+    [ "${_ff_red:-0}" != 1 ] && [ -d "$wt/$pkg" ] && { echo "-- pytest FULL in $pkg ${_xd:+(parallel: $_xd)} --" >> "$vlog"; ( cd "$wt/$pkg" && timeout 600 "$HOME/overnight-queue/$vp" -q $_xd -o addopts="" -p no:cacheprovider ) >> "$vlog" 2>&1 || vok=0; }
   fi
   # FAIL CLOSED (2026-09-30): python tests exist but no live venv pytest was found -> the python suite silently did not run and this function
   # returned "verified" (2026-09-30 11:46-12:24: two red shrike-notify staged steps landed this way while the venv was broken).
@@ -1671,7 +1686,9 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   # collects (iptv app/**/test_*.py, xlite test/ or *_test.gd) used to pass silently. Infra trouble (timeout/missing tool) = proceed, never red.
   # OVN_RUN_NEW_TESTS=off disables. Fail-safe: lib missing => no effect.
   if [ "$vok" = 1 ] && [ "${OVN_RUN_NEW_TESTS:-on}" != "off" ] && declare -F ovn_run_new_tests >/dev/null 2>&1; then
-    ovn_run_new_tests "$wt" "${pkg:-.}" "${vp:+$HOME/overnight-queue/$vp}" "$HOME/godot/godot4" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null || echo HEAD)" "$vlog" || vok=0
+    local _late_py="${vp:+$HOME/overnight-queue/$vp}"
+    [ "${_ff_py_green:-0}" = 1 ] && { _late_py=""; echo "-- new-tests: python files already green in the fail-fast step (same files, same pytest); not re-run --" >> "$vlog"; }
+    ovn_run_new_tests "$wt" "${pkg:-.}" "$_late_py" "$HOME/godot/godot4" "$(git -C "$wt" rev-parse origin/overnight/feature 2>/dev/null || echo HEAD)" "$vlog" || vok=0
   fi
   # WEB: vitest full run (reuse provisioned node_modules)
   if [ "$vok" = 1 ]; then

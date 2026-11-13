@@ -120,6 +120,7 @@ case "$mode" in
   ok) echo "5 passed"; exit 0;;
   fail) echo "FAILED tests/test_x.py::t - assert 1 == 2"; exit 1;;
   failfile:*) if printf "%s" "$*" | grep -qF -- "${mode#failfile:}"; then echo "FAILED ${mode#failfile:}::t - assert 1 == 2"; exit 1; fi; echo "5 passed"; exit 0;;
+  own124:*) if printf "%s" "$*" | grep -qF -- "${mode#own124:}"; then echo "timed out"; exit 124; fi; echo "5 passed"; exit 0;;
   fail-secret) echo "FAILED tests/test_x.py::t - OperationalError: could not connect to postgresql://appuser:s3cr3tPassw0rd@db.internal:5432/prod token=abcd1234efgh5678 Bearer eyAbCdEf0123456789xyz"; exit 1;;
   regen:*) cmd="${mode#regen:}"
      if [ -f generated.txt ] && grep -q fresh generated.txt; then echo "5 passed"; exit 0; fi

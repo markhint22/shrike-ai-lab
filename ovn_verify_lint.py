@@ -13,6 +13,10 @@ the repo tree (the linter never executes a VERIFY):
                                 fails no matter what the item edits. Without a baseline record the rule stays silent.
   PN1  pytest-name-missing      `pytest path::name` (or `-k name`) where the test file exists but defines no such test, and the item does not say it creates/adds it.
 
+  NEGGREP1 whole-file-negative-grep (q-landing-quality 2026-11-12) `! grep -q PAT FILE` / `[ "$(grep -c PAT FILE)" -eq 0 ]` where PAT currently matches >= 2 lines of FILE and the item does not say
+                                it removes every occurrence (gitlark c3b579b7: "Remove cursor-pointer from the <h1>" with a file-wide `! grep -q cursor-pointer` was satisfied by deleting the class from
+                                every clickable card). The verdict carries the current match count. OVN_VERIFY_LINT_NEGGREP=off disables it.
+
 Mode: env OVN_VERIFY_LINT = off | shadow (default). `enforce` (shared with the older ovn_verify_shape_lint) is treated as shadow: THIS linter never changes an item.
 Shadow rows go to state/verify_lint.jsonl (OVN_VERIFY_LINT_LOG overrides), deduped per (repo, item hash, rule) through state/verify_lint.seen.
 
@@ -391,6 +395,61 @@ def rule_pn1(item, clause, repo_root, siblings=()):
 
 
 # ---------------------------------------------------------------- API
+# ---------------------------------------------------------------- NEGGREP1
+_ALL_WORDS = re.compile(r"\b(?:every|all|each|any|anywhere|everywhere|entirely|throughout|whole|completely|no remaining|no more|no longer (?:use|contain)s?|zero)\b|\bremove (?:the )?(?:last|remaining)\b", re.I)
+
+
+def _neg_greps(clause):
+    """-> [(base, tokens)] for grep calls whose success means 'ZERO matches': `! grep ...` stages and `$(grep -c ...)` compared to 0."""
+    out = []
+    for base, t in _walk(clause):
+        if t and t[0] == "!" and len(t) > 1 and t[1] in ("grep", "egrep"):
+            out.append((base, t[1:]))
+    for m in re.finditer(r"grep\s+[^)`|]*?(?:\)|`)\s*\"?\s*(?:-eq|==|=)\s*0\b", clause):
+        seg = m.group(0)
+        seg = re.sub(r"(?:\)|`)\s*\"?\s*(?:-eq|==|=)\s*0\b$", "", seg)
+        tk = _toks(seg)
+        if tk and tk[0] == "grep" and any(re.match(r"^-[A-Za-z]*c", a) for a in tk[1:]):
+            out.append(("", tk))
+    for m in re.finditer(r"grep\s+(-[A-Za-z]*c[A-Za-z]*\s+[^|;&]*?)\|\s*(?:grep\s+-q\s+['\"]?\^0\$|tr\b.*?\|\s*grep\s+-q\s+['\"]?\^0\$)", clause):
+        tk = _toks("grep " + m.group(1))
+        out.append(("", tk))
+    return out
+
+
+def rule_neggrep1(item, clause, repo_root):
+    if os.environ.get("OVN_VERIFY_LINT_NEGGREP", "shadow").strip().lower() == "off":
+        return None
+    if _ALL_WORDS.search(re.sub(r"VERIFY:.*$", "", item or "", flags=re.S)):
+        return None                         # the item itself says every occurrence goes
+    mcd = re.match(r"\s*cd\s+(\S+)\s*&&", clause)
+    base0 = mcd.group(1).strip("'\"") if mcd else ""
+    for base, t in _neg_greps(clause):
+        ga = _grep_args(t)
+        if not ga:
+            continue
+        pat, specs, flags = ga
+        if "v" in flags or "z" in flags or "P" in flags or "r" in flags or "R" in flags or not specs or not pat.strip():
+            continue                        # -r: a directory-wide ban (`! grep -rq secret src/`) is a different, usually intended, shape
+        ext = "E" in flags or t[0] == "egrep"
+        fixed = "F" in flags
+        root = _root(repo_root, base or base0)
+        files = _expand(root, specs, False)
+        if not files or len(files) > 40:
+            continue                        # a glob over many files: not the single-file shape this rule is about
+        if not fixed and _unsafe_pattern(pat):
+            continue
+        try:
+            rx = re.compile(re.escape(pat) if fixed else _bre_to_py(pat, ext), re.I if "i" in flags else 0)
+        except re.error:
+            continue
+        n = _count(rx, files)
+        if n >= 2:
+            return _res(SUSPECT, "NEGGREP1: file-wide negative grep for %r currently matches %d lines of %s; satisfying it removes every occurrence, but the item does not say it removes all of them (scope the check to the element the item names)" % (pat, n, " ".join(specs)),
+                        "", "NEGGREP1")
+    return None
+
+
 def lint_verify(item_line, repo_root, state_dir=None, siblings=()):
     armed = False
     old = None
@@ -422,7 +481,7 @@ def _lint_verify(item_line, repo_root, state_dir=None, siblings=()):
         clause = extract_verify(item_line)
         if not clause:
             return _res()
-        for r in (rule_ml1(clause, repo_root), rule_tp1(clause, repo_root), rule_ts1(clause, repo_root, state_dir), rule_pn1(item_line, clause, repo_root, siblings)):
+        for r in (rule_ml1(clause, repo_root), rule_tp1(clause, repo_root), rule_ts1(clause, repo_root, state_dir), rule_pn1(item_line, clause, repo_root, siblings), rule_neggrep1(item_line, clause, repo_root)):
             if r:
                 return r
     except Budget:

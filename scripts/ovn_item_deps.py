@@ -191,6 +191,65 @@ def decisions(candidates, progress_text, tree=""):
     return res
 
 
+# ------------------------------------------------------------------------------------------------------------- test-first-pair (q-landing-quality 2026-11-12, SHADOW ONLY)
+# A test item B that sits BEFORE (file order) the open production item A it asserts: xlite cover_degradation T2 test `durability_after_hits(5, 2, -3) == 5` ran while the T1 source fix was still
+# open -> red tree -> fix-up reverted the item or rewrote the test to the buggy value (fa9ffe59). Y4's edges above need the test NAME to embed A's identifier or an explicit create-verb; this catches
+# the plain "same function / same module" pair. Detector only: it NEVER changes the picker output (OVN_ITEM_DEPS_TFP=off disables the rows).
+_CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]{5,})\s*\(")
+
+
+def _norm_stem(p):
+    return re.sub(r"[^a-z0-9]", "", os.path.splitext(_base(p))[0].lower())
+
+
+def test_first_pairs(nodes):
+    """-> [(b_id, a_id, why)]: open test-only B listed BEFORE open production A (file order) where B's text/VERIFY calls a symbol A names, or B names A's module (CoverDegradation / cover_degradation)."""
+    out = []
+    for b in nodes:
+        if b["it"]["done"] or b["removal"] or not b["test_only"]:
+            continue
+        btxt = so.strip_paths(b["desc"]) + " " + b["verify"]
+        calls = {c for c in _CALL_RE.findall(btxt) if not c.startswith("test_") and c.lower() not in GENERIC}
+        calls |= {t for t in re.findall(r"`([A-Za-z_][A-Za-z0-9_]{5,})`", b["desc"]) if not t.startswith("test_")}
+        bnorm = re.sub(r"[^a-z0-9]", "", btxt.lower())
+        for a in nodes:
+            if a is b or a["it"]["done"] or a["removal"] or a["test_only"] or a["it"]["line"] <= b["it"]["line"]:
+                continue
+            adesc = a["desc"]
+            why = ""
+            for c in sorted(calls):
+                if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(c), adesc):
+                    why = "symbol:" + c
+                    break
+            if not why:
+                for f in so.files_of(a):
+                    st = _norm_stem(f)
+                    if len(st) >= 6 and st in bnorm:
+                        why = "module:" + st
+                        break
+            if why:
+                out.append((b["id"], a["id"], why))
+    return out
+
+
+def tfp_decisions(candidates, progress_text):
+    items = so.parse_progress(progress_text)
+    groups = {}
+    for it in items:
+        if it["feat"]:
+            groups.setdefault(it["feat"], []).append(it)
+    res = []
+    for g, grp in groups.items():
+        if len(grp) < 2 or len(grp) > so._max_group():
+            continue
+        nodes = so._item_nodes(grp)
+        byid = {n["id"]: n for n in nodes}
+        for b, a, why in test_first_pairs(nodes):
+            res.append({"feat": g, "test": byid[b]["it"]["text"], "src": byid[a]["it"]["text"], "why": why, "src_parked": bool(byid[a]["it"]["parked"])})
+    keys = {c.strip() for c in candidates}
+    return [r for r in res if r["test"].strip() in keys]
+
+
 # ------------------------------------------------------------------------------------------------------------- journal
 def _journal(path, rec, merge_s=None):
     """Append a JSON row; an identical decision inside the merge window bumps count/last_ts instead of adding a row. flock on <path>.lock. Never raises."""
@@ -260,6 +319,14 @@ def cmd_item_filter(a):
         sys.stdout.write("\n".join(lines))
         return 0
     parked_mode = (os.environ.get("OVN_ITEM_DEPS_PARKED", "hold") or "hold").strip().lower()
+    if a.log and (os.environ.get("OVN_ITEM_DEPS_TFP", "on") or "on").strip().lower() != "off":
+        try:
+            for r in tfp_decisions([re.sub(r"^- \[ \] ", "", ln) for ln in cand], ptxt):
+                _journal(a.log, {"event": "test-first-pair", "mode": "shadow", "repo": a.repo, "feat": r["feat"], "item": r["test"][:160], "item_hash": so.item_hash(r["test"]),
+                                 "src_item": r["src"][:160], "src_hash": so.item_hash(r["src"]), "why": r["why"], "src_parked": r["src_parked"],
+                                 "waiting_on": [{"item_hash": so.item_hash(r["src"])}]})
+        except Exception as ex:  # noqa: BLE001
+            sys.stderr.write("ovn_item_deps test-first-pair: %s: %s\n" % (type(ex).__name__, ex))
     keep = []
     for ln, d in zip(cand, decs):
         if d["blocked"] and d.get("stuck_parked") and a.log and mode == "enforce" and parked_mode != "release":

@@ -10,6 +10,9 @@ item landing 7 times in a day. Every gate here is SHADOW by default: it journals
                                                added lines (post-image for names that legitimately pre-exist). Flag when >= OVN_Z3_STEPDIFF_RATIO (0.5) of them are absent.
   B2 tone-lint           OVN_Z3_TONE           greeting/slang tokens (OVN_Z3_TONE_TOKENS, default Hey|Yo|Buzz|Hi there|Howdy|Oh no|Whoa|Yikes) newly ADDED in a line of a
                                                file, and not already used in that file's removed lines, and not named by the item/step text.
+  B2w tone-lint-wide     OVN_Z3_TONE_WIDE      (q-landing-quality 2026-11-12, SHADOW only) Check out|Grab|Awesome|... on product strings (comments/mechanics skipped).
+  B7b assert-flip        (assert-weaken kind)  a fix-up/repair round rewrote the expected literal of an existing assertion (kind=fixup from the commit audit; OVN_Z3_ASSERT_FLIP=off).
+  B8 dup-test            OVN_Z3_DUP_TEST       (SHADOW only) the same py/gd test def >= 2 times in the added lines of one file of one commit.
   B3 repair-new-route    OVN_Z3_REPAIR_ROUTE   a "repair staged item to pass verification" diff may not ADD a route decorator / app.get|post(...) / add_api_route(...).
   B4 test-item-src-edit  OVN_Z3_TEST_SRC       an item that only creates/changes tests (cat:test, or every declared file is a test file) may not touch a non-test source file.
   B5 call-dropped        OVN_Z3_CALL_DROP      (FLAG only, no enforce) a function lost a bare statement call it made before and no longer mentions the name (py by AST,
@@ -341,6 +344,60 @@ def check_tone(diff_files, text="", tokens=None):
     return findings
 
 
+# B2w tone-lint-wide (2026-11-12, q-landing-quality, SHADOW ONLY). The original list misses the chatty-docstring family that DID land (billwatch 3940f9f4: "Grab ..." -> "Check out ..." on ten
+# OpenAPI route docstrings). WIDE tokens are judged on product strings only: comment lines are skipped (a code comment may say "Grab the lock"), and mechanic phrases
+# ("Check out the branch", "Grab the lock/focus/handle") are not product copy. OVN_Z3_TONE_WIDE=off|shadow (default shadow; enforce behaves as shadow in the lib: a wide list never vetoes).
+TONE_WIDE = ("Check out", "Grab", "Awesome", "Whoops", "Voila", "Ta-da", "Let's dive")
+_WIDE_MECHANIC_RE = re.compile(r"^(?:Check out\s+(?:the\s+|a\s+|that\s+|this\s+|your\s+)?"
+                               r"(?:(?:branch|commit|repo|repository|revision|worktree|ref|tag|sha|pr|pull request|docs|documentation|readme|link|file path|files?|code|source)\b"
+                               r"|latest\s+(?:commit|tag|release|revision|sha|branch)\b"
+                               r"|(?:main|master|develop)(?:\s+branch\b|(?=\s*(?:[.,;:)\]'\"`]|$))))"
+                               r"|Grab\s+(?:the\s+|a\s+|an\s+)?(?:lock|focus|mutex|semaphore|handle|pointer|mouse|cursor|screenshot|frame|reference|ref|latch|flock|gil)\b)", re.I)
+# a code identifier / call, not prose: `Grab(1)`, `Grab.focus`, `Grab_x`, `obj.Grab ` -> the token must be followed by end/space/sentence punctuation (and `.` only before space/end) and not preceded by `.`
+_WIDE_PROSE_AFTER = re.compile(r"(?:$|\s|[,;:!?'\"]|\.(?:\s|$))")
+
+
+def _wide_is_prose(t, m):
+    if m.start() > 0 and t[m.start() - 1] in ".:":
+        return False
+    return bool(_WIDE_PROSE_AFTER.match(t, m.end()))
+
+
+def _tone_wide_mode():
+    v = os.environ.get("OVN_Z3_TONE_WIDE", "shadow").strip().lower()
+    return v if v in ("off", "shadow", "enforce") else "shadow"
+
+
+def check_tone_wide(diff_files, text=""):
+    if _tone_wide_mode() == "off":
+        return []
+    rx = tone_regex("|".join(TONE_WIDE))
+    findings = []
+    ctxt = text or ""
+    for fd in diff_files:
+        if fd.is_deleted or tone_exempt(fd.path):
+            continue
+        prior = {}
+        for _, t in fd.removed:
+            for m in rx.finditer(t):
+                prior[m.group(0)] = prior.get(m.group(0), 0) + 1
+        for ln, t in fd.added:
+            if _is_comment(t) or re.match(r"\s*(?:<!--)", t):
+                continue
+            for m in rx.finditer(t):
+                w = m.group(0)
+                if not _wide_is_prose(t, m) or _WIDE_MECHANIC_RE.match(t[m.start():]):
+                    continue
+                if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(w), ctxt):
+                    continue
+                if prior.get(w, 0) > 0:
+                    prior[w] -= 1
+                    continue
+                findings.append({"rule": "tone-lint-wide", "sev": "FLAG", "file": fd.path, "line": ln, "token": w, "snip": t.strip()[:120],
+                                 "msg": "casual token %r added to %s:%d (wide set, shadow)" % (w, fd.path, ln)})
+    return findings
+
+
 # B2b tone-test-greeting (2026-11-12, q-verify-speed, SHADOW ONLY). The tone-lint above deliberately skips test files ("Hi there, how can I help?" is legitimate fixture text), so the
 # 2026-11-09..12 landings where the model INVERTED/REWROTE a test to expect the leaked greeting went unseen: shrike-monitor 62a7319e (`assert body["title"] == "Hey, api went from up to down"`),
 # shrike-notify d1e6d5ce/9da06b66 (`assert "Hey!" in ...body`), billwatch a4eef354 (`toContain('Hey there, loading up your legislator...')`), billwatch 4e68cd52 (test docstring "Hey! Tests for ...").
@@ -585,7 +642,7 @@ def _bound_names(lines):
 
 
 
-def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=False):
+def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=False, fixup=False):
     """B7. Deterministic per-hunk heuristics (see above). old_text_fn(path) -> pre-image text, only needed for the deleted-parametrize-case check."""
     out = []
     for fd in diff_files:
@@ -739,6 +796,23 @@ def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=F
                                 and _norm_line(t) not in add_norm and _norm_line(t) not in file_added_norm and (new_norm_s is None or _norm_line(t) not in new_norm_s):
                             hit("stream-assert-deleted", ln, t)
                             break
+            # (2h) q-landing-quality (2026-11-12, SHADOW): a FIX-UP round rewrote the EXPECTED value of an existing assertion (same subject, different literal): xlite fa9ffe59 changed
+            # `durability_after_hits(5, 2, -3) == 5` to `== 11` in a test named ..._never_repairs, to make the red test pass against unfixed source. literal-swap (2c) needs a SOURCE change in
+            # the same diff; this kind covers the test-only fix-up too. OVN_Z3_ASSERT_FLIP=off drops it.
+            if (repair or fixup) and not retired and os.environ.get("OVN_Z3_ASSERT_FLIP", "on").strip().lower() != "off":
+                for ln, t in rem:
+                    if not (_ASSERTISH_RE.search(t) and _CMP_RE.search(t)) or _is_comment(t) or "literal-swap" in found:
+                        continue
+                    lt = _lits(t)
+                    if not lt:
+                        continue
+                    sh = _lit_shape(t)
+                    for _, a in add:
+                        if _ASSERTISH_RE.search(a) and _CMP_RE.search(a) and _lit_shape(a) == sh and _lits(a) != lt and _norm_line(a) != _norm_line(t):
+                            hit("assert-flip", ln, t + "  ->  " + a)
+                            break
+                    if "assert-flip" in found:
+                        break
             # (3) strong comparison replaced by an existence check
             if not retired:
                 strong_rem = sum(1 for _, t in rem if _STRONG_RE.search(t) and not _WEAK_RE.search(t))
@@ -795,8 +869,85 @@ def check_assert_weaken(diff_files, old_text_fn=None, new_text_fn=None, repair=F
                         "msg": "test %s weakened (%s) at %s:%s: %s" % ("assertions", kind, fd.path, ln, txt[:80])}
                        if not _z7_on() else
                        {"rule": "assert-weaken", "sev": "FLAG", "kind": kind, "file": fd.path, "line": ln, "text": txt, "src_changed": bool(src_touched),
-                        "tier": "strong" if (kind in ("polarity-flip", "status-flip-src", "bulk-assert-deleted", "bulk-test-deleted", "stream-assert-deleted") or (repair and kind in ("literal-swap", "assertion-deleted", "orphan-assert-deleted"))) else "weak",
+                        "tier": "strong" if (kind in ("polarity-flip", "status-flip-src", "bulk-assert-deleted", "bulk-test-deleted", "stream-assert-deleted", "assert-flip") or (repair and kind in ("literal-swap", "assertion-deleted", "orphan-assert-deleted"))) else "weak",
                         "msg": "test %s weakened (%s) at %s:%s: %s" % ("assertions", kind, fd.path, ln, txt[:80])})
+    for f in out:
+        if f.get("kind") == "assert-flip" and "test" not in f:     # name the enclosing test: a flipped expectation inside a never/no/reject test is the strongest evidence
+            tn = _enclosing_test_name(new_text_fn, f.get("file"), f.get("line"))
+            f["test"] = tn
+            f["neg_name"] = bool(re.search(r"(?:^|_)(?:never|no|not|reject\w*|cannot|invalid|unauthori[sz]ed|forbid\w*|den(?:y|ied)|without)(?:_|$)|Never|Reject|Invalid|Unauthori", tn or ""))
+    return out
+
+
+
+def _enclosing_test_name(new_text_fn, path, line):
+    """Name of the test def at/above <line> in the post-image (or '' when unknown). Only used to annotate assert-flip rows."""
+    try:
+        text = new_text_fn(path) if callable(new_text_fn) else ""
+        lines = (text or "").split("\n")
+        for k in range(min(int(line), len(lines)) - 1, -1, -1):
+            m = re.match(r"\s*(?:async\s+)?(?:def|func)\s+(test\w*)|\s*(?:it|test)(?:\.\w+)?\(\s*['\"]([^'\"]+)", lines[k])
+            if m:
+                return m.group(1) or m.group(2) or ""
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+_DUP_DEF_RE = re.compile(r"^(\s*)(?:async\s+)?(?:def|func)\s+(test\w*)\s*\(")
+
+
+def _dup_in_post(text, name, indent):
+    """True when <name> is defined >= 2 times at <indent> inside ONE class scope of <text>. Class scopes are tracked by indentation (a stack), so the same method name in two sibling or nested classes is legal."""
+    counts = {}
+    stack = []   # [(indent_len, class_line_no)]
+    for no, ln in enumerate((text or "").split("\n")):
+        if not ln.strip() or ln.lstrip().startswith(("#", "//")):
+            continue
+        n = len(ln) - len(ln.lstrip())
+        while stack and stack[-1][0] >= n:
+            stack.pop()
+        m = _DUP_DEF_RE.match(ln)
+        if m and m.group(2) == name and m.group(1) == indent:
+            key = tuple(c[1] for c in stack)
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] >= 2:
+                return True
+        if re.match(r"\s*class\s", ln):
+            stack.append((n, no))
+    return False
+
+
+def check_dup_tests(diff_files, new_text_fn=None):
+    """q-landing-quality (2026-11-12, SHADOW): the same test function name defined >= 2 times in the ADDED lines of one file of one commit (shrike-monitor d2e8944: six identical
+    copies of test_notify_transition_403_no_retry; later defs silently shadow earlier ones, ruff F811). py/gd only (JS `it('x')` titles legitimately repeat across describes)."""
+    if os.environ.get("OVN_Z3_DUP_TEST", "shadow").strip().lower() == "off":
+        return []
+    out = []
+    for fd in diff_files:
+        if fd.is_deleted or not fd.path.endswith((".py", ".gd")) or not is_test_path(fd.path):
+            continue
+        defs = {}
+        for ln, t in fd.added:
+            m = _DUP_DEF_RE.match(t)
+            if m:
+                defs.setdefault((m.group(2), m.group(1)), []).append(ln)
+        for (name, indent), lns in sorted(defs.items()):
+            if len(lns) < 2:
+                continue
+            if callable(new_text_fn):
+                try:
+                    post = new_text_fn(fd.path) or ""
+                except Exception:  # noqa: BLE001
+                    post = ""
+                if not post:
+                    continue    # post-image unavailable: fail OPEN (a shadow heuristic never guesses)
+            else:   # diff-only mode: judge the added lines themselves (class headers among them still scope the names)
+                post = "\n".join(t for _, t in fd.added)
+            if not _dup_in_post(post, name, indent):
+                continue        # same name in different classes / scopes
+            out.append({"rule": "dup-test", "sev": "FLAG", "file": fd.path, "line": lns[0], "test": name, "copies": len(lns),
+                        "msg": "test %s defined %d times in the added lines of %s (later defs shadow earlier ones)" % (name, len(lns), fd.path)})
     return out
 
 
@@ -1055,11 +1206,13 @@ def analyse(diff_text, desc="", item="", kind="step", files="", post_text=None, 
     res["step-diff-mismatch"] = check_step_diff(desc, fds, post_text, files, ratio, truncated) if (desc or "").strip() else []
     res["tone-lint"] = check_tone(fds, (desc or "") + "\n" + (item or ""))
     res["tone-test-greeting"] = check_tone_tests(fds, (desc or "") + "\n" + (item or ""))
+    res["tone-lint-wide"] = check_tone_wide(fds, (desc or "") + "\n" + (item or ""))
+    res["dup-test"] = check_dup_tests(fds, (lambda pth: (git(repo, "show", "%s:%s" % (head, pth)) if head != "WORKTREE" else _read(os.path.join(repo, pth)))) if (repo and head) else None)
     res["repair-new-route"] = check_repair_routes(fds) if kind == "repair" else []
     res["test-item-src-edit"] = check_test_item_scope(fds, item, desc, files)
     res["assert-weaken"] = check_assert_weaken(fds, (lambda pth: git(repo, "show", "%s:%s" % (base, pth))) if (repo and base) else None,
                                                (lambda pth: (git(repo, "show", "%s:%s" % (head, pth)) if head != "WORKTREE" else _read(os.path.join(repo, pth)))) if (repo and head) else None,
-                                               repair=(kind == "repair"))
+                                               repair=(kind == "repair"), fixup=(kind == "fixup"))
     drops = []
     if repo and base and head:
         for fd in fds[:_envint("OVN_Z3_MAX_FILES", 200)]:
@@ -1150,7 +1303,7 @@ def main(argv=None):
     s = sp.add_parser("step-check")
     s.add_argument("--desc", default="")
     s.add_argument("--item", default="")
-    s.add_argument("--kind", default="step", choices=["step", "repair"])
+    s.add_argument("--kind", default="step", choices=["step", "repair", "fixup"])
     s.add_argument("--files", default="")
     s.add_argument("--diff", default="")
     s.add_argument("--repo", default="")
