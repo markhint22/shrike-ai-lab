@@ -17,6 +17,14 @@ DST = SRC + "_sprites3"
 os.makedirs(DST, exist_ok=True)
 PALETTE = 20   # a touch more color depth than the old 16 (user: "raise graphics a little")
 
+def nearest_resize(img, size):
+    """NEAREST resize with a fallback: Pillow 12.1.1 on the box raises SystemError for resize(NEAREST) (see art_runner.nearest_resize)."""
+    try:
+        return img.resize(size, Image.NEAREST)
+    except Exception:
+        iw, ih = img.size
+        return img.transform(size, Image.AFFINE, (iw / size[0], 0, 0, 0, ih / size[1], 0), Image.NEAREST)
+
 def corner_stats(im):
     w, h = im.size; k = max(4, w//16)
     pts = []
@@ -111,7 +119,7 @@ def main():
         for grid in (64, 48, 32):
             sp = quant(base, grid, keep_alpha=not is_tile)
             sp.save(f"{DST}/{name}@{grid}.png")
-            sp.resize((grid*4, grid*4), Image.NEAREST).save(f"{DST}/{name}@{grid}_preview.png")
+            nearest_resize(sp, (grid*4, grid*4)).save(f"{DST}/{name}@{grid}_preview.png")
         print(f"  {name}  bg={bg} spread={spread} {'TILE' if is_tile else 'sprite'}", flush=True)
     print("DONE", flush=True)
 

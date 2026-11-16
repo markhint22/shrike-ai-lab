@@ -225,6 +225,47 @@ PYQ2
   fi
 fi
 
+# --- Per-item PICK CAP (2026-11-13, package q-already-done-credit; OVN_PICK_CAP=off|shadow|enforce, DEFAULT shadow) -----------------------------------------------------------
+# nov12-13: ~20-25% of cycles went to the same items coming back as no-op(ALREADY-DONE) / landed-uncredited / reverted-red / fixup-undid (TAA 3f096a1a: 3 duplicate commits then 3 more
+# ALREADY-DONE verdicts; xlite 5de203e0 picked 10x in 10 h). Every cap below misses it: the rolling day cap EXCLUDES no-op(ALREADY-DONE), the no-op streak is CONSECUTIVE and landed-uncredited
+# cycles take the landing branch right after this block and never reach a cap. This counts the item's bad picks from state/outcomes.jsonl (record_outcome wrote this cycle's row BEFORE the
+# guard ran; scripts/../ovn_pick_cap.py): >= OVN_PICK_CAP_N (default 4) bad picks inside OVN_PICK_CAP_HOURS (24) since the item line's last CREDITED landing trips it. shadow = log
+# 'would-autoskip pick-cap' (state/pick_cap_shadow.log + the task log), enforce = tag the open line '[AUTO-SKIP needs-human: ...]' (the claude queue bridge harvests every AUTO-SKIP line into
+# CLAUDE_QUEUE.md, i.e. it routes to CLAUDE) + the usual chore(queue) commit/push. Nothing is parked when the open line cannot be identified uniquely. OVN_PICK_CAP_KINDS narrows the kinds.
+_pc_mode="${OVN_PICK_CAP:-shadow}"
+case "$status" in skip*|held*|*bug-handled*|"no-op(scout-unworkable)") _pc_mode=off;; esac
+_pc_py="$(dirname "$0")/../ovn_pick_cap.py"
+if [ "$_pc_mode" != off ] && [ -f "$_pc_py" ] && [ -f "$state/outcomes.jsonl" ]; then
+  type ovn_hto >/dev/null 2>&1 || . "$(dirname "$0")/lib_helper_timeout.sh" 2>/dev/null || ovn_hto(){ shift 2; "$@"; }
+  _pc_out="$(ovn_hto 30 pick_cap python3 "$_pc_py" cycle --outcomes "$state/outcomes.jsonl" --repo "$(basename "$repo")" --prog "$prog" --n "${OVN_PICK_CAP_N:-4}" --hours "${OVN_PICK_CAP_HOURS:-24}" ${OVN_PICK_CAP_KINDS:+--kinds "$OVN_PICK_CAP_KINDS"} 2>/dev/null | tail -1)"
+  IFS="$(printf '\t')" read -r _pc_trip _pc_cnt _pc_kinds _pc_ln _pc_key _pc_why <<EOPC
+$_pc_out
+EOPC
+  if [ "${_pc_trip:-0}" = 1 ]; then
+    printf '%s %s key=%s picks=%s kinds=%s line=%s status=%s would-autoskip pick-cap mode=%s why=%s\n' "$(date '+%F %T')" "$(basename "$repo")" "${_pc_key:0:8}" "$_pc_cnt" "$_pc_kinds" "${_pc_ln:-0}" "$status" "$_pc_mode" "${_pc_why:--}" >> "$state/pick_cap_shadow.log" 2>/dev/null
+    # rotation: at >= 2 MB keep the last 5000 lines (atomic: temp file + mv in the same dir)
+    if [ "$(wc -c < "$state/pick_cap_shadow.log" 2>/dev/null | tr -d ' ')" -ge 2097152 ] 2>/dev/null; then
+      tail -n 5000 "$state/pick_cap_shadow.log" > "$state/pick_cap_shadow.log.rot.$$" 2>/dev/null && mv -f "$state/pick_cap_shadow.log.rot.$$" "$state/pick_cap_shadow.log" 2>/dev/null
+    fi
+    if [ "$_pc_mode" = enforce ] && [ "${_pc_ln:-0}" -gt 0 ] 2>/dev/null; then
+      _pc_branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      _ig_sedi "${_pc_ln}s#^- \[ \] #- [ ] [AUTO-SKIP needs-human: picked ${_pc_cnt}x in ${OVN_PICK_CAP_HOURS:-24}h without a credited landing (${_pc_kinds}) - an ALREADY-DONE/landed-uncredited/reverted loop the credit path cannot close; route to CLAUDE; review] #" "$prog"
+      if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+        git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+        git -C "$repo" commit -q -m "chore(queue): park item picked ${_pc_cnt}x in 24h without a credited landing (pick cap)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
+        [ -n "$_pc_branch" ] && ovn_gitb -C "$repo" push -q origin "$_pc_branch" 2>/dev/null
+        echo "AUTO-SKIPPED item (pick cap: ${_pc_cnt} bad picks in ${OVN_PICK_CAP_HOURS:-24}h, ${_pc_kinds})"
+      fi
+      [ -n "${task_log:-}" ] && [ -f "$task_log" ] && echo "--- pick-cap: item at line ${_pc_ln} parked (${_pc_cnt} picks: ${_pc_kinds}) ---" >> "$task_log"
+      # a non-landing cycle's later caps would re-resolve the top item and bill THIS cycle to an unrelated line: stop here (a landing continues into the landing branch)
+      case "$status" in *"tests:pass"*) ;; *) exit 0 ;; esac
+    else
+      echo "pick-cap (${_pc_mode}): would-autoskip pick-cap (${_pc_cnt} picks: ${_pc_kinds}; line ${_pc_ln:-0}, ${_pc_why:--})"
+      [ -n "${task_log:-}" ] && [ -f "$task_log" ] && echo "--- pick-cap (${_pc_mode}): would-autoskip pick-cap: ${_pc_cnt} picks in ${OVN_PICK_CAP_HOURS:-24}h (${_pc_kinds}); open line ${_pc_ln:-0} ---" >> "$task_log"
+    fi
+  fi
+fi
+
 # A clean landing clears the fail/no-op streaks (+ grounded failure memory) for whichever
 # item(s) actually landed THIS cycle — identified via "item-hash <md5>" marker line(s) that
 # run_overnight.sh writes into $task_log at the exact moment(s) it checks an item off in
@@ -252,7 +293,7 @@ case "$status" in
         rm -f "$state/item_fails/${id}.${_lh}.count" "$state/item_fails/${id}.${_lh}.toks" \
               "$state/item_fails/${id}.${_lh}.noopcount" "$state/item_fails/${id}.${_lh}.nooptoks" \
               "$state/item_fails/${id}.${_lh}.lastfail" "$state/item_fails/${id}.${_lh}.indet" "$state/item_fails/${id}.${_lh}.indetlands" "$state/item_fails/${id}.${_lh}.lastids" \
-              "$state/item_fails/${id}.${_lh}.ungrounded" "$state/item_fails/${id}.${_lh}.attempts24" "$state/item_fails/${id}.${_lh}.reverts24" "$state/credit_refused/$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g').${_lh}" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive"); item credited => its credit-refusal counter goes too
+              "$state/item_fails/${id}.${_lh}.ungrounded" "$state/item_fails/${id}.${_lh}.attempts24" "$state/item_fails/${id}.${_lh}.vskip" "$state/item_fails/${id}.${_lh}.reverts24" "$state/credit_refused/$(basename "$repo" | sed 's/[^A-Za-z0-9_-]/_/g').${_lh}" 2>/dev/null   # h13 review: a landing of this feature breaks the ungrounded-plan streak ("consecutive"); item credited => its credit-refusal counter goes too
       done < <(grep -ohE 'item-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
       # 2026-10-02 (harness-X X-a): "indet-hash <md5>" = the cycle landed green but the item's own VERIFY timed out / was not runnable, so the runner
       # could neither credit nor fail it. The commit DID land: clear its failure/no-op streaks like a credited landing, and arm a bounded allowance
@@ -270,7 +311,7 @@ case "$status" in
         fi
         rm -f "$state/item_fails/${id}.${_ih}.count" "$state/item_fails/${id}.${_ih}.toks" \
               "$state/item_fails/${id}.${_ih}.noopcount" "$state/item_fails/${id}.${_ih}.nooptoks" \
-              "$state/item_fails/${id}.${_ih}.lastfail" "$state/item_fails/${id}.${_ih}.ungrounded" "$state/item_fails/${id}.${_ih}.attempts24" 2>/dev/null
+              "$state/item_fails/${id}.${_ih}.lastfail" "$state/item_fails/${id}.${_ih}.ungrounded" "$state/item_fails/${id}.${_ih}.attempts24" "$state/item_fails/${id}.${_ih}.vskip" 2>/dev/null
         printf '0' > "$state/item_fails/${id}.${_ih}.indet" 2>/dev/null
       done < <(grep -ohE 'indet-hash [0-9a-f]{32}' "$task_log" 2>/dev/null | awk '{print $2}' | sort -u)
     fi
@@ -414,6 +455,37 @@ lastfailf="$state/item_fails/${id}.${h}.lastfail"
 
 FEATCAP="${OVN_FEATURE_TOKEN_CAP:-$TOKCAP}"
 _lmode="$(_lin_mode)"; _lin_inherited "$text" "$lineno"; _inh="$_INH_V"; _inh_src="$_LIN_SRC"; [ "$_inh" -gt 0 ] && _lin_member "$_inh_src" "$h"
+
+# --- verify-skip park (2026-11-15, q-weekend-fixes; OVN_VERIFY_SKIP_PARK=shadow|on|off, DEFAULT shadow; OVN_VERIFY_SKIP_PARK_N=3) ----------------------------------------------------
+# A staged run whose independent verify could not run at all ('verify-skipped - no python test runner': no repo venv, no pipeline tools venv, no system pytest) is neither the model's fault nor
+# fixable by retrying: xlite items were re-picked 8-13 times each. CONSECUTIVE verify-skipped cycles of the same item are counted on their own file (state/item_fails/<id>.<hash>.vskip; any other
+# non-landing outcome of the item or a landing resets it). At N the item is parked with the usual reversible AUTO-SKIP tag (on) or only logged to state/verify_skip_shadow.log (shadow, default).
+vskipf="$state/item_fails/${id}.${h}.vskip"
+if [ "${OVN_VERIFY_SKIP_PARK:-shadow}" != off ]; then
+  _vs_tag=""; [ -n "$task_log" ] && [ -f "$task_log.stagefr" ] && _vs_tag="$(head -1 "$task_log.stagefr" 2>/dev/null | tr -cd 'a-z0-9-')"
+  case "$status" in
+    *"stage(higher-tier)"*)
+      if [ "$_vs_tag" = verify-skipped ]; then
+        _vs_n=$(( $(cat "$vskipf" 2>/dev/null || echo 0) + 1 )); printf '%s' "$_vs_n" > "$vskipf"
+        if [ "$_vs_n" -ge "${OVN_VERIFY_SKIP_PARK_N:-3}" ]; then
+          if [ "${OVN_VERIFY_SKIP_PARK:-shadow}" = on ]; then
+            branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+            _ig_sedi "${lineno}s#^- \[ \] #- [ ] [AUTO-SKIP after ${_vs_n} verify-skipped cycles - no python test runner on the box (run ops/make_tools_venv.sh); review] #" "$prog"
+            if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+              git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+              git -C "$repo" commit -q -m "chore(queue): park item after ${_vs_n} verify-skipped cycles (no python test runner)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
+              [ -n "$branch" ] && ovn_gitb -C "$repo" push -q origin "$branch" 2>/dev/null
+              echo "AUTO-SKIPPED item after ${_vs_n} verify-skipped cycles: ${text:0:70}"
+            fi
+            rm -f "$vskipf" 2>/dev/null; exit 0
+          else
+            printf '%s id=%s hash=%s vskip=%s/%s would park (OVN_VERIFY_SKIP_PARK=on) item=%s\n' "$(date '+%F %T')" "$id" "$h" "$_vs_n" "${OVN_VERIFY_SKIP_PARK_N:-3}" "${text:0:100}" >> "$state/verify_skip_shadow.log" 2>/dev/null || true
+          fi
+        fi
+      else rm -f "$vskipf" 2>/dev/null; fi ;;
+    *) rm -f "$vskipf" 2>/dev/null ;;
+  esac
+fi
 
 # --- Repeat circuit-breaker (2026-10-02, harness Y1) ---------------------------------------------------------
 # The SAME failing test-id set on N=2 (OVN_REPEAT_BREAKER_N) consecutive attempts of the same item is a deterministic failure, not bad luck: more

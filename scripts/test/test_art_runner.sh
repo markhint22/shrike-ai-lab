@@ -103,6 +103,58 @@ o2 = A.pixelize_and_alpha(near)
 chk("pixelize: near-background colours thresholded out too", o2.getpixel((40, 32))[3] == 0)
 chk("pixelize: accepts non-RGB input (L mode)", A.pixelize_and_alpha(Image.new("L", (256, 256), 90)).size == (64, 64))
 
+# -- nearest_resize: the box's Pillow 12.1.1 raises SystemError on resize(NEAREST) (2026-11-15) --
+def ref_nearest(im, w, h):
+    iw, ih = im.size
+    o = Image.new(im.mode, (w, h))
+    for y in range(h):
+        for x in range(w):
+            o.putpixel((x, y), im.getpixel((min(iw - 1, ((2 * x + 1) * iw) // (2 * w)), min(ih - 1, ((2 * y + 1) * ih) // (2 * h)))))
+    return o
+def same(a, b): return a.size == b.size and a.mode == b.mode and list(a.getdata()) == list(b.getdata())
+img4 = Image.new("RGB", (4, 4))
+for i in range(16): img4.putpixel((i % 4, i // 4), (i * 15, 255 - i * 7, i))
+_real_resize = Image.Image.resize
+def _broken_resize(self, size, resample=None, *a, **k):
+    if resample in (0, Image.Resampling.NEAREST): raise SystemError("<method 'resize' of 'ImagingCore' objects> returned NULL without setting an exception")
+    return _real_resize(self, size, resample, *a, **k) if resample is not None else _real_resize(self, size, *a, **k)
+Image.Image.resize = _broken_resize
+try:
+    try:
+        img4.resize((8, 8), Image.NEAREST); chk("simulated stack raises SystemError on resize(NEAREST)", False)
+    except SystemError:
+        chk("simulated stack raises SystemError on resize(NEAREST)", True)
+    for (w, h) in [(8, 8), (16, 16), (12, 12), (2, 2), (1, 1), (4, 4), (8, 16)]:
+        chk(f"nearest_resize 4x4 -> {w}x{h} (broken stack): exact pixel equality with pure-python nearest", same(A.nearest_resize(img4, (w, h)), ref_nearest(img4, w, h)))
+    big = Image.new("RGB", (64, 64))
+    for i in range(64 * 64): big.putpixel((i % 64, i // 64), ((i * 7) % 256, (i * 13) % 256, (i * 3) % 256))
+    chk("nearest_resize 64 -> 256 (broken stack) exact", same(A.nearest_resize(big, (256, 256)), ref_nearest(big, 256, 256)))
+    chk("nearest_resize downscale 64 -> 16 (broken stack) exact", same(A.nearest_resize(big, (16, 16)), ref_nearest(big, 16, 16)))
+    _odd = list(A.nearest_resize(big, (10, 10)).getdata()); _ref = list(ref_nearest(big, 10, 10).getdata())
+    chk("nearest_resize odd ratio 64 -> 10 (broken stack): >=60% pixels equal (only exact-tie rows/cols may differ)", sum(1 for a, b in zip(_odd, _ref) if a == b) >= 60)
+    lm = Image.new("L", (4, 4)); lm.putdata(list(range(16)))
+    chk("nearest_resize L-mode (broken stack) exact", same(A.nearest_resize(lm, (8, 8)), ref_nearest(lm, 8, 8)))
+    # second link broken too -> pure-python last resort
+    _real_tf = Image.Image.transform
+    def _broken_tf(self, *a, **k): raise SystemError("tf broken")
+    Image.Image.transform = _broken_tf
+    chk("nearest_resize: transform also broken -> pure-python fallback exact", same(A.nearest_resize(img4, (8, 8)), ref_nearest(img4, 8, 8)) and same(A.nearest_resize(img4, (3, 3)), ref_nearest(img4, 3, 3)))
+    Image.Image.transform = _real_tf
+    os.environ["OVN_ART_NEAREST_FALLBACK"] = "off"
+    try:
+        A.nearest_resize(img4, (8, 8)); chk("nearest_resize: OVN_ART_NEAREST_FALLBACK=off re-raises", False)
+    except SystemError:
+        chk("nearest_resize: OVN_ART_NEAREST_FALLBACK=off re-raises", True)
+    del os.environ["OVN_ART_NEAREST_FALLBACK"]
+    gimg = Image.new("RGB", (1024, 1024), (128, 128, 128))
+    chk("pixelize_and_alpha works on the broken-NEAREST stack", A.pixelize_and_alpha(gimg).size == (64, 64))
+finally:
+    Image.Image.resize = _real_resize
+chk("nearest_resize: healthy stack matches pure-python too", same(A.nearest_resize(img4, (8, 8)), ref_nearest(img4, 8, 8)))
+import re as _re
+_src = open(os.path.join(os.environ["SUTDIR"], "art_runner.py"), encoding="utf-8").read()
+chk("art_runner.py: no bare resize(..., Image.NEAREST) call left", not _re.search(r"\.resize\([^)]*NEAREST", _src.split("def nearest_resize")[0] + _src.split("def pixelize_and_alpha")[1]))
+
 # -- mark_done --
 open(A.QUEUE, "w", encoding="utf-8").write("- [ ] [unit] a — one\n- [ ] [unit] b — two\n- [ ] [unit] a — one\nkeep me\n")
 A.mark_done([{"raw": "- [ ] [unit] a — one"}, {"raw": "- [ ] [unit] not-there — x"}], A.STAGE)

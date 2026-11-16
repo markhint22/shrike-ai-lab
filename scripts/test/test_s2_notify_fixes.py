@@ -32,6 +32,7 @@ class Fake(BaseHTTPRequestHandler):
 srv = HTTPServer(("127.0.0.1", 0), Fake); threading.Thread(target=srv.serve_forever, daemon=True).start()
 os.environ["OVN_NOTIFY_UPSTREAM"] = "http://127.0.0.1:%d" % srv.server_port
 os.environ["OVN_MAC_STATE"] = os.path.join(T, "macstate")
+os.environ["OVN_MAC_SUP_ALERT"] = "emergency"    # 2026-11-15 (q-weekend-fixes): these checks pin the LEGACY stable-title emergency path; the new default (WARN note) has test_q_mac_stale.py
 D1 = 86400.0
 CLK = [1762117200.0]    # 2025-11-02 21:00:00 UTC
 FAILS = []
@@ -202,8 +203,8 @@ for name, old, new in V:
 Nm = [("hygiene-default-shadow", '"OVN_DIGEST_QUIET", "OVN_ESC_HYGIENE", "OVN_HB_DROP_CLASSES", "OVN_ESC_MAC_SUPERVISOR"', '"OVN_DIGEST_QUIET", "OVN_HB_DROP_CLASSES", "OVN_ESC_MAC_SUPERVISOR"'),
       ("no-event-detail", 'row["detail"] = re.sub', 'pass  # row["detail"] = re.sub'),
       ("no-class-breakdown", 'if dropped and _mode("OVN_HB_DROP_CLASSES") != "off":', 'if False:'),
-      ("mac-sup-never-stale", 'if age < MAC_SUP_STALE_S:\n        return None', 'if True:\n        return None'),
-      ("mac-sup-not-wired", 'if ms:        #', 'if False:        #')]
+      ("mac-sup-never-stale", 'if age is None or age < MAC_SUP_STALE_S:\n        return None', 'if True:\n        return None'),
+      ("mac-sup-not-wired", 'if ms and _mac_alert_mode() == "emergency":     #', 'if False:        #')]
 for name, old, new in Nm:
     try:
         failed = run_notify(mutate_file(NSRC, old, new, name), "mut")

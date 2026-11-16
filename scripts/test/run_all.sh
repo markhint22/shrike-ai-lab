@@ -736,6 +736,11 @@ echo; echo "===== q-suite-fix: skip77 fixture leak, SIGPIPE pushed(), fail-fast 
 echo; echo "===== q-verify-speed: staged gradle full-verify scoped to native-touching diffs (8 mutants) ====="; bash test_gradle_scope.sh || rc=1
 echo; echo "===== q-verify-speed: tone gate (tone-test-greeting shadow rule + tone-lint real-landing corpus, 7 mutants) ====="; bash test_q_tone_gate.sh || rc=1
 echo; echo "===== q-landing-quality: tone-lint-wide (shadow), assert-flip, dup-test, NEGGREP1 verify lint, test-first-pair detector (all shadow; 28 mutants) ====="; bash test_q_landing_quality.sh || rc=1
+echo; echo "===== q-already-done-credit: per-item pick cap (guard hook, shadow) + ALREADY-DONE credit by lint evidence (shadow); 29 mutants ====="; bash test_q_already_done_credit.sh || rc=1
 echo; echo "===== q-landing-quality: fail-fast on the cycle's own new/changed tests before the full suite (same verdict on/off; 6 mutants) ====="; bash test_q_failfast_own_tests.sh || rc=1
+echo; echo "===== q-weekend-fixes: pipeline-owned pytest runner (tools venv / system pytest) for repos without .venv, verify-skipped classification + item-guard park (shadow), make_tools_venv (mutants) ====="; bash test_q_tools_runner.sh || rc=1
+echo; echo "===== q-weekend-fixes: TAA auto-credit rc=127: bare python3 falls back to a repo venv (cd target without .venv), stage-worktree live-clone fallback (4 mutants) ====="; bash test_q_verify_venv_ancestor.sh || rc=1
+echo; echo "===== q-weekend-fixes: stale Mac health = UNKNOWN: one WARN note/day (Mac supervision dead), Mac-jobs emergency repeat throttle while UNKNOWN (7 mutants) ====="; python3 test_q_mac_stale.py || rc=1
+echo; echo "===== q-weekend-fixes: web-verify gate baseline-aware (inherited vue-tsc/vitest signatures never block; timeout = no verdict; 7 mutants; gate stays SHADOW) ====="; bash test_q_web_verify_baseline.sh || rc=1
 echo; finish || rc=1
 exit $rc

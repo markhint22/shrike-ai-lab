@@ -255,6 +255,30 @@ stage_red_before_check(){
 
 # stage_web_verify <wt> <base-ref> <vlog> -> rc 0 fine / shadow / nothing to check, rc 1 only in enforce mode when vue-tsc or vitest-related fails for the changed web files.
 # Prints `WEB <verdict> <detail>`; the full output goes to <vlog>.web.log (never into the verify log the repair loop greps, unless enforcing).
+# 2026-11-15 (q-weekend-fixes, BASELINE-AWARE; OVN_WEB_VERIFY_BASELINE=on|off, default on): precision measured from the box logs (138 shadow reds, 2026-10-17..11-15) was ~5% as a blocking rule:
+# 120 of 138 reds carried ONLY error signatures that were already present at the previous web-verified run of the same repo (billwatch/gitlark: hundreds of pre-existing whole-project vue-tsc errors
+# in test files that their real gate, `vite build`, never checks: 113 reds, hygiene merged hourly throughout; iptv_apps: 7 reds repeating the one en.ts interface break, which only the FIRST of them
+# introduced). vue-tsc --noEmit checks the WHOLE project, so a red says nothing about THIS change unless its error signatures (file|TScode, vitest failing-test names) are NEW against the baseline
+# saved in state/web_verify_baseline/<repo>.sigs (written ONLY on a green run, or by ops/web_verify_baseline_seed.sh; never on a red). A red whose signatures are all inherited prints
+# `WEB red-inherited ...` and never blocks, even in enforce mode; `WEB red ...` (new signatures) is what enforce blocks. A vue-tsc/vitest timeout (rc 124) is `WEB timeout ...`: no verdict, never blocks.
+# Baseline off, or no repo name (neither $OVN_STAGE_REPO nor $repo), keeps the old any-red behaviour.
+# 2026-11-15 review round (q-weekend-fixes advisories d): (1) signatures are COUNTED per signature: a second `file|TScode` error in an already-baselined file is NEW (only the excess over the baseline count
+# is new); (2) the TOTAL `error TSnnnn` count is compared with the parsed signatures: errors the parser cannot attribute (paths with spaces, no file prefix such as TS18003, a vitest rc!=0 with no FAIL line, a vue-tsc rc!=0
+# with no error line) make the verdict `red` (new), never inherited; (3) the baseline is written ONLY on GREEN (green resets it to empty) or by the explicit manual `ops/web_verify_baseline_seed.sh <repo>`: a red
+# verdict, shadow or enforce, never writes it (a red landing must not become the next run's accepted baseline); (4) a vue-tsc OR vitest timeout hides nothing: the OTHER tool's red is still evaluated and reported.
+_sg_web_clean(){ sed -E $'s/\x1b\\[[0-9;]*m//g' "$1" 2>/dev/null; }
+_sg_web_sigs(){ # <web.log> -> signatures: tsc `file|TSnnnn` (one line PER occurrence, multiset), vitest `V:<failing test>` (unique)
+  local t; t="$(_sg_web_clean "$1")"
+  { printf '%s\n' "$t" | grep -E '^[^[:space:](]+\.(vue|ts|tsx|js)\([0-9]+,[0-9]+\): error TS[0-9]+' | sed -E 's/^([^(]+)\([0-9]+,[0-9]+\): error (TS[0-9]+).*/\1|\2/' | sort
+    printf '%s\n' "$t" | grep -E '^[[:space:]]*(FAIL|×)[[:space:]]+' | sed -E 's/^[[:space:]]*(FAIL|×)[[:space:]]+/V:/' | cut -c1-120 | sort -u; }
+}
+_sg_web_tsc_total(){ _sg_web_clean "$1" | grep -cE 'error TS[0-9]+'; }   # every vue-tsc error occurrence, parseable or not
+_sg_web_baseline_file(){ # <state-dir> <repo> -> baseline path
+  printf '%s/web_verify_baseline/%s.sigs' "$1" "$(printf '%s' "$2" | tr -c 'A-Za-z0-9._-' '_')"
+}
+_sg_web_newsigs(){ # <baseline-file> <cur-sigs> -> the signatures (with multiplicity) in <cur-sigs> beyond the baseline's counts
+  awk -v bf="$1" 'BEGIN{while((getline l < bf)>0) b[l]++} NF{c[$0]++; if(c[$0]>b[$0]) print}' <<< "$2"
+}
 stage_web_verify(){
   local mode; mode="$(_sg_mode "${OVN_STAGE_WEB_VERIFY:-}" shadow)"
   [ "$mode" = off ] && return 0
@@ -273,26 +297,67 @@ stage_web_verify(){
     done <<< "$changed"
     files="${files# }"; [ -n "$files" ] || continue
     ran=1
+    # BOTH tools always run (a vue-tsc timeout must not skip vitest); the worst rc per tool is kept (a timeout 124 never hides a real red rc from another package)
     if grep -q '"vue-tsc"' "$pj" 2>/dev/null; then
       echo "-- vue-tsc --noEmit in $rel --" >> "$wl"
-      ( cd "$wd" && timeout 240 npx vue-tsc --noEmit ) >> "$wl" 2>&1 || rc_t=$?
+      local _rt=0; ( cd "$wd" && timeout 240 npx vue-tsc --noEmit ) >> "$wl" 2>&1 || _rt=$?
+      if [ "$_rt" -ne 0 ] && { [ "$rc_t" -eq 0 ] || [ "$rc_t" -eq 124 ]; }; then rc_t=$_rt; fi
     fi
     if grep -q '"vitest"' "$pj" 2>/dev/null; then
       echo "-- vitest related in $rel: $files --" >> "$wl"
+      local _rv=0
       # shellcheck disable=SC2086
-      ( cd "$wd" && CI=true timeout 240 npx vitest related --run --passWithNoTests $files ) >> "$wl" 2>&1 || rc_v=$?
+      ( cd "$wd" && CI=true timeout 240 npx vitest related --run --passWithNoTests $files ) >> "$wl" 2>&1 || _rv=$?
+      if [ "$_rv" -ne 0 ] && { [ "$rc_v" -eq 0 ] || [ "$rc_v" -eq 124 ]; }; then rc_v=$_rv; fi
     fi
   done < <(find "$wt" -maxdepth 3 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
   [ "$ran" = 1 ] || { echo "WEB skipped-no-provisioned-package"; return 0; }
-  if [ "$rc_t" -eq 0 ] && [ "$rc_v" -eq 0 ]; then echo "WEB ok vue-tsc and vitest related green"; return 0; fi
-  [ "$rc_t" -ne 0 ] && msg="vue-tsc rc=${rc_t}"
-  [ "$rc_v" -ne 0 ] && msg="${msg:+$msg, }vitest related rc=${rc_v}"
-  echo "WEB red ${msg} (see ${wl##*/})"
-  if [ "$mode" = enforce ]; then
-    { printf '%s\n' "-- QUALITY FAIL: web verification failed for the changed web files (${msg}) --"; tail -12 "$wl"; } >> "$vlog" 2>/dev/null
-    return 1
+  local bname="${OVN_STAGE_REPO:-${repo:-}}" bdir="${OVN_WEB_VERIFY_STATE:-${OVN_P4_STATE_DIR:-${SCRIPT_DIR:-.}/state}}/web_verify_baseline" bf="" cur="" newsigs="" nnew=0 ninh=0 nunparsed=0
+  if [ "${OVN_WEB_VERIFY_BASELINE:-on}" != off ] && [ -n "$bname" ]; then
+    bf="$(_sg_web_baseline_file "${bdir%/web_verify_baseline}" "$bname")"
+    cur="$(_sg_web_sigs "$wl")"
   fi
-  return 0
+  if [ "$rc_t" -eq 0 ] && [ "$rc_v" -eq 0 ]; then
+    [ -n "$bf" ] && { mkdir -p "$bdir" 2>/dev/null; : > "$bf" 2>/dev/null; }   # GREEN resets the baseline to empty (the only automatic write)
+    echo "WEB ok vue-tsc and vitest related green"; return 0
+  fi
+  # a timed-out tool has NO verdict, but the other tool's result still counts
+  local to_t=0 to_v=0 eff_t="$rc_t" eff_v="$rc_v" note=""
+  [ "$rc_t" -eq 124 ] && { to_t=1; eff_t=0; note="vue-tsc timeout (no verdict)"; }
+  [ "$rc_v" -eq 124 ] && { to_v=1; eff_v=0; note="${note:+$note, }vitest timeout (no verdict)"; }
+  [ "$eff_t" -ne 0 ] && msg="vue-tsc rc=${eff_t}"
+  [ "$eff_v" -ne 0 ] && msg="${msg:+$msg, }vitest related rc=${eff_v}"
+  if [ "$eff_t" -eq 0 ] && [ "$eff_v" -eq 0 ]; then echo "WEB timeout ${note} (no verdict; see ${wl##*/})"; return 0; fi
+  [ -n "$note" ] && msg="${msg}, ${note}"
+  # signatures of the tool(s) that actually gave a verdict
+  local use="$cur"
+  [ "$to_t" = 1 ] && use="$(printf '%s\n' "$cur" | grep '^V:')"
+  [ "$to_v" = 1 ] && use="$(printf '%s\n' "$cur" | grep -v '^V:')"
+  # unparseable errors: total tsc errors vs parsed `file|TS` signatures; a failing tool with nothing attributable at all
+  local ntot nparsed nv
+  ntot="$(_sg_web_tsc_total "$wl")"; nparsed="$(printf '%s\n' "$cur" | grep -vcE '^(V:|$)')"; nv="$(printf '%s\n' "$cur" | grep -c '^V:')"
+  if [ "$to_t" = 0 ]; then
+    if [ "$ntot" -gt "$nparsed" ]; then nunparsed=$((ntot - nparsed)); elif [ "$eff_t" -ne 0 ] && [ "$ntot" -eq 0 ]; then nunparsed=1; fi
+  fi
+  if [ "$to_v" = 0 ] && [ "$eff_v" -ne 0 ] && [ "$nv" -eq 0 ]; then nunparsed=$((nunparsed + 1)); fi
+  local verdict="red"
+  if [ -n "$bf" ] && [ -n "$use" ]; then
+    if [ -f "$bf" ]; then newsigs="$(_sg_web_newsigs "$bf" "$use")"; else newsigs="$use"; fi   # no baseline yet: everything is new (the first run of a repo behaves as before)
+    nnew="$(printf '%s' "$newsigs" | grep -c .)"; ninh=$(( $(printf '%s\n' "$use" | grep -c .) - nnew ))
+    if [ "$nnew" -eq 0 ] && [ "$nunparsed" -eq 0 ]; then verdict="red-inherited"; fi
+  fi
+  case "$verdict" in
+    red-inherited) echo "WEB red-inherited ${msg}: all ${ninh} error signature(s) were already present at the baseline (not caused by this change; not blocking) (see ${wl##*/})" ;;
+    *) local _xtra=""; [ "$nunparsed" -gt 0 ] && _xtra=", ${nunparsed} unparseable error(s) counted as new"
+       echo "WEB red ${msg}${bf:+ (${nnew} new / ${ninh} inherited signature(s)${_xtra})} (see ${wl##*/})" ;;
+  esac
+  local blocked=0
+  if [ "$mode" = enforce ] && [ "$verdict" = red ]; then
+    { printf '%s\n' "-- QUALITY FAIL: web verification failed for the changed web files (${msg}) --"; [ -n "$bf" ] && [ -n "$newsigs" ] && { printf '%s\n' "new error signature(s) vs the baseline:"; printf '%s\n' "$newsigs" | head -12; }; tail -12 "$wl"; } >> "$vlog" 2>/dev/null
+    blocked=1
+  fi
+  # NO baseline write on any red (shadow or enforce): only green (reset above) or ops/web_verify_baseline_seed.sh sets it
+  return "$blocked"
 }
 
 # ---- 2026-10-20 stage-unverified review: delete-handling helpers (pure bash/git, testable on the Mac) ----

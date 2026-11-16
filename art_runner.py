@@ -77,10 +77,47 @@ def alert(title, msg):
         pass
 
 
+def nearest_resize(img, size):
+    """Nearest-neighbour resize that survives the box's broken Pillow NEAREST kernel.
+
+    2026-11-15 (q-weekend-fixes): on the GPU box (python3.14 + python3-pil 12.1.1) every
+    Image.resize(..., NEAREST) raises `SystemError: ... returned NULL without setting an exception`
+    (BILINEAR/BICUBIC/BOX/reduce/transform are fine), which broke pixelize_and_alpha and so the whole art
+    pipeline. Chain: native NEAREST -> affine transform with NEAREST (same pixel-centre floor() sampling) ->
+    pure-Python per-pixel copy. All three give identical output (src = floor((x+.5)*in/out); exact for integer ratios, at most a tie-pixel off for odd ratios).
+    OVN_ART_NEAREST_FALLBACK=off restores the old single-path behaviour (the error propagates)."""
+    from PIL import Image
+    w, h = int(size[0]), int(size[1])
+    try:
+        nearest = Image.Resampling.NEAREST
+    except AttributeError:      # Pillow < 9.1
+        nearest = Image.NEAREST
+    try:
+        return img.resize((w, h), nearest)
+    except Exception:
+        if os.environ.get("OVN_ART_NEAREST_FALLBACK", "on") == "off":
+            raise
+    iw, ih = img.size
+    try:
+        tf = getattr(Image, "Transform", Image).AFFINE
+        return img.transform((w, h), tf, (iw / w, 0, 0, 0, ih / h, 0), nearest)
+    except Exception:
+        pass
+    out = Image.new(img.mode, (w, h))
+    src = img.load()
+    dst = out.load()
+    xs = [min(iw - 1, ((2 * x + 1) * iw) // (2 * w)) for x in range(w)]
+    ys = [min(ih - 1, ((2 * y + 1) * ih) // (2 * h)) for y in range(h)]
+    for y in range(h):
+        row = ys[y]
+        for x in range(w):
+            dst[x, y] = src[xs[x], row]
+    return out
+
+
 def pixelize_and_alpha(img):
     """1024 -> 64px nearest, then make the flat gray background transparent."""
-    from PIL import Image
-    small = img.convert("RGB").resize((64, 64), Image.NEAREST)
+    small = nearest_resize(img.convert("RGB"), (64, 64))
     rgba = small.convert("RGBA")
     px = rgba.load()
     # sample the 4 corners to learn the background gray, then threshold it out

@@ -3,6 +3,7 @@
 # verified. (Four repos' venvs were destroyed 11:46-12:24; two red staged steps landed in shrike-notify because full_verify() found no
 # pytest and returned "verified", and run_repo_verification() fell through to "none" -> pushed.)
 set -uo pipefail
+export OVN_TOOLS_RUNNER=off   # 2026-11-15: hermetic - a python3 with pytest on the dev host must not turn the fail-closed cases green (the tools runner has its own suite, test_q_tools_runner.sh)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 pass=0; fail=0; ok(){ if [ "$2" = "1" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1"; fi; }
 

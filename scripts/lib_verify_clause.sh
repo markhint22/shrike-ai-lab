@@ -72,6 +72,41 @@ _verify_py_root_audit(){   # <line> <root> <clause> <prog> <orig_rc>
 _resolve_tool_paths(){
   local cmd="$1" vpy vpytest vgradlew cddir="."
 
+  # 2026-11-15 (q-weekend-fixes review advisory b): venv interpreter pick for the ancestor fallback. (1) the venv named .venv DIRECTLY under the repo/package root wins over alphabetical order
+  # (an unrelated sdk/.venv sorting first must not run the clause); (2) `find` does NOT follow symlinks (a committed `x/.venv -> /elsewhere` link is never walked); a symlinked .venv dir is
+  # accepted only when its physical path stays inside the repo base, the fallback clone or the live repos dir; (3) the chosen interpreter must be executable (-x).
+  # usage: _vc_pick_venv_py <base_dir> <want_pytest 1|0>   -> prints the interpreter path, or nothing
+  # (defined INSIDE this function so tests that extract only _resolve_tool_paths still get them)
+  _vc_venv_dir_ok(){ # $1 .venv dir, $2 base dir: rc 0 when usable (a real dir, or a symlink whose physical target is under an allowed root)
+    local d="$1" rp b bp
+    [ -d "$d" ] || return 1
+    [ -L "$d" ] || return 0
+    rp="$(cd "$d" 2>/dev/null && pwd -P)" || return 1
+    for b in "$2" "${OVN_VERIFY_VENV_FALLBACK:-}" "${HOME:-/nonexistent}/overnight-queue/repos"; do
+      [ -n "$b" ] && [ -d "$b" ] || continue
+      bp="$(cd "$b" 2>/dev/null && pwd -P)" || continue
+      case "$rp/" in "$bp"/*) return 0;; esac
+    done
+    return 1
+  }
+  _vc_pick_venv_py(){
+    local base="$1" want="${2:-0}" d bin
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      _vc_venv_dir_ok "$d" "$base" || continue
+      bin="$d/bin"
+      if [ "$want" = 1 ]; then
+        [ -x "$bin/pytest" ] || continue
+        if [ -x "$bin/python3" ]; then printf '%s' "$bin/python3"; return 0; fi
+        if [ -x "$bin/python" ]; then printf '%s' "$bin/python"; return 0; fi
+        continue
+      fi
+      if [ -x "$bin/python3" ]; then printf '%s' "$bin/python3"; return 0; fi
+      if [ -x "$bin/python" ]; then printf '%s' "$bin/python"; return 0; fi
+    done < <( { [ -e "$base/.venv" ] && printf '%s\n' "$base/.venv"; find "$base" -maxdepth 2 -name .venv \( -type d -o -type l \) 2>/dev/null | sort; } | awk '!s[$0]++' )
+    return 0
+  }
+
   # godot: never resolvable bare on this box (verified: no symlink/alias/PATH
   # entry anywhere, including a login shell) - the real pipeline always uses
   # $HOME/godot/godot4. Substitute unconditionally when present as a bare
@@ -115,6 +150,25 @@ _resolve_tool_paths(){
     # actually exist - a no-op if the text was already right, a self-heal if
     # it wasn't (e.g. a duplicated "backend/backend/.venv" segment).
     cmd="$(printf '%s' "$cmd" | sed -E "s#[./A-Za-z0-9_-]*\.venv/bin/python3?#${vpy}#g; s#(^|&& |; )python3? #\1${vpy} #g")"
+  fi
+
+  # 2026-11-15 (q-weekend-fixes, TAA rc=127 x8): `cd sdk/python && python3 -m pytest ../../backend/tests/...` - the `cd` target has NO .venv of its own (TAA's venv lives in backend/.venv), so the bare
+  # `python3` stayed bare and resolved to the runner's aider-venv python (run_overnight.sh prepends $HOME/aider-venv/bin), which has no pytest: "No module named pytest" -> UNRUNNABLE rc=127, the
+  # auto-credit check never ran and finished items stayed open and were re-picked (TAA 3fa00e27: 9 picks, 6 ALREADY-DONE). When the cd-scoped search finds no venv python, the bare python token falls back
+  # to a venv elsewhere in the same repo (or in $OVN_VERIFY_VENV_FALLBACK, the live clone, for a stage worktree): the one that has pytest when the clause runs pytest, else the first .venv python.
+  # The clause still runs in its own cwd. OVN_VERIFY_VENV_ANCESTOR=off restores the old bare python.
+  if [ -z "$vpy" ] && [ "${OVN_VERIFY_VENV_ANCESTOR:-on}" != off ] && printf '%s' "$cmd" | grep -qE '(^|&& |; )python3? '; then
+    local _vb _vcp=""
+    for _vb in . "${OVN_VERIFY_VENV_FALLBACK:-}"; do
+      [ -n "$_vb" ] && [ -d "$_vb" ] || continue
+      if printf '%s' "$cmd" | grep -q 'pytest'; then _vcp="$(_vc_pick_venv_py "$_vb" 1)"; fi
+      [ -n "$_vcp" ] || _vcp="$(_vc_pick_venv_py "$_vb" 0)"
+      [ -n "$_vcp" ] && break
+    done
+    if [ -n "$_vcp" ]; then
+      vpy="$(cd "$(dirname "$_vcp")" 2>/dev/null && pwd)/$(basename "$_vcp")"
+      cmd="$(printf '%s' "$cmd" | sed -E "s#(^|&& |; )python3? #\1${vpy} #g")"
+    fi
   fi
 
   # 2026-10-18 (test-automation-agent audit): a stage worktree has no .venv (gitignored), so bare `pytest` died rc=127 "command not found" and every

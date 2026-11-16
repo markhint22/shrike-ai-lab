@@ -22,6 +22,8 @@ ovn_stage_fail_tag() {
   [ "${OVN_STAGE_FAILTAG-on}" = on ] || return 0
   here="${OVN_P4_QDIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)}"
   if [ -n "$vlog" ] && [ -s "$vlog" ]; then
+    # 2026-11-15 (q-weekend-fixes): no python test runner at all (no repo venv, no tools venv, no system pytest) is its own cause, not 'verify-failed'; the item guard parks on it (OVN_VERIFY_SKIP_PARK)
+    if [ "${OVN_VERIFY_SKIP_TAG:-on}" != off ] && grep -qa 'verify-skipped - no python test runner' "$vlog" 2>/dev/null; then printf 'verify-skipped'; return 0; fi
     tag="$(ovn_hto 60 classify_fail bash "$here/ovn_classify_fail.sh" "$vlog" "verify-failed" 2>/dev/null | head -1 | tr -cd 'a-z0-9-')"
     case "$tag" in ''|unknown|landed) tag="verify-failed";; esac
     printf '%s' "$tag"; return 0

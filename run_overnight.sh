@@ -227,6 +227,9 @@ declare -F ovn_vt_revert_held >/dev/null 2>&1 || ovn_vt_revert_held(){ return 1;
 # NO-NEW-RED re-run-once (OVN_NNR_RERUN=off|shadow|on, default off) + its revert label. Missing lib => the old behaviour for each.
 # shellcheck source=scripts/lib_p4_outcomes.sh
 source "$SCRIPT_DIR/scripts/lib_p4_outcomes.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/scripts/lib_tools_runner.sh" 2>/dev/null || true   # 2026-11-15 (q-weekend-fixes): pipeline-owned pytest (ovn_tools_pytest_py) for repos with no .venv/bin/pytest
+declare -F ovn_tools_pytest_py >/dev/null 2>&1 || ovn_tools_pytest_py(){ return 0; }
+declare -F ovn_tools_pytest_run >/dev/null 2>&1 || ovn_tools_pytest_run(){ return 1; }   # 2026-11-15: lib_tools_runner.sh missing => no tools runner (old fail-closed behaviour)
 declare -F ovn_stage_fail_tag >/dev/null 2>&1 || ovn_stage_fail_tag(){ return 0; }
 declare -F ovn_stage_status_cause >/dev/null 2>&1 || ovn_stage_status_cause(){ printf '%s' "${2:-}"; }
 declare -F ovn_redgreen_suspect_policy >/dev/null 2>&1 || ovn_redgreen_suspect_policy(){ return 1; }
@@ -1009,6 +1012,17 @@ run_repo_verification() {
           _ut_unrunnable="${_ut_unrunnable:-${_ut_f#./}}"; continue
         fi
         [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark unittest "${_ut_f#./}" "$_ovn_rc"; }
+        any_ran=1; py_ran=1
+      elif [ -n "$(ovn_tools_pytest_py 2>/dev/null)" ]; then
+        # 2026-11-15 (q-weekend-fixes): a PYTEST-style file (xlite tools/tests/*.py) with no repo venv: run it with the pipeline-owned tools runner (lib_tools_runner.sh;
+        # OVN_TOOLS_RUNNER=off disables). rc 5 / zero tests collected = no verdict (stays unrunnable -> skip), anything else non-zero is red.
+        _ut_py="$(ovn_tools_pytest_py)"
+        echo "--- verify: pytest ${_ut_f#./} via tools runner ${_ut_py} (120s cap) ---" >> "$task_log"
+        local _ut_out2; _ut_out2="$(mktemp "${TMPDIR:-/tmp}/ovn-ut.XXXXXX")"
+        ovn_tools_pytest_run "$_ut_py" "$(cd "$(dirname "$_ut_f")/.." && pwd)" 120 "$(cd "$(dirname "$_ut_f")" && pwd)/$(basename "$_ut_f")" > "$_ut_out2" 2>&1   # isolated (python -I): a repo pytest.py / sitecustomize.py cannot fake a green
+        _ovn_rc=$?; cat "$_ut_out2" >> "$task_log"; rm -f "$_ut_out2"
+        if [ "$_ovn_rc" -eq 5 ]; then _ut_unrunnable="${_ut_unrunnable:-${_ut_f#./}}"; continue; fi
+        [ "$_ovn_rc" -ne 0 ] && { any_failed=1; _ovn_red_mark pytest "${_ut_f#./}" "$_ovn_rc"; }
         any_ran=1; py_ran=1
       else
         _ut_unrunnable="${_ut_unrunnable:-${_ut_f#./}}"
@@ -2669,10 +2683,21 @@ PYEOF
             fi
             # 2026-10-09 (harness-credit-integrity item 7): the scout's say-so is not enough - the item's own VERIFY must not FAIL (OVN_VERIFY_GATE_MODE, default enforce;
             # an item without a VERIFY clause is credited as before). See ovn_credit_verify_gate in scripts/lib_auto_credit.sh.
+            _ad_tag="already-done, scout-verified"
             if declare -F ovn_credit_verify_gate >/dev/null 2>&1 && ! ovn_credit_verify_gate OVERNIGHT_PROGRESS.md "$_ad_ln" "$task_log" "scout ALREADY-DONE credit"; then
-              echo "--- scout ALREADY-DONE credit REFUSED at line ${_ad_ln} (item's own VERIFY failed) - left open ---" >> "$task_log"; continue
+              # 2026-11-13 (q-already-done-credit): the VERIFY failed - but when the linter proves the VERIFY itself is malformed and scoped evidence shows the item is done, credit by evidence
+              # (OVN_ALREADY_DONE_CREDIT, default shadow: logs would-credit, never ticks; the refusal below stands). The refusal counter above already ran (park at 2 stays the brake).
+              if declare -F ovn_ad_lint_credit >/dev/null 2>&1 && ovn_ad_lint_credit OVERNIGHT_PROGRESS.md "$_ad_ln" "$task_log" "$PWD"; then
+                _ad_tag="already-done, lint-verified"
+              else
+                echo "--- scout ALREADY-DONE credit REFUSED at line ${_ad_ln} (item's own VERIFY failed) - left open ---" >> "$task_log"; continue
+              fi
             fi
-            sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, scout-verified) /" OVERNIGHT_PROGRESS.md
+            if [ "$_ad_tag" = "already-done, lint-verified" ]; then
+              sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, lint-verified) /" OVERNIGHT_PROGRESS.md
+            else
+              sed -i "${_ad_ln}s/^- \[ \] /- [x] (already-done, scout-verified) /" OVERNIGHT_PROGRESS.md
+            fi
             declare -F ovn_credit_twins >/dev/null 2>&1 && ovn_credit_twins OVERNIGHT_PROGRESS.md "${_ad_ln}" "$task_log"   # 2026-10-12 (uidcredit): identical open twins (OVN_TWIN_CREDIT, default on)
             git add OVERNIGHT_PROGRESS.md
             if git commit -m "chore(queue): credit already-done item (scout verified ${_df_base})" --quiet -- OVERNIGHT_PROGRESS.md >>"$task_log" 2>&1; then

@@ -647,6 +647,28 @@ ovn_credit_verify_gate() {
   return 0
 }
 
+# ovn_ad_lint_credit <prog> <line> [task_log] [repo_dir] (2026-11-13, package q-already-done-credit; OVN_ALREADY_DONE_CREDIT=off|shadow|enforce, DEFAULT shadow): called by the scout ALREADY-DONE
+# path ONLY AFTER ovn_credit_verify_gate refused the credit because the item's own VERIFY FAILED. When the Q2 linter (ovn_verify_lint.py: PN1/TS1/TP1/NEGGREP1/ML1) says that VERIFY is malformed AND
+# scoped evidence passes (scripts/../ovn_ad_lint_credit.py: target file + a specific after-state snippet present, named python tests pass) the item is genuinely done and the VERIFY cannot say so.
+# shadow: log 'would-credit already-done-lint-verified' (task log + state/already_done_credit_shadow.log), return 1 (the refusal stands, nothing is ticked). enforce: return 0 only on a 'credit'
+# decision; the caller then ticks '(already-done, lint-verified)'. Fail-closed: any error / timeout / off = return 1.
+ovn_ad_lint_credit() {
+  local prog="$1" ln="$2" tl="${3:-}" rd="${4:-$PWD}" mode="${OVN_ALREADY_DONE_CREDIT:-shadow}" py out dec
+  case "$mode" in off|OFF|0) return 1 ;; esac
+  py="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/../ovn_ad_lint_credit.py"
+  [ -f "$py" ] || return 1
+  type ovn_hto >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]:-$0}")/lib_helper_timeout.sh" 2>/dev/null || ovn_hto(){ shift 2; "$@"; }
+  out="$(OVN_ALREADY_DONE_CREDIT="$mode" ovn_hto "${OVN_ALREADY_DONE_CREDIT_HTO:-120}" ad_lint_credit python3 "$py" "$prog" "$ln" "$rd" "${OVN_STATE_DIR:-$HOME/overnight-queue/state}" 2>/dev/null | tail -1)"
+  dec="${out%% *}"
+  [ "$dec" = credit ] || { [ -n "$tl" ] && [ -n "$out" ] && echo "--- already-done-lint-verified: no credit (${out#* }) ---" >> "$tl"; return 1; }
+  if [ "$mode" = enforce ]; then
+    [ -n "$tl" ] && echo "--- already-done-lint-verified: credit at line ${ln} (${out#* }) ---" >> "$tl"
+    return 0
+  fi
+  [ -n "$tl" ] && echo "--- would-credit already-done-lint-verified at line ${ln} (${out#* }) - OVN_ALREADY_DONE_CREDIT=${mode}, refusal stands ---" >> "$tl"
+  return 1
+}
+
 # ovn_bookkeeping_verify_gate <prog> [task_log]: after update_progress.py ticked items from DONE: trailers (working tree edited, NOT yet committed), run the VERIFY gate
 # on every item it flipped "- [ ] X" -> "- [x] X" (exact text twin, relative to HEAD's copy of <prog>) and UN-tick the ones the gate refuses. Prints the number refused.
 ovn_bookkeeping_verify_gate() {

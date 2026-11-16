@@ -124,6 +124,7 @@ source scripts/lib_landing_gates.sh 2>/dev/null || true
 declare -F z3_step_gate >/dev/null 2>&1 || z3_step_gate(){ Z3_REFUSE=""; return 0; }
 declare -F z3_leak_gate >/dev/null 2>&1 || z3_leak_gate(){ return 0; }
 source scripts/lib_outcome_acct.sh 2>/dev/null || true   # 2026-10-18 (D4): ovn_oa_commits for the outcome row (absent => commits=[])
+source scripts/lib_tools_runner.sh 2>/dev/null || { ovn_tools_pytest_py(){ :; }; ovn_tools_test_pkgs(){ :; }; ovn_tools_pytest_run(){ return 1; }; }   # 2026-11-15 (q-weekend-fixes): pipeline-owned pytest for repos with no .venv/bin/pytest (xlite)
 source scripts/lib_p4_outcomes.sh 2>/dev/null || true   # 2026-10-21 (P4): ovn_stage_fail_tag (OVN_STAGE_FAILTAG=on)
 declare -F stage_step_mistarget >/dev/null 2>&1 || { stage_step_mistarget(){ return 1; }; stage_item_mistarget(){ return 1; }; stage_class_conflict(){ return 1; }
   stage_named_tests_check(){ return 0; }; stage_item_verify_run(){ printf 'NO_VERIFY_CLAUSE|lib missing'; }; stage_item_verify_decision(){ echo OK; }; stage_item_verify_textonly(){ return 1; }; stage_ctx_exceeded(){ grep -qiE 'context size has been exceeded|context length|context_length|prompt is too long|exceed_context|contextwindowexceeded|exceeds the available context size' "${1:-/dev/null}" 2>/dev/null; }
@@ -1634,8 +1635,24 @@ full_verify(){   # 0 = independently verified real; 1 = false-pass/broken
   fi
   # FAIL CLOSED (2026-09-30): python tests exist but no live venv pytest was found -> the python suite silently did not run and this function
   # returned "verified" (2026-09-30 11:46-12:24: two red shrike-notify staged steps landed this way while the venv was broken).
+  # 2026-11-15 (q-weekend-fixes): before failing closed, fall back to the PIPELINE-OWNED runner (lib_tools_runner.sh: $OVN_TOOLS_VENV python, else a system python3 that already has pytest) and run the
+  # repo's pytest-style tests with it (40 of 126 xlite rows were no-op(stage-unverified) because tools/tests/*.py had no venv). No runner at all stays fail-closed but is now CLASSIFIED
+  # 'verify-skipped - no python test runner' (ovn_stage_fail_tag + the item guard's verify-skip park). OVN_TOOLS_RUNNER=off restores the old single message.
   if [ -z "$vp" ] && [ "${OVN_VERIFY_FAIL_CLOSED:-1}" = 1 ] && find "$rd" -maxdepth 4 -path '*/tests/test_*.py' -not -path '*/node_modules/*' -not -path '*/.venv/*' 2>/dev/null | grep -q .; then
-    echo "-- python tests exist but no venv pytest found: CANNOT verify (fail-closed) --" >> "$vlog"; vok=0
+    local _tp _tpk _tpd _tpran=0; _tp="$(ovn_tools_pytest_py)"
+    if [ -n "$_tp" ]; then
+      while IFS= read -r _tpk; do
+        [ -n "$_tpk" ] || continue; _tpd="$wt/$_tpk"; [ -d "$_tpd" ] || continue
+        echo "-- pytest (pipeline tools runner $_tp) in $_tpk --" >> "$vlog"
+        ovn_tools_pytest_run "$_tp" "$_tpd" 600 tests >> "$vlog" 2>&1 || vok=0   # isolated (python -I, no cwd/PYTHONPATH on sys.path): a repo pytest.py / sitecustomize.py cannot fake a green
+        _tpran=1
+      done < <(ovn_tools_test_pkgs "$wt")
+    fi
+    if [ "$_tpran" = 0 ]; then
+      if [ "${OVN_TOOLS_RUNNER:-on}" = off ]; then echo "-- python tests exist but no venv pytest found: CANNOT verify (fail-closed) --" >> "$vlog"
+      else echo "-- python tests exist but no venv pytest found: CANNOT verify (fail-closed): verify-skipped - no python test runner (no repo .venv/bin/pytest, no tools venv ${OVN_TOOLS_VENV:-$HOME/overnight-queue/state/tools_venv}, system python3 has no pytest; see ops/make_tools_venv.sh) --" >> "$vlog"; fi
+      vok=0
+    fi
   fi
   # LANDING GATES (2026-10-03): revision-less/placeholder alembic files + removed-but-still-imported requirements +
   # clean-venv import of app.main (the iptv_apps 0011 stub / aiohttp prod-deploy incidents). Both helpers fail-safe:

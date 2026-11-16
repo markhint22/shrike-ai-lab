@@ -171,8 +171,12 @@ osr_run(){   # osr_run <runner args...>  -> rc in $RC, combined output in $T/out
       bash "$RUNNER" "$@" ) > "$T/out.txt" 2>&1 < /dev/null
   RC=$?
 }
-osr_out(){ cat "$T/out.txt"; }
-osr_jsonl(){ cat "$Q"/state/stage_runs/"$OSR_REPO"-*[0-9].jsonl 2>/dev/null; }
-osr_vlog(){ cat "$Q"/state/stage_runs/"$OSR_REPO"-*.verify.log 2>/dev/null; }
-osr_origin_log(){ git -C "$O" log --format=%s overnight/feature; }
-osr_origin_file(){ git -C "$O" show "overnight/feature:$1" 2>/dev/null; }
+# 2026-11-15 (q-weekend-fixes review e): these helpers are piped into `grep -q` by the tests, which run under `set -o pipefail`. `grep -q` exits at the FIRST match; a producer that is still
+# writing (git log, cat of a large log) then dies of SIGPIPE (rc 141) and pipefail turns a TRUE match into a failed condition: a load-dependent 1-3% flake ('verified and PUSHED' read as not pushed
+# although the commit was there; reproduced 5/180 and 1/180 under 30 parallel runs + 10 CPU burners). Each helper therefore captures its whole output FIRST and prints it with one builtin write.
+_osr_emit(){ local _x; _x="$("$@" 2>/dev/null)"; printf '%s\n' "$_x"; }
+osr_out(){ _osr_emit cat "$T/out.txt"; }
+osr_jsonl(){ _osr_emit cat "$Q"/state/stage_runs/"$OSR_REPO"-*[0-9].jsonl; }
+osr_vlog(){ _osr_emit cat "$Q"/state/stage_runs/"$OSR_REPO"-*.verify.log; }
+osr_origin_log(){ _osr_emit git -C "$O" log --format=%s overnight/feature; }
+osr_origin_file(){ _osr_emit git -C "$O" show "overnight/feature:$1"; }

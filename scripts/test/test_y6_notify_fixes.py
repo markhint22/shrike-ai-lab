@@ -20,6 +20,7 @@ os.environ["TZ"] = "UTC"; time.tzset()
 T = tempfile.mkdtemp()
 Q = os.path.join(T, "q"); ST = os.path.join(Q, "state"); os.makedirs(ST)
 os.environ.update(OVN_NOTIFY_STATE=ST, NTFY_TOPIC="t_y6", OVN_NOTIFY_UPSTREAM="http://127.0.0.1:9", OVN_LLM_HEALTH_URL="http://127.0.0.1:9/x", OVN_SUPPLY_LINE="0", OVN_IDLE_LINE="0")
+os.environ["OVN_MAC_SUP_ALERT"] = "emergency"    # 2026-11-15 (q-weekend-fixes): pins the LEGACY emergency path; the new default (WARN note) has test_q_mac_stale.py
 for k in ("OVN_NOTIFY_DISABLE", "OVN_NOTIFY_DAILY_CAP", "OVN_ESC_MAC_SUPERVISOR", "OVN_ESC_TEST", "OVN_BULLET_ONCE", "OVN_BULLET_REPEAT_H", "OVN_DIGEST_DEDUPE", "OVN_DIGEST_QUIET", "OVN_SCORECARD_EVERY_H"):
     os.environ.pop(k, None)
 spec = importlib.util.spec_from_file_location("ovn_notify_y6", SRC)

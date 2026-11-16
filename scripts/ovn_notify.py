@@ -274,7 +274,12 @@ def forward(title, body, priority="default", tags="", kind="emergency", dry=Fals
     key = clean_title(title)
     hist = sent_today()
     if kind == "emergency":
-        if any(r.get("key") == key and r.get("kind") == "emergency" and now() - r["ts"] < EMERGENCY_COOLDOWN for r in hist):
+        cool = EMERGENCY_COOLDOWN
+        # q-weekend-fixes: while the Mac supervisor's health copy is stale (> OVN_MAC_SUP_STALE_H) every 'Mac jobs: <x>' state is UNKNOWN; such an emergency repeated every EMERGENCY_COOLDOWN (9 x 'Mac jobs: commit-push',
+        # 6.3 days). It is pushed at most once per OVN_MAC_UNKNOWN_REPEAT_S (default 24 h); the suppressed repeats go to the digest as notes via handle_publish. OVN_MAC_UNKNOWN_REPEAT=off restores the plain cooldown.
+        if key.startswith("Mac jobs:") and os.environ.get("OVN_MAC_UNKNOWN_REPEAT", "on") != "off" and mac_jobs_unknown():
+            cool = max(cool, float(os.environ.get("OVN_MAC_UNKNOWN_REPEAT_S", "86400")))
+        if any(r.get("key") == key and r.get("kind") == "emergency" and now() - r["ts"] < cool for r in hist):
             if not dry:
                 _event("deduped", kind, key)
             return "deduped"
@@ -1360,13 +1365,11 @@ def emergency_checks(dry=False):
     return out
 
 
-MAC_SUP_STALE_S = float(os.environ.get("OVN_MAC_SUP_STALE_H", "3")) * 3600
+MAC_SUP_STALE_S = float(os.environ.get("OVN_MAC_SUP_STALE_H", "6")) * 3600
 
 
-def mac_supervisor_stale():
-    """S2/F6: the Mac mac_jobs_health supervisor (launchd, every 10 min) scp's its health.json to state/mac_jobs_health.json on every run. On 2026-11-02 it silently stopped (no plist loaded) and
-    the copy sat 15 h stale with nobody told, because every alert comes FROM the supervisor. -> (stable title, body) when the box copy is older than OVN_MAC_SUP_STALE_H (default 3 h; age from the
-    JSON `ts`, else the file mtime), None when fresh or when no copy was ever written (supervisor never deployed). The title carries NO age (a changing title defeats the relay's per-title cooldown)."""
+def mac_health_age():
+    """Age in seconds of state/mac_jobs_health.json (the Mac supervisor's copy; age from the JSON `ts`, else the file mtime), None when no copy was ever written (supervisor never deployed)."""
     path = _p("mac_jobs_health.json")
     try:
         mt = os.path.getmtime(path)
@@ -1374,18 +1377,71 @@ def mac_supervisor_stale():
         return None
     try:
         ts = float(json.load(open(path)).get("ts") or mt)
-    except (OSError, ValueError, AttributeError, TypeError):
+        if not (ts == ts and abs(ts) != float("inf")):    # NaN / inf from a corrupt copy: not a usable timestamp
+            ts = mt
+    except Exception:    # any unreadable/odd content (bad UTF-8, wrong JSON shape, ...) falls back to the mtime
         ts = mt
     age = now() - max(ts, 0)
-    if age < MAC_SUP_STALE_S:
+    if age < -300:    # q-weekend-fixes review (c): a ts in the FUTURE (beyond 5 min of clock skew) cannot be 'fresh': the copy is UNKNOWN, reported exactly at the stale limit
+        return MAC_SUP_STALE_S
+    return max(age, 0.0)
+
+
+def _mac_age_text(age):
+    return "%dd" % int(age // 86400) if age >= 86400 else "%dh" % max(1, int(age // 3600))
+
+
+def mac_supervisor_stale():
+    """S2/F6 + q-weekend-fixes: the Mac mac_jobs_health supervisor (launchd, every 10 min) scp's its health.json to state/mac_jobs_health.json on every run. On 2026-11-02 it silently stopped (no plist loaded) and
+    the copy sat 15 h stale with nobody told, because every alert comes FROM the supervisor. -> (title, body) when the box copy is older than OVN_MAC_SUP_STALE_H (default 6 h), None when fresh or when no copy was
+    ever written. 2026-11-15: the copy sat 6.3 days old and the old 'Mac jobs supervisor silent' EMERGENCY (stable title, 3 h limit) re-pushed every day while the data it stood for was UNKNOWN, not bad.
+    The default title is now 'Mac supervision dead (health file Nd old)' (OVN_MAC_SUP_ALERT=warn, default: a once-a-day WARN note for the hourly digest, never a push); OVN_MAC_SUP_ALERT=emergency restores the
+    old stable-title emergency (legacy), off = no alert."""
+    age = mac_health_age()
+    if age is None or age < MAC_SUP_STALE_S:
         return None
-    return ("Mac jobs supervisor silent", "No mac_jobs_health.json from the Mac for %s (limit %g h). The Mac supervisor is not running or the Mac is off/asleep: Mac job alerts (vercel-state-check, claude-queue bridge) are not being checked. "
-            "Check `launchctl list | grep mac-jobs-health` on the Mac." % (_hours(age), MAC_SUP_STALE_S / 3600))
+    if _mac_alert_mode() == "emergency":
+        return ("Mac jobs supervisor silent", "No mac_jobs_health.json from the Mac for %s (limit %g h). The Mac supervisor is not running or the Mac is off/asleep: Mac job alerts (vercel-state-check, claude-queue bridge) are not being checked. "
+                "Check `launchctl list | grep mac-jobs-health` on the Mac." % (_hours(age), MAC_SUP_STALE_S / 3600))
+    return ("Mac supervision dead (health file %s old)" % _mac_age_text(age),
+            "The Mac jobs health file on the box is %s old (limit %g h): the Mac supervisor is not running or the Mac is off/asleep, so the state of the Mac jobs (vercel-state-check, claude-queue bridge) is UNKNOWN, "
+            "not known-bad. Check `launchctl list | grep mac-jobs-health` on the Mac. One note per day." % (_hours(age), MAC_SUP_STALE_S / 3600))
+
+
+def _mac_alert_mode():
+    v = (os.environ.get("OVN_MAC_SUP_ALERT", "warn") or "warn").strip().lower()
+    return v if v in ("warn", "emergency", "off") else "warn"
+
+
+def mac_jobs_unknown():
+    """True when the Mac supervisor's health copy exists but is older than OVN_MAC_SUP_STALE_H: every Mac-job state is UNKNOWN (used to stop 'Mac jobs: <x>' emergencies repeating)."""
+    age = mac_health_age()
+    return age is not None and age >= MAC_SUP_STALE_S
 
 
 def mark_starved_sent():
     os.makedirs(STATE, exist_ok=True)
     open(_p("notify_starved_last"), "w").write(str(now()))
+
+
+def _mac_dead_warn(title, body, dry=False):
+    """ONE WARN note per local day for a dead Mac supervisor (state/notify_mac_dead_day). Returns 'noted' | 'already-today' | 'dry'."""
+    day = time.strftime("%Y-%m-%d", time.localtime(now()))
+    path = _p("notify_mac_dead_day")
+    try:
+        if open(path).read().strip() == day:
+            return "already-today"
+    except Exception:    # q-weekend-fixes review (c): a missing/binary/garbled day file (UnicodeDecodeError, ValueError, OSError ...) fails OPEN: emit the WARN once
+        pass
+    if dry:
+        return "dry"
+    add_note(title, body, "default", "mac-supervision")
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        open(path, "w").write(day)
+    except OSError:
+        pass
+    return "noted"
 
 
 def do_check(dry=False):
@@ -1396,8 +1452,10 @@ def do_check(dry=False):
             mark_starved_sent()
         res.append("%s -> %s" % (title, r))
     ms = mac_supervisor_stale()
-    if ms:        # S2/F6: once per day, flag OVN_ESC_MAC_SUPERVISOR (default ON since Y6 = emergency push once a day; shadow = notify_shadow.log only; off = nothing)
+    if ms and _mac_alert_mode() == "emergency":     # legacy S2/F6 path: once per day, flag OVN_ESC_MAC_SUPERVISOR (ON since Y6 = emergency push once a day; shadow = notify_shadow.log only; off = nothing)
         res.append("%s -> %s" % (ms[0], escalate("mac_supervisor", ms[0], ms[1], "OVN_ESC_MAC_SUPERVISOR", dry=dry)))
+    elif ms and _mac_alert_mode() == "warn":        # q-weekend-fixes: UNKNOWN Mac state = at most ONE WARN note per local day (digest), no push; the title carries the age so the day key (not the title) dedupes
+        res.append("%s -> %s" % (ms[0], _mac_dead_warn(ms[0], ms[1], dry=dry)))
     return "\n".join(res) or "no emergencies"
 
 
