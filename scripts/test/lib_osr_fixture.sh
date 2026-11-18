@@ -67,7 +67,7 @@ if [ "$a" -ge 60 ]; then gp="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d " ")"
   while kill -0 "$PPID" 2>/dev/null && { [ -z "$gp" ] || kill -0 "$gp" 2>/dev/null; }; do /bin/sleep 0.5; done; exit 0; fi
 exit 0'
   _osr_stub "$H/aider-venv/bin/npx" '#!/usr/bin/env bash
-echo "npx $* @ $PWD link=$([ -L node_modules ] && echo y || echo n)" >> "$OSR_SCN/npx.calls"; echo "vitest run"; exit "$(cat "$OSR_SCN/npx.rc" 2>/dev/null || echo 0)"'
+echo "npx $* @ $PWD link=$([ -L node_modules ] && echo y || echo n)" >> "$OSR_SCN/npx.calls"; echo "vitest run"; exit "$(cat "$OSR_SCN/npx.rc.$1" 2>/dev/null || cat "$OSR_SCN/npx.rc" 2>/dev/null || echo 0)"'
   _osr_stub "$H/aider-venv/bin/docker" '#!/usr/bin/env bash
 echo "docker $* @ $PWD" >> "$OSR_SCN/docker.calls"; case "$1" in build) exit "$(cat "$OSR_SCN/docker.rc" 2>/dev/null || echo 0)";; esac; exit 0'
   # origin + repo (branch overnight/feature, the only branch the runner touches)
@@ -174,9 +174,9 @@ osr_run(){   # osr_run <runner args...>  -> rc in $RC, combined output in $T/out
 # 2026-11-15 (q-weekend-fixes review e): these helpers are piped into `grep -q` by the tests, which run under `set -o pipefail`. `grep -q` exits at the FIRST match; a producer that is still
 # writing (git log, cat of a large log) then dies of SIGPIPE (rc 141) and pipefail turns a TRUE match into a failed condition: a load-dependent 1-3% flake ('verified and PUSHED' read as not pushed
 # although the commit was there; reproduced 5/180 and 1/180 under 30 parallel runs + 10 CPU burners). Each helper therefore captures its whole output FIRST and prints it with one builtin write.
-_osr_emit(){ local _x; _x="$("$@" 2>/dev/null)"; printf '%s\n' "$_x"; }
-osr_out(){ _osr_emit cat "$T/out.txt"; }
-osr_jsonl(){ _osr_emit cat "$Q"/state/stage_runs/"$OSR_REPO"-*[0-9].jsonl; }
-osr_vlog(){ _osr_emit cat "$Q"/state/stage_runs/"$OSR_REPO"-*.verify.log; }
-osr_origin_log(){ _osr_emit git -C "$O" log --format=%s overnight/feature; }
-osr_origin_file(){ _osr_emit git -C "$O" show "overnight/feature:$1"; }
+# (each helper is self-contained on purpose: tests do `bash -c "$(declare -f osr_vlog ...)"`, which carries only the named function into the child shell)
+osr_out(){ local _x; _x="$(cat "$T/out.txt" 2>/dev/null)"; printf '%s\n' "$_x"; }
+osr_jsonl(){ local _x; _x="$(cat "$Q"/state/stage_runs/"$OSR_REPO"-*[0-9].jsonl 2>/dev/null)"; printf '%s\n' "$_x"; }
+osr_vlog(){ local _x; _x="$(cat "$Q"/state/stage_runs/"$OSR_REPO"-*.verify.log 2>/dev/null)"; printf '%s\n' "$_x"; }
+osr_origin_log(){ local _x; _x="$(git -C "$O" log --format=%s overnight/feature 2>/dev/null)"; printf '%s\n' "$_x"; }
+osr_origin_file(){ local _x; _x="$(git -C "$O" show "overnight/feature:$1" 2>/dev/null)"; printf '%s\n' "$_x"; }

@@ -13,6 +13,10 @@
 #   OVN_STAGE_ITEM_VERIFY      off|shadow|enforce (default shadow)   the item's own VERIFY must be RED on the pristine tree and GREEN on the final one before the item is ticked (xlite F3 / iptv F2)
 #   OVN_STAGE_RED_BEFORE       off|shadow|enforce (default shadow)   the tests the change added must FAIL once the source change is reverted (iptv F6)
 #   OVN_STAGE_WEB_VERIFY       off|shadow|enforce (default shadow)   vue-tsc + vitest related for changed web files (iptv F6)
+#   OVN_STAGE_WEB_VITEST_ENFORCE on|off (default on)               a NEW red vitest-related result blocks even when OVN_STAGE_WEB_VERIFY=shadow (billwatch 7dfcf84a, 33 h red)
+#                                                    CAVEAT (reviewed advisory 1): a vitest test that is ALREADY red on the base (not in the baseline) is a "new" signature for any later step touching a related file, so
+#                                                    it blocks every such step until fixed; escape hatch: OVN_STAGE_WEB_VITEST_ENFORCE=off (vitest then follows OVN_STAGE_WEB_VERIFY only).
+#                                                    Vitest signatures strip the reporter's trailing duration (`12ms`) and hash long names (first 80 chars + sha1 of the full name) so they are stable and distinct.
 _SG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SG_PY="$_SG_DIR/ovn_stage_guards.py"
 _SG_TOOLS_OK=1; type -P python3 >/dev/null 2>&1 && [ -f "$_SG_PY" ] || _SG_TOOLS_OK=0
@@ -270,8 +274,12 @@ _sg_web_clean(){ sed -E $'s/\x1b\\[[0-9;]*m//g' "$1" 2>/dev/null; }
 _sg_web_sigs(){ # <web.log> -> signatures: tsc `file|TSnnnn` (one line PER occurrence, multiset), vitest `V:<failing test>` (unique)
   local t; t="$(_sg_web_clean "$1")"
   { printf '%s\n' "$t" | grep -E '^[^[:space:](]+\.(vue|ts|tsx|js)\([0-9]+,[0-9]+\): error TS[0-9]+' | sed -E 's/^([^(]+)\([0-9]+,[0-9]+\): error (TS[0-9]+).*/\1|\2/' | sort
-    printf '%s\n' "$t" | grep -E '^[[:space:]]*(FAIL|×)[[:space:]]+' | sed -E 's/^[[:space:]]*(FAIL|×)[[:space:]]+/V:/' | cut -c1-120 | sort -u; }
+    printf '%s\n' "$t" | grep -E '^[[:space:]]*(FAIL|×)[[:space:]]+' | sed -E 's/^[[:space:]]*(FAIL|×)[[:space:]]+/V:/; s/[[:space:]]+[0-9]+(\.[0-9]+)? ?ms[[:space:]]*$//; s/[[:space:]]+$//' | _sg_web_shorten | sort -u; }
 }
+# stable vitest signature: the reporter's trailing duration is stripped by the caller; a long name keeps its first 80 chars plus a short sha1 of the FULL name, so two names that share a prefix stay distinct
+_sg_web_shorten(){ local l h; while IFS= read -r l; do
+    if [ "${#l}" -gt 90 ]; then h="$(printf '%s' "$l" | { sha1sum 2>/dev/null || shasum -a 1 2>/dev/null; } | cut -c1-8)"; printf '%s~%s\n' "${l:0:80}" "$h"; else printf '%s\n' "$l"; fi
+  done; }
 _sg_web_tsc_total(){ _sg_web_clean "$1" | grep -cE 'error TS[0-9]+'; }   # every vue-tsc error occurrence, parseable or not
 _sg_web_baseline_file(){ # <state-dir> <repo> -> baseline path
   printf '%s/web_verify_baseline/%s.sigs' "$1" "$(printf '%s' "$2" | tr -c 'A-Za-z0-9._-' '_')"
@@ -352,6 +360,22 @@ stage_web_verify(){
        echo "WEB red ${msg}${bf:+ (${nnew} new / ${ninh} inherited signature(s)${_xtra})} (see ${wl##*/})" ;;
   esac
   local blocked=0
+  # 2026-11-17 (q-verify-web-gap): a red VITEST on a changed web file blocks even while OVN_STAGE_WEB_VERIFY is `shadow`. billwatch overnight/feature stayed red 33 h because fleet commit 7dfcf84a
+  # (WeeklyDigestView.vue) broke WeeklyDigestView.test.ts: the staged full_verify has no vitest FULL (opt-in, off), the step's own VERIFY ran only the NEW preview test, and this gate - which DID
+  # report `vitest related rc=1` with the failing test - was shadow (its shadow precision problem is vue-tsc whole-project debt, not vitest). Only NEW vitest signatures block (a failing test already in
+  # the baseline is inherited); a vitest crash with no FAIL line blocks; a vitest timeout is no verdict. vue-tsc stays under the mode. OVN_STAGE_WEB_VITEST_ENFORCE=off restores shadow vitest.
+  local vblock=0 _vnew=""
+  if [ "$mode" != enforce ] && [ "${OVN_STAGE_WEB_VITEST_ENFORCE:-on}" != off ] && [ "$to_v" = 0 ] && [ "$eff_v" -ne 0 ]; then
+    if [ -n "$bf" ]; then
+      local _vs; _vs="$(printf '%s\n' "$cur" | grep '^V:')"
+      if [ -z "$_vs" ]; then vblock=1; elif [ -f "$bf" ]; then _vnew="$(_sg_web_newsigs "$bf" "$_vs")"; else _vnew="$_vs"; fi
+      [ -n "$_vnew" ] && vblock=1
+    else vblock=1; fi
+  fi
+  if [ "$vblock" = 1 ]; then
+    { printf '%s\n' "-- QUALITY FAIL: vitest failed for tests related to the changed web files (vitest related rc=${eff_v}) --"; [ -n "$_vnew" ] && { printf '%s\n' "new failing test(s) vs the baseline:"; printf '%s\n' "$_vnew" | head -12; }; tail -12 "$wl"; } >> "$vlog" 2>/dev/null
+    blocked=1
+  fi
   if [ "$mode" = enforce ] && [ "$verdict" = red ]; then
     { printf '%s\n' "-- QUALITY FAIL: web verification failed for the changed web files (${msg}) --"; [ -n "$bf" ] && [ -n "$newsigs" ] && { printf '%s\n' "new error signature(s) vs the baseline:"; printf '%s\n' "$newsigs" | head -12; }; tail -12 "$wl"; } >> "$vlog" 2>/dev/null
     blocked=1

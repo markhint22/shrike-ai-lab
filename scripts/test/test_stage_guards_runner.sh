@@ -278,9 +278,9 @@ osr_run "$OSR_REPO"
 t "G1 vue-tsc --noEmit and vitest related ran for the changed web file" bash -c "grep -q 'npx vue-tsc --noEmit' '$T/scn/npx.calls' && grep -q 'npx vitest related --run --passWithNoTests src/foo.ts' '$T/scn/npx.calls'"
 t "G2 green: journalled web_verify ok, landed" bash -c "grep -q '\"event\":\"web_verify\",\"mode\":\"shadow\",\"detail\":\"WEB ok' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl && grep -q 'pushed 1 verified commit' '$T/out.txt'"
 osr_cleanup
-web_setup; echo 1 > "$T/scn/npx.rc"
+web_setup; echo 0 > "$T/scn/npx.rc"; echo 1 > "$T/scn/npx.rc.vue-tsc"
 osr_run "$OSR_REPO"
-t "G3 SHADOW + red web check: recorded (WEB red) but the run still lands (nothing enforced)" bash -c "grep -q 'WEB red' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl && grep -q 'pushed 1 verified commit' '$T/out.txt'"
+t "G3 SHADOW + red vue-tsc check: recorded (WEB red) but the run still lands (nothing enforced; a red VITEST blocks even in shadow since q-verify-web-gap)" bash -c "grep -q 'WEB red' '$Q'/state/stage_runs/$OSR_REPO-*[0-9].jsonl && grep -q 'pushed 1 verified commit' '$T/out.txt'"
 osr_cleanup
 web_setup; echo 1 > "$T/scn/npx.rc"
 OVN_STAGE_WEB_VERIFY=enforce osr_run "$OSR_REPO"

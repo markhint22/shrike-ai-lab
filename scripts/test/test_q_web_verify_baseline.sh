@@ -99,7 +99,7 @@ suite(){ # <label> <lib> -> prints "NAME=1|0"
   # R: a vue-tsc timeout must not hide a vitest red (and the reverse)
   tsc_green; echo 124 > "$SCN/tsc.rc"; echo 1 > "$SCN/vitest.rc"; printf ' FAIL  src/y.test.ts > broke\n' > "$SCN/vitest.out"; run "$lib" tmo enforce
   [ $RC = 1 ] && echo "$OUT" | grep -q '^WEB red vitest related rc=1, vue-tsc timeout (no verdict)' && grep -q 'V:src/y.test.ts > broke' "$W/vlog" && echo "R_tsc_timeout_does_not_hide_a_vitest_red=1" || echo "R_tsc_timeout_does_not_hide_a_vitest_red=0"
-  run "$lib" tmo shadow; [ $RC = 0 ] && echo "$OUT" | grep -q '^WEB red vitest related rc=1, vue-tsc timeout' && echo "R2_shadow_reports_both=1" || echo "R2_shadow_reports_both=0"
+  run "$lib" tmo shadow OVN_STAGE_WEB_VITEST_ENFORCE=off; [ $RC = 0 ] && echo "$OUT" | grep -q '^WEB red vitest related rc=1, vue-tsc timeout' && echo "R2_shadow_reports_both=1" || echo "R2_shadow_reports_both=0"
   echo 0 > "$SCN/vitest.rc"; rm -f "$SCN/vitest.out"; tsc "$E_A"; echo 124 > "$SCN/vitest.rc"; run "$lib" tmo2 enforce
   [ $RC = 1 ] && echo "$OUT" | grep -q '^WEB red vue-tsc rc=2, vitest timeout (no verdict)' && echo "S_vitest_timeout_does_not_hide_a_tsc_red=1" || echo "S_vitest_timeout_does_not_hide_a_tsc_red=0"
   tsc_green; echo 124 > "$SCN/tsc.rc"; echo 0 > "$SCN/vitest.rc"; run "$lib" tmo3 enforce

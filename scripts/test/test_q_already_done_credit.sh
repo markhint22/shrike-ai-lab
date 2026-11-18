@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression test: package q-already-done-credit (2026-11-13).
-#  PART 1  ovn_pick_cap.py (pure outcomes.jsonl function) + the item-guard hook (OVN_PICK_CAP=off|shadow|enforce, default shadow): an item picked >= N=4 times in 24 h with bad results
+#  PART 1  ovn_pick_cap.py (pure outcomes.jsonl function) + the item-guard hook (OVN_PICK_CAP=off|shadow|enforce, default ENFORCE since 2026-11-17 for kinds already-done,landed-uncredited only): an item picked >= N=4 times in 24 h with bad results
 #          (ALREADY-DONE / landed-uncredited / reverted-red / fixup-undid) and no credited landing is "would-autoskip pick-cap" (shadow) or parked '[AUTO-SKIP needs-human: ...]' (enforce).
 #  PART 2  ovn_ad_lint_credit.py + lib_auto_credit.sh ovn_ad_lint_credit: ALREADY-DONE credit by evidence when the item's VERIFY is malformed (lint PN1/TS1/TP1/NEGGREP1/ML1) and scoped
 #          evidence passes; shadow logs 'would-credit already-done-lint-verified' and NEVER ticks.
@@ -78,12 +78,31 @@ c3 = pc.cycle(rows, "r", prog, NOW)
 res["cycle_credited_item_nothing_to_park"] = c3["trip"] and c3["line_no"] == 0
 open(prog, "w").write("- [ ] " + body + "\n- [ ] " + body + "\n")
 res["cycle_ambiguous_twins_not_parked"] = pc.cycle(rows, "r", prog, NOW)["line_no"] == 1 or True   # identical twins share one hash: the first open line IS that item (documented)
+# 2026-11-17 defaults: the CLI acts on already-done + landed-uncredited only; reverted-red / fixup-undid are opt-in
+import subprocess, tempfile
+def cli(rows_, extra=()):
+    d = tempfile.mkdtemp(); of = os.path.join(d, "o.jsonl"); pg = os.path.join(d, "p.md")
+    open(of, "w").write("".join(json.dumps({k: v for k, v in r.items() if k != "_t"}) + "\n" for r in rows_))
+    open(pg, "w").write("- [ ] " + body + "\n")
+    o = subprocess.run([sys.executable, pc.__file__, "cycle", "--outcomes", of, "--repo", "r", "--prog", pg, "--now", str(NOW)] + list(extra), capture_output=True, text=True).stdout.strip().split("\t")
+    return o
+res["default_kinds_constant"] = pc.DEFAULT_KINDS == ("already-done", "landed-uncredited")
+mix = [row(0.04, *AD, key="k9", line=lh), row(0.03, *LU, key="k9", line=lh), row(0.02, *RR, key="k9", line=lh), row(0.01, *FX, key="k9", line=lh)]
+res["cli_default_kinds_exclude_reverted_and_fixup"] = cli(mix)[0] == "0"
+res["cli_explicit_all_kinds_trips"] = cli(mix, ["--kinds", "already-done,landed-uncredited,reverted-red,fixup-undid"])[0] == "1"
+res["cli_garbage_kinds_fall_back_to_default_not_all"] = cli(mix, ["--kinds", "bogus,nonsense"])[0] == "0"
+rrx4 = [row(0.04, *RR, key="k9", line=lh), row(0.03, *RR, key="k9", line=lh), row(0.02, *FX, key="k9", line=lh), row(0.01, *RR, key="k9", line=lh)]
+res["cli_default_never_trips_on_reverted_red_loop"] = cli(rrx4)[0] == "0"
+adx4 = [row(0.04, *AD, key="k9", line=lh), row(0.03, *LU, key="k9", line=lh), row(0.02, *AD, key="k9", line=lh), row(0.01, *AD, key="k9", line=lh)]
+c4 = cli(adx4)
+res["cli_default_trips_on_already_done_loop_and_names_line"] = c4[0] == "1" and c4[3] == "1"
+res["cli_fewer_than_n_never_trips"] = cli(adx4[1:])[0] == "0"
 for k, v in res.items():
     print("%s=%d" % (k, 1 if v else 0))
 PY
 unit1(){ python3 "$T/unit1.py" "${1:-$Q}" "$T/prog_unit.md"; }
 U1="$(unit1)"
-for k in trip_at_4 no_trip_at_3 kinds_counted window_24h other_results_not_counted other_repo_not_counted other_key_not_counted future_rows_ignored credited_landing_forgives_same_line sibling_landing_does_not_forgive feat_key_pools_changing_line_hash credit_only_forgives kinds_filter gpu_seconds replay_caps_once replay_saved replay_false_cap_same_line replay_sibling_landing_not_same_line cycle_trips_and_locates_open_line cycle_landing_row_never_trips cycle_stale_row_ignored cycle_credited_item_nothing_to_park; do
+for k in trip_at_4 no_trip_at_3 kinds_counted window_24h other_results_not_counted other_repo_not_counted other_key_not_counted future_rows_ignored credited_landing_forgives_same_line sibling_landing_does_not_forgive feat_key_pools_changing_line_hash credit_only_forgives kinds_filter gpu_seconds replay_caps_once replay_saved replay_false_cap_same_line replay_sibling_landing_not_same_line cycle_trips_and_locates_open_line cycle_landing_row_never_trips cycle_stale_row_ignored cycle_credited_item_nothing_to_park default_kinds_constant cli_default_kinds_exclude_reverted_and_fixup cli_explicit_all_kinds_trips cli_garbage_kinds_fall_back_to_default_not_all cli_default_never_trips_on_reverted_red_loop cli_default_trips_on_already_done_loop_and_names_line cli_fewer_than_n_never_trips; do
   ok "pick-cap unit: $k" "printf '%s\n' \"\$U1\" | grep -qx '$k=1'"; done
 # mutants of the pure function
 chk_unit(){ [ "$(python3 "$T/unit1.py" "$MUT" "$T/prog_m.md" 2>/dev/null | grep -c '=1$')" = "$(printf '%s\n' "$U1" | grep -c '=1$')" ]; }
@@ -94,6 +113,8 @@ mut "line-hash key instead of feat" ovn_pick_cap.py 's/return str\(row.get\("ite
 mut "threshold off by one" ovn_pick_cap.py 's/"trip": len\(bad\) >= n,/"trip": len(bad) > n,/' chk_unit
 mut "kind filter ignored" ovn_pick_cap.py 's/if k in kinds and r\["_t"\] > lo:/if k and r["_t"] > lo:/' chk_unit
 mut "stage-unverified counted as a bad pick" ovn_pick_cap.py 's/if cls == "noop" and st.startswith\("no-op\(ALREADY-DONE"\):/if cls == "noop" and (st.startswith("no-op(ALREADY-DONE") or st.startswith("no-op(stage-unverified")):/' chk_unit
+mut "default kinds = all four" ovn_pick_cap.py 's/^DEFAULT_KINDS = .*$/DEFAULT_KINDS = BAD_KINDS/' chk_unit
+mut "garbage kinds fall back to all" ovn_pick_cap.py 's/ or DEFAULT_KINDS   # unknown.*$/ or BAD_KINDS/' chk_unit
 mut "a landing row can trip" ovn_pick_cap.py 's/"trip": bool\(res\["trip"\] and kind_of\(last\) in kinds\)/"trip": bool(res["trip"])/' chk_unit
 
 # ------------------------------------------------------------------ PART 1b: the item-guard hook ------------------------------------------------------------------
@@ -108,13 +129,43 @@ new_repo(){ local r="$T/$1"; mkdir -p "$r"; ( cd "$r" && git init -q && git conf
 jrow(){ # $1=state $2=repo-basename $3=minutes ago $4=class $5=status $6=item_hash $7=line hash
   local ts; ts="$(python3 -c "import time,sys;print(time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime(time.time()-float(sys.argv[1])*60)))" "$3")"
   printf '{"ts":"%s","repo":"%s","id":"ongoing-%s","class":"%s","severity":"neutral","status":"%s","item_hash":"%s","item_line_hash":"%s","duration_s":60}\n' "$ts" "$2" "$2" "$4" "$5" "$6" "$7" >> "$1/outcomes.jsonl"; }
-fourrows(){ local s="$1" rn="$2" h="$3"; jrow "$s" "$rn" 200 noop 'no-op(ALREADY-DONE)' "$h" "$h"; jrow "$s" "$rn" 150 landed-uncredited 'pushed(tests:pass)' "$h" "$h"; jrow "$s" "$rn" 100 noop 'no-op(reverted-red)' "$h" "$h"; jrow "$s" "$rn" 1 "${4:-noop}" "${5:-no-op(ALREADY-DONE)}" "$h" "$h"; }
+fourrows(){ local s="$1" rn="$2" h="$3"; jrow "$s" "$rn" 200 noop 'no-op(ALREADY-DONE)' "$h" "$h"; jrow "$s" "$rn" 150 landed-uncredited 'pushed(tests:pass)' "$h" "$h"; jrow "$s" "$rn" 100 noop 'no-op(ALREADY-DONE)' "$h" "$h"; jrow "$s" "$rn" 1 "${4:-noop}" "${5:-no-op(ALREADY-DONE)}" "$h" "$h"; }
 runguard(){ local g="$1" r="$2" st="$3" status="$4"; shift 4; printf 'Tokens: 1k sent, 1 received.\n' > "$T/l.log"; env OVN_ITEM_DAY_CAP_MODE=off OVN_REVERT_REPEAT_MODE=off OVN_REPEAT_BREAKER=off OVN_ITEM_NOOP_CAP=99 OVN_ITEM_FAIL_CAP=99 "$@" bash "$g" "$r" "$status" "$st" ongoing-r "$T/l.log" 2>&1; }
 guard_suite(){ # $1=label $2=guard ; prints NAME=0|1
   local g="$2" lb="$1" r st out
   r="$(new_repo "${lb}_s")"; st="$T/${lb}_sts"; mkdir -p "$st"; fourrows "$st" "$(basename "$r")" "$ITEM_HASH"
-  out="$(runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)')"
-  if grep -q 'would-autoskip pick-cap' "$st/pick_cap_shadow.log" 2>/dev/null && ! grep -q 'AUTO-SKIP' "$r/OVERNIGHT_PROGRESS.md" && grep -q 'would-autoskip pick-cap' "$T/l.log" && printf '%s' "$out" | grep -q 'would-autoskip pick-cap'; then echo "G_shadow_default_logs_only=1"; else echo "G_shadow_default_logs_only=0"; fi
+  out="$(runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' OVN_PICK_CAP=shadow)"
+  if grep -q 'would-autoskip pick-cap' "$st/pick_cap_shadow.log" 2>/dev/null && ! grep -q 'AUTO-SKIP' "$r/OVERNIGHT_PROGRESS.md" && grep -q 'would-autoskip pick-cap' "$T/l.log" && printf '%s' "$out" | grep -q 'would-autoskip pick-cap'; then echo "G_shadow_switch_logs_only=1"; else echo "G_shadow_switch_logs_only=0"; fi
+  # DEFAULT (no OVN_PICK_CAP, no kinds env) = enforce: the 4th bad pick parks the exact line; unknown mode = shadow
+  r="$(new_repo "${lb}_d")"; st="$T/${lb}_std"; mkdir -p "$st"; fourrows "$st" "$(basename "$r")" "$ITEM_HASH"
+  runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' >/dev/null
+  grep -q '^- \[ \] \[AUTO-SKIP needs-human: picked 4x' "$r/OVERNIGHT_PROGRESS.md" && grep -q 'mode=enforce' "$st/pick_cap_shadow.log" && echo "G_default_is_enforce=1" || echo "G_default_is_enforce=0"
+  r="$(new_repo "${lb}_bad")"; st="$T/${lb}_stbad"; mkdir -p "$st"; fourrows "$st" "$(basename "$r")" "$ITEM_HASH"
+  runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' OVN_PICK_CAP=bogus >/dev/null
+  ! grep -q AUTO-SKIP "$r/OVERNIGHT_PROGRESS.md" && grep -q 'mode=shadow' "$st/pick_cap_shadow.log" && echo "G_unknown_mode_is_shadow=1" || echo "G_unknown_mode_is_shadow=0"
+  # default kinds exclude reverted-red / fixup-undid: an AD,LU,RR,FX history (only 2 counted) parks nothing; the same history with the kinds env naming all four parks
+  r="$(new_repo "${lb}_mx")"; st="$T/${lb}_stmx"; mkdir -p "$st"; rn="$(basename "$r")"
+  jrow "$st" "$rn" 200 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 150 landed-uncredited 'pushed(tests:pass)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 100 noop 'no-op(reverted-red)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 1 noop 'no-op(fixup-undid-item)' "$ITEM_HASH" "$ITEM_HASH"
+  runguard "$g" "$r" "$st" 'no-op(fixup-undid-item)' >/dev/null; ! grep -q AUTO-SKIP "$r/OVERNIGHT_PROGRESS.md" && [ ! -s "$st/pick_cap_shadow.log" ] && echo "G_default_kinds_exclude_rr_fx=1" || echo "G_default_kinds_exclude_rr_fx=0"
+  r="$(new_repo "${lb}_mx2")"; st="$T/${lb}_stmx2"; mkdir -p "$st"; rn="$(basename "$r")"
+  jrow "$st" "$rn" 200 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 150 landed-uncredited 'pushed(tests:pass)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 100 noop 'no-op(reverted-red)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 1 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"
+  runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' >/dev/null; ! grep -q AUTO-SKIP "$r/OVERNIGHT_PROGRESS.md" && echo "G_rr_row_not_counted_by_default=1" || echo "G_rr_row_not_counted_by_default=0"
+  r="$(new_repo "${lb}_mx3")"; st="$T/${lb}_stmx3"; mkdir -p "$st"; rn="$(basename "$r")"
+  jrow "$st" "$rn" 200 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 150 landed-uncredited 'pushed(tests:pass)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 100 noop 'no-op(reverted-red)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 1 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"
+  runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' OVN_PICK_CAP_KINDS=already-done,landed-uncredited,reverted-red,fixup-undid >/dev/null; grep -q 'AUTO-SKIP needs-human: picked 4x' "$r/OVERNIGHT_PROGRESS.md" && echo "G_kinds_env_widens=1" || echo "G_kinds_env_widens=0"
+  # a 5th ALREADY-DONE pick parks exactly the picked line (siblings/other open lines untouched, the file keeps its line count)
+  r="$T/${lb}_five"; mkdir -p "$r"; ( cd "$r" && git init -q && git config user.email t@t.com && git config user.name t && printf -- '- [ ] [T0] other/a.py - first open line. VERIFY: `true`\n- [ ] %s\n- [ ] [T2] other/b.py - third open line. VERIFY: `true`\n' "$ITEM" > OVERNIGHT_PROGRESS.md && git add -A && git commit -q -m init )
+  st="$T/${lb}_stfive"; mkdir -p "$st"; rn="$(basename "$r")"
+  for m in 400 300 200 100; do jrow "$st" "$rn" "$m" noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"; done; jrow "$st" "$rn" 1 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"
+  runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' >/dev/null
+  [ "$(grep -c AUTO-SKIP "$r/OVERNIGHT_PROGRESS.md")" = 1 ] && [ "$(sed -n 2p "$r/OVERNIGHT_PROGRESS.md" | grep -c 'AUTO-SKIP needs-human: picked 5x')" = 1 ] && [ "$(sed -n 1p "$r/OVERNIGHT_PROGRESS.md")" = '- [ ] [T0] other/a.py - first open line. VERIFY: `true`' ] && [ "$(wc -l < "$r/OVERNIGHT_PROGRESS.md" | tr -d ' ')" = 3 ] && echo "G_fifth_pick_parks_exact_line=1" || echo "G_fifth_pick_parks_exact_line=0"
+  # a CREDITED landing of the same line inside the window forgives the earlier bad picks: AD,AD,AD,landed(same line),AD,AD never parks
+  r="$(new_repo "${lb}_fg")"; st="$T/${lb}_stfg"; mkdir -p "$st"; rn="$(basename "$r")"
+  for m in 500 400 300; do jrow "$st" "$rn" "$m" noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"; done; jrow "$st" "$rn" 200 landed 'pushed(tests:pass)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 100 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$rn" 1 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"
+  runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' >/dev/null; ! grep -q AUTO-SKIP "$r/OVERNIGHT_PROGRESS.md" && [ ! -s "$st/pick_cap_shadow.log" ] && echo "G_credited_landing_prevents_park=1" || echo "G_credited_landing_prevents_park=0"
+  # a row whose line hash matches NO open line (text changed) parks nothing even though the cap tripped
+  r="$(new_repo "${lb}_nl")"; st="$T/${lb}_stnl"; mkdir -p "$st"; rn="$(basename "$r")"; fourrows "$st" "$rn" "$ITEM_HASH"; sed -i.bak 's/add the helper/add the other helper/' "$r/OVERNIGHT_PROGRESS.md"; rm -f "$r/OVERNIGHT_PROGRESS.md.bak"
+  runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' >/dev/null; ! grep -q AUTO-SKIP "$r/OVERNIGHT_PROGRESS.md" && grep -q 'line=0' "$st/pick_cap_shadow.log" && echo "G_unmatched_line_parks_nothing=1" || echo "G_unmatched_line_parks_nothing=0"
   r="$(new_repo "${lb}_u")"; st="$T/${lb}_stu"; mkdir -p "$st"; jrow "$st" "$(basename "$r")" 200 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$(basename "$r")" 100 landed-uncredited 'pushed(tests:pass)' "$ITEM_HASH" "$ITEM_HASH"; jrow "$st" "$(basename "$r")" 1 noop 'no-op(ALREADY-DONE)' "$ITEM_HASH" "$ITEM_HASH"
   runguard "$g" "$r" "$st" 'no-op(ALREADY-DONE)' >/dev/null; [ ! -s "$st/pick_cap_shadow.log" ] && echo "G_three_picks_silent=1" || echo "G_three_picks_silent=0"
   r="$(new_repo "${lb}_e")"; st="$T/${lb}_ste"; mkdir -p "$st"; fourrows "$st" "$(basename "$r")" "$ITEM_HASH"
@@ -146,7 +197,7 @@ guard_suite(){ # $1=label $2=guard ; prints NAME=0|1
   runguard "$g" "$r" "$st" 'skip(exhausted)' OVN_PICK_CAP=enforce >/dev/null; ! grep -q AUTO-SKIP "$r/OVERNIGHT_PROGRESS.md" && echo "G_skip_status_ignored=1" || echo "G_skip_status_ignored=0"
 }
 GREAL="$(mkg "$T/real")"; GOUT="$(guard_suite real "$GREAL")"
-for k in G_shadow_default_logs_only G_three_picks_silent G_enforce_parks G_enforce_commits G_enforce_keeps_item_text G_landed_uncredited_parks G_off_is_off G_landing_never_parks G_credited_item_not_parked G_other_repo_rows_ignored G_threshold_env G_skip_status_ignored G_log_rotates; do
+for k in G_shadow_switch_logs_only G_default_is_enforce G_unknown_mode_is_shadow G_default_kinds_exclude_rr_fx G_rr_row_not_counted_by_default G_kinds_env_widens G_fifth_pick_parks_exact_line G_credited_landing_prevents_park G_unmatched_line_parks_nothing G_three_picks_silent G_enforce_parks G_enforce_commits G_enforce_keeps_item_text G_landed_uncredited_parks G_off_is_off G_landing_never_parks G_credited_item_not_parked G_other_repo_rows_ignored G_threshold_env G_skip_status_ignored G_log_rotates; do
   ok "pick-cap guard: $k" "printf '%s\n' \"\$GOUT\" | grep -qx '$k=1'"; done
 gmut(){ # label sed-expr : the mutated guard must lose at least one check
   local lbl="$1" expr="$2" g o; g="$(mkg "$T/gm_$(echo "$lbl" | tr -c 'A-Za-z0-9' _)" "$expr")"
@@ -156,7 +207,10 @@ gmut(){ # label sed-expr : the mutated guard must lose at least one check
 gmut "never trips" 's/if \[ "\$\{_pc_trip:-0\}" = 1 \]; then/if [ "${_pc_trip:-0}" = 99 ]; then/'
 gmut "parks in shadow too" 's/if \[ "\$_pc_mode" = enforce \] && \[ "\$\{_pc_ln:-0\}" -gt 0 \]/if [ "$_pc_mode" != off ] \&\& [ "${_pc_ln:-0}" -gt 0 ]/'
 gmut "enforce never parks" 's/if \[ "\$_pc_mode" = enforce \] && \[ "\$\{_pc_ln:-0\}" -gt 0 \]/if [ "$_pc_mode" = NEVER ] \&\& [ "${_pc_ln:-0}" -gt 0 ]/'
-gmut "off ignored" 's/^_pc_mode="\$\{OVN_PICK_CAP:-shadow\}"$/_pc_mode="shadow"/'
+gmut "off ignored" 's/^_pc_mode="\$\{OVN_PICK_CAP:-enforce\}"$/_pc_mode="enforce"/'
+gmut "default back to shadow" 's/^_pc_mode="\$\{OVN_PICK_CAP:-enforce\}"$/_pc_mode="${OVN_PICK_CAP:-shadow}"/'
+gmut "unknown mode enforces" 's/\*\) _pc_mode=shadow ;; esac/*) _pc_mode=enforce ;; esac/'
+gmut "default kinds widened" 's/OVN_PICK_CAP_KINDS:-already-done,landed-uncredited/OVN_PICK_CAP_KINDS:-already-done,landed-uncredited,reverted-red,fixup-undid/'
 gmut "skip statuses not excluded" 's/case "\$status" in skip\*\|held\*\|\*bug-handled\*\|"no-op\(scout-unworkable\)"\) _pc_mode=off;; esac/true/'
 gmut "threshold env ignored" 's/--n "\$\{OVN_PICK_CAP_N:-4\}"/--n 4/'
 gmut "log never rotates" 's/-ge 2097152 \] 2>\/dev\/null; then/-ge 2097152999 ] 2>\/dev\/null; then/'

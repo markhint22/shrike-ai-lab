@@ -742,5 +742,6 @@ echo; echo "===== q-weekend-fixes: pipeline-owned pytest runner (tools venv / sy
 echo; echo "===== q-weekend-fixes: TAA auto-credit rc=127: bare python3 falls back to a repo venv (cd target without .venv), stage-worktree live-clone fallback (4 mutants) ====="; bash test_q_verify_venv_ancestor.sh || rc=1
 echo; echo "===== q-weekend-fixes: stale Mac health = UNKNOWN: one WARN note/day (Mac supervision dead), Mac-jobs emergency repeat throttle while UNKNOWN (7 mutants) ====="; python3 test_q_mac_stale.py || rc=1
 echo; echo "===== q-weekend-fixes: web-verify gate baseline-aware (inherited vue-tsc/vitest signatures never block; timeout = no verdict; 7 mutants; gate stays SHADOW) ====="; bash test_q_web_verify_baseline.sh || rc=1
+echo; echo "===== q-verify-web-gap: a NEW red vitest-related result blocks the staged verify even with OVN_STAGE_WEB_VERIFY=shadow (billwatch 7dfcf84a 33 h red; 9 mutants) ====="; bash test_q_verify_web_gap.sh || rc=1
 echo; finish || rc=1
 exit $rc

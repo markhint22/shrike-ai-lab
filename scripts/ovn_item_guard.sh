@@ -225,19 +225,22 @@ PYQ2
   fi
 fi
 
-# --- Per-item PICK CAP (2026-11-13, package q-already-done-credit; OVN_PICK_CAP=off|shadow|enforce, DEFAULT shadow) -----------------------------------------------------------
+# --- Per-item PICK CAP (2026-11-13, package q-already-done-credit; OVN_PICK_CAP=off|shadow|enforce, DEFAULT enforce since 2026-11-17 for already-done,landed-uncredited only; OVN_PICK_CAP=shadow|off reverts instantly) -----------------------------------------------------------
 # nov12-13: ~20-25% of cycles went to the same items coming back as no-op(ALREADY-DONE) / landed-uncredited / reverted-red / fixup-undid (TAA 3f096a1a: 3 duplicate commits then 3 more
 # ALREADY-DONE verdicts; xlite 5de203e0 picked 10x in 10 h). Every cap below misses it: the rolling day cap EXCLUDES no-op(ALREADY-DONE), the no-op streak is CONSECUTIVE and landed-uncredited
 # cycles take the landing branch right after this block and never reach a cap. This counts the item's bad picks from state/outcomes.jsonl (record_outcome wrote this cycle's row BEFORE the
 # guard ran; scripts/../ovn_pick_cap.py): >= OVN_PICK_CAP_N (default 4) bad picks inside OVN_PICK_CAP_HOURS (24) since the item line's last CREDITED landing trips it. shadow = log
 # 'would-autoskip pick-cap' (state/pick_cap_shadow.log + the task log), enforce = tag the open line '[AUTO-SKIP needs-human: ...]' (the claude queue bridge harvests every AUTO-SKIP line into
-# CLAUDE_QUEUE.md, i.e. it routes to CLAUDE) + the usual chore(queue) commit/push. Nothing is parked when the open line cannot be identified uniquely. OVN_PICK_CAP_KINDS narrows the kinds.
-_pc_mode="${OVN_PICK_CAP:-shadow}"
+# CLAUDE_QUEUE.md, i.e. it routes to CLAUDE) + the usual chore(queue) commit/push. Nothing is parked when the open line cannot be identified uniquely. OVN_PICK_CAP_KINDS sets the kinds (default already-done,landed-uncredited; reverted-red/fixup-undid made false caps in the soak).
+# Safety: the enforce path retags ONLY the open line whose md5 equals the cycle row's item_line_hash (or the single open line with the row's feat-hash when the row has no line hash); anything else = line 0 = nothing parked.
+# An unknown OVN_PICK_CAP value is treated as shadow (never enforce by accident).
+_pc_mode="${OVN_PICK_CAP:-enforce}"
+case "$_pc_mode" in off|shadow|enforce) ;; *) _pc_mode=shadow ;; esac
 case "$status" in skip*|held*|*bug-handled*|"no-op(scout-unworkable)") _pc_mode=off;; esac
 _pc_py="$(dirname "$0")/../ovn_pick_cap.py"
 if [ "$_pc_mode" != off ] && [ -f "$_pc_py" ] && [ -f "$state/outcomes.jsonl" ]; then
   type ovn_hto >/dev/null 2>&1 || . "$(dirname "$0")/lib_helper_timeout.sh" 2>/dev/null || ovn_hto(){ shift 2; "$@"; }
-  _pc_out="$(ovn_hto 30 pick_cap python3 "$_pc_py" cycle --outcomes "$state/outcomes.jsonl" --repo "$(basename "$repo")" --prog "$prog" --n "${OVN_PICK_CAP_N:-4}" --hours "${OVN_PICK_CAP_HOURS:-24}" ${OVN_PICK_CAP_KINDS:+--kinds "$OVN_PICK_CAP_KINDS"} 2>/dev/null | tail -1)"
+  _pc_out="$(ovn_hto 30 pick_cap python3 "$_pc_py" cycle --outcomes "$state/outcomes.jsonl" --repo "$(basename "$repo")" --prog "$prog" --n "${OVN_PICK_CAP_N:-4}" --hours "${OVN_PICK_CAP_HOURS:-24}" --kinds "${OVN_PICK_CAP_KINDS:-already-done,landed-uncredited}" 2>/dev/null | tail -1)"
   IFS="$(printf '\t')" read -r _pc_trip _pc_cnt _pc_kinds _pc_ln _pc_key _pc_why <<EOPC
 $_pc_out
 EOPC

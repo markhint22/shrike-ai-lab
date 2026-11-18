@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/overnight-queue/ovn_pick_cap.py - per-item PICK CAP (package q-already-done-credit, 2026-11-13). SHADOW by default.
+"""scripts/overnight-queue/ovn_pick_cap.py - per-item PICK CAP (package q-already-done-credit, 2026-11-13). ENFORCE by default (2026-11-17) for the kinds already-done + landed-uncredited only.
 
 Problem (nov12-13 fleet review): ~20-25% of cycles went to items that never land: TAA 3f096a1a landed three duplicate commits then came back as ALREADY-DONE three more times; xlite 5de203e0 was
 picked 10 times in 10 h. Every existing cap misses this class: ovn_item_guard.sh's rolling day cap EXCLUDES no-op(ALREADY-DONE), the no-op streak is CONSECUTIVE (any other cycle resets it) and
@@ -27,6 +27,9 @@ import time
 from calendar import timegm
 
 BAD_KINDS = ("already-done", "landed-uncredited", "reverted-red", "fixup-undid")
+# 2026-11-17: the kinds the CLI / item guard act on by default. The 46.7 h shadow soak on the real box state showed 12 items capped, 0 landed later on the same line, 6 of 6 hand-checked
+# caps correct for exactly these two kinds; reverted-red and fixup-undid produced false caps (items that landed afterwards), so they stay OUT unless named in OVN_PICK_CAP_KINDS / --kinds.
+DEFAULT_KINDS = ("already-done", "landed-uncredited")
 CREDITED = ("landed", "credit-only")
 
 
@@ -218,7 +221,7 @@ def main(argv):
     outcomes = opt("--outcomes")
     n = int(opt("--n", "4") or 4)
     hours = float(opt("--hours", "24") or 24)
-    kinds = tuple(x for x in (opt("--kinds", ",".join(BAD_KINDS)) or "").split(",") if x in BAD_KINDS) or BAD_KINDS
+    kinds = tuple(x for x in (opt("--kinds", ",".join(DEFAULT_KINDS)) or "").split(",") if x in BAD_KINDS) or DEFAULT_KINDS   # unknown/empty -> the safe default, never "all four"
     rows = load(outcomes) if outcomes else []
     if cmd == "check":
         now = int(opt("--now", str(int(time.time()))))
