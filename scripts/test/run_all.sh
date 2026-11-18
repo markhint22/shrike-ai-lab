@@ -44,6 +44,8 @@ run_or_notrun(){ if [ ! -f "$1" ]; then NOTRUN=$((NOTRUN+1)); echo "  ** NOT RUN
 # 2026-11-11 (q-infra-gates): a present suite that exits 77 (its own prerequisites are missing here, e.g. test_q_z4_advisories.sh on the queue-only box tree) is a SKIP, not a failure. `|| rc=1` turned 77 into
 # rc=1 with no suite named (_ovn_note_fail ignores 77), so the six-hourly suite cron was red 3 runs in a row with an empty FAILED SUITES list. Skipped suites are counted and listed by finish().
 # OVN_RUN_IF_PRESENT_77=fail restores the old mapping (77 -> rc=1).
+# 2026-11-17: test_z4_native_build_check.sh was registered `|| rc=1` but exits 77 on the queue-only box tree (no mac-native-build-check.sh): rc=1 with NO suite named
+# (FAILED SUITES empty), hidden behind test_q_suite_fix, so the box suite cron could not be green. Mac-tree suite: registered with run_if_present (loud SKIP on the box).
 SKIPPED=0; SKIPPED_SUITES=""
 run_if_present(){ if [ -f "$1" ]; then bash "$1"; _rip=$?; if [ "$_rip" -eq 0 ]; then :; elif [ "$_rip" -eq 77 ] && [ "${OVN_RUN_IF_PRESENT_77:-skip}" != fail ]; then SKIPPED=$((${SKIPPED:-0}+1)); SKIPPED_SUITES="${SKIPPED_SUITES:-} $1"; echo "  SKIPPED: $1 exited 77 (prerequisites missing on this host) - counted as skipped, not failed"; else rc=1; fi; else SKIPPED=$((${SKIPPED:-0}+1)); SKIPPED_SUITES="${SKIPPED_SUITES:-} $1"; echo "  SKIP: $1 not present on this host (Mac-only file excluded from the deploy tar)"; fi; }
 # the single verdict: green only when every suite ran and passed. A NOT RUN suite is unverified, never green (2026-10-14 review).
@@ -692,7 +694,7 @@ echo; echo "===== Y3: ops/tsc_baseline_reseed.sh dry-run/apply/backup ====="; ba
 echo; echo "===== Y6 notify fixes 2: promote folded into the digest + weekly scorecard, Mac supervisor default ON, rolling-24h escalation, reconcile bullet repo+branch, bullet cooldowns, vercel recovery, suite-red fixture filter (16 mutants) ====="; bash test_y6_notify_fixes.sh || rc=1
 echo; echo "===== Y6 hygiene-stuck: age from the last merge, names branch + failing tests/conflict files, rolling-24h escalation, one low recovery (12 mutants) ====="; bash test_y6_hygiene_stuck.sh || rc=1
 echo; echo "===== Z4: hygiene-stuck recovery for the claude/feature lane (reads logs/branch_hygiene_claude.log; 1 mutant) ====="; bash test_z4_hygiene_stuck_claude_lane.sh || rc=1
-echo; echo "===== Z4: mac-native-build-check timestamps + first-error cause + builds origin/develop + cause scoped to failed platforms (4 mutants) ====="; bash test_z4_native_build_check.sh || rc=1
+echo; echo "===== Z4: mac-native-build-check timestamps + first-error cause + builds origin/develop + cause scoped to failed platforms (4 mutants) ====="; run_if_present test_z4_native_build_check.sh
 echo; echo "===== Z4: suite cron lock poll (cron mode only; P6 poll budget never overshoots; 4 mutants) ====="; bash test_z4_suite_cron_poll.sh || rc=1
 echo; echo "===== Z3 landing gates: B0 editor-example-leak, B1 step-diff, B2 tone, B3 repair-route, B4 test-item scope, B5 dropped call, B6 landing cap - all SHADOW by default (B7 assert-weaken added by Z5; 51 mutants) ====="; bash test_z3_landing_gates.sh || rc=1
 echo; echo "===== Z3 wiring: gates in the real stage runner (shadow journals, enforce refuses, editor-format knob; box only) ====="; bash test_z3_stage_runner_wiring.sh || rc=1

@@ -22,6 +22,7 @@ echo "== A: the real tree"
 out="$(lint "$LINT" "$RA" "$HERE")"; rc=$?
 ok "A1 every test named in the real run_all.sh exists or is run_if_present-guarded${out:+ - $out}" "$([ $rc = 0 ] && echo 1 || echo 0)"
 ok "A2 test_z6_notify_guard.sh (Mac-only) is registered through run_if_present" "$(grep -qE '^echo; .*run_if_present test_z6_notify_guard\.sh' "$RA" && echo 1 || echo 0)"
+ok "A2b test_z4_native_build_check.sh (needs mac-native-build-check.sh, exits 77 on the box) is registered through run_if_present, not '|| rc=1' (silent rc=1, no suite named)" "$(grep -qE '^echo; .*run_if_present test_z4_native_build_check\.sh' "$RA" && ! grep -qE 'bash test_z4_native_build_check\.sh \|\| rc=1' "$RA" && echo 1 || echo 0)"
 ok "A3 the safety-net loop and register_new_tests.py both recognise run_if_present registrations" "$(grep -q '(bash|run_or_notrun|run_if_present) \$_t' "$RA" && grep -q 'run_or_notrun|run_if_present' "$HERE/register_new_tests.py" && echo 1 || echo 0)"
 
 echo "== B: lint behaviour on fixtures"
