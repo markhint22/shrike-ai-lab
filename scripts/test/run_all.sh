@@ -409,6 +409,7 @@ echo; echo "===== promote tree identical ====="; bash test_promote_tree_identica
 echo; echo "===== qa ledger uncredited ====="; bash test_qa_ledger_uncredited.sh || rc=1
 echo; echo "===== qa staging e2e ====="; bash test_qa_staging_e2e.sh || rc=1
 echo; echo "===== qa railway retry (2026-10-14: 120 s retry on timeout, cached link) ====="; python3 test_qa_railway_retry.py || rc=1
+echo; echo "===== qa railway project token (2026-11-19: no login/link needed) ====="; python3 test_qa_railway_token.py || rc=1
 echo; echo "===== queue refill gate ====="; bash test_queue_refill_gate.sh || rc=1
 echo; echo "===== research trigger monotonic ====="; bash test_research_trigger_monotonic.sh || rc=1
 echo; echo "===== retire vague uid ====="; bash test_retire_vague_uid.sh || rc=1
@@ -745,5 +746,7 @@ echo; echo "===== q-weekend-fixes: TAA auto-credit rc=127: bare python3 falls ba
 echo; echo "===== q-weekend-fixes: stale Mac health = UNKNOWN: one WARN note/day (Mac supervision dead), Mac-jobs emergency repeat throttle while UNKNOWN (7 mutants) ====="; python3 test_q_mac_stale.py || rc=1
 echo; echo "===== q-weekend-fixes: web-verify gate baseline-aware (inherited vue-tsc/vitest signatures never block; timeout = no verdict; 7 mutants; gate stays SHADOW) ====="; bash test_q_web_verify_baseline.sh || rc=1
 echo; echo "===== q-verify-web-gap: a NEW red vitest-related result blocks the staged verify even with OVN_STAGE_WEB_VERIFY=shadow (billwatch 7dfcf84a 33 h red; 9 mutants) ====="; bash test_q_verify_web_gap.sh || rc=1
+echo; echo "===== q-wave2: pick-cap line resolution (cap-noop closed/parked + skip list + fallback chain), GUT ghost-test lint (gut-ghost-test, shadow), diff-based B0d editor-leak rule (token kind ENFORCE by default, pair + N=2 park journal shadow); 55 checks incl. mutants ====="; bash test_q_wave2.sh || rc=1
+echo; echo "===== q-verify-shapes: SHADOW VERIFY-shape lint rules (BACKEND_IMPORT_ROOT ROUTES_PATH_ATTR K_FILTER_ZERO_TESTS COLLECT_ONLY_GREP_HELPER ONE_LINER_MISSING_IMPORT NODEID_WRONG_FILE TEST_NAME_DOES_NOT_EXIST DIRTY_PATH), OVN_VERIFY_LINT_PARK (default off), item-hazard guard DELETE_ALL_TESTS (shadow); mutation-verified (counts printed by the suite) ====="; bash test_q_verify_shapes.sh || rc=1
 echo; finish || rc=1
 exit $rc

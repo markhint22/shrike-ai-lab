@@ -435,6 +435,24 @@ def check_tone_tests(diff_files, text=""):
     return findings
 
 
+# B9 gut-ghost-test (2026-11-17, q-wave2, SHADOW ONLY): `func _test_x()` in a GUT test file is never collected (GUT runs `test_*` only) = a green file that asserts nothing. xlite landed 21 in 14 days.
+# The definition scan lives in scripts/ovn_gut_ghost_lint.py (also a standalone CLI); fail-open when that module is missing. OVN_Z3_GUT_GHOST=off|shadow (enforce behaves as shadow).
+def check_gut_ghost(diff_files, post_text=None):
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ovn_gut_ghost_lint as gg
+    except Exception:
+        return []
+    findings = []
+    for fd in diff_files:
+        if fd.is_deleted or not (fd.path or "").endswith(".gd"):
+            continue
+        for g in gg.scan_added(fd.path, fd.added, post_text):
+            findings.append({"rule": "gut-ghost-test", "sev": "FLAG", "file": fd.path, "line": g["line"], "token": g["name"], "snip": g["name"],
+                             "msg": "GUT never runs %s (%s:%d): rename it test_%s" % (g["name"], fd.path, g["line"], g["name"][len("_test_"):] if g["name"].startswith("_test_") else g["name"].lstrip("_"))})
+    return findings
+
+
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
 # B3 repair may not add a route
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1089,6 +1107,81 @@ def check_editor_leak(log_text):
              "msg": "the aider editor replayed its built-in 'Change the greeting to be more casual' example (architect gave no actionable instruction)"}]
 
 
+# B0d editor-leak-diff (2026-11-17, q-wave2; token kind ENFORCE by default since the corpus flip, see lib_landing_gates.sh _z3_b0d_mode; the pair kind and the park row stay SHADOW). pkg/q-b0-enforce was REJECTED: the log-sentence (LEAK_RE) hit is circular (it measures that the model SAID the example sentence, not that a
+# leak LANDED in the attempt's diff; diff precision ~64%) and there was no wedge fallback. This variant is DIFF-BASED: it counts only when the attempt's OWN diff adds a line (outside tests, docs,
+# locale catalogues, comments) that the item + step text do not mention AND the line carries a greeting/tone token (DEFAULT_TONE_PRE) or the aider example's word pair (a `Hello`-style word on a
+# removed line replaced by Hey/Hiya/Heya/Sup/Howdy on the matching added line). OVN_Z3_B0_DIFF=off|shadow|enforce.
+# The wedge fallback is b0_refusal_count / b0-park-check: after N=2 hits of ONE item (item_key = the [feat:] identity hash) inside 24 h the item would be AUTO-SKIPped to CLAUDE
+# (journal row rule=b0-refusal-park, shadow only).
+_B0_PAIR_FROM = re.compile(r"(?<![A-Za-z0-9_])(?:Hello|Hi)(?![A-Za-z0-9_])")
+_B0_PAIR_TO = re.compile(r"(?<![A-Za-z0-9_])(?:Hey|Hiya|Heya|Sup|Howdy)(?![A-Za-z0-9_])")
+
+
+def item_key_of(item_text):
+    """== lib_item_select.sh ovn_item_hash for an item/step text: md5 of the date-stripped [feat:] tag, else md5 of the text."""
+    t = re.sub(r"^- \[[ xX]\] ", "", (item_text or "").strip())
+    f = re.search(r"\[feat:[^\]]+\]", t)
+    if f:
+        t = re.sub(r"-\d{6}-", "-", re.sub(r"-\d{8}-", "-", f.group(0)))
+    import hashlib
+    return hashlib.md5(t.encode("utf-8", "replace")).hexdigest()
+
+
+def check_editor_leak_diff(diff_files, text="", item_key=""):
+    rx = tone_regex()      # the SAME token set as tone-lint (default list or OVN_Z3_TONE_TOKENS)
+    findings, ctxt = [], text or ""
+    for fd in diff_files:
+        if fd.is_deleted or tone_exempt(fd.path):
+            continue
+        prior = {}
+        pair_from = any(_B0_PAIR_FROM.search(t) for _, t in fd.removed)
+        for _, t in fd.removed:
+            for m in rx.finditer(t):
+                prior[m.group(0)] = prior.get(m.group(0), 0) + 1
+        for ln, t in fd.added:
+            if _is_comment(t) or re.match(r"\s*(?:<!--|\"\"\"|\'\'\')", t):
+                continue
+            m = rx.search(t)
+            kind = "token"
+            if not m and pair_from:
+                m = _B0_PAIR_TO.search(t)
+                kind = "pair"
+            if not m:
+                continue
+            w = m.group(0)
+            if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(w), ctxt):
+                continue
+            if prior.get(w, 0) > 0:
+                prior[w] -= 1
+                continue
+            findings.append({"rule": "editor-leak-diff" if kind == "token" else "editor-leak-diff-pair", "sev": "FLAG", "file": fd.path, "line": ln, "token": w, "kind": kind, "item_key": item_key, "snip": t.strip()[:120],
+                             "msg": "the attempt's diff adds the casual token %r to %s:%d that the item/step text never asks for (%s)" % (w, fd.path, ln, kind)})
+    return findings
+
+
+def b0_refusal_count(journal_path, item_key, now, hours=24):
+    """distinct attempts (journal ts+label) with an editor-leak-diff row for item_key in the trailing window."""
+    seen = set()
+    lo = now - hours * 3600
+    try:
+        with open(journal_path, errors="replace") as f:
+            for ln in f:
+                if '"editor-leak-diff' not in ln or item_key not in ln:
+                    continue
+                try:
+                    r = json.loads(ln)
+                except ValueError:
+                    continue
+                if r.get("rule") not in ("editor-leak-diff", "editor-leak-diff-pair") or r.get("item_key") != item_key:
+                    continue
+                t = _parse_ts(r.get("ts", ""))
+                if lo < t <= now + 60:
+                    seen.add((r.get("ts"), r.get("label")))
+    except OSError:
+        pass
+    return len(seen)
+
+
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
 # B6 per-item landing cap
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1207,6 +1300,10 @@ def analyse(diff_text, desc="", item="", kind="step", files="", post_text=None, 
     res["tone-lint"] = check_tone(fds, (desc or "") + "\n" + (item or ""))
     res["tone-test-greeting"] = check_tone_tests(fds, (desc or "") + "\n" + (item or ""))
     res["tone-lint-wide"] = check_tone_wide(fds, (desc or "") + "\n" + (item or ""))
+    _b0d = check_editor_leak_diff(fds, (desc or "") + "\n" + (item or ""), item_key_of(item) if (item or "").strip() else "")
+    res["editor-leak-diff"] = [f for f in _b0d if f["rule"] == "editor-leak-diff"]
+    res["editor-leak-diff-pair"] = [f for f in _b0d if f["rule"] == "editor-leak-diff-pair"]   # the Hello->Hey word pair: no corpus events yet, stays SHADOW whatever the token rule does
+    res["gut-ghost-test"] = check_gut_ghost(fds, post_text)   # post_text = concatenated post image of the touched files: a `_test_x()` that some line calls is a helper, not a ghost
     res["dup-test"] = check_dup_tests(fds, (lambda pth: (git(repo, "show", "%s:%s" % (head, pth)) if head != "WORKTREE" else _read(os.path.join(repo, pth)))) if (repo and head) else None)
     res["repair-new-route"] = check_repair_routes(fds) if kind == "repair" else []
     res["test-item-src-edit"] = check_test_item_scope(fds, item, desc, files)
@@ -1270,6 +1367,13 @@ def _cmd_cap_check(a):
     return 0
 
 
+def _cmd_b0_park_check(a):
+    now = int(a.now) if a.now else int(time.time())
+    c = b0_refusal_count(a.journal, a.item_key, now, a.window_h) + a.pending
+    print(json.dumps({"item_key": a.item_key, "count": c, "n": a.n, "over": c >= a.n}))
+    return 0
+
+
 def _cmd_cap_park(a):
     print(park_item(a.progress, a.text, a.count))
     return 0
@@ -1321,6 +1425,14 @@ def main(argv=None):
     s.add_argument("--n", type=int, default=int(os.environ.get("OVN_Z3_LANDING_CAP_N", "3") or 3))
     s.add_argument("--pending", type=int, default=0, help="landings of this cycle not yet in outcomes.jsonl (item_guard runs before record_outcome)")
     s.set_defaults(fn=_cmd_cap_check)
+    s = sp.add_parser("b0-park-check")
+    s.add_argument("--journal", required=True)
+    s.add_argument("--item-key", required=True)
+    s.add_argument("--now", default="")
+    s.add_argument("--window-h", type=int, default=24)
+    s.add_argument("--n", type=int, default=2)
+    s.add_argument("--pending", type=int, default=0, help="hits of the attempt being judged, not yet journaled")
+    s.set_defaults(fn=_cmd_b0_park_check)
     s = sp.add_parser("cap-park")
     s.add_argument("--progress", required=True)
     s.add_argument("--text", required=True)

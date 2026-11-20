@@ -17,10 +17,12 @@ group therefore pool (the fleet parks the picked line only, the siblings stay wo
 CLI
   ovn_pick_cap.py check --outcomes F --repo R --key K [--n 4] [--hours 24] [--now EPOCH]   -> prints JSON {trip, count, kinds, ...}; rc 0 always
   ovn_pick_cap.py cycle --outcomes F --repo R --prog OVERNIGHT_PROGRESS.md [--n 4] [--hours 24] [--kinds a,b]   -> guard hook (TSV: trip count kinds line_no key why)
+  ovn_pick_cap.py skipped --skiplist F --repo R --key K   -> 1/0: item is on the short-lived skip list (cap-noop closed/parked)
   ovn_pick_cap.py replay --outcomes F [--n 4] [--hours 24] [--kinds a,b] [--since ISO] [--until ISO]    -> read-only corpus replay: capped items, cycles / GPU minutes saved, later-landed (false capping) list
 """
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -106,14 +108,70 @@ def count_picks(rows, repo, key, now, n=4, hours=24, kinds=BAD_KINDS):
 
 
 PARKED = re.compile(r"AUTO-SKIP|HUMAN-ONLY|HARD FILE BAN|\[CLAUDE\]|BLOCKED")
+# q-wave2 (2026-11-17): tags/comments the harness appends to an item line AFTER record_outcome hashed it (credit-refusal park, no-op cap, recovery supersede). The row's item_line_hash is the hash of
+# the line AS PICKED, so the guard (which runs after those parks in the same cycle) must also match the line with them removed.
+TAG_START_RE = re.compile(r"\[(?:AUTO-SKIP|BLOCKED|HUMAN-ONLY|CLAUDE|unworkable|recovery)")
+CMT_RE = re.compile(r"\s*<!--.*?-->\s*")
+SKIP_TTL_S = 6 * 3600
 
 
 def _md5(t):
     return hashlib.md5(t.encode("utf-8", "replace")).hexdigest()
 
 
+def strip_tags(body, greedy=False):
+    """remove every park tag `[AUTO-SKIP ...]` etc. with a BALANCED-bracket scan from the tag start, so a reason holding `]` (a pytest id `test_a[p1]`, nested `[x]`) is removed whole. An unbalanced
+    tag (a reason with a lone `[`) is removed up to the last `]` of the line before any `<!--` comment, else left alone. greedy=True always removes up to that last `]` (a second candidate form)."""
+    out, pos = [], 0
+    while True:
+        m = TAG_START_RE.search(body, pos)
+        if not m:
+            out.append(body[pos:])
+            break
+        out.append(body[pos:m.start()])
+        end = -1
+        if greedy:
+            cmt = body.find("<!--", m.start())
+            end = body.rfind("]", m.start(), cmt if cmt >= 0 else len(body))
+        else:
+            depth = 0
+            for i in range(m.start(), len(body)):
+                c = body[i]
+                if c == "[":
+                    depth += 1
+                elif c == "]":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end < 0:
+                cmt = body.find("<!--", m.start())
+                end = body.rfind("]", m.start(), cmt if cmt >= 0 else len(body))
+        if end < 0:
+            out.append(body[m.start():m.start() + 1])    # no closing bracket at all: keep the text, move on
+            pos = m.start() + 1
+            continue
+        pos = end + 1
+        while pos < len(body) and body[pos] in " \t":
+            pos += 1
+    return "".join(out)
+
+
 def _body(line):
     return re.sub(r"^- \[[ xX]\] ", "", line.rstrip("\n"))
+
+
+def _norm_forms(body):
+    """every text the line could have had when it was hashed: as is, minus park tags (balanced and greedy strip), minus trailing comments, minus both."""
+    forms = [body]
+    nc = CMT_RE.sub("", body).rstrip()
+    for nt in (strip_tags(body), strip_tags(body, True), strip_tags(CMT_RE.sub(" ", body)), strip_tags(CMT_RE.sub(" ", body), True)):
+        for f in (nt, nt.rstrip(), CMT_RE.sub("", nt).rstrip()):
+            if f not in forms:
+                forms.append(f)
+    if nc not in forms:
+        forms.append(nc)
+    return forms
 
 
 def _item_hash(body):
@@ -125,9 +183,85 @@ def _item_hash(body):
     return _md5(body)
 
 
-def cycle(rows, repo, prog_path, now, n=4, hours=24, kinds=BAD_KINDS, fresh_s=900):
+def classify_line(lines, last, key):
+    """find the progress line the cycle's row refers to. lines = the progress file lines. Returns (line_no, why):
+      line_no > 0  an OPEN, unparked line to park; why says which step of the chain found it (line-hash | feat-unique | feat-oldest)
+      line_no == 0 nothing to park; why is one of noop-closed (the item's line is ticked: nothing left to park), noop-parked (the line already carries a park tag: another guard parked it in
+                   this very cycle), no-open-line (no line of this item exists at all), no-unique-open-line (several candidates and no staged-step feat tag to order them by)
+    Fallback chain: line hash (tag/comment-stripped forms) -> unique open feat-tag match -> OLDEST open staged-step line of that feat tag.
+    NEVER GUESS: a line that WAS found but is closed/parked never falls through to a sibling; and when the row carries a line hash and ANY line of the item's feat class is parked or closed, the
+    feat fallbacks are not used at all (the item's own line is most likely that parked/closed line whose text we failed to re-derive: parking an open sibling would park good work).
+    The feat fallbacks only run for a row without a line hash, or when every line of the feat class is open and unparked."""
+    lh = row_line(last)
+    items = []   # (no, open, parked, body)
+    for i, ln in enumerate(lines, 1):
+        if not ln.startswith("- ["):
+            continue
+        items.append((i, ln.startswith("- [ ] "), bool(PARKED.search(ln)), _body(ln)))
+    if lh:
+        hits = [(i, op, pk) for i, op, pk, b in items if any(_md5(f) == lh for f in _norm_forms(b))]
+        live = [i for i, op, pk in hits if op and not pk]
+        if live:
+            return live[0], "line-hash"
+        if hits:
+            return 0, "noop-parked" if any(op for _i, op, _pk in hits) else "noop-closed"
+    feat = [(i, op, pk, b) for i, op, pk, b in items if any(_item_hash(f) == key for f in _norm_forms(b))]
+    live_feat = [i for i, op, pk, b in feat if op and not pk]
+    if lh and len(live_feat) != len(feat):
+        return 0, "noop-parked" if any(op and pk for _i, op, pk, _b in feat) else "noop-closed"
+    if len(live_feat) == 1:
+        return live_feat[0], "feat-unique"
+    if len(live_feat) > 1:
+        if all(re.search(r"\[feat:", b) for i, op, pk, b in feat if i in live_feat):
+            return live_feat[0], "feat-oldest"    # the staged steps of one feature are written in build order: the oldest open one is the one the loop keeps landing on
+        return 0, "no-unique-open-line"
+    if feat:
+        return 0, "noop-parked" if any(op for _i, op, _pk, _b in feat) else "noop-closed"
+    return 0, "no-open-line"
+
+
+def _skip_load(path, now):
+    out = {}
+    try:
+        with open(path, errors="replace") as f:
+            for ln in f:
+                p = ln.rstrip("\n").split("\t")
+                if len(p) >= 4 and p[3].isdigit() and int(p[3]) > now:
+                    out[(p[0], p[1], p[2])] = int(p[3])
+    except OSError:
+        pass
+    return out
+
+
+def skip_check(path, repo, key, now):
+    """1 when (repo, key) is on the short-lived skip list (any line of the item), else 0."""
+    return int(any(k[0] == repo and k[1] == key for k in _skip_load(path, now)))
+
+
+def _skip_add(path, repo, key, line, now, ttl=SKIP_TTL_S):
+    cur = _skip_load(path, now)
+    new = (repo, key, line) not in cur
+    cur[(repo, key, line)] = now + ttl
+    tmp = "%s.tmp.%d" % (path, os.getpid())
+    try:
+        with open(tmp, "w") as f:
+            for (r, k, l), e in sorted(cur.items()):
+                f.write("%s\t%s\t%s\t%d\n" % (r, k, l, e))
+        os.replace(tmp, path)
+    except OSError:
+        # the skip list cannot be written (read-only state dir, disk full): report "seen" (False) so the noop verdict is not re-logged every cycle; the guard simply gets no skip entry
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
+    return new
+
+
+def cycle(rows, repo, prog_path, now, n=4, hours=24, kinds=BAD_KINDS, fresh_s=900, skip_path=""):
     """what the item guard asks right after record_outcome wrote this cycle's row: does the item the cycle just worked trip the cap, and which OPEN progress line is it?
-    line_no 0 = nothing to park (the item was credited this cycle, or its open line cannot be identified uniquely: never park a guess)."""
+    line_no 0 = nothing to park (see classify_line). A noop-closed / noop-parked verdict is reported ONCE per item line per SKIP_TTL_S (why=noop-closed|noop-parked), afterwards as
+    why=noop-closed-seen|noop-parked-seen, and the item is put on the short-lived skip list when skip_path is given."""
     last = None
     for r in rows:
         if str(r.get("repo")) == repo and r["_t"] <= now + 5:
@@ -145,23 +279,15 @@ def cycle(rows, repo, prog_path, now, n=4, hours=24, kinds=BAD_KINDS, fresh_s=90
     out.update({"trip": bool(res["trip"] and kind_of(last) in kinds), "count": res["count"], "kinds": res["kinds"], "key": key})
     if not out["trip"]:
         return out
-    cand = []
     try:
         with open(prog_path, errors="replace") as f:
-            for i, ln in enumerate(f, 1):
-                if not ln.startswith("- [ ] ") or PARKED.search(ln):
-                    continue
-                b = _body(ln)
-                if row_line(last) and _md5(b) == row_line(last):
-                    cand = [i]
-                    break
-                if not row_line(last) and _item_hash(b) == key:
-                    cand.append(i)
+            lines = f.read().split("\n")
     except OSError:
-        pass
-    out["line_no"] = cand[0] if len(cand) == 1 else 0
-    if not out["line_no"]:
-        out["why"] = "no-unique-open-line" if cand else "no-open-line"
+        lines = []
+    out["line_no"], out["why"] = classify_line(lines, last, key)
+    if out["why"] in ("noop-closed", "noop-parked") and skip_path:
+        if not _skip_add(skip_path, repo, key, row_line(last) or "-", now):
+            out["why"] += "-seen"
     return out
 
 
@@ -230,8 +356,11 @@ def main(argv):
         return 0
     if cmd == "cycle":      # guard hook: prints 'TRIP<TAB>count<TAB>kinds<TAB>line_no<TAB>key<TAB>why'
         now = int(opt("--now", str(int(time.time()))))
-        r = cycle(rows, opt("--repo", ""), opt("--prog", ""), now, n, hours, kinds)
+        r = cycle(rows, opt("--repo", ""), opt("--prog", ""), now, n, hours, kinds, skip_path=opt("--skiplist", "") or "")
         print("\t".join([str(int(r["trip"])), str(r["count"]), ",".join("%sx%s" % (v, k) for k, v in sorted(r["kinds"].items())), str(r["line_no"]), r["key"], r["why"] or "-"]))
+        return 0
+    if cmd == "skipped":    # picker hook: 1 when the item is on the short-lived skip list
+        print(skip_check(opt("--skiplist", ""), opt("--repo", ""), opt("--key", ""), int(opt("--now", str(int(time.time()))))))
         return 0
     if cmd == "replay":
         since, until = opt("--since"), opt("--until")

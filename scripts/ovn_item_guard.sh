@@ -225,6 +225,35 @@ PYQ2
   fi
 fi
 
+# --- VERIFY-lint PARK (2026-11-18, package q-verify-shapes; OVN_VERIFY_LINT_PARK=off|on, DEFAULT off) --------------------------------------------------------------------------------------
+# An item whose last 2 picks were ALREADY-DONE / landed-uncredited (OVN_VERIFY_LINT_PARK_KINDS) AND whose open line carries a verdict from the q-verify-shapes rules named in
+# OVN_VERIFY_LINT_PARK_RULES (default: ovn_verify_lint.PARK_RULES = the rules that met >= 80% precision at n >= 20 on the corpus replay) has a VERIFY that can never pass, so more
+# picks are pure waste: tag the open line '[AUTO-SKIP needs-human: ...]' (the claude queue bridge harvests every AUTO-SKIP line into CLAUDE_QUEUE.md = route to CLAUDE) + the usual
+# chore(queue) commit/push. The line is identified by ovn_pick_cap (md5 of the open line == the cycle row's item_line_hash): nothing is parked on a guess. Any other value than 'on' = off.
+if [ "${OVN_VERIFY_LINT_PARK:-off}" = on ] && [ "${OVN_VERIFY_LINT:-shadow}" != off ] && [ -f "$state/outcomes.jsonl" ] && [ -f "$(dirname "$0")/../ovn_verify_lint.py" ]; then
+  case "$status" in skip*|held*|*bug-handled*|"no-op(scout-unworkable)") ;; *)
+    type ovn_hto >/dev/null 2>&1 || . "$(dirname "$0")/lib_helper_timeout.sh" 2>/dev/null || ovn_hto(){ shift 2; "$@"; }
+    _vp_out="$(ovn_hto 30 verify_lint_park_cycle python3 "$(dirname "$0")/../ovn_verify_lint.py" park-cycle --outcomes "$state/outcomes.jsonl" --repo "$(basename "$repo")" --prog "$prog" --repo-root "$repo" --state "$state" --n "${OVN_VERIFY_LINT_PARK_N:-2}" 2>/dev/null | tail -1)"
+    IFS="$(printf '\t')" read -r _vp_trip _vp_cnt _vp_rule _vp_ln _vp_key _vp_why <<EOVP
+$_vp_out
+EOVP
+    if [ "${_vp_trip:-0}" = 1 ] && [ "${_vp_ln:-0}" -gt 0 ] 2>/dev/null; then
+      printf '%s %s key=%s picks=%s rule=%s line=%s status=%s verify-lint-park why=%s\n' "$(date '+%F %T')" "$(basename "$repo")" "${_vp_key:0:8}" "$_vp_cnt" "$_vp_rule" "$_vp_ln" "$status" "${_vp_why:--}" >> "$state/verify_lint_park.log" 2>/dev/null
+      _vp_branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      _vp_tag="$(printf '%s' "$_vp_rule" | tr -cd 'A-Za-z0-9_')"
+      _ig_sedi "${_vp_ln}s#^- \[ \] #- [ ] [AUTO-SKIP needs-human: VERIFY can never pass (${_vp_tag}) and the item came back ${_vp_cnt}x without a credited landing - route to CLAUDE; review] #" "$prog"
+      if ! git -C "$repo" diff --quiet OVERNIGHT_PROGRESS.md 2>/dev/null; then
+        git -C "$repo" add OVERNIGHT_PROGRESS.md 2>/dev/null
+        git -C "$repo" commit -q -m "chore(queue): park item whose VERIFY can never pass (${_vp_tag}; verify-lint park)" -- OVERNIGHT_PROGRESS.md 2>/dev/null
+        [ -n "$_vp_branch" ] && ovn_gitb -C "$repo" push -q origin "$_vp_branch" 2>/dev/null
+        echo "AUTO-SKIPPED item (VERIFY can never pass: ${_vp_tag}; ${_vp_cnt} picks)"
+      fi
+      [ -n "${task_log:-}" ] && [ -f "$task_log" ] && echo "--- verify-lint-park: item at line ${_vp_ln} parked (${_vp_tag}, ${_vp_cnt} picks) ---" >> "$task_log"
+      case "$status" in *"tests:pass"*) ;; *) exit 0 ;; esac
+    fi ;;
+  esac
+fi
+
 # --- Per-item PICK CAP (2026-11-13, package q-already-done-credit; OVN_PICK_CAP=off|shadow|enforce, DEFAULT enforce since 2026-11-17 for already-done,landed-uncredited only; OVN_PICK_CAP=shadow|off reverts instantly) -----------------------------------------------------------
 # nov12-13: ~20-25% of cycles went to the same items coming back as no-op(ALREADY-DONE) / landed-uncredited / reverted-red / fixup-undid (TAA 3f096a1a: 3 duplicate commits then 3 more
 # ALREADY-DONE verdicts; xlite 5de203e0 picked 10x in 10 h). Every cap below misses it: the rolling day cap EXCLUDES no-op(ALREADY-DONE), the no-op streak is CONSECUTIVE and landed-uncredited
@@ -240,11 +269,18 @@ case "$status" in skip*|held*|*bug-handled*|"no-op(scout-unworkable)") _pc_mode=
 _pc_py="$(dirname "$0")/../ovn_pick_cap.py"
 if [ "$_pc_mode" != off ] && [ -f "$_pc_py" ] && [ -f "$state/outcomes.jsonl" ]; then
   type ovn_hto >/dev/null 2>&1 || . "$(dirname "$0")/lib_helper_timeout.sh" 2>/dev/null || ovn_hto(){ shift 2; "$@"; }
-  _pc_out="$(ovn_hto 30 pick_cap python3 "$_pc_py" cycle --outcomes "$state/outcomes.jsonl" --repo "$(basename "$repo")" --prog "$prog" --n "${OVN_PICK_CAP_N:-4}" --hours "${OVN_PICK_CAP_HOURS:-24}" --kinds "${OVN_PICK_CAP_KINDS:-already-done,landed-uncredited}" 2>/dev/null | tail -1)"
+  _pc_out="$(ovn_hto 30 pick_cap python3 "$_pc_py" cycle --outcomes "$state/outcomes.jsonl" --repo "$(basename "$repo")" --prog "$prog" --n "${OVN_PICK_CAP_N:-4}" --hours "${OVN_PICK_CAP_HOURS:-24}" --kinds "${OVN_PICK_CAP_KINDS:-already-done,landed-uncredited}" --skiplist "$state/pick_cap_skip.tsv" 2>/dev/null | tail -1)"
   IFS="$(printf '\t')" read -r _pc_trip _pc_cnt _pc_kinds _pc_ln _pc_key _pc_why <<EOPC
 $_pc_out
 EOPC
-  if [ "${_pc_trip:-0}" = 1 ]; then
+  if [ "${_pc_trip:-0}" = 1 ] && case "${_pc_why:--}" in noop-closed|noop-parked) :;; *) false;; esac; then
+    # q-wave2 (2026-11-17): the tripped item's own line is already out of the queue (ticked, or parked by an earlier cap/credit-refusal block of THIS guard run): nothing to park. Logged ONCE per
+    # item line per 6 h ('cap-noop closed|parked'; the repeat is why=noop-*-seen and silent) and the item is on state/pick_cap_skip.tsv (ovn_pick_cap.py skipped ...).
+    printf '%s %s key=%s picks=%s kinds=%s line=0 status=%s cap-noop %s mode=%s\n' "$(date '+%F %T')" "$(basename "$repo")" "${_pc_key:0:8}" "$_pc_cnt" "$_pc_kinds" "$status" "${_pc_why#noop-}" "$_pc_mode" >> "$state/pick_cap_shadow.log" 2>/dev/null
+    echo "pick-cap: cap-noop ${_pc_why#noop-} (${_pc_cnt} picks: ${_pc_kinds}); the item's line is already out of the queue"
+  elif [ "${_pc_trip:-0}" = 1 ] && case "${_pc_why:--}" in noop-*-seen) :;; *) false;; esac; then
+    :
+  elif [ "${_pc_trip:-0}" = 1 ]; then
     printf '%s %s key=%s picks=%s kinds=%s line=%s status=%s would-autoskip pick-cap mode=%s why=%s\n' "$(date '+%F %T')" "$(basename "$repo")" "${_pc_key:0:8}" "$_pc_cnt" "$_pc_kinds" "${_pc_ln:-0}" "$status" "$_pc_mode" "${_pc_why:--}" >> "$state/pick_cap_shadow.log" 2>/dev/null
     # rotation: at >= 2 MB keep the last 5000 lines (atomic: temp file + mv in the same dir)
     if [ "$(wc -c < "$state/pick_cap_shadow.log" 2>/dev/null | tr -d ' ')" -ge 2097152 ] 2>/dev/null; then

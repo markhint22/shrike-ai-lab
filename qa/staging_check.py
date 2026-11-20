@@ -163,11 +163,15 @@ def railway_fetch(repo, env="staging"):
         # 2026-10-14: the Mac exporter hit 60 s timeouts on `railway link` and `railway deployment list` (staging snapshots 40-60 min old). Two fixes:
         #  - a link already cached for this cwd (the CLI writes .railway/config.json there) is reused: the link step is skipped, no network call;
         #  - a call that TIMES OUT (rc 124) is retried ONCE with a 120 s budget. Any other failure is returned as before (no retry: a bad login does not get better).
-        if not _railway_link_cached(cwd, cfg):
+        tok = _project_token(repo, env)
+        tenv = {"RAILWAY_TOKEN": tok, "RAILWAY_API_TOKEN": ""} if tok else None
+        if tok:
+            pass  # project token carries project+environment: no link, no ~/.railway write
+        elif not _railway_link_cached(cwd, cfg):
             rc, out, err = _railway_call([_RAILWAY, "link", "--project", cfg["project"], "--environment", env, "--service", cfg["service"]], cwd)
             if rc != 0:
                 return None, "railway link failed (rc=%s; login expired?)" % rc
-        rc, out, err = _railway_call([_RAILWAY, "deployment", "list", "--json", "--environment", env, "--service", cfg["service"], "--limit", "8"], cwd)
+        rc, out, err = _railway_call([_RAILWAY, "deployment", "list", "--json", "--environment", env, "--service", cfg["service"], "--limit", "8"], cwd, tenv)
         if rc != 0 or "[" not in out:
             return None, "railway deployment list failed (rc=%s)" % rc
         try:
@@ -182,11 +186,36 @@ RAILWAY_TIMEOUT_SECS = 60        # first attempt
 RAILWAY_RETRY_TIMEOUT_SECS = 120  # the single retry after a timeout (OVN/QA env override: QA_RAILWAY_RETRY_SECS)
 
 
-def _railway_call(cmd, cwd):
+_TOKEN_REPO = {"billwatch": "BILLWATCH", "iptv_apps": "CHICKADEE", "gitlark": "GITLARK"}
+_TOKEN_ENV = {"staging": "STAGING", "production": "PROD"}
+_TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".config", "shrike", "railway.env")
+
+
+def _project_token(repo, env):
+    """2026-11-19: Railway PROJECT token (scoped to one project+environment) for (repo, env) from RAILWAY_TOKEN_<REPO>_<ENV> (process env, else
+    ~/.config/shrike/railway.env, mode 600). With one the exporter needs no `railway login` and no `railway link` (the Mac login was lost in the
+    11-17 home wipe and the gate blocked on stale evidence for 2 days). Never logged or printed. None when absent: callers fall back to the CLI login."""
+    r, e = _TOKEN_REPO.get(repo), _TOKEN_ENV.get(env)
+    if not r or not e:
+        return None
+    key = "RAILWAY_TOKEN_%s_%s" % (r, e)
+    if os.environ.get(key):
+        return os.environ[key].strip() or None
+    try:
+        for line in open(os.environ.get("QA_RAILWAY_TOKEN_FILE") or _TOKEN_FILE):
+            line = line.split("#")[0].strip()
+            if line.startswith(key + "="):
+                return line.split("=", 1)[1].strip() or None
+    except OSError:
+        pass
+    return None
+
+
+def _railway_call(cmd, cwd, env=None):
     """One railway CLI call. rc 124 (timeout) is retried ONCE at RAILWAY_RETRY_TIMEOUT_SECS; every other result is returned as-is."""
-    rc, out, err = qc.run(cmd, cwd=cwd, timeout=RAILWAY_TIMEOUT_SECS, polite=False)
+    rc, out, err = qc.run(cmd, cwd=cwd, timeout=RAILWAY_TIMEOUT_SECS, polite=False, env=env)
     if rc == 124:
-        rc, out, err = qc.run(cmd, cwd=cwd, timeout=_railway_retry_secs(), polite=False)
+        rc, out, err = qc.run(cmd, cwd=cwd, timeout=_railway_retry_secs(), polite=False, env=env)
     return rc, out, err
 
 

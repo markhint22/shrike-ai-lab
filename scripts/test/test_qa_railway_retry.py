@@ -19,6 +19,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 OQ = os.path.abspath(os.path.join(HERE, "..", ".."))  # scripts/overnight-queue
 sys.path.insert(0, os.path.join(OQ, "qa"))
+os.environ["QA_RAILWAY_TOKEN_FILE"] = "/nonexistent/railway.env"  # hermetic: never read the real project tokens (they skip the link step under test)
+for _k in [k for k in os.environ if k.startswith("RAILWAY_TOKEN_")]:
+    del os.environ[_k]
 import staging_check as scm  # noqa: E402
 
 P = F = 0

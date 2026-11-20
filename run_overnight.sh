@@ -1650,6 +1650,18 @@ STUB
       ovn_hto 60 verify_lint2 python3 "$SCRIPT_DIR/ovn_verify_lint.py" shadow OVERNIGHT_PROGRESS.md --repo-root "$PWD" --repo "$(basename "$PWD")" --state "${STATE_DIR:-${OVN_STATE_DIR:-$SCRIPT_DIR/state}}" >/dev/null 2>&1 || true
     fi
 
+    # q-verify-shapes (2026-11-18): item HAZARD guard, SHADOW by default. An open item that tells the worker to replace the ENTIRE test file / delete ALL existing tests (the recovery decomposer's
+    # 'replace the entire file with a trivial test' steps) is logged as 'would-refuse delete-all-tests' in state/item_hazards.log; OVN_ITEM_HAZARD=enforce retires the (unparked) line like a
+    # dead-path item, off disables. Never raises into the cycle (ovn_hto cap + || true).
+    if [ "${OVN_ITEM_HAZARD:-shadow}" != off ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/ovn_item_hazards.py" ]; then
+      _IH="$(ovn_hto 60 item_hazard python3 "$SCRIPT_DIR/ovn_item_hazards.py" scan OVERNIGHT_PROGRESS.md --repo "$(basename "$PWD")" --state "${STATE_DIR:-${OVN_STATE_DIR:-$SCRIPT_DIR/state}}" 2>>"$task_log" | grep -E "retired [1-9]" || true)"
+      if [ -n "$_IH" ] && ! git diff --quiet -- OVERNIGHT_PROGRESS.md 2>/dev/null; then
+        echo "--- sanitizer: ${_IH} ---" >> "$task_log"
+        git add OVERNIGHT_PROGRESS.md
+        git commit -m "chore(queue): retire items that would delete all existing tests (hazard guard)" --quiet 2>>"$task_log" || true
+      fi
+    fi
+
     # Fold a "create migration" item into its model-column sibling (2026-10-02, harness Y1): the alembic autogen hook generates the migration in
     # the same step that edits the model, so a separate migration item can only fork the chain. See scripts/ovn_fold_migration_items.py.
     if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" ]; then

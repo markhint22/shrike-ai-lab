@@ -8,6 +8,9 @@
 #   OVN_Z3_TONE_TEST      B2b tone-test-greeting  FLAG ONLY (q-verify-speed 2026-11-12): a TEST file asserts/opens with Hey/Yo/Buzz/... (the inverted-test landings tone-lint skips); `enforce` behaves as shadow
 #   OVN_Z3_TONE_WIDE      B2w tone-lint-wide      SHADOW ONLY (q-landing-quality 2026-11-12): wider casual set (Check out/Grab/Awesome/...) on product strings; `enforce` behaves as shadow; off disables
 #   OVN_Z3_DUP_TEST       B8  dup-test            SHADOW ONLY: the same test function name defined >= 2 times in the added lines of one file of one commit; `enforce` behaves as shadow
+#   OVN_Z3_GUT_GHOST      B9  gut-ghost-test      SHADOW ONLY (q-wave2 2026-11-17): a GUT test file defines `func _test_x` (never collected: GUT runs test_* only) and nothing calls it; `enforce` behaves as shadow; off disables
+#   OVN_Z3_B0_DIFF        B0d editor-leak-diff    DEFAULT ENFORCE (q-wave2 flip, see _z3_b0d_mode): the attempt's own diff adds a casual token the item/step text never asks for (the Hello->Hey word pair, editor-leak-diff-pair, is shadow only);
+#                         OVN_Z3_EDITOR_LEAK=shadow|off or OVN_Z3_B0_DIFF=shadow|off reverts; + wedge fallback journal row b0-refusal-park (OVN_Z3_B0_PARK_N=2, SHADOW ONLY: it parks nothing)
 #   OVN_Z3_ASSERT_FLIP    B7b assert-weaken kind=assert-flip  SHADOW (flag only): a fix-up/repair round rewrote an existing assertion's expected literal (default on; off drops it)
 #   OVN_Z3_REPAIR_ROUTE   B3  repair-new-route     a repair-to-pass-verification round may not add a route/endpoint
 #   OVN_Z3_TEST_SRC       B4  test-item-src-edit   a test-creation item may not touch non-test source
@@ -37,6 +40,16 @@ _z3_tone_mode() {
 
 _z3_mode() {  # _z3_mode <rule-flag-name> -> off|shadow|enforce (invalid => shadow)
   local v; eval "v=\${$1:-shadow}"
+  case "$v" in off|shadow|enforce) printf '%s' "$v";; *) printf 'shadow';; esac
+}
+
+# B0d editor-leak-diff mode (q-wave2 flip, 2026-11-17): DEFAULT ENFORCE for the TOKEN kind. Corpus (14 days, 8 repos, 8,398 commits on origin/overnight|develop|claude/feature): 21 fleet commit
+# events (30 added lines) where the attempt's own diff added a casual token the item text never asked for: 21/21 genuine leaks in product copy/docstrings/logs (precision 100%, n=21 >= 20);
+# the word-pair kind (editor-leak-diff-pair) had 0 events and NEVER enforces. Precedence: OVN_Z3_B0_DIFF (explicit) > OVN_Z3_EDITOR_LEAK=shadow|off (the documented revert; any other value of that
+# flag is the log-sentence B0 gate's own business and is ignored here) > the tone-lint mode (_z3_tone_mode: enforce by default; OVN_Z3_TONE=shadow|off or the alias OVN_Z3_TONE_LINT reverts BOTH, every one of its hits is also a tone-lint hit, so one switch must undo the veto). An invalid OVN_Z3_B0_DIFF is shadow, never a silent enforce.
+_z3_b0d_mode() {
+  local v="${OVN_Z3_B0_DIFF:-}"
+  if [ -z "$v" ]; then case "${OVN_Z3_EDITOR_LEAK:-}" in shadow|off) v="$OVN_Z3_EDITOR_LEAK";; *) v="$(_z3_tone_mode)";; esac; fi
   case "$v" in off|shadow|enforce) printf '%s' "$v";; *) printf 'shadow';; esac
 }
 
@@ -116,6 +129,9 @@ z3_step_gate() {
       assert-weaken) mode="$(_z3_mode OVN_Z3_ASSERT_WEAKEN)"; [ "$mode" = enforce ] && mode=shadow;;
       tone-test-greeting) mode="$(_z3_mode OVN_Z3_TONE_TEST)"; [ "$mode" = enforce ] && mode=shadow;;
       tone-lint-wide) mode="$(_z3_mode OVN_Z3_TONE_WIDE)"; [ "$mode" = enforce ] && mode=shadow;;   # q-landing-quality: wide set is measurement only, never a veto
+      editor-leak-diff) mode="$(_z3_b0d_mode)";;   # q-wave2 flip: ENFORCE by default (token kind); OVN_Z3_EDITOR_LEAK=shadow or OVN_Z3_B0_DIFF=shadow reverts
+      editor-leak-diff-pair) mode="$(_z3_mode OVN_Z3_B0_DIFF)"; [ "$mode" = enforce ] && mode=shadow;;   # the word pair never enforces (no corpus events)   # q-wave2: diff-based B0 variant, SHADOW ONLY (the log-sentence B0 stays as is)
+      gut-ghost-test) mode="$(_z3_mode OVN_Z3_GUT_GHOST)"; [ "$mode" = enforce ] && mode=shadow;;   # q-wave2: `func _test_x` is never run by GUT; SHADOW ONLY
       dup-test) mode="$(_z3_mode OVN_Z3_DUP_TEST)"; [ "$mode" = enforce ] && mode=shadow;;   # q-verify-speed: heuristic for the test-file coverage gap, never a veto
       *) mode=shadow;;
     esac
@@ -139,6 +155,21 @@ for f in d.get("findings",[]):
     if f["rule"] not in seen:
         seen.add(f["rule"]); print(f["rule"]+"\t"+f.get("msg","").replace("\t"," ").replace("\n"," ")[:200])
 ' 2>/dev/null)
+  # q-wave2 B0d wedge fallback (SHADOW ONLY): >= OVN_Z3_B0_PARK_N (2) attempts of ONE item whose own diff added a casual token inside 24 h = the item would be AUTO-SKIPped to CLAUDE. Journals
+  # rule=b0-refusal-park mode=shadow; parks NOTHING (the park itself stays shadow: no corpus events exist for it). Runs whenever the token rule is not off.
+  if [ "$(_z3_b0d_mode)" != off ] && [ -n "$item" ] && [ -f "$sd/landing_gates_shadow.log" ]; then
+    case "$out" in *editor-leak-diff*)
+      local _b0k _b0o _b0n="${OVN_Z3_B0_PARK_N:-2}"
+      case "$_b0n" in ''|*[!0-9]*|0) _b0n=2;; esac
+      _b0k="$(python3 -c 'import sys;sys.path.insert(0,sys.argv[1]);import ovn_landing_gates as g;print(g.item_key_of(sys.argv[2]))' "$(dirname "$py")" "$item" 2>/dev/null)"
+      if [ -n "$_b0k" ]; then
+        _b0o="$($to python3 "$py" b0-park-check --journal "$sd/landing_gates_shadow.log" --item-key "$_b0k" --n "$_b0n" 2>/dev/null)"
+        case "$_b0o" in *'"over": true'*)
+          printf '{"rule":"b0-refusal-park","sev":"FLAG","mode":"shadow","label":"%s","item_key":"%s","n":%s,"ts":"%s","msg":"would AUTO-SKIP to CLAUDE: %s attempts of this item added a casual token (shadow)"}\n' "$label" "$_b0k" "$_b0n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_b0n" >> "$sd/landing_gates_shadow.log" 2>/dev/null;;
+        esac
+      fi;;
+    esac
+  fi
   # B0: the aider editor replayed its example (only checked when the attempt log is given)
   if [ -n "$alog" ] && [ -f "$alog" ]; then
     z3_leak_gate "$alog" "$sd" "$label" "$kind" || rc=1
@@ -207,10 +238,10 @@ z3_commit_audit() {
   out="$($to python3 "$py" step-check --kind "$ck" --item "$item" --repo "$rd" --base "$base" --head "$head" 2>/dev/null)" || return 0
   case "$out" in *'"rule"'*) ;; *) return 0;; esac
   mkdir -p "$sd" 2>/dev/null; _z3_rotate "$sd/landing_gates_shadow.log"
-  printf '%s' "$out" | OVN_Z3_ENV_STEP_DIFF="${OVN_Z3_STEP_DIFF:-shadow}" OVN_Z3_ENV_TONE="$(_z3_tone_mode)" OVN_Z3_ENV_TEST_SRC="${OVN_Z3_TEST_SRC:-shadow}" OVN_Z3_ENV_ASSERT="${OVN_Z3_ASSERT_WEAKEN:-shadow}" OVN_Z3_ENV_CALL="${OVN_Z3_CALL_DROP:-shadow}" OVN_Z3_ENV_TONETEST="${OVN_Z3_TONE_TEST:-shadow}" OVN_Z3_ENV_TONEWIDE="${OVN_Z3_TONE_WIDE:-shadow}" OVN_Z3_ENV_DUP="${OVN_Z3_DUP_TEST:-shadow}" python3 -c '
+  printf '%s' "$out" | OVN_Z3_ENV_STEP_DIFF="${OVN_Z3_STEP_DIFF:-shadow}" OVN_Z3_ENV_TONE="$(_z3_tone_mode)" OVN_Z3_ENV_TEST_SRC="${OVN_Z3_TEST_SRC:-shadow}" OVN_Z3_ENV_ASSERT="${OVN_Z3_ASSERT_WEAKEN:-shadow}" OVN_Z3_ENV_CALL="${OVN_Z3_CALL_DROP:-shadow}" OVN_Z3_ENV_TONETEST="${OVN_Z3_TONE_TEST:-shadow}" OVN_Z3_ENV_TONEWIDE="${OVN_Z3_TONE_WIDE:-shadow}" OVN_Z3_ENV_DUP="${OVN_Z3_DUP_TEST:-shadow}" OVN_Z3_ENV_GUTGHOST="${OVN_Z3_GUT_GHOST:-shadow}" OVN_Z3_ENV_B0D="$(_z3_b0d_mode)" python3 -c '
 import json,sys,os,time
 label=sys.argv[1]
-flag={"step-diff-mismatch":"OVN_Z3_ENV_STEP_DIFF","tone-lint":"OVN_Z3_ENV_TONE","test-item-src-edit":"OVN_Z3_ENV_TEST_SRC","assert-weaken":"OVN_Z3_ENV_ASSERT","call-dropped":"OVN_Z3_ENV_CALL","tone-test-greeting":"OVN_Z3_ENV_TONETEST","tone-lint-wide":"OVN_Z3_ENV_TONEWIDE","dup-test":"OVN_Z3_ENV_DUP"}
+flag={"step-diff-mismatch":"OVN_Z3_ENV_STEP_DIFF","tone-lint":"OVN_Z3_ENV_TONE","test-item-src-edit":"OVN_Z3_ENV_TEST_SRC","assert-weaken":"OVN_Z3_ENV_ASSERT","call-dropped":"OVN_Z3_ENV_CALL","tone-test-greeting":"OVN_Z3_ENV_TONETEST","tone-lint-wide":"OVN_Z3_ENV_TONEWIDE","dup-test":"OVN_Z3_ENV_DUP","gut-ghost-test":"OVN_Z3_ENV_GUTGHOST","editor-leak-diff":"OVN_Z3_ENV_B0D","editor-leak-diff-pair":"OVN_Z3_ENV_B0D"}
 try: d=json.load(sys.stdin)
 except Exception: sys.exit(0)
 for f in d.get("findings",[]):
