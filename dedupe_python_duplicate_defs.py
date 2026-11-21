@@ -20,9 +20,16 @@ block boundaries - this targets exactly the observed failure shape (whole
 top-level test classes/functions re-added), not indented methods inside a
 class, which is a different (and so far unobserved) risk.
 
+q-fri-shapes (2026-11-20): iptv_apps progress_text.py landed `remaining_text` TWICE, identical except `Optional[float]` vs `float | None` in the signature (commits c913b54c / d0a8f6cd).
+The byte-identical rule rightly kept both ("same name, different body"), and the model's own follow-up "remove duplicate" commit (6c449031) then deleted the wrong half and left the surviving
+copy without its `return` for ~8 minutes. A later duplicate whose AST is EQUAL once annotations are ignored (parameter and return annotations only; every statement, default and docstring
+must match; a decorated def or the name `_` is never merged) is the same function at runtime. OVN_DEDUPE_PY_ANNOT = shadow (DEFAULT: nothing is removed, stderr says what would be) | on (removes it, keeping the EARLIER copy) | off.
+
 Usage: dedupe_python_duplicate_defs.py <file.py>
 Prints "unchanged" (file untouched) or "removed duplicate(s): <names>".
 """
+import ast
+import os
 import re
 import sys
 
@@ -99,6 +106,37 @@ def trimmed(lines, start, end):
     return chunk
 
 
+def _annot_mode():
+    v = os.environ.get("OVN_DEDUPE_PY_ANNOT", "shadow").strip().lower()
+    return v if v in ("off", "shadow", "on") else "shadow"
+
+
+def _strip_annotations(tree):
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            n.returns = None
+            a = n.args
+            for arg in list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs) + [x for x in (a.vararg, a.kwarg) if x]:
+                arg.annotation = None
+    return tree
+
+
+def same_modulo_annotations(a, b):
+    """True when two trimmed top-level blocks (lists of lines) parse to the same AST once function parameter/return annotations are dropped. A class, a syntax error or a non-def head is never equal."""
+    try:
+        ta, tb = ast.parse("\n".join(a) + "\n"), ast.parse("\n".join(b) + "\n")
+        if len(ta.body) != 1 or len(tb.body) != 1:
+            return False
+        for n in (ta.body[0], tb.body[0]):
+            if getattr(n, "decorator_list", None):
+                return False            # a decorated def (property setter, overload, register, lru_cache...) is never "the same function": the decorator may bind the name to something else
+            if getattr(n, "name", "") == "_":
+                return False            # `_` is a throwaway name (singledispatch/overload registrations): every copy is meant to stay
+        return ast.dump(_strip_annotations(ta)) == ast.dump(_strip_annotations(tb))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return False
+
+
 def dedupe(text):
     lines = text.splitlines()
     units = find_units(lines)
@@ -108,6 +146,7 @@ def dedupe(text):
     seen_bodies = {}  # (kind, name) -> first-occurrence trimmed body
     decisions = []  # True = keep, False = drop, one per unit in file order
     removed = []
+    amode = _annot_mode()
     for kind, name, start, end in units:
         key = (kind, name)
         body = trimmed(lines, start, end)
@@ -115,6 +154,12 @@ def dedupe(text):
             decisions.append(False)
             removed.append(name)
             continue  # exact duplicate of an earlier same-name unit
+        if key in seen_bodies and kind == "def" and amode != "off" and same_modulo_annotations(seen_bodies[key], body):
+            if amode == "on":
+                decisions.append(False)
+                removed.append(name + " (annotation-only difference)")
+                continue
+            print("dedupe-annot (shadow): would remove the later top-level def %s - identical to the earlier one except parameter/return annotations (OVN_DEDUPE_PY_ANNOT=on removes it)" % name, file=sys.stderr)
         # Either the first occurrence, or a same-name conflict with a
         # DIFFERENT body - keep both in that case rather than guess.
         if key not in seen_bodies:

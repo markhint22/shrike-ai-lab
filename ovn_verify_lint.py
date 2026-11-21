@@ -21,6 +21,10 @@ the repo tree (the linter never executes a VERIFY):
                                 VERIFY shapes that can never pass, read from the tree (see the section comment below and docs/VERIFY_SHAPES_2026-11-18.md).
                                 OVN_VERIFY_LINT_PARK=on (default OFF) lets the item guard park an item whose last 2 picks were ALREADY-DONE/landed-uncredited when it carries a PARK_RULES verdict.
 
+  q-fri-shapes (2026-11-20, SHADOW): GD_PRELOAD_NO_PAREN  a grep/-F pattern with `preload "res://..."` (space + quote, no parenthesis) against a .gd target: real GDScript is
+                                `preload("res://...")`, so the clause can never match (xlite star_rating / readiness_text lines logged FAIL 9+ times). OVN_VERIFY_LINT_GD_PRELOAD=off disables.
+                                TS1 (above) stays SHADOW: measured precision in docs/Q_FRI_SHAPES_2026-11-20.md; it can be named in OVN_VERIFY_LINT_PARK_RULES for the PARK path only.
+
 Mode: env OVN_VERIFY_LINT = off | shadow (default). `enforce` (shared with the older ovn_verify_shape_lint) is treated as shadow: THIS linter never changes an item.
 Shadow rows go to state/verify_lint.jsonl (OVN_VERIFY_LINT_LOG overrides), deduped per (repo, item hash, rule) through state/verify_lint.seen.
 
@@ -344,6 +348,8 @@ def _tsc_baseline(state_dir, repo_root, base):
 
 
 def rule_ts1(clause, repo_root, state_dir):
+    if os.environ.get("OVN_VERIFY_LINT_TS1", "shadow").strip().lower() == "off":
+        return None
     for base, t in _walk(clause):
         j = None
         for i, a in enumerate(t[:3]):
@@ -460,9 +466,12 @@ def rule_neggrep1(item, clause, repo_root):
 # Names: BACKEND_IMPORT_ROOT ROUTES_PATH_ATTR K_FILTER_ZERO_TESTS COLLECT_ONLY_GREP_HELPER ONE_LINER_MISSING_IMPORT NODEID_WRONG_FILE TEST_NAME_DOES_NOT_EXIST DIRTY_PATH.
 # All read the repo tree only (never execute a VERIFY, never import repo code, never spawn pytest). Verdicts are SHADOW: the journal row is the only effect, except the opt-in
 # OVN_VERIFY_LINT_PARK=on park (park_cycle below; default OFF) which only ever considers the rules named in PARK_RULES.
-NEW_RULES = ("BACKEND_IMPORT_ROOT", "ROUTES_PATH_ATTR", "K_FILTER_ZERO_TESTS", "COLLECT_ONLY_GREP_HELPER", "ONE_LINER_MISSING_IMPORT", "NODEID_WRONG_FILE", "TEST_NAME_DOES_NOT_EXIST", "DIRTY_PATH")
+NEW_RULES = ("BACKEND_IMPORT_ROOT", "ROUTES_PATH_ATTR", "K_FILTER_ZERO_TESTS", "COLLECT_ONLY_GREP_HELPER", "ONE_LINER_MISSING_IMPORT", "NODEID_WRONG_FILE", "TEST_NAME_DOES_NOT_EXIST", "DIRTY_PATH", "GD_PRELOAD_NO_PAREN")
 # rules whose corpus replay met >= 80% precision with n >= 20 (see docs/VERIFY_SHAPES_2026-11-18.md); the park consults ONLY these (env OVN_VERIFY_LINT_PARK_RULES overrides, comma list)
-PARK_RULES = ("NODEID_WRONG_FILE",)
+PARK_RULES = ("NODEID_WRONG_FILE", "GD_PRELOAD_NO_PAREN")   # GD_PRELOAD_NO_PAREN (2026-11-20): syntactically impossible in GDScript; corpus replay 0 false positives (16541 VERIFY lines, 23 historical preload lines); park itself stays OFF by default
+# q-fri-shapes: rules outside NEW_RULES that OVN_VERIFY_LINT_PARK_RULES may NAME (never in the default PARK_RULES): TS1 measured 62% precision over 9.6 d (docs/Q_FRI_SHAPES_2026-11-20.md), so it stays shadow
+# unless the operator opts in: OVN_VERIFY_LINT_PARK=on OVN_VERIFY_LINT_PARK_RULES=TS1 OVN_VERIFY_LINT_PARK_KINDS=reverted-red (the park path only; no other item is ever blocked).
+PARKABLE_EXTRA = ("TS1",)
 _FASTAPI_INCLUDED_ROUTER_MIN = (0, 140)   # observed _IncludedRouter wrappers (no .path/.methods/.endpoint/.dependant) at 0.143.3; plain APIRoute at 0.115.0
 _TEST_CONF = re.compile(r"^\s*(python_files|python_functions|python_classes|doctest_modules)\b", re.M)
 
@@ -1068,6 +1077,88 @@ def rule_dirty_path(item, clause, repo_root):
     return None
 
 
+
+# ---- q-fri-shapes (2026-11-20, SHADOW): GD_PRELOAD_NO_PAREN
+_PRELOAD_SPACE_Q = re.compile(r"""\bpreload\s+["']""")
+
+
+def _walk_nsep(clause):
+    """_walk_sep plus the separator that FOLLOWS each yielded stage (looking through skipped `cd` / assignment-only stages): yields (base, tokens, next_sep)."""
+    stages = split_stages_sep(clause)
+    base = ""
+    for i, (st, sep) in enumerate(stages):
+        t = _toks(st)
+        while t and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", t[0]):
+            t = t[1:]
+        if not t:
+            continue
+        if t[0] == "cd" and len(t) > 1:
+            base = os.path.normpath(os.path.join(base, t[1])) if not t[1].startswith("/") else t[1]
+            continue
+        yield base, t, (stages[i + 1][1] if i + 1 < len(stages) else "")
+
+
+def _gd_literal(pat, ere):
+    """the fixed string a grep pattern matches, or None when it is not a plain literal (alternation, groups, classes, repeats, anchors): `\\.` -> `.`, an unescaped `.` stays `.` (it matches itself too)."""
+    out, i = [], 0
+    while i < len(pat):
+        c = pat[i]
+        if c == "\\":
+            if i + 1 >= len(pat):
+                return None
+            d = pat[i + 1]
+            if d in ".[]*^$/\\\"'-" or (ere and d in "(){}|+?"):
+                out.append(d)
+                i += 2
+                continue
+            return None                     # \( \| \w \1 ...: an operator or class, not a literal
+        if c in "*[^$" or (ere and c in "(){}|+?"):
+            return None
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def rule_gd_preload(clause, repo_root):
+    """grep/-F for `preload "res://x.gd"` against a .gd target: GDScript spells it preload("res://x.gd"), so a pattern with a space and a quote after `preload` (and no parenthesis) matches 0 lines of valid code.
+    Positive greps only (`! grep` stages never reach here: _walk yields the `!` token first). Silent when the pattern DOES match the target today (a comment/string that really holds it) or the target
+    is not GDScript. The suggestion rewrites every `preload "X"` to `preload("X")` and drops a trailing ` as Name` (not GDScript syntax either)."""
+    if os.environ.get("OVN_VERIFY_LINT_GD_PRELOAD", "shadow").strip().lower() == "off":
+        return None
+    for base, t, nsep in _walk_nsep(clause):
+        if t[0] not in ("grep", "egrep", "fgrep"):
+            continue
+        if nsep in ("||", ";"):
+            continue                        # `grep BAD || other` / `grep BAD ; other`: the clause can still pass (the grep's own status is not the clause's)
+        ga = _grep_args(t)
+        if not ga:
+            continue
+        pat, specs, flags = ga
+        if "v" in flags or "L" in flags or not specs or not _PRELOAD_SPACE_Q.search(pat) or "preload(" in pat.replace("\\(", "("):
+            continue                        # -v / -L invert the sense: a zero-match pattern is what they WANT
+        gd = any(s.lower().endswith(".gd") for s in specs) or any(f.lower().startswith("--include=") and f.lower().endswith(".gd") for f in flags)
+        if not gd:
+            continue
+        fixed = "F" in flags or t[0] == "fgrep"
+        root = _root(repo_root, base)
+        files = _expand(root, specs, "r" in flags or "R" in flags)
+        if files:
+            try:
+                rx = re.compile(re.escape(pat) if fixed else _bre_to_py(pat, "E" in flags or t[0] == "egrep"))
+            except re.error:
+                continue
+            if not fixed and _unsafe_pattern(pat):
+                continue
+            if _count(rx, files) > 0:
+                continue                    # it matches real text: not this shape
+        lit0 = pat if fixed else _gd_literal(pat, "E" in flags or t[0] == "egrep")      # the plain string the pattern means (None: alternation/group/class/repeat -> no suggestion)
+        fix = re.sub(r"""preload\s+(["'])([^"']*)\1(?:\s+as\s+\w+)?""", lambda m: 'preload("%s")' % m.group(2), lit0) if lit0 is not None else ""
+        target = " ".join(shlex.quote(s) for s in specs)
+        sug = "grep -qF %s %s" % (shlex.quote(fix), target) if "preload(" in fix else ""   # never suggest a grep that cannot pass
+        return _res(SUSPECT, "GD_PRELOAD_NO_PAREN: grep pattern %r has `preload \"...\"` (space + quote); GDScript syntax is preload(\"res://...\") so it can never match a .gd file" % pat[:160], sug, "GD_PRELOAD_NO_PAREN")
+    return None
+
+
 def _all_rules(item_line, clause, repo_root, state_dir, siblings):
     """every rule's verdict in a fixed order (the Q2 rules first, so the first SUSPECT keeps meaning what it always meant)."""
     fns = (lambda: rule_ml1(clause, repo_root), lambda: rule_tp1(clause, repo_root), lambda: rule_ts1(clause, repo_root, state_dir),
@@ -1075,7 +1166,8 @@ def _all_rules(item_line, clause, repo_root, state_dir, siblings):
            lambda: rule_backend_import_root(clause, repo_root), lambda: rule_routes_path_attr(clause, repo_root),
            lambda: rule_k_filter(item_line, clause, repo_root, siblings), lambda: rule_collect_grep(item_line, clause, repo_root),
            lambda: rule_one_liner_import(clause, repo_root), lambda: rule_nodeid_file(item_line, clause, repo_root, siblings),
-           lambda: rule_vitest_t(item_line, clause, repo_root), lambda: rule_dirty_path(item_line, clause, repo_root))
+           lambda: rule_vitest_t(item_line, clause, repo_root), lambda: rule_dirty_path(item_line, clause, repo_root),
+           lambda: rule_gd_preload(clause, repo_root))
     out = []
     for f in fns:
         try:
@@ -1218,7 +1310,7 @@ def park_cycle(outcomes, repo, prog_path, repo_root, state_dir, now, n=2, hours=
     Reuses ovn_pick_cap (line identification: never parks a guess). Returns {trip,count,rule,line_no,key,why}; never raises."""
     out = {"trip": False, "count": 0, "rule": "", "line_no": 0, "key": "", "why": ""}
     try:
-        rules = tuple(x for x in (os.environ.get("OVN_VERIFY_LINT_PARK_RULES") or ",".join(PARK_RULES)).split(",") if x in NEW_RULES)
+        rules = tuple(x for x in (os.environ.get("OVN_VERIFY_LINT_PARK_RULES") or ",".join(PARK_RULES)).split(",") if x in NEW_RULES + PARKABLE_EXTRA)
         if not rules:
             out["why"] = "no-park-rules"
             return out

@@ -192,7 +192,7 @@ def run_checks(vl, hz):
         chk("legacy_lint_verify_api_unchanged_for_new_shapes", all(vl.lint_verify(SRC + "VERIFY: `%s`" % c, repo, st)["verdict"] == "OK" for c in ("cd backend && python3 -m pytest tests/test_nope.py -q", 'python3 -c "x = Foo()"', "cd backend && python3 -m pytest tests/test_x.py -q -k prod")))
         chk("lint_all_is_list", isinstance(vl.lint_all(SRC + "VERIFY: `true`", repo, st), list))
         chk("never_raises_on_garbage", vl.lint_verify("- [ ] x VERIFY: `python3 -c \"'`", repo, st)["verdict"] in ("OK", "SUSPECT", "unknown"))
-        chk("new_rules_listed", set(vl.NEW_RULES) == {"BACKEND_IMPORT_ROOT", "ROUTES_PATH_ATTR", "K_FILTER_ZERO_TESTS", "COLLECT_ONLY_GREP_HELPER", "ONE_LINER_MISSING_IMPORT", "NODEID_WRONG_FILE", "TEST_NAME_DOES_NOT_EXIST", "DIRTY_PATH"})
+        chk("new_rules_listed", set(vl.NEW_RULES) == {"BACKEND_IMPORT_ROOT", "ROUTES_PATH_ATTR", "K_FILTER_ZERO_TESTS", "COLLECT_ONLY_GREP_HELPER", "ONE_LINER_MISSING_IMPORT", "NODEID_WRONG_FILE", "TEST_NAME_DOES_NOT_EXIST", "DIRTY_PATH", "GD_PRELOAD_NO_PAREN"})
         chk("verdict_shape", set(v(SRC, "cd backend && python3 -m pytest tests/test_nope.py").keys()) == {"verdict", "reason", "suggested_verify", "rule"})
         # ---- shadow logging: one row per rule, deduped, off writes nothing, journal is the only effect
         log = os.path.join(td, "vl.jsonl")
@@ -245,7 +245,7 @@ def run_checks(vl, hz):
         os.environ["OVN_VERIFY_LINT_PARK_RULES"] = "bogus,TP1"
         chk("park_rules_env_unknown_names_dropped", vl.park_cycle(out, "r", prog, repo, st, now, 2, 48)["why"] == "no-park-rules")
         os.environ.pop("OVN_VERIFY_LINT_PARK_RULES", None)
-        chk("park_default_rules_are_proven_ones", tuple(vl.PARK_RULES) == ("NODEID_WRONG_FILE",))
+        chk("park_default_rules_are_proven_ones", tuple(vl.PARK_RULES) == ("NODEID_WRONG_FILE", "GD_PRELOAD_NO_PAREN"))
         w(out, "garbage\n{not json\n")
         chk("park_garbage_outcomes_never_raise", vl.park_cycle(out, "r", prog, repo, st, now, 2, 48)["trip"] is False)
         chk("park_missing_files_never_raise", vl.park_cycle("/nonexistent/o", "r", "/nonexistent/p", repo, st, now)["trip"] is False)
@@ -372,12 +372,12 @@ MUTANTS = [
     ("vl", "r = lint_verify(item_line, repo_root, state_dir, siblings, _all=True)", "r = lint_verify(item_line, repo_root, state_dir, siblings, _all=False)"),
     ("vl", "_shadow_log_new(item_line, repo_root, repo, state_dir, source, siblings)   # q-verify-shapes", "pass   # q-verify-shapes"),
     ("vl", "            if key in old:\n                continue\n            old.add(key)", "            old.add(key)"),
-    ("vl", "PARK_RULES = (\"NODEID_WRONG_FILE\",)", "PARK_RULES = (\"NODEID_WRONG_FILE\", \"DIRTY_PATH\")"),
+    ("vl", "PARK_RULES = (\"NODEID_WRONG_FILE\", \"GD_PRELOAD_NO_PAREN\")", "PARK_RULES = (\"NODEID_WRONG_FILE\", \"GD_PRELOAD_NO_PAREN\", \"DIRTY_PATH\")"),
     ("vl", "kinds = tuple(x for x in (os.environ.get(\"OVN_VERIFY_LINT_PARK_KINDS\") or \"already-done,landed-uncredited\").split(\",\") if x in pc.BAD_KINDS) or pc.DEFAULT_KINDS", "kinds = pc.BAD_KINDS"),
     ("vl", "r = pc.cycle(rows, repo, prog_path, now, n, hours, kinds)", "r = pc.cycle(rows, repo, prog_path, now, 1, hours, kinds)"),
     ("vl", "if not r[\"trip\"] or not r[\"line_no\"]:\n            return out", "if not r[\"trip\"]:\n            return out"),
     ("vl", "x[\"verdict\"] == SUSPECT and x[\"rule\"] in rules]", "x[\"verdict\"] == SUSPECT]"),
-    ("vl", "rules = tuple(x for x in (os.environ.get(\"OVN_VERIFY_LINT_PARK_RULES\") or \",\".join(PARK_RULES)).split(\",\") if x in NEW_RULES)", "rules = tuple((os.environ.get(\"OVN_VERIFY_LINT_PARK_RULES\") or \",\".join(PARK_RULES)).split(\",\"))"),
+    ("vl", "rules = tuple(x for x in (os.environ.get(\"OVN_VERIFY_LINT_PARK_RULES\") or \",\".join(PARK_RULES)).split(\",\") if x in NEW_RULES + PARKABLE_EXTRA)", "rules = tuple((os.environ.get(\"OVN_VERIFY_LINT_PARK_RULES\") or \",\".join(PARK_RULES)).split(\",\"))"),
     ("hz", "if not any(_TESTY.search(p) for p in paths):\n            return None", "if False:\n            return None"),
     ("hz", "(?:replace|rewrite|overwrite|empty|wipe)\\w*", "(?:replace|rewrite|overwrite|empty|wipe|gut)\\w*"),
     ("hz", "if \"`\" in rest or _SCOPED_ANY.search(rest) or _DEAD.search(head):\n                continue", "if False:\n                continue"),

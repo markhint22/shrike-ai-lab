@@ -378,6 +378,24 @@ fi
 # all. Now we reuse the main clone's provisioned venv against the worktree code
 # (verified live: main-clone pytest collects+runs the worktree's tests), and add
 # a GUT gate for Godot repos.
+# q-fri-shapes (2026-11-20, SHADOW): placeholder files that LANDED on the merge target. 47 files on develop carried `Placeholder - the implement step fills this in` (2 were truly empty stubs
+# that look like coverage; the rest are real tests with the marker comment left above them). The stub-leak flag in run_gate only sees the merge CANDIDATE; this scans the develop TREE once per
+# repo per UTC day and appends state/placeholder_landed.log rows (once per file+blob per 7 days; log/seen trimmed to ~5000 lines) + ONE alerts.log warn per scan with new files (stub-skip / marker-only / no-real-assert kinds only).
+# Read-only on the repo (git grep / git log on origin/$mt). OVN_PLACEHOLDER_LANDED=off disables; DRY_RUN=1 writes nothing; never fails the pass.
+hyg_placeholder_landed() {   # <repo name> <repo path> <merge target>
+  [ "${OVN_PLACEHOLDER_LANDED:-shadow}" = "off" ] && return 0
+  [ -f "$SCRIPT_DIR/scripts/ovn_placeholder_report.py" ] && [ -d "${STATE_DIR:-}" ] || return 0
+  local nm="$1" rp="$2" tg="$3" day stamp
+  day="$(date -u +%Y-%m-%d)"; stamp="$STATE_DIR/placeholder_landed_day/${nm}"
+  if [ "${DRY_RUN:-0}" = 1 ]; then return 0; fi
+  [ "$(cat "$stamp" 2>/dev/null)" = "$day" ] && return 0
+  mkdir -p "$STATE_DIR/placeholder_landed_day" 2>/dev/null || return 0
+  local _to; _to="$(command -v timeout || command -v gtimeout || true)"   # the box has timeout; a Mac has neither unless coreutils is installed: run uncapped then (the script has its own 20 s budget)
+  ${_to:+$_to 60} python3 "$SCRIPT_DIR/scripts/ovn_placeholder_report.py" alert --repo "$rp" --state "$STATE_DIR" --ref "origin/$tg" --day "$day" >/dev/null 2>&1 || true
+  printf '%s\n' "$day" > "$stamp" 2>/dev/null || true
+  return 0
+}
+
 run_gate() {
   local repo="$1" dir="$2" ran=0 rc=0
   _GATE_TIMEOUT_HIT=0; _GATE_FAIL_DETAIL=""; _GATE_INFRA_HIT=0; _GATE_INFRA_RED=0   # (_GATE_GUT_KEEP is NOT reset here: hyg_gut_keep replaces/removes the previous attempt's copy itself)
@@ -761,6 +779,8 @@ for repo in "${REPOS[@]}"; do
           fi
         fi
       done
+
+  hyg_placeholder_landed "$name" "$repo" "$mt"   # q-fri-shapes: SHADOW report of placeholder files on the merge target (once per repo per UTC day)
 
   # 4. reconcile $FEAT -> main behind a gate
   if ! git -C "$repo" rev-parse --verify --quiet origin/$FEAT >/dev/null; then

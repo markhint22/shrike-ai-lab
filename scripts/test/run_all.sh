@@ -748,5 +748,6 @@ echo; echo "===== q-weekend-fixes: web-verify gate baseline-aware (inherited vue
 echo; echo "===== q-verify-web-gap: a NEW red vitest-related result blocks the staged verify even with OVN_STAGE_WEB_VERIFY=shadow (billwatch 7dfcf84a 33 h red; 9 mutants) ====="; bash test_q_verify_web_gap.sh || rc=1
 echo; echo "===== q-wave2: pick-cap line resolution (cap-noop closed/parked + skip list + fallback chain), GUT ghost-test lint (gut-ghost-test, shadow), diff-based B0d editor-leak rule (token kind ENFORCE by default, pair + N=2 park journal shadow); 55 checks incl. mutants ====="; bash test_q_wave2.sh || rc=1
 echo; echo "===== q-verify-shapes: SHADOW VERIFY-shape lint rules (BACKEND_IMPORT_ROOT ROUTES_PATH_ATTR K_FILTER_ZERO_TESTS COLLECT_ONLY_GREP_HELPER ONE_LINER_MISSING_IMPORT NODEID_WRONG_FILE TEST_NAME_DOES_NOT_EXIST DIRTY_PATH), OVN_VERIFY_LINT_PARK (default off), item-hazard guard DELETE_ALL_TESTS (shadow); mutation-verified (counts printed by the suite) ====="; bash test_q_verify_shapes.sh || rc=1
+echo; echo "===== q-fri-shapes: GD_PRELOAD_NO_PAREN shadow VERIFY rule, TS1 stays shadow (park opt-in + off switch), annotation-only duplicate-def dedupe (shadow), landed-placeholder report + hygiene hook (shadow); mutation-verified (counts printed by the suite) ====="; bash test_q_fri_shapes.sh || rc=1
 echo; finish || rc=1
 exit $rc
