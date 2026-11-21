@@ -1,0 +1,16 @@
+# Grooming proposal — xlite — 2026-11-21 04:00
+
+## Current Next Steps
+```
+- [ ] [CLAUDE] [unworkable: hard-banned file scripts/battle/battle.gd] [T3] scripts/battle/battle.gd — Manual-test bug (reported by Mark, flow cover-and-flank-change-odds, 2026-11-11): This is difficult to test because there's no clear indicator that an enemy is considered fully covered, half-covered, flanked etc. Please consider adding this to help a player learn that flanking helps and cover reduces hit chance. Also look at: scripts/grid/grid_renderer.gd, scripts/battle/aim_modifiers.gd. First write a failing test that reproduces this, then fix it; if the cause is not in this file, say so. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit`. (cat:bugfix; multifile:yes; src:manual) [feat:xlite-20261111-manual-d957b547]
+- [x] [AUTO-SKIP after 5 no-op cycles — already-done, mis-targeted, or beyond the 27B; review] [EMERGENCY][T2] godot GUT suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing:   Failing         4;[31m---- 4 failing tests ---- ERROR: 12 RID allocations of type 'PN13RendererDummy14TextureStorage12DummyTextureE' were leaked at exit.;ERROR: 93 RID allocations of type 'PN18TextServerAdvanced22ShapedTextDataAdvancedE' were leaked at exit. ERROR: 1 RID allocations of type 'PN18TextServerAdvanced12FontAdvancedE' were leaked at exit.  <!-- superseded by recovery decomposition below -->
+- [x] (dismissed 2026-10-07: diagnostic note, not a work item - the underlying work is tracked by the item lines with a VERIFY clause) [CLAUDE] this area has been recovered/decomposed 5 times (cap 2) without ever landing - the fleet keeps re-guessing at this same file with no real diagnosis; needs a human/Claude session to understand the actual blast radius (recovery:escalated)
+```
+
+## Proposed (LLM re-evaluation — review before applying)
+1. [T2] scripts/battle/aim_modifiers.gd — Add a public method `get_coverage_status(unit: Node) -> String` that returns "full", "half", or "none" based on current grid position and enemy line-of-sight, to support the UI indicator requested in the manual test bug.
+2. [T2] scripts/grid/grid_renderer.gd — Implement a visual overlay (e.g., semi-transparent green/red tint) on grid cells that are currently providing cover to the selected unit, using the status from `aim_modifiers.gd`.
+3. [T3] tests/test_aim_modifiers.gd — Write GUT tests for `get_coverage_status` covering edge cases: unit behind full cover, unit in open ground, and unit partially obscured by terrain.
+4. [T1] scripts/roster/upkeep_text.gd — Implement the `generate_text()` method to format the upkeep cost display string, ensuring it matches the expected format from recent refactoring commits.
+5. [T2] assets/sprites/rig_units/enemy_grunt/rig_meta.json — Validate and correct the joint hierarchy definitions to ensure the grunt sprite animates correctly in the battle scene, fixing potential rendering glitches.
+6. [T3] scripts/battle/battle.gd — Add a debug log statement that prints the coverage status of all units at the start of each turn, aiding manual verification of the cover/flank mechanics without requiring UI changes.
