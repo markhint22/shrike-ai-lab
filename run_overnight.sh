@@ -198,6 +198,8 @@ source "$SCRIPT_DIR/scripts/lib_limiter_lint.sh" 2>/dev/null || limiter_lint_gat
 # shellcheck source=scripts/lib_fixup.sh
 source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ echo "own-test"; }; ovn_fixup_direction(){ echo "Prefer fixing the TEST's expectation/mocks to match the real behaviour of the source shown; do not change the source unless it is clearly the bug."; }; }
 declare -F ovn_aider_commit_rescue >/dev/null 2>&1 || ovn_aider_commit_rescue(){ return 1; }   # lib_fixup.sh missing/old: no commit rescue (2026-10-20)
+declare -F ovn_dedupe_is_change >/dev/null 2>&1 || ovn_dedupe_is_change(){ case "${1:-}" in "removed duplicate"*) [ -s "${2:-/nonexistent}" ];; *) return 1;; esac; }   # q-mon-fixes: lib_fixup.sh missing/old
+declare -F ovn_empty_test_files_added >/dev/null 2>&1 || ovn_empty_test_files_added(){ return 0; }
 declare -F ovn_fixup_dedupe_defs >/dev/null 2>&1 || ovn_fixup_dedupe_defs(){ return 0; }   # lib_fixup.sh missing/old: no post-fix-up de-duplication (2026-10-18)
 declare -F ovn_is_delete_intent >/dev/null 2>&1 || ovn_is_delete_intent(){ grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b' <<< "${1:-}"; }   # lib_fixup.sh missing: legacy regex
 # shellcheck source=scripts/lib_fixup_prompt.sh
@@ -3309,16 +3311,22 @@ $(ovn_udiff_nudge_text)"
     if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
       CHANGED_GD_FILES="$(git diff --name-only --diff-filter=AM "$BEFORE_SHA" "$AFTER_SHA" -- '*.gd' || true)"
       if [ -n "$CHANGED_GD_FILES" ]; then
-        echo "$CHANGED_GD_FILES" | while IFS= read -r gd_file; do
+        # q-mon-fixes (2026-11-23): collect ONLY the files this step changed (process substitution, not a pipe subshell) and commit THEM by pathspec. The old form added on
+        # `!= "unchanged"` (an empty answer from a timeout/crash counted as a change) and ran a bare `git commit`, which swept anything already staged in the index -
+        # billwatch 858e1492 landed a 0-byte test_notification_preview.py under this message. ovn_dedupe_is_change also refuses a file that is empty on disk.
+        _dd_files=()
+        while IFS= read -r gd_file; do
           [ -f "$gd_file" ] || continue
           GD_DEDUPE_OUT="$(ovn_hto 60 dedupe_gd python3 "$SCRIPT_DIR/dedupe_gd_duplicate_functions.py" "$gd_file" 2>>"$task_log")"
-          if [ "$GD_DEDUPE_OUT" != "unchanged" ]; then
+          if ovn_dedupe_is_change "$GD_DEDUPE_OUT" "$gd_file"; then
             echo "--- ${gd_file}: ${GD_DEDUPE_OUT} ---" >> "$task_log"
-            git add "$gd_file"
+            git add -- "$gd_file" && _dd_files+=("$gd_file")
+          elif [ "$GD_DEDUPE_OUT" != "unchanged" ]; then
+            echo "--- ${gd_file}: dedupe gave no usable answer (${GD_DEDUPE_OUT:-empty}) or the file is empty - NOT staged ---" >> "$task_log"
           fi
-        done
-        if ! git diff --cached --quiet; then
-          git commit -m "fix: auto-remove duplicate GDScript function definition(s)" --quiet
+        done < <(echo "$CHANGED_GD_FILES")
+        if [ "${#_dd_files[@]}" -gt 0 ] && ! git diff --cached --quiet -- "${_dd_files[@]}"; then
+          git commit -m "fix: auto-remove duplicate GDScript function definition(s)" --quiet -- "${_dd_files[@]}"
           AFTER_SHA="$(git rev-parse HEAD)"
         fi
       fi
@@ -3338,16 +3346,22 @@ $(ovn_udiff_nudge_text)"
     if [ "$AFTER_SHA" != "$BEFORE_SHA" ]; then
       CHANGED_PY_FILES="$(git diff --name-only --diff-filter=AM "$BEFORE_SHA" "$AFTER_SHA" -- '*.py' || true)"
       if [ -n "$CHANGED_PY_FILES" ]; then
-        echo "$CHANGED_PY_FILES" | while IFS= read -r py_file; do
+        # q-mon-fixes (2026-11-23): collect ONLY the files this step changed (process substitution, not a pipe subshell) and commit THEM by pathspec. The old form added on
+        # `!= "unchanged"` (an empty answer from a timeout/crash counted as a change) and ran a bare `git commit`, which swept anything already staged in the index -
+        # billwatch 858e1492 landed a 0-byte test_notification_preview.py under this message. ovn_dedupe_is_change also refuses a file that is empty on disk.
+        _dd_files=()
+        while IFS= read -r py_file; do
           [ -f "$py_file" ] || continue
           PY_DEDUPE_OUT="$(ovn_hto 60 dedupe_py python3 "$SCRIPT_DIR/dedupe_python_duplicate_defs.py" "$py_file" 2>>"$task_log")"
-          if [ "$PY_DEDUPE_OUT" != "unchanged" ]; then
+          if ovn_dedupe_is_change "$PY_DEDUPE_OUT" "$py_file"; then
             echo "--- ${py_file}: ${PY_DEDUPE_OUT} ---" >> "$task_log"
-            git add "$py_file"
+            git add -- "$py_file" && _dd_files+=("$py_file")
+          elif [ "$PY_DEDUPE_OUT" != "unchanged" ]; then
+            echo "--- ${py_file}: dedupe gave no usable answer (${PY_DEDUPE_OUT:-empty}) or the file is empty - NOT staged ---" >> "$task_log"
           fi
-        done
-        if ! git diff --cached --quiet; then
-          git commit -m "fix: auto-remove duplicate Python class/function definition(s)" --quiet
+        done < <(echo "$CHANGED_PY_FILES")
+        if [ "${#_dd_files[@]}" -gt 0 ] && ! git diff --cached --quiet -- "${_dd_files[@]}"; then
+          git commit -m "fix: auto-remove duplicate Python class/function definition(s)" --quiet -- "${_dd_files[@]}"
           AFTER_SHA="$(git rev-parse HEAD)"
         fi
       fi
@@ -3384,6 +3398,27 @@ $(ovn_udiff_nudge_text)"
             emit_alert warn "$id" "comment-only cycle: the net diff was blank/comment lines only for a non-doc item; reset, not pushed"
             echo "no-op(comment-only)"
             return
+          fi
+        fi
+      fi
+      # EMPTY-TEST-FILE GUARD (q-mon-fixes 2026-11-23): a cycle that ADDS a 0-byte test file (billwatch 858e1492) lands nothing runnable and hides a missing test. SHADOW by default (logs
+      # what it would do, never changes the cycle); OVN_EMPTYTEST_GUARD=on drops the files in one follow-up commit (`git rm`), off disables.
+      if [ "${OVN_EMPTYTEST_GUARD:-shadow}" != off ]; then
+        _ovn_empty_t="$(ovn_empty_test_files_added "$BEFORE_SHA" "$AFTER_SHA")"
+        if [ -n "$_ovn_empty_t" ]; then
+          if [ "${OVN_EMPTYTEST_GUARD:-shadow}" = on ]; then
+            echo "--- EMPTY-TEST-FILE GUARD: dropping 0-byte added test file(s): $(echo "$_ovn_empty_t" | tr '\n' ' ') ---" >> "$task_log"
+            _ovn_empty_paths=()
+            while IFS= read -r _ef; do
+              [ -n "$_ef" ] || continue
+              git rm -q -f -- "$_ef" 2>/dev/null && _ovn_empty_paths+=("$_ef")
+            done <<< "$_ovn_empty_t"
+            # pathspec commit: can never sweep other staged files into this follow-up
+            if [ "${#_ovn_empty_paths[@]}" -gt 0 ]; then
+              git commit -q -m "fix: drop 0-byte test file(s) added by the cycle" -- "${_ovn_empty_paths[@]}" 2>/dev/null && AFTER_SHA="$(git rev-parse HEAD)"
+            fi
+          else
+            echo "--- EMPTY-TEST-FILE GUARD (shadow): $(echo "$_ovn_empty_t" | tr '\n' ' ')added with 0 bytes - would drop (OVN_EMPTYTEST_GUARD=on) ---" >> "$task_log"
           fi
         fi
       fi

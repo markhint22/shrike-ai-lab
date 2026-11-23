@@ -1270,8 +1270,30 @@ ovn_executor_hook() {
 #     removed as ONE commit. Only byte-identical later copies are removed (the scripts' own contract). Prints one line per changed file to stdout; rc 0 always;
 #     never leaves a dirty index. OVN_FIXUP_DEDUPE=off disables it.
 # =====================================================================================================================================================
+# q-mon-fixes (2026-11-23): billwatch 858e1492 "fix: auto-remove duplicate Python class/function definition(s)" added a 0-BYTE tests/test_notification_preview.py.
+#   ovn_dedupe_is_change <dedupe stdout> <file>   rc 0 only when the dedupe script answered "removed duplicate(s): ..." AND the file is non-empty on disk (an empty answer from a
+#     timeout/crash, or an empty file, is never a change worth staging).
+#   ovn_empty_test_files_added <from_sha> <to_sha> prints every test-shaped file the range ADDED with size 0 (an empty __init__.py / conftest is legitimate and never listed).
+ovn_dedupe_is_change() {
+  case "${1:-}" in "removed duplicate"*) ;; *) return 1;; esac
+  [ -s "${2:-/nonexistent}" ]
+}
+ovn_empty_test_files_added() {
+  local from="$1" to="${2:-HEAD}" f sz
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in
+      */test_*.py|test_*.py|*_test.py|*.test.ts|*.test.tsx|*.test.js|*.test.jsx|*.spec.ts|*.spec.tsx|*.spec.js|*_test.go|*Test.java|*Tests.swift|test_*.gd|*/test_*.gd) ;;
+      *) continue;;
+    esac
+    sz="$(git cat-file -s "$to:$f" 2>/dev/null)" || continue
+    [ "$sz" = 0 ] && echo "$f"
+  done < <(git diff --name-only --diff-filter=A "$from" "$to" 2>/dev/null)
+  return 0
+}
+
 ovn_fixup_dedupe_defs() {
-  local from="${1:-}" od f out ext py changed=0
+  local from="${1:-}" od f out ext py changed=0 files=()
   [ "${OVN_FIXUP_DEDUPE:-on}" = off ] && return 0
   [ -n "$from" ] || return 0
   od="${SCRIPT_DIR:-$(cd "$_OVN_LF_DIR/.." 2>/dev/null && pwd)}"
@@ -1280,13 +1302,14 @@ ovn_fixup_dedupe_defs() {
     case "$f" in *.gd) py="$od/dedupe_gd_duplicate_functions.py";; *.py) py="$od/dedupe_python_duplicate_defs.py";; *) continue;; esac
     [ -f "$py" ] || continue
     out="$(ovn_hto 60 dedupe python3 "$py" "$f" 2>/dev/null)"
-    if [ -n "$out" ] && [ "$out" != "unchanged" ]; then
+    if ovn_dedupe_is_change "$out" "$f"; then
       echo "${f}: ${out}"
-      git add -- "$f" >/dev/null 2>&1 && changed=1
+      git add -- "$f" >/dev/null 2>&1 && { changed=1; files+=("$f"); }
     fi
   done < <(git diff --name-only --diff-filter=AM "$from" HEAD -- '*.gd' '*.py' 2>/dev/null)
-  if [ "$changed" = 1 ] && ! git diff --cached --quiet 2>/dev/null; then
-    git commit -q -m "fix: auto-remove duplicate definition(s) a fix-up introduced" >/dev/null 2>&1 || git reset -q >/dev/null 2>&1
+  if [ "$changed" = 1 ] && ! git diff --cached --quiet -- "${files[@]}" 2>/dev/null; then
+    # commit BY PATHSPEC: a bare commit also swept anything already staged (q-mon-fixes, the 0-byte test file)
+    git commit -q -m "fix: auto-remove duplicate definition(s) a fix-up introduced" -- "${files[@]}" >/dev/null 2>&1 || git reset -q -- "${files[@]}" >/dev/null 2>&1
   fi
   return 0
 }

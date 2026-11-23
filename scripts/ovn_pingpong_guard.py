@@ -33,6 +33,10 @@ Action, mode OVN_PINGPONG_MODE (default 'shadow'):
   - CONFIG-DEFAULT detector (OVN_PINGPONG_BOOL=off|shadow|enforce, default shadow): a `name: bool = True|False` default replaced by the opposite value flips ON/OFF (the gitlark error_reporting_enabled
     default False -> True contradicted the item's own VERIFY). Needs only OVN_PINGPONG_BOOL_MIN (default 2) anchored states, no revisit. shadow = logged (kind=config-default) and never parked; enforce = parked like a literal ping-pong.
   - LOG DEDUPE: the shadow row / per-run PING-PONG line is written once per (repo, line family, COMMIT SET) instead of once per run or per day.
+2026-11-23 (q-mon-fixes) SYMBOL-SHAPE detector (OVN_PINGPONG_SYMBOL=off|shadow, default shadow, NO enforce path exists): test-automation-agent backend/app/utils/plan_lint.py flipped
+  `PLAN_LINT_CODES` between a tuple and a dict 3+ times in 22 commits; its lines carry no literal so the literal detector above could never see it. Tracks a top-level `NAME[: annotation] = <rhs>`
+  (Python column-0 assignment, or TS/JS `export const|let|var NAME[: T] =`) per file; its SHAPE (annotation base type + RHS opener `{`/`(`/`[`/call name/scalar) flipping A -> B -> A over >= OVN_PINGPONG_SYMBOL_MIN (3)
+  commits in the window is a finding. It runs on every repo in OVN_PINGPONG_REPOS (not just one file), is only logged to state/pingpong_shadow.log (kind symbol-shape, would-park=0) and never parks anything.
 Safety: DRY_RUN=1 prints only; ANY infrastructure failure logs a line, changes nothing and exits 0; at most OVN_PINGPONG_MAX_PARK (10) lines per run.
 
   ovn_pingpong_guard.py               one pass over OVN_PINGPONG_REPOS (default 'gitlark billwatch iptv_apps test-automation-agent xlite shrike-notify shrike-monitor')
@@ -63,6 +67,9 @@ PUSH_TRIES = envi("OVN_PINGPONG_PUSH_TRIES", 5)
 ANCHOR = os.environ.get("OVN_PINGPONG_ANCHOR", "on").strip().lower() != "off"
 BOOL_MODE = os.environ.get("OVN_PINGPONG_BOOL", "shadow").strip().lower()   # off | shadow | enforce
 BOOL_MIN = envi("OVN_PINGPONG_BOOL_MIN", 2)
+SYMBOL_MODE = os.environ.get("OVN_PINGPONG_SYMBOL", "shadow").strip().lower()   # off | shadow (there is no enforce: a new detector stays observational until it has real-data precision)
+SYMBOL_MIN = envi("OVN_PINGPONG_SYMBOL_MIN", 3)
+SYMBOL_ASSIGN = re.compile(r"^(?:export\s+(?:const|let|var)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=(?!=)\s*(\S*)")
 BOOL_DEFAULT = re.compile(r"^\s*[A-Za-z_]\w*\s*:\s*bool\s*=\s*(?:True|False)\b")
 DRY = cg.DRY
 STATE = cg.STATE
@@ -196,6 +203,86 @@ def detect(commits, now, window_h=None, min_n=None):
             "commits": [(c["sha"][:8], c["s"][:80]) for c in bysha.values()],
             "fid": hashlib.sha1(("%s|%s|%s" % (path, key, ctx)).encode("utf-8", "replace")).hexdigest()[:8],
         })
+    return sorted(found, key=lambda f: (-f["n"], f["file"]))
+
+
+# ---------------------------------------------------------------------------------------------------------------- symbol-shape detection (SHADOW only)
+def symbol_shape(line):
+    """-> (NAME, shape) for a top-level `NAME[: ann] = rhs` line, else (None, None). shape = '<annotation base type>|<rhs opener>' so tuple[str, ...] = ( and dict[str, str] = { differ."""
+    m = SYMBOL_ASSIGN.match(line)
+    if not m:
+        return None, None
+    name, ann, rhs = m.group(1), (m.group(2) or "").strip(), m.group(3)
+    base = re.split(r"[\[\s|<]", ann, maxsplit=1)[0].lower() if ann else ""
+    if rhs[:1] in "{([":
+        opener = rhs[:1]
+    elif re.match(r"^[A-Za-z_][\w.]*\(", rhs):
+        opener = re.match(r"^([A-Za-z_][\w.]*)\(", rhs).group(1)
+    elif rhs == "":
+        opener = "?"   # value on the next line: only the annotation tells the shape
+    else:
+        opener = "scalar"
+    # a bare `NAME = scalar` is rarely a structural decision; keep it only when it carries a structural opener or an annotation
+    if opener in ("scalar", "?") and not base:
+        return None, None
+    return name, "%s|%s" % (base, opener)
+
+
+def detect_symbol_shape(commits, now, window_h=None, min_n=None):
+    """Pure function -> findings [{'file','name','n','revisits','shapes','commits','fid'}]: a top-level symbol whose SHAPE flipped in >= min_n distinct commits with at least one revisit (A -> B -> A)."""
+    window_h = WINDOW_H if window_h is None else window_h
+    min_n = SYMBOL_MIN if min_n is None else min_n
+    since_t = now - window_h * 3600
+    win = sorted((c for c in commits if since_t <= c["t"] <= now and not cg.BOOKKEEP_SUBJECT.match(c["s"])), key=lambda c: c["t"])
+    state = {}   # (path, name) -> {'last','seed','events':[(commit, shape)]}
+    for c in win:
+        paths = {h[0] for h in c["hunks"]}
+        if not paths or len(paths) > MAX_FILES:
+            continue
+        per = {}   # (path, name) -> [removed shapes, added shapes] in THIS commit
+        for path, rem, add in c["hunks"]:
+            if cg.BOOKKEEP_FILE.search(path) or not path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".mjs")):
+                continue
+            for line in rem:
+                n, sh = symbol_shape(line)
+                if n:
+                    per.setdefault((path, n), ([], []))[0].append(sh)
+            for line in add:
+                n, sh = symbol_shape(line)
+                if n:
+                    per.setdefault((path, n), ([], []))[1].append(sh)
+        for key, (rs, as_) in per.items():
+            if not as_:
+                continue
+            st = state.setdefault(key, {"last": None, "seed": None, "events": []})
+            if st["last"] is None and rs:
+                st["last"] = st["seed"] = rs[0]    # the replaced definition is the state BEFORE this commit
+            new = as_[-1]                           # a commit that re-states the symbol twice ends on its last form
+            if new == st["last"]:
+                continue
+            if st["last"] is not None and ANCHOR and not rs:
+                continue                            # an added definition that replaces nothing is not a flip of the tracked one
+            st["events"].append((c, new))
+            st["last"] = new
+    found = []
+    for (path, name), st in state.items():
+        shas = []
+        for c, _ in st["events"]:
+            if c["sha"] not in shas:
+                shas.append(c["sha"])
+        if len(shas) < min_n:
+            continue
+        walk, revisits, seq = ({st["seed"]} if st["seed"] is not None else set()), 0, [v for _, v in st["events"]]
+        for v in seq:
+            if v in walk:
+                revisits += 1
+            walk.add(v)
+        if revisits < 1:
+            continue
+        bysha = collections.OrderedDict((c["sha"], c) for c, _ in st["events"])
+        found.append({"file": path, "name": name, "n": len(shas), "revisits": revisits, "shapes": seq,
+                      "commits": [(c["sha"][:8], c["s"][:80]) for c in bysha.values()],
+                      "fid": hashlib.sha1(("SYM|%s|%s" % (path, name)).encode("utf-8", "replace")).hexdigest()[:8]})
     return sorted(found, key=lambda f: (-f["n"], f["file"]))
 
 
@@ -386,6 +473,19 @@ def shadow_log(repo, f, would_park, today):
         f["file"], f["n"], WINDOW_H, "/".join(f["values"])[:40], ",".join(s for s, _ in f["commits"][:4]), would_park), "PPS|%s|%s|%s" % (repo, f["fid"], commit_set(f)))
 
 
+def symbol_shadow_log(repo, f):
+    """SHADOW only: one row per (repo, symbol, commit set) in pingpong_shadow.log; no alert, no park, nothing written to any branch."""
+    if not once("SYMSHADOW|%s|%s|%s" % (repo, f["fid"], commit_set(f))):
+        return
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(os.path.join(STATE, "pingpong_shadow.log"), "a") as fh:
+            fh.write("%s %s %s symbol-shape-pingpong n=%d revisits=%d symbol=%s shapes=%s would-park=0 commits=%s\n" % (
+                time.strftime("%F %T"), repo, f["file"], f["n"], f["revisits"], f["name"], ">".join(f["shapes"])[:80], ",".join(x for x, _ in f["commits"])))
+    except OSError as e:
+        log("could not write shadow log (%s)" % e)
+
+
 def one_repo(repo, now, state):
     clone = os.path.join(cg.REPOS, repo)
     if not (os.path.isdir(os.path.join(clone, ".git")) or os.path.isfile(os.path.join(clone, ".git"))):
@@ -398,7 +498,13 @@ def one_repo(repo, now, state):
     if rc != 0:
         log("%s: infra (git log failed: %s) - skipped" % (repo, err.strip()[:120]))
         return
-    findings = detect(parse_patches(out), now)
+    _commits = parse_patches(out)
+    if SYMBOL_MODE != "off":
+        for sf in detect_symbol_shape(_commits, now):
+            log("%s: SYMBOL-SHAPE ping-pong (shadow, never parked) %s %s n=%d revisits=%d shapes=%s commits=%s" % (repo, sf["file"], sf["name"], sf["n"], sf["revisits"], ">".join(sf["shapes"])[:60], ",".join(x for x, _ in sf["commits"])))
+            if not DRY:
+                symbol_shadow_log(repo, sf)
+    findings = detect(_commits, now)
     if not findings:
         if once("NONE|%s|%s" % (repo, time.strftime("%Y-%m-%d"))):   # S3-guards2: once per repo per day, not every 20-minute pass
             log("%s: no literal ping-pong (window %dh, min %d commits)" % (repo, WINDOW_H, MIN_N))
@@ -461,6 +567,9 @@ def main():
             commits = parse_patches(fh.read())
         for f in detect(commits, max([c["t"] for c in commits] or [0]) + 1, window_h=10 ** 6):
             print("n=%d revisits=%d %s values=%s commits=%s line=%s" % (f["n"], f["revisits"], f["file"], "/".join(f["values"]), ",".join(s for s, _ in f["commits"]), f["line"]))
+        if SYMBOL_MODE != "off":
+            for f in detect_symbol_shape(commits, max([c["t"] for c in commits] or [0]) + 1, window_h=10 ** 6):
+                print("symbol-shape n=%d revisits=%d %s %s shapes=%s commits=%s" % (f["n"], f["revisits"], f["file"], f["name"], ">".join(f["shapes"]), ",".join(x for x, _ in f["commits"])))
         return 0
     now = int(time.time())
     state = {"parked": 0}

@@ -22,9 +22,9 @@ ok "python files compile" "'$PY' -m py_compile '$Q/ovn_verify_lint.py' '$Q/dedup
 # ---- PART 2: the hygiene hook (function extracted from the real script, run in a throwaway STATE_DIR against a throwaway repo)
 HY="$Q/branch_hygiene.sh"
 ok "branch_hygiene.sh parses" "bash -n '$HY'"
-mkrepo(){ local r="$T/$1"; mkdir -p "$r/tests"; ( cd "$r" && git init -q -b develop && git config user.email t@t && git config user.name t
-  printf '"""Placeholder - the implement step fills this in."""\n' > tests/test_empty.py && git add -A \
-  && GIT_AUTHOR_DATE=2026-10-01T00:00:00Z GIT_COMMITTER_DATE=2026-10-01T00:00:00Z git commit -q -m old && git update-ref refs/remotes/origin/develop HEAD ); echo "$r"; }
+mkrepo(){ local r="$T/$1"; mkdir -p "$r/tests"; git -C "$r" init -q -b develop && git -C "$r" config user.email t@t && git -C "$r" config user.name t \
+  && printf '"""Placeholder - the implement step fills this in."""\n' > "$r/tests/test_empty.py" && git -C "$r" add -A \
+  && GIT_AUTHOR_DATE=2026-10-01T00:00:00Z GIT_COMMITTER_DATE=2026-10-01T00:00:00Z git -C "$r" commit -q -m old && git -C "$r" update-ref refs/remotes/origin/develop HEAD; echo "$r"; }
 runhook(){ # <hygiene copy> <repo> <state> [VAR=val ...]
   local hy="$1" repo="$2" st="$3"; shift 3
   ( for kv in "$@"; do export "$kv"; done; SCRIPT_DIR="$Q"; STATE_DIR="$st"; mkdir -p "$st"
