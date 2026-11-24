@@ -1664,6 +1664,13 @@ STUB
       fi
     fi
 
+    # q-oracle-park (2026-11-24): TEST-FIRST-MISSING-SOURCE guard, SHADOW ONLY. An open test step whose source module does not exist in the tree and is created by no earlier open step of
+    # its [feat:] group (iptv_apps now-playing loader: 7 cycles of TS2307 reverts) is logged to state/test_first_source_shadow.log and as a 'TEST-FIRST-MISSING-SOURCE' line in this task log.
+    # Never edits an item; OVN_TEST_FIRST_SOURCE=off disables; ovn_hto cap + || true keep it out of the cycle's way.
+    if [ "${OVN_TEST_FIRST_SOURCE:-shadow}" != off ] && [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/ovn_test_first_source.py" ]; then
+      ovn_hto 30 test_first_source python3 "$SCRIPT_DIR/ovn_test_first_source.py" scan OVERNIGHT_PROGRESS.md --root "$PWD" --repo "$(basename "$PWD")" --state "${STATE_DIR:-${OVN_STATE_DIR:-$SCRIPT_DIR/state}}" >>"$task_log" 2>&1 || true
+    fi
+
     # Fold a "create migration" item into its model-column sibling (2026-10-02, harness Y1): the alembic autogen hook generates the migration in
     # the same step that edits the model, so a separate migration item can only fork the chain. See scripts/ovn_fold_migration_items.py.
     if [ -f "OVERNIGHT_PROGRESS.md" ] && [ -f "$SCRIPT_DIR/scripts/ovn_fold_migration_items.py" ]; then

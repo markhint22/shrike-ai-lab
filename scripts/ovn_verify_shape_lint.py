@@ -357,9 +357,10 @@ def u4_mode():
 # Policy (2026-11-07): a rule defaults to ENFORCE only when its audit over the last 7 days of real VERIFY clauses (docs/VERIFY_LINT_Z1.md) found ZERO false positives and every hit is a
 # clause that provably cannot pass; everything else defaults to shadow. Enforce = the item is rewritten (when a rewrite exists) or dropped to the quarantine file, ALWAYS with a row in
 # verify_shape_lint.log, an alerts.log summary and a stderr line - never a silent drop. An enforced Z1 rule acts even while OVN_VERIFY_LINT itself is shadow (like U4).
-Z1_CODES = frozenset(("Q1", "G1", "P1", "R1"))
+Z1_CODES = frozenset(("Q1", "G1", "P1", "R1", "GU1"))
+# GU1 (q-oracle-park 2026-11-24) is ENFORCE: a pure bugfix, corpus replay 0 false positives (docs/Q_ORACLE_PARK_2026-11-24.md); revert with OVN_VERIFY_Z1_GU1=shadow|off.
 # Q1 is SHADOW by default (review 2026-11-07: regex-translation FP + rewrite-meaning defects, 1 corpus hit is thin evidence); P1 (a python grammar fact, compile()-confirmed) stays ENFORCE.
-Z1_DEFAULT = {"Q1": "shadow", "G1": "shadow", "P1": "enforce", "R1": "shadow"}
+Z1_DEFAULT = {"Q1": "shadow", "G1": "shadow", "P1": "enforce", "R1": "shadow", "GU1": "enforce"}
 
 
 def z1_mode(code):
@@ -1296,10 +1297,61 @@ def _rule_import_root_missing(clause, stages, pls, tree, item=None):
     return out
 
 
+# GU1 (q-oracle-park, 2026-11-24): a GUT run piped into a `grep` for a pass-claim string that GUT never prints. GUT 9.x (addons/gut/summary.gd) prints, on a green run, "---- All tests passed. ----"
+# (with an exclamation mark we never write in repo text), a "  Passing  N" total line, and prints "  Failing  N" ONLY when N is non-zero; a failing run prints "---- N failing tests ----". So
+# `grep -q '0 failing'`, `grep -q 'Failing: 0'`, `grep -q 'Passed: 3'` can never match a green run (verify_gate_shadow.log 2026-11-23: 55 of 55 such xlite rows FAIL, 0 PASS; the item
+# then burns credit refusals and is auto-skipped). Rewrite: replace ONLY the final grep with `grep -q "All tests passed"`. Switch OVN_VERIFY_Z1_GU1 = off|shadow|enforce (group switch OVN_VERIFY_Z1).
+_GUT_ARGS = re.compile(r"gut_cmdln(?:\.gd)?|^-g(?:test|dir|select|exit|name|prefix|include_subdirs)\b")
+# NOT in the family: `N passed` - GUT prints a per-script "P/T passed." line (gut.gd), so `grep -q "3 passed"` CAN match a green 3-test script (7 PASS rows in verify_gate_shadow.log 2026-11-23): left alone.
+_GU1_CLAIM = re.compile(r"(?:all )?0 failing(?: tests?)?|failing:? ?0|passed:? ?[1-9][0-9]*", re.I)
+_GUT_GREEN_SAMPLE = "\n".join(("---- Totals ----", "Scripts          1", "Tests            3", "  Passing        3", "Asserts          5", "Time             0.1s", "", "---- All tests passed" + chr(33) + " ----", ""))
+_GU1_PASS_TEXT = "All tests passed"
+_GU1_SAFE_MID = ("cat", "tail", "tee")
+
+
+def _is_gut_run(argv):
+    if not argv:
+        return False
+    b = os.path.basename(argv[0])
+    if b == "gut":
+        return True
+    return b in ("godot", "godot4", "godot3") and any(_GUT_ARGS.search(a) for a in argv[1:])
+
+
+def _rule_gut_summary(clause, stages, pls, tree, item=None):
+    """GU1: see the block comment above. Silent unless the clause is plain (`|` / `&&` only), the pipeline is `<gut run> [| cat/tail/tee] | grep [-q|-i|-E|-F|-s] PAT` with a bare pass-claim PAT that the
+    green-run sample does not contain."""
+    out = []
+    if not _stage_ops_plain(stages):
+        return out
+    for pl in pls:
+        if len(pl) < 2 or not _is_gut_run(_argv(pl[0][1])):
+            continue
+        if any((os.path.basename((_argv(st[1]) or [""])[0]) not in _GU1_SAFE_MID) or [x for x in _argv(st[1])[1:] if not x.startswith("-")] for st in pl[1:-1]):
+            continue
+        g = _grep_parse(_argv(pl[-1][1]))
+        if not g or g["files"] or g["prog"] != "grep" or not (g["flags"] <= set("qiEFsn")) or (g["long"] - {"--quiet", "--silent", "--ignore-case", "--extended-regexp", "--fixed-strings"}):
+            continue
+        if not _GU1_CLAIM.fullmatch(g["pattern"].strip()):
+            continue
+        rx = _py_regex(g["pattern"], g["flags"], g["long"])
+        if rx is None or rx.search(_GUT_GREEN_SAMPLE):
+            continue
+        last = pl[-1]
+        seg = last[1]
+        lead = seg[:len(seg) - len(seg.lstrip())]
+        trail = seg[len(seg.rstrip()):]
+        rw = clause[:last[2]] + lead + 'grep -q "%s"' % _GU1_PASS_TEXT + trail + clause[last[3]:]
+        out.append(_find(clause, UNSAT, "GU1", "GUT never prints `%s` on a green run (it prints `%s` and only lists `Failing` when non-zero), so this grep can never match: the item fails VERIFY however correct the work is; the rewrite greps GUT's real success line" % (g["pattern"], _GU1_PASS_TEXT), rw))
+        break
+    return out
+
+
 _RULES = (_rule_tail, _rule_grepn_fn, _rule_window, _rule_double_prefix, _rule_pytest_root, _rule_import, _rule_signature,
           _rule_decorator_def, _rule_raises_polarity, _rule_conftest_target, _rule_bare_instantiation, _rule_backend_prefix)
 _RULES = _RULES + (_rule_async_ast, _rule_hyphen_import)   # P8 (own switch OVN_VERIFY_ASYNC_LINT)
 _RULES = _RULES + (_rule_quiet_pipe, _rule_grep_context, _rule_semicolon_compound, _rule_import_root_missing)   # Z1 (per-rule switches OVN_VERIFY_Z1_<CODE>)
+_RULES = _RULES + (_rule_gut_summary,)   # q-oracle-park GU1 (per-rule switch OVN_VERIFY_Z1_GU1, ENFORCE by default)
 
 
 def _gate_p5(findings, codes=None):
@@ -1375,11 +1427,16 @@ def _append(path, text):
         pass
 
 
+_OPEN_ITEM_RE = re.compile(r"^\s*[-*]\s+\[ \]")
+
+
 def lint_item_line(line, tree=None, md=None):
     """-> (decision, line_out, result). decision: ok | flagged (shadow: unchanged) | rewritten | dropped. result None when the line has no VERIFY clause."""
     md = md or mode()
     if md == "off":
         return "ok", line, None
+    if not _OPEN_ITEM_RE.match(line):
+        return "ok", line, None   # only OPEN `- [ ]` item lines are ever linted/rewritten: [x]/[~] lines and prose that quote a VERIFY clause stay byte-identical
     ex = extract_verify(line)
     if not ex:
         return "ok", line, None

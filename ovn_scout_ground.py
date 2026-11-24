@@ -334,6 +334,91 @@ def fixture_candidates(root, files, workable, item_text):
     return cands
 
 
+# ---- import grounding (q-oracle-park 2026-11-24; OVN_SCOUT_IMPORTS = off | shadow | enforce, default SHADOW) ------------------------------------
+# Evidence: shrike-monitor "wire the slowest router" was build-reverted twice in a row (ImportError `cannot import name settings from app.config`, then AttributeError `Store has no
+# attribute monitors`): the planner FILES list held only the test + main.py, so the model invented the API of app.config / app.store it was never shown. Two sources of first-party
+# python modules, both resolved to ONE tracked non-test file: (a) `from X import Y` / `import X` written in the ITEM TEXT; (b) the first-party imports of the planned non-test python
+# source files (one hop, small modules only). shadow: a `scout-import-shadow` stderr line (+ OVN_SCOUT_IMPORT_SHADOW_LOG row) says what enforce would add; enforce: the files become ADD rows
+# (same count / byte budgets as every other extra).
+PYIMP_RE = re.compile(r"^[ \t]*(?:from[ \t]+([A-Za-z_][\w.]*)[ \t]+import\b|import[ \t]+([A-Za-z_][\w.]*))", re.M)
+ITEM_PYIMP_RE = re.compile(r"\bfrom[ \t]+([A-Za-z_][\w.]*)[ \t]+import\b|\bimport[ \t]+([A-Za-z_][\w.]*)\b(?![ \t]*[a-z]+\b[ \t]*(?:to|from|of|for)\b)")
+RELIMP_RE = re.compile(r"^[ \t]*from[ \t]+(\.+)([A-Za-z_][\w.]*)[ \t]+import\b", re.M)
+IMPORT_HOP_MAX_SRC = 20000
+IMPORT_HOP_MAX_MOD = 8000
+IMPORT_HOP_MAX_FILES = 3
+
+
+def import_mode():
+    m = (os.environ.get("OVN_SCOUT_IMPORTS", "shadow") or "shadow").strip().lower()
+    return m if m in ("off", "shadow", "enforce") else "shadow"
+
+
+def _resolve_pymod(mod, files, near):
+    """The ONE tracked, non-test, non-vendor file a dotted python module name denotes (dir prefix free: `app.config` -> `backend/app/config.py` or `.../config/__init__.py`), else None.
+    Ambiguity (several files) is resolved only by the longest shared directory prefix with `near`, a tie means None."""
+    parts = mod.split(".")
+    if not parts or len(parts) > 6 or parts[0] in ("os", "sys", "re", "json", "typing", "pathlib", "datetime", "collections", "functools", "asyncio", "logging", "time", "uuid", "enum", "dataclasses", "abc"):
+        return None
+    tail = "/".join(parts)
+    cands = [f for f in files if (f == tail + ".py" or f.endswith("/" + tail + ".py") or f == tail + "/__init__.py" or f.endswith("/" + tail + "/__init__.py"))
+             and not TEST_RE.search(f) and not VENDOR_RE.search(f)]
+    if len(cands) == 1:
+        return cands[0]
+    if len(cands) > 1 and near:
+        best = sorted(cands, key=lambda f: -max(_dir_overlap(f, n) for n in near))
+        if _dir_overlap(best[0], near[0]) > _dir_overlap(best[1], near[0]):
+            return best[0]
+    return None
+
+
+def import_candidates(root, files, item_text, workable):
+    """[(path, why)] for the import-grounding stage (see the block comment). Never raises, bounded, python-only."""
+    out, seen = [], set(workable)
+    near = [w for w in workable if w.endswith(".py")]
+    mods = []
+    for m in ITEM_PYIMP_RE.finditer(item_text[:TEXT_CAP]):
+        mod = m.group(1) or m.group(2)
+        if mod and "." in mod:
+            mods.append((mod, "named in the item text"))
+    hop = 0
+    for w in near:
+        if TEST_RE.search(w):
+            continue
+        try:
+            if os.path.getsize(os.path.join(root, w)) > IMPORT_HOP_MAX_SRC:
+                continue
+            txt = open(os.path.join(root, w), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for m in PYIMP_RE.finditer(txt):
+            mod = m.group(1) or m.group(2)
+            if mod and "." in mod:
+                mods.append((mod, "imported by planned file %s" % w))
+        for m in RELIMP_RE.finditer(txt):
+            base = os.path.dirname(w).split("/")
+            base = base[:max(0, len(base) - (len(m.group(1)) - 1))]
+            rel = "/".join([x for x in base if x] + m.group(2).split("."))
+            for cand in (rel + ".py", rel + "/__init__.py"):
+                if cand in set(files) and not TEST_RE.search(cand):
+                    mods.append(("@" + cand, "imported by planned file %s" % w))
+                    break
+    for mod, why in mods:
+        f = mod[1:] if mod.startswith("@") else _resolve_pymod(mod, files, near)
+        if not f or f in seen:
+            continue
+        try:
+            sz = os.path.getsize(os.path.join(root, f))
+        except OSError:
+            continue
+        if why.startswith("imported by"):
+            if sz > IMPORT_HOP_MAX_MOD or hop >= IMPORT_HOP_MAX_FILES:
+                continue
+            hop += 1
+        seen.add(f)
+        out.append((f, "import: `%s` %s" % (mod.lstrip("@"), why)))
+    return out
+
+
 def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total=120000, total_budget=160000, on_core=None):
     files = tracked_files(root)
     fileset = set(files)
@@ -430,6 +515,30 @@ def ground(root, log_text, item_text, max_bytes=120000, max_extra=6, extra_total
             out.append(("ADD", path, why)); workable.append(path)
         if added_bytes:
             sys.stderr.write("--- scout-grounding fixtures: +%d file(s), +%d bytes (~%d tokens) ---\n" % (len([1 for r in out if r[0] == "ADD" and r[2].startswith("fixture:")]), added_bytes, added_bytes // 4))
+
+    # import grounding (q-oracle-park): AFTER symbols + fixtures; shadow by default (reports, adds nothing)
+    imode = import_mode()
+    if workable and imode != "off":
+        try:
+            would = []
+            for path, why in import_candidates(root, files, item_text, workable):
+                if len(extras) + len(would) >= max_extra or too_big_or_banned(path):
+                    continue
+                sz = fsize(path)
+                if extra_bytes + sz > budget_left:
+                    continue
+                would.append((path, why)); extra_bytes += sz
+            if imode == "enforce":
+                for path, why in would:
+                    extras.append((path, why)); out.append(("ADD", path, why)); workable.append(path)
+            elif would:
+                sys.stderr.write("--- scout-import-shadow: would add %d file(s): %s (OVN_SCOUT_IMPORTS=shadow) ---\n" % (len(would), ", ".join(p for p, _w in would)))
+                lg = os.environ.get("OVN_SCOUT_IMPORT_SHADOW_LOG")
+                if lg:
+                    with open(lg, "a", encoding="utf-8") as fh:
+                        fh.write("%s\t%s\t%s\n" % (time.strftime("%FT%TZ", time.gmtime()), os.path.basename(os.path.abspath(root)), "; ".join("%s (%s)" % x for x in would)))
+        except Exception:
+            pass
 
     if planned and not workable:
         out.append(("UNGROUNDED", "every planned file is fictional/ambiguous (%s)" % ", ".join(planned[:4])))

@@ -117,7 +117,7 @@ for k, line in real:
     r = L.lint_verify(ex[0])
     ok("real %s item classified %s" % (k, want[k]), r["class"] == want[k], (r["class"], ex[0][:120]))
     if k not in ("OK", "S1"):
-        d, out, _ = L.lint_item_line(line, None, "enforce")
+        d, out, _ = L.lint_item_line(line.replace("- [x]", "- [ ]", 1), None, "enforce")
         ok("real %s item: enforce rewrites it to a clause that lints OK" % k, d == "rewritten" and L.lint_verify(L.extract_verify(out)[0])["class"] == L.OK, d)
 
 _b = "- [ ] [T1] a.py - x. VERIFY: `grep -n foo a.py | wc -l`. (cat:python)"
@@ -223,8 +223,13 @@ for mdv, expect_same in (("shadow", True), ("enforce", False)):
 print("== D1 repair 2: wc polarity from the item text / S1 single-line + path / U1 quoted / hang guards / U2 healed / V4a info")
 
 
+def _open(line):
+    """lint_item_line only touches OPEN `- [ ]` lines (q-oracle-park advisory 1); historical done/parked corpus lines are fed as open ones."""
+    return line.replace("- [x]", "- [ ]", 1).replace("- [~]", "- [ ]", 1) if line.lstrip().startswith(("- [x]", "- [~]")) else line
+
+
 def li(item, md="enforce", tree=None):
-    return L.lint_item_line(item, tree, md)
+    return L.lint_item_line(_open(item), tree, md)
 
 
 def itm(text, clause):
@@ -236,7 +241,7 @@ def runclause(clause):
 
 
 # defect 1: `| wc -l` polarity comes from the item text
-z_item = "- [x] [T1] a.py - Ensure no remaining imports of realtime_update_service. VERIFY: `grep -rh nomatch_zz . | wc -l` returns 0. (cat:python)"
+z_item = "- [ ] [T1] a.py - Ensure no remaining imports of realtime_update_service. VERIFY: `grep -rh nomatch_zz . | wc -l` returns 0. (cat:python)"
 d, out, _ = li(z_item)
 ok("R2-1 absence item 'returns 0': enforce rewrites to -eq 0 (never -ge 1)", d == "rewritten" and '"$(grep -rh nomatch_zz . | wc -l)" -eq 0' in out and "-ge 1" not in out, (d, out))
 nz = extract = L.extract_verify(out)[0]

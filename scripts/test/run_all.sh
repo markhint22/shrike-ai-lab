@@ -751,5 +751,6 @@ echo; echo "===== q-verify-shapes: SHADOW VERIFY-shape lint rules (BACKEND_IMPOR
 echo; echo "===== q-fri-shapes: GD_PRELOAD_NO_PAREN shadow VERIFY rule, TS1 stays shadow (park opt-in + off switch), annotation-only duplicate-def dedupe (shadow), landed-placeholder report + hygiene hook (shadow); mutation-verified (counts printed by the suite) ====="; bash test_q_fri_shapes.sh || rc=1
 echo; echo "===== q-mon-fixes: dedupe commit never sweeps/lands a 0-byte test file (+ shadow EMPTY-TEST-FILE GUARD), item day-cap enforce evaluation, symbol ping-pong shadow; mutation-verified ====="; bash test_q_empty_dedupe_commit.sh || rc=1
 echo; echo "===== q-mon-fixes: symbol-shape ping-pong (shadow) ====="; bash test_q_symbol_pingpong.sh || rc=1
+echo; echo "===== q-oracle-park: GUT verify-oracle rewrite GU1 (ENFORCE by default; OVN_VERIFY_Z1_GU1=shadow|off reverts), scout import grounding (shadow, OVN_SCOUT_IMPORTS), TEST-FIRST-MISSING-SOURCE guard (shadow), build-break park stays shadow; mutation-verified (counts printed by the suite) ====="; bash test_q_oracle_park.sh || rc=1
 echo; finish || rc=1
 exit $rc
