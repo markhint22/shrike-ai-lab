@@ -398,31 +398,60 @@ _STRIP_LINE_RES = (
 )
 
 
-def strip_marker_text(text):
-    """(new_text, n_removed): drop whole-line single-line placeholder markers from a FILLED file (never from a placeholder-only stub: that is `undo`'s job)."""
+def _py_compiles(text, path):
+    try:
+        compile(text.lstrip("\ufeff"), path or "<stub>", "exec")
+        return True
+    except (SyntaxError, ValueError):                    # IndentationError is a SyntaxError
+        return False
+
+
+def strip_marker_text(text, path=""):
+    """(new_text, n_removed): drop whole-line single-line placeholder markers from a FILLED file (never from a placeholder-only stub: that is `undo`'s job).
+       2026-11-24 (q-order review): a marker at column 0 (module docstring / top comment) is always safe to drop. An INDENTED marker may be the only body of a def/class/func
+       (removal = IndentationError / empty GDScript function), so it is dropped only for a .py path AND only when the stripped text still compiles (py_compile gate); for any other language an indented marker is left alone. `strip_marker_text.last_skip` names why a strip was skipped."""
+    strip_marker_text.last_skip = ""
     if is_placeholder_only(text):
         return text, 0
-    out, n = [], 0
+    is_py = (path or "").endswith(".py")
+    out, n, skipped_indented = [], 0, 0
     for ln in text.splitlines(True):
-        if MARKER_RE.search(ln) and any(rx.match(ln.rstrip("\r\n")) for rx in _STRIP_LINE_RES):
+        body = ln.rstrip("\r\n")
+        if MARKER_RE.search(ln) and any(rx.match(body) for rx in _STRIP_LINE_RES):
+            if body[:1] in (" ", "\t") and not is_py:
+                skipped_indented += 1
+                out.append(ln)
+                continue
             n += 1
             continue
         out.append(ln)
+    if skipped_indented:
+        strip_marker_text.last_skip = "indented-marker-non-python"
     new = "".join(out)
     if n and out and not out[0].strip():       # the marker was the first line and a blank separator followed it: drop that blank too
         new = new.lstrip("\r\n")
+    if n and is_py and not _py_compiles(new, path):
+        strip_marker_text.last_skip = "py_compile-gate"
+        return text, 0
     return new, n
 
 
+strip_marker_text.last_skip = ""
+
+
 def strip_filled(repo, path, branch, note, on_remote=False):
-    """Post-implement cleanup (OVN_STUB_STRIP = shadow (default) | enforce | off): remove the leftover placeholder line from a file the implement step filled."""
-    mode = os.environ.get("OVN_STUB_STRIP", "shadow").strip().lower()
+    """Post-implement cleanup (OVN_STUB_STRIP = enforce (default since 2026-11-24 q-order) | shadow | off): remove the leftover placeholder line from a file the implement step filled."""
+    # 2026-11-24 (q-order): default ENFORCE. Replay over the 60 placeholder-marked test files on overnight/feature (docs/Q_ORDER_2026-11-24.md): 58 carry a whole-line marker that strip_marker_text removes,
+    # 0 changed anything but that line (python AST identical minus the docstring, gd/ts text identical), 2 marker-only files untouched. The strip is cosmetic. Revert: OVN_STUB_STRIP=shadow (log only) | off.
+    mode = os.environ.get("OVN_STUB_STRIP", "enforce").strip().lower()
     if mode not in ("shadow", "enforce"):
         return "strip-off"
     rc, body = _git(repo, "show", "HEAD:" + path)
     if rc != 0:
         return "strip-gone"
-    new, n = strip_marker_text(body)
+    new, n = strip_marker_text(body, path)
+    if strip_marker_text.last_skip:
+        _shadow_log("stub-strip SKIP (%s): %s in %s left untouched" % (strip_marker_text.last_skip, path, os.path.basename(os.path.abspath(repo))))
     if not n:
         return "strip-none"
     if mode == "shadow":

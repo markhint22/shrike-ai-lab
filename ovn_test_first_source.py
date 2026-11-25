@@ -18,6 +18,7 @@ Fast and safe: reads only the item's test file (<= 200 KB) and `git ls-files` (t
 CLI
   ovn_test_first_source.py scan FILE --root DIR [--repo NAME] [--state DIR]   hook: honours the mode; prints one TEST-FIRST-MISSING-SOURCE line per NEW row; never raises (rc 0)
   ovn_test_first_source.py check '<item line>' --root DIR [--group-file FILE]  one item, JSON
+  ovn_test_first_source.py precision --log LOG --outcomes outcomes.jsonl --repos-dir DIR [--ref REF] [--brief]   q-order: join the shadow rows to outcomes (read-only); enforce_ready needs n>=10 and 0 false positives
 """
 import collections
 import hashlib
@@ -288,6 +289,45 @@ def scan(path, root, repo=None, state_dir=None):
     return rows
 
 
+def _ilh(line):
+    """outcomes.jsonl item_line_hash: md5 of the whole line with the checkbox stripped (lib_item_select.sh ovn_item_line_hash)."""
+    return hashlib.md5(re.sub(r"^- \[[ xX]\]\s?", "", line or "").encode("utf-8", "replace")).hexdigest()
+
+
+def precision(rows, outcomes, line_of):
+    """q-order (2026-11-24): measure the shadow rule against what happened. rows = shadow-log dicts; outcomes = outcomes.jsonl dicts; line_of(row) -> the queue line text as it was
+    when the row was written ('' = unknown). A row's verdict is the FIRST outcome of that exact line (item_line_hash) at or after the row: reverted/failed (class reverted, or noop whose
+    fail_reason is a red/no-edit reason) = hit-confirmed, landed = FALSE POSITIVE, ALREADY-DONE/other noop = neutral; no outcome = unexecuted. Returns a dict with the counts + precision
+    (confirmed / (confirmed + false_positive)) and the per-row list. Enforcement needs n_judged >= 10 and false_positive == 0."""
+    by = collections.defaultdict(list)
+    for o in outcomes:
+        if o.get("item_line_hash"):
+            by[o["item_line_hash"]].append(o)
+    res, per = collections.Counter(), []
+    for r in rows:
+        line = line_of(r)
+        outs = sorted((o for o in by.get(_ilh(line), []) if str(o.get("ts", "")) >= str(r.get("ts", ""))), key=lambda o: o.get("ts", "")) if line else []
+        if not line:
+            v = "unknown-line"
+        elif not outs:
+            v = "unexecuted"
+        else:
+            o = outs[0]
+            cls, fr = o.get("class"), o.get("fail_reason") or ""
+            if cls == "reverted" or (cls == "noop" and fr in ("test-red", "no-edit", "build-red", "ts-regression", "api-mismatch", "empty-file")):
+                v = "confirmed"
+            elif cls == "landed":
+                v = "false-positive"
+            else:
+                v = "neutral"
+        res[v] += 1
+        per.append({"repo": r.get("repo"), "line": r.get("line"), "test": r.get("test"), "verdict": v})
+    judged = res["confirmed"] + res["false-positive"]
+    return {"rows": len(rows), "counts": dict(res), "n_judged": judged, "false_positive": res["false-positive"],
+            "precision": (round(res["confirmed"] / judged, 3) if judged else None),
+            "enforce_ready": bool(judged >= 10 and res["false-positive"] == 0), "per_row": per}
+
+
 def main(argv):
     try:
         if len(argv) < 2:
@@ -300,6 +340,26 @@ def main(argv):
         root = opt("--root", ".")
         if cmd == "scan" and len(argv) >= 3:
             scan(argv[2], root, opt("--repo"), opt("--state"))
+        elif cmd == "precision":
+            # precision --log LOG --outcomes FILE --repos-dir DIR [--ref origin/overnight/feature]: line text from the repo's OVERNIGHT_PROGRESS.md as of the row's timestamp (read-only git)
+            rows = [json.loads(x) for x in open(opt("--log"), encoding="utf-8", errors="replace") if x.startswith("{")]
+            outs = []
+            for x in open(opt("--outcomes"), encoding="utf-8", errors="replace"):
+                try:
+                    outs.append(json.loads(x))
+                except ValueError:
+                    continue
+            rd, ref = opt("--repos-dir", "."), opt("--ref", "origin/overnight/feature")
+
+            def line_of(r):
+                g = os.path.join(rd, r.get("repo", ""))
+                sha = subprocess.run(["git", "-C", g, "log", "--before=" + r["ts"], "-1", "--format=%H", ref, "--", "OVERNIGHT_PROGRESS.md"], capture_output=True, text=True).stdout.strip()
+                body = subprocess.run(["git", "-C", g, "show", sha + ":OVERNIGHT_PROGRESS.md"], capture_output=True, text=True).stdout.split("\n") if sha else []
+                ln = body[r["line"] - 1] if 0 < r.get("line", 0) <= len(body) else ""
+                return ln if _h(ln) == r.get("line_hash") else ""
+            out = precision(rows, outs, line_of)
+            out.pop("per_row") if "--brief" in argv else None
+            print(json.dumps(out, sort_keys=True))
         elif cmd == "check" and len(argv) >= 3:
             gf = opt("--group-file")
             grp = [(0, argv[2])]

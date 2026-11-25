@@ -630,7 +630,7 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     out="$_rout"; rc="$_rrc"
   fi
   # B2: a pytest node id that does not resolve (rc=4) is retried once as `path -k name` (class-based tests are only addressable as path::Class::name)
-  local _exact_retry=0 _whymark=""
+  local _exact_retry=0 _whymark="" _gut_deferred=0
   if [ "$rc" -eq 4 ] && [ "${OVN_VERIFY_NODEID_FALLBACK:-on}" != off ]; then
     local _v2; _v2="$(_verify_nodeid_fallback_cmd "$vcmd" "$tmo")"
     if [ -n "$_v2" ]; then
@@ -690,6 +690,26 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     [ "$rc" -eq 0 ] && rc=1
     _LAST_VERIFY_WHY="GUT target missing"
     tail_out="GUT-target-missing $tail_out"
+    # q-order (2026-11-24): the missing test file is the deliverable of a LATER open step of the same [feat:] group (scripts/ovn_verify_defer.py). See that file for the rule and the replay numbers.
+    #   OVN_VERIFY_DEFER=off|shadow|enforce (default enforce) acts on  `<probe> && godot -gtest=<missing>`: the probe (the step's own artifact, e.g. grep -q 'static func x' file) passed -> the clause is
+    #   DEFERRED: PASS with why=gut-target-deferred (credit proceeds, nothing refused). OVN_VERIFY_DEFER_ONLY=off|shadow|enforce (default shadow) acts on a probe-less clause: enforce = UNRUNNABLE
+    #   (indeterminate: never FAIL, never credited). A rejected (NO) clause stays FAIL. Output with Parse Error / Failed to load script / SCRIPT ERROR (a broken source) or a GUT-reported failure is never deferred (the later junit re-check is skipped for a deferred clause: a missing target writes no junit, the output check above is the same evidence). Rows: state/verify_defer_shadow.log.
+    local _dmode="${OVN_VERIFY_DEFER:-enforce}" _dvr _dvk
+    if [ "$_dmode" != off ] && [ -f "$_VC_DIR/ovn_verify_defer.py" ] && ! _verify_gut_output_failed "$(grep -av 'Nothing was run' <<< "$out")" && ! grep -aEq 'Parse Error|Failed to load script|SCRIPT ERROR' <<< "$out"; then
+      _dvr="$(timeout 20 python3 "$_VC_DIR/ovn_verify_defer.py" check "$PROG" "$ln" --tree "$PWD" --cmd "$vcmd" 2>/dev/null | head -1)"
+      _dvk="${_dvr%% *}"
+      case "$_dvk" in
+        DEFER-ARTIFACT|DEFER-ONLY)
+          local _dact=shadow
+          if [ "$_dvk" = DEFER-ARTIFACT ]; then [ "$_dmode" = enforce ] && _dact=enforce; else _dact="${OVN_VERIFY_DEFER_ONLY:-shadow}"; fi
+          echo "$ts repo=$_REPO_LABEL line=$ln note=gut-target-deferred kind=$_dvk action=$_dact targets=${_dvr#* } cmd=$(printf '%s' "$vcmd" | head -c 160)" >> "$(dirname "$SHADOW_LOG")/verify_defer_shadow.log" 2>/dev/null
+          if [ "$_dact" = enforce ] && [ "$_dvk" = DEFER-ARTIFACT ]; then
+            rc=0; _LAST_VERIFY_WHY="gut-target-deferred"; _whymark=" why=gut-target-deferred"; tail_out="GUT-target-deferred ${_dvr#* } $tail_out"; _gut_deferred=1
+          elif [ "$_dact" = enforce ]; then
+            rc=127; _LAST_VERIFY_RC=127; _LAST_VERIFY_WHY="GUT target ${_dvr#* } is created by a later step of this feature (no probe in the clause: not credited, not failed)"; tail_out="GUT-target-deferred-only $tail_out"
+          fi ;;
+      esac
+    fi
   fi
   # B3 (intake package, platform P3, 2026-10-13): a GUT checkout WITHOUT the godot import cache (.godot/, gitignored: a fresh worktree has none) prints "Some GUT class_names have not been
   # imported" and exits 0 having run NOTHING - the spec gate (ovn_spec_gate.py scan, a clean detached worktree) read that as PASS, so every GUT item was 'passes-before' (6 of 6 rows, 430ms
@@ -703,7 +723,7 @@ shadow_check(){  # $1 = line number in $PROG, about to be credited. Sets $_LAST_
     fi
   fi
   # GUT exits 0 on failing tests: the output summary / junit xml decide, not the exit code
-  if [ "$rc" -eq 0 ] && _verify_is_gut "$vcmd"; then
+  if [ "$rc" -eq 0 ] && [ "${_gut_deferred:-0}" != 1 ] && _verify_is_gut "$vcmd"; then
     local _gx; _gx="$(_verify_gut_xml_path "$vcmd")"
     if _verify_gut_output_failed "$out" || { [ -n "$_gx" ] && ! gut_xml_green "$_gx"; }; then rc=1; tail_out="GUT-reported-failures $tail_out"; fi
   fi

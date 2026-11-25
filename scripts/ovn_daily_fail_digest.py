@@ -25,7 +25,7 @@ Sections (JSON keys)
                     `foreign_labels` / `foreign_examples`
   not_covered       the P11 signals this digest does NOT compute (they need cycle logs / git): pre-existing-red detector, held-branch age, placeholder-only files, reboot/NRestarts
 
-Root-cause signature of a bad row = "<class>/<core>" where <core> is the row's fail_reason when it has one (ovn_classify_fail.sh's bounded tags: net-zero, test-regression,
+Root-cause signature of a bad row = "<class>/<core>" where <core> is the row's fail_reason when it has one (ovn_classify_fail.sh's bounded tags: net-zero, fixup-undone (no-op(fixup-undid-item), 2026-11-24 q-order: was timeout/unknown), test-regression,
 ...), else the status text normalised (lower-case, [tags] removed, digits -> N, shas -> <sha>, paths -> <path>, cut at 70 chars). Rows that differ only in a count or a sha group.
 
 Usage: ovn_daily_fail_digest.py [--hours 24] [--state-dir DIR] [--now EPOCH] [--top 10] [--json | --md]

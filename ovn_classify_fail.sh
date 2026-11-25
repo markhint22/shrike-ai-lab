@@ -5,7 +5,7 @@
 # Usage: ovn_classify_fail.sh <task_log> <status>   -> prints one of:
 #   context-exceeded | diff-not-applied | no-edit | api-mismatch | syntax-error |
 #   test-red | verify-timeout | build-red | migration-fork | ts-regression | plan-only | timeout | oversized |
-#   needs-decision | model-api-error | queue-exhausted | stage-unverified | scout-unworkable | net-zero | comment-only | landed | verify-malformed | unknown
+#   needs-decision | model-api-error | queue-exhausted | stage-unverified | scout-unworkable | net-zero | comment-only | fixup-undone | landed | verify-malformed | unknown
 #
 # Ordered most-specific-first; the FIRST signature that hits wins. Signatures are drawn from real
 # aider/gate output. Keep this cheap (greps only) — it runs once per item in record_outcome.
@@ -67,6 +67,9 @@ case "$status" in
   *"no-op(net-zero)"*)                echo "net-zero"; exit 0;;
   # 2026-10-17: the cycle's whole net diff was blank/comment lines for a non-doc item (xlite `# Verified:` landings); the runner reset it. The status names the cause.
   *"no-op(comment-only)"*)            echo "comment-only"; exit 0;;
+  # 2026-11-24 (q-order): no-op(fixup-undid-item) = the build-gate fix-up undid the committed item and the runner reset it (lib_fixup.sh). The status names the cause; it used to fall to the
+  # log scan and land as timeout/unknown (digest 17 'timeout': a fix-up round's own 'timed out' text), inflating the timeout cluster. Pure bugfix; OVN_CLASSIFY_FIXUP_UNDONE=off restores the scan.
+  *"no-op(fixup-undid-item"*)         if [ "${OVN_CLASSIFY_FIXUP_UNDONE:-on}" != off ]; then echo "fixup-undone"; exit 0; fi;;
   # 2026-10-02: the scout-file guard (run_overnight.sh) refused to run aider on a plan that needs a banned/oversize file; the status names the cause.
   *"no-op(scout-unworkable"*)         echo "scout-unworkable"; exit 0;;
   # 2026-10-02 (harness Y2): the scout's planned files were all fictional/ambiguous (ovn_scout_ground.py); the status names the cause.

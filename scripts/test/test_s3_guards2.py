@@ -233,14 +233,15 @@ def stub_repo(name):
     return r, pre, stub, p
 
 
+os.environ["OVN_STUB_STRIP"] = "shadow"
 r, pre, stub, p = stub_repo("stub_shadow")
 head0 = g(r, "rev-parse", "HEAD").strip()
 res = SG.undo(r, pre, stub, p)
-chk("undo default (shadow): the filled file keeps its placeholder, one shadow row, no commit", res == "strip-shadow" and rd(os.path.join(r, p)) == FILLED and g(r, "rev-parse", "HEAD").strip() == head0 and "would remove 1 leftover" in rd(os.environ["OVN_STUB_GUARD_LOG"]), (res, rd(os.environ["OVN_STUB_GUARD_LOG"])))
-os.environ["OVN_STUB_STRIP"] = "enforce"
+chk("undo OVN_STUB_STRIP=shadow: the filled file keeps its placeholder, one shadow row, no commit", res == "strip-shadow" and rd(os.path.join(r, p)) == FILLED and g(r, "rev-parse", "HEAD").strip() == head0 and "would remove 1 leftover" in rd(os.environ["OVN_STUB_GUARD_LOG"]), (res, rd(os.environ["OVN_STUB_GUARD_LOG"])))
+os.environ.pop("OVN_STUB_STRIP")
 r, pre, stub, p = stub_repo("stub_enf")
 res = SG.undo(r, pre, stub, p)
-chk("undo enforce: the placeholder line is stripped in a follow-up commit, the real test body is untouched", res == "stripped" and "Placeholder" not in rd(os.path.join(r, p)) and "def test_null_fields" in rd(os.path.join(r, p))
+chk("undo default (enforce, q-order 2026-11-24): the placeholder line is stripped in a follow-up commit, the real test body is untouched", res == "stripped" and "Placeholder" not in rd(os.path.join(r, p)) and "def test_null_fields" in rd(os.path.join(r, p))
     and g(r, "log", "-1", "--format=%s").strip().startswith("chore: strip leftover stub placeholder"), (res, g(r, "log", "-1", "--format=%s")))
 os.environ["OVN_STUB_STRIP"] = "off"
 r, pre, stub, p = stub_repo("stub_off")
@@ -309,8 +310,8 @@ MUTANTS = [
     ("done-check ignores missing tests", "claude_queue_bridge.py", "        missing = [i for i in ids if not all(present(clone, ref, i, paths=[f]) for f in files)]\n        done = not missing\n        return done, (done and len(files) == 1),", "        missing = []\n        done = not missing\n        return done, (done and len(files) == 1),"),
     ("done-check default enforce", "claude_queue_bridge.py", 'os.environ.get("OVN_HARVEST_DONE_CHECK") or "shadow"', 'os.environ.get("OVN_HARVEST_DONE_CHECK") or "on"'),
     ("done-check enforce never skips", "claude_queue_bridge.py", '                if dmode == "enforce":\n                    if dstrong and key not in ledger:', '                if False:\n                    if dstrong and key not in ledger:'),
-    ("strip default enforce", "scripts/ovn_stub_guard.py", 'os.environ.get("OVN_STUB_STRIP", "shadow")', 'os.environ.get("OVN_STUB_STRIP", "enforce")'),
-    ("strip also eats a pure stub", "scripts/ovn_stub_guard.py", "    if is_placeholder_only(text):\n        return text, 0\n    out, n", "    out, n"),
+    ("strip default shadow (q-order: default is enforce)", "scripts/ovn_stub_guard.py", 'os.environ.get("OVN_STUB_STRIP", "enforce")', 'os.environ.get("OVN_STUB_STRIP", "shadow")'),
+    ("strip also eats a pure stub", "scripts/ovn_stub_guard.py", "    if is_placeholder_only(text):\n        return text, 0\n    is_py", "    is_py"),
     ("strip never wired into undo", "scripts/ovn_stub_guard.py", "if rc == 0 and not is_placeholder_only(body) and MARKER_RE.search(body):", "if False:"),
     ("pingpong default repos lack the new lanes", "scripts/ovn_pingpong_guard.py", 'test-automation-agent xlite shrike-notify shrike-monitor").split()', 'test-automation-agent").split()'),
     ("pingpong unchanged line logged every pass", "scripts/ovn_pingpong_guard.py", 'if quiet and once("UNCH|', 'if quiet or once("UNCH|'),

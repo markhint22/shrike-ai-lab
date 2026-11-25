@@ -61,7 +61,7 @@ import time
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
 FACING = ("FLAG", "FAIL")
 BAD_CLASSES = {"reverted", "parked"}
-BAD_FAIL_REASONS = {"build-red", "ts-regression", "test-red"}
+BAD_FAIL_REASONS = {"build-red", "ts-regression", "test-red", "fixup-undone"}   # fixup-undone (q-order 2026-11-24): these rows used to be counted as test-red
 GREEN_CLASSES = {"landed", "landed-late", "credit-only", "landed-uncredited"}
 TOOL_RE = re.compile(r"\b([A-Za-z][\w.-]*) (?:is )?not installed")
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
