@@ -1,0 +1,16 @@
+# Grooming proposal — xlite — 2026-11-26 04:00
+
+## Current Next Steps
+```
+- [ ] [CLAUDE] [unworkable: hard-banned file scripts/battle/battle.gd] [T3] scripts/battle/battle.gd — Manual-test bug (reported by Mark, flow cover-and-flank-change-odds, 2026-11-11): This is difficult to test because there's no clear indicator that an enemy is considered fully covered, half-covered, flanked etc. Please consider adding this to help a player learn that flanking helps and cover reduces hit chance. Also look at: scripts/grid/grid_renderer.gd, scripts/battle/aim_modifiers.gd. First write a failing test that reproduces this, then fix it; if the cause is not in this file, say so. VERIFY: `godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit`. (cat:bugfix; multifile:yes; src:manual) [feat:xlite-20261111-manual-d957b547]
+- [x] [AUTO-SKIP after 5 no-op cycles — already-done, mis-targeted, or beyond the 27B; review] [EMERGENCY][T2] godot GUT suite is RED — TRIAGE then FIX: decide whether the CODE is wrong (fix the code) or the TEST is stale/flaky (fix or update the test), then get the whole suite green. Failing:   Failing         4;[31m---- 4 failing tests ---- ERROR: 12 RID allocations of type 'PN13RendererDummy14TextureStorage12DummyTextureE' were leaked at exit.;ERROR: 93 RID allocations of type 'PN18TextServerAdvanced22ShapedTextDataAdvancedE' were leaked at exit. ERROR: 1 RID allocations of type 'PN18TextServerAdvanced12FontAdvancedE' were leaked at exit.  <!-- superseded by recovery decomposition below -->
+- [x] (dismissed 2026-10-07: diagnostic note, not a work item - the underlying work is tracked by the item lines with a VERIFY clause) [CLAUDE] this area has been recovered/decomposed 5 times (cap 2) without ever landing - the fleet keeps re-guessing at this same file with no real diagnosis; needs a human/Claude session to understand the actual blast radius (recovery:escalated)
+```
+
+## Proposed (LLM re-evaluation — review before applying)
+1. [T3] scripts/battle/aim_modifiers.gd — Implement a `get_coverage_status()` function that returns an enum (NONE, HALF, FULL) based on grid position and enemy facing, ensuring it matches the logic in `scripts/grid/grid_renderer.gd`.
+2. [T3] tests/test_aim_modifiers.gd — Write unit tests for `get_coverage_status()` covering edge cases: corner positions, diagonal flanks, and direct cover, verifying the enum output against expected grid states.
+3. [T2] scripts/battle/battle_ui.gd — Add a visual indicator (icon or text label) to the target enemy sprite that displays the current coverage status (e.g., "Covered", "Flanked") using the data from `aim_modifiers.gd`.
+4. [T1] assets/sprites/rig_units/enemy_boss/ — Verify `rig_meta.json` correctly maps `body.png`, `leg_l.png`, and `leg_r.png` to the animation rig, ensuring no missing references for the boss unit.
+5. [T2] scripts/grid/grid_renderer.gd — Refactor the coverage calculation logic to delegate to `aim_modifiers.gd` to prevent logic duplication between rendering and battle mechanics.
+6. [T1] assets/audio/sfx/ — Create a new `sfx_cover_break.ogg` placeholder or reuse `attack_hit.ogg` temporarily, and wire it into the battle state machine to play when an enemy loses cover status.
