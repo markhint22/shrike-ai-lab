@@ -121,6 +121,30 @@ source scripts/lib_new_tests.sh 2>/dev/null || true
 source scripts/lib_stage_guards.sh 2>/dev/null || true
 # Z3 (2026-11-07) landing gates (step-diff / tone / repair-route / test-item scope / call-dropped / editor leak); all SHADOW by default, see scripts/lib_landing_gates.sh
 source scripts/lib_landing_gates.sh 2>/dev/null || true
+# q-contract (2026-11-25): post-cycle contract hook for STAGED steps (frozen OpenAPI contract / route-tag descriptions), after a step's commit and before anything is pushed or credited.
+# OVN_POSTCYCLE_CONTRACT=off|shadow|enforce (default shadow: measures, logs to state/contract_regen_shadow.log, changes nothing); enforce only for OVN_POSTCYCLE_ENFORCE_REPOS (default gitlark).
+# Missing lib = no hook. Never fails the step in shadow (rc 0 always, subshell, every error swallowed).
+source scripts/lib_postcycle_contract.sh 2>/dev/null || true
+declare -F ovn_postcycle_contract >/dev/null 2>&1 || ovn_postcycle_contract(){ OVN_PCC_AFTER="${2:-}"; OVN_PCC_STATUS=lib-missing; return 0; }
+stage_postcycle_contract(){   # uses globals: wt rd repo ; $1 = the step's base sha ; rc 0 = carry on, rc 1 = enforce-only revert request (the caller resets the step)
+  local _pb="$1" _pa _pres _pst _prc _psd _prd
+  [ "${OVN_POSTCYCLE_CONTRACT:-shadow}" = off ] && return 0
+  _pa="$(git -C "$wt" rev-parse HEAD 2>/dev/null)" || return 0
+  _psd="${OVN_STATE_DIR:-$PWD/state}"; _prd="$(cd "$rd" 2>/dev/null && pwd)"   # absolute: the subshell below cd's into the worktree and $rd may be relative
+  _pres="$( ( cd "$wt" 2>/dev/null || exit 0
+      export OVN_STATE_DIR="$_psd" OVN_PCC_REPO="$repo" OVN_PCC_VENV_ROOT="$_prd"
+      ovn_postcycle_contract "$_pb" "$_pa" "" "stage" >/dev/null 2>&1; _r=$?
+      printf 'PCC %s %s\n' "${OVN_PCC_STATUS:-?}" "$_r" ) 2>/dev/null || true )"
+  _pres="$(printf '%s\n' "$_pres" | grep '^PCC ' | tail -1)"
+  [ -n "$_pres" ] || return 0
+  _pst="$(printf '%s' "$_pres" | cut -d' ' -f2)"
+  case "$_pst" in
+    regen|would-regen|would-revert|revert|venv-mismatch|predirty|regen-removes-paths) say "  step ${idx:-?} postcycle contract: $_pst (mode ${OVN_POSTCYCLE_CONTRACT:-shadow})";;
+  esac
+  _prc="$(printf '%s' "$_pres" | cut -d' ' -f3)"
+  [ "$_pst" = revert ] && [ "$_prc" = 1 ] && return 1   # only the lib's enforce path (repo listed) ever returns 1
+  return 0
+}
 declare -F z3_step_gate >/dev/null 2>&1 || z3_step_gate(){ Z3_REFUSE=""; return 0; }
 declare -F z3_leak_gate >/dev/null 2>&1 || z3_leak_gate(){ return 0; }
 source scripts/lib_outcome_acct.sh 2>/dev/null || true   # 2026-10-18 (D4): ovn_oa_commits for the outcome row (absent => commits=[])
@@ -1490,7 +1514,9 @@ Make the minimal change to the named .gd file(s), valid Godot 4 that parses clea
       say "  step $idx PASS (att $att, ${dur}s, ${dstat:-nostat}): ${desc:0:55}"
       STAGE_STEP_TEXT="${STAGE_STEP_TEXT:-}${desc//$'\n'/ }"$'\t'"${verify//$'\n'/ }"$'\n'   # iptv F2: the tests a LANDED step promised are checked in the final tree (stage_named_tests_check)
       git -C "$wt" add -A && ovn_unstage_abs_symlinks "$wt" && git -C "$wt" -c user.email=22970726+markhint22@users.noreply.github.com -c user.name=shrike-fleet commit -q -m "feat($repo): staged step $idx — ${desc:0:60}" 2>/dev/null
-      return 0
+      # q-contract: contract/route-tag artifact tests on the step's final commit (shadow = measure only; enforce + listed repo = a new red the regen cannot fix refuses the step)
+      if stage_postcycle_contract "$base"; then return 0; fi
+      say "  step $idx REJECTED (postcycle contract): the step turned the OpenAPI contract/route-tag tests red"; fa="postcycle-contract"; excerpt="postcycle contract"
     fi
     say "  step $idx att $att FAIL ($fa, ${dur}s): ${excerpt:0:90}"
     git -C "$wt" reset -q --hard "$base"; git -C "$wt" clean -qfd 2>/dev/null

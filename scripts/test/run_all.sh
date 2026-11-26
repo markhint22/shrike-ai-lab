@@ -753,5 +753,7 @@ echo; echo "===== q-mon-fixes: dedupe commit never sweeps/lands a 0-byte test fi
 echo; echo "===== q-mon-fixes: symbol-shape ping-pong (shadow) ====="; bash test_q_symbol_pingpong.sh || rc=1
 echo; echo "===== q-oracle-park: GUT verify-oracle rewrite GU1 (ENFORCE by default; OVN_VERIFY_Z1_GU1=shadow|off reverts), scout import grounding (shadow, OVN_SCOUT_IMPORTS), TEST-FIRST-MISSING-SOURCE guard (shadow), build-break park stays shadow; mutation-verified (counts printed by the suite) ====="; bash test_q_oracle_park.sh || rc=1
 echo; echo "===== q-order: fixup-undone classifier tag (ON), GUT verify DEFERRED for a test file a later sibling creates (OVN_VERIFY_DEFER, default enforce for the probe-carrying clause), placeholder strip default enforce (OVN_STUB_STRIP), TFMS precision measure (rule stays shadow); 18 mutants ====="; bash test_q_order.sh || rc=1
+echo; echo "===== q-contract: post-cycle contract hook (frozen OpenAPI contract / route-tag tests after the Tier-2 fix-up; baseline-compared; SHADOW default, enforce gitlark only; OVN_POSTCYCLE_CONTRACT=off|shadow|enforce) + ovn_gate_red_report.py; 88 cases incl. 12 mutants (regen guards: venv-mismatch, regen-removes-paths, predirty, untracked undo, bounded log) ====="; bash test_q_contract.sh || rc=1
+echo; echo "===== q-contract: the hook wired into the STAGED runner (shadow journals would-regen, enforce + listed repo commits the regen / refuses a new red; lib missing fail-open; box only) ====="; bash test_q_contract_stage_wiring.sh || rc=1
 echo; finish || rc=1
 exit $rc

@@ -200,6 +200,9 @@ source "$SCRIPT_DIR/scripts/lib_fixup.sh" 2>/dev/null || { ovn_fixup_kind(){ ech
 declare -F ovn_aider_commit_rescue >/dev/null 2>&1 || ovn_aider_commit_rescue(){ return 1; }   # lib_fixup.sh missing/old: no commit rescue (2026-10-20)
 declare -F ovn_dedupe_is_change >/dev/null 2>&1 || ovn_dedupe_is_change(){ case "${1:-}" in "removed duplicate"*) [ -s "${2:-/nonexistent}" ];; *) return 1;; esac; }   # q-mon-fixes: lib_fixup.sh missing/old
 declare -F ovn_empty_test_files_added >/dev/null 2>&1 || ovn_empty_test_files_added(){ return 0; }
+# shellcheck source=scripts/lib_postcycle_contract.sh
+# q-contract 2026-11-25: post-cycle artifact-test hook (frozen OpenAPI contract / route-tag descriptions); lib missing = no hook (OLD behaviour). OVN_POSTCYCLE_CONTRACT=off|shadow|enforce (default shadow).
+source "$SCRIPT_DIR/scripts/lib_postcycle_contract.sh" 2>/dev/null || ovn_postcycle_contract(){ OVN_PCC_AFTER="${2:-}"; OVN_PCC_STATUS=lib-missing; return 0; }
 declare -F ovn_fixup_dedupe_defs >/dev/null 2>&1 || ovn_fixup_dedupe_defs(){ return 0; }   # lib_fixup.sh missing/old: no post-fix-up de-duplication (2026-10-18)
 declare -F ovn_is_delete_intent >/dev/null 2>&1 || ovn_is_delete_intent(){ grep -qiE '\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b.{0,60}\bfiles?\b|\bfiles?\b.{0,60}\b(delete|deletes|deleting|deleted|remove|removes|removing|removed)\b' <<< "${1:-}"; }   # lib_fixup.sh missing: legacy regex
 # shellcheck source=scripts/lib_fixup_prompt.sh
@@ -4094,6 +4097,20 @@ All files you need are already in the chat. You cannot run commands or call tool
         fi
         echo "no-op(reverted-red)"
         return
+      fi
+
+      # POST-CYCLE CONTRACT HOOK (q-contract 2026-11-25; OVN_POSTCYCLE_CONTRACT=off|shadow|enforce, default shadow): AFTER the Tier-2 fix-up (which can retype a schema AFTER the pre-verify
+      # auto-regen above ran) run the repo's artifact tests (frozen openapi contract, route-tag descriptions); a regen that fixes THIS cycle's new red is committed with the cycle, a red no
+      # regen can fix reverts the cycle like any red test. Inherited reds never revert (baseline-compared). shadow logs would-regen/would-revert to state/contract_regen_shadow.log only.
+      if [ "$VERIFY_RESULT" != "fail" ] && [ "$VERIFY_RESULT" != "skip" ]; then
+        ovn_postcycle_contract "$BEFORE_SHA" "$AFTER_SHA" "$task_log" "$id"; _ovn_pcc_rc=$?
+        if [ "$_ovn_pcc_rc" -ne 0 ]; then
+          git reset --hard "$BEFORE_SHA" --quiet; git clean -fd --quiet 2>/dev/null
+          emit_alert warn "$id" "reverted a commit that turned the OpenAPI contract/route-tag tests red (postcycle contract hook); feature kept green for hygiene"
+          echo "no-op(reverted-red)"
+          return
+        fi
+        if [ "${OVN_PCC_AFTER:-$AFTER_SHA}" != "$AFTER_SHA" ]; then AFTER_SHA="$OVN_PCC_AFTER"; _ovn_land_sha="$AFTER_SHA"; fi
       fi
 
       # TEST-ONLY GUARD (2026-10-09, shadow by default): a test item whose cycle diff touches production files is tagged [prod-touch] (enforce: reverted).
